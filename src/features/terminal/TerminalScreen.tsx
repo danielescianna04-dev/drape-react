@@ -44,20 +44,42 @@ export const TerminalScreen = () => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [terminalItems]);
 
-  // TODO: Abilitare quando backend è pronto
-  // useEffect(() => {
-  //   const loadGitHubData = async () => {
-  //     const isAuth = await githubService.isAuthenticated();
-  //     if (isAuth) {
-  //       const user = await githubService.getStoredUser();
-  //       const repos = await githubService.fetchRepositories();
-  //       setGitHubUser(user);
-  //       setGitHubRepositories(repos);
-  //       setIsGitHubConnected(true);
-  //     }
-  //   };
-  //   loadGitHubData();
-  // }, []);
+  useEffect(() => {
+    // Handle GitHub OAuth callback
+    const handleGitHubCallback = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const code = urlParams.get('code');
+      const state = urlParams.get('state');
+
+      if (code && state) {
+        const success = await githubService.handleOAuthCallback(code, state);
+        
+        if (success) {
+          const user = await githubService.getStoredUser();
+          const repos = await githubService.fetchRepositories();
+          
+          setGitHubUser(user);
+          setGitHubRepositories(repos);
+          setIsGitHubConnected(true);
+          
+          // Clean URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      } else {
+        // Check if already authenticated
+        const isAuth = await githubService.isAuthenticated();
+        if (isAuth) {
+          const user = await githubService.getStoredUser();
+          const repos = await githubService.fetchRepositories();
+          setGitHubUser(user);
+          setGitHubRepositories(repos);
+          setIsGitHubConnected(true);
+        }
+      }
+    };
+
+    handleGitHubCallback();
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;

@@ -5,6 +5,9 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const GITHUB_CLIENT_ID = 'Ov23likDO7phRcPUBcrk';
+const GITHUB_CLIENT_SECRET = '74afe739ecc6c19948178aca719bf006bec1dda7';
+
 app.use(cors());
 app.use(express.json());
 
@@ -56,6 +59,33 @@ app.post('/github/poll-device', async (req, res) => {
     res.json(response.data);
   } catch (error) {
     console.error('Poll device error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GitHub OAuth - Exchange code for token
+app.post('/github/exchange-code', async (req, res) => {
+  try {
+    const { code, redirect_uri } = req.body;
+    
+    const response = await axios.post(
+      'https://github.com/login/oauth/access_token',
+      {
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code: code,
+        redirect_uri: redirect_uri,
+      },
+      {
+        headers: {
+          Accept: 'application/json',
+        },
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Exchange code error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
