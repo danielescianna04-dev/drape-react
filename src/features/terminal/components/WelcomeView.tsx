@@ -1,78 +1,137 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 
-const colors = AppColors.dark;
+interface WelcomeViewProps {
+  onStartChat?: () => void;
+}
 
-export const WelcomeView = () => {
+export const WelcomeView: React.FC<WelcomeViewProps> = ({ onStartChat }) => {
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={[AppColors.primary, AppColors.primaryShade]}
-        style={styles.iconContainer}
-      >
-        <Ionicons name="terminal" size={48} color="#fff" />
-      </LinearGradient>
-
-      <Text style={[styles.title, { color: colors.titleText }]}>
-        Welcome to Drape Terminal
-      </Text>
-
-      <Text style={[styles.subtitle, { color: colors.bodyText }]}>
-        AI-powered mobile development environment
-      </Text>
-
-      <View style={styles.features}>
-        <FeatureItem icon="code-slash" text="Execute code in multiple languages" />
-        <FeatureItem icon="chatbubbles" text="Chat with AI (GPT, Claude, Gemini)" />
-        <FeatureItem icon="git-branch" text="GitHub integration" />
+    <LinearGradient
+      colors={['#1a1a2e', '#0f0f1e', '#000000']}
+      style={styles.container}
+    >
+      {/* Radial Gradient Background - simulato con blur */}
+      <View style={styles.gradientWrapper}>
+        <LinearGradient
+          colors={[AppColors.primary, AppColors.primaryShade, 'transparent']}
+          style={styles.gradient}
+        />
       </View>
-    </View>
+
+      {/* Content */}
+      <View style={styles.content}>
+        {/* Logo */}
+        <View style={styles.logoContainer}>
+          <LinearGradient
+            colors={[AppColors.primary, AppColors.primaryShade]}
+            style={styles.logoBackground}
+          >
+            <Ionicons name="terminal" size={48} color="#FFFFFF" />
+          </LinearGradient>
+        </View>
+
+        {/* Title */}
+        <Text style={styles.title}>Drape</Text>
+        <Text style={styles.subtitle}>
+          Mobile-first AI IDE{'\n'}con supporto multi-model
+        </Text>
+
+        {/* Start Button - più visibile */}
+        <TouchableOpacity style={styles.startButton} onPress={onStartChat} activeOpacity={0.8}>
+          <LinearGradient
+            colors={['rgba(111, 92, 255, 0.25)', 'rgba(111, 92, 255, 0.15)']}
+            style={styles.buttonGradient}
+          >
+            <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+            <Text style={styles.startButtonText}>Scrivi un messaggio per iniziare</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
   );
 };
 
-const FeatureItem = ({ icon, text }: any) => (
-  <View style={styles.featureItem}>
-    <Ionicons name={icon} size={20} color={AppColors.primary} />
-    <Text style={[styles.featureText, { color: colors.bodyText }]}>{text}</Text>
-  </View>
-);
-
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
-    paddingVertical: 60,
+    flex: 1,
   },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    justifyContent: 'center',
+  gradientWrapper: {
+    position: 'absolute',
+    top: '15%',
+    left: '50%',
+    width: 400,
+    height: 400,
+    marginLeft: -200,
+    borderRadius: 200,
+    overflow: 'hidden',
+    opacity: 0.4,
+  },
+  gradient: {
+    width: '100%',
+    height: '100%',
+  },
+  content: {
+    flex: 1,
     alignItems: 'center',
+    paddingTop: '25%',
+    paddingHorizontal: 24,
+  },
+  logoContainer: {
     marginBottom: 24,
   },
+  logoBackground: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.8,
+    shadowRadius: 24,
+    elevation: 15,
+  },
   title: {
-    fontSize: 24,
-    fontWeight: '600',
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#FFFFFF',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
-    marginBottom: 32,
+    lineHeight: 22,
+    marginBottom: 40,
   },
-  features: {
-    width: '100%',
-    gap: 16,
+  startButton: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(111, 92, 255, 0.5)',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  featureItem: {
+  buttonGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
   },
-  featureText: {
-    fontSize: 14,
+  startButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
+
+

@@ -11,8 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
-
-const colors = AppColors.dark;
+import { GitHubConnect } from './GitHubConnect';
 
 interface Props {
   onClose: () => void;
@@ -32,23 +31,28 @@ export const Sidebar = ({ onClose }: Props) => {
   } = useTerminalStore();
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface }]}>
+    <LinearGradient
+      colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
+      style={styles.container}
+    >
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.titleText }]}>Drape</Text>
+        <Text style={styles.headerTitle}>Drape</Text>
         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color={colors.bodyText} />
+          <View style={styles.closeButtonBg}>
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
       </View>
 
       <View style={styles.searchContainer}>
-        <View style={[styles.searchWrapper, { backgroundColor: colors.surfaceVariant }]}>
-          <Ionicons name="search" size={20} color={colors.bodyText} />
+        <View style={styles.searchWrapper}>
+          <Ionicons name="search" size={18} color="rgba(255, 255, 255, 0.5)" />
           <TextInput
-            style={[styles.searchInput, { color: colors.titleText }]}
+            style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder="Search..."
-            placeholderTextColor={colors.bodyText}
+            placeholderTextColor="rgba(255, 255, 255, 0.4)"
           />
         </View>
       </View>
@@ -58,18 +62,18 @@ export const Sidebar = ({ onClose }: Props) => {
           onPress={() => setActiveTab('chat')}
           style={[
             styles.tab,
-            activeTab === 'chat' && { borderBottomColor: AppColors.primary },
+            activeTab === 'chat' && styles.tabActive,
           ]}
         >
           <Ionicons
             name="chatbubbles"
             size={20}
-            color={activeTab === 'chat' ? AppColors.primary : colors.bodyText}
+            color={activeTab === 'chat' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
           />
           <Text
             style={[
               styles.tabText,
-              { color: activeTab === 'chat' ? AppColors.primary : colors.bodyText },
+              activeTab === 'chat' && styles.tabTextActive,
             ]}
           >
             Chats
@@ -80,18 +84,18 @@ export const Sidebar = ({ onClose }: Props) => {
           onPress={() => setActiveTab('github')}
           style={[
             styles.tab,
-            activeTab === 'github' && { borderBottomColor: AppColors.primary },
+            activeTab === 'github' && styles.tabActive,
           ]}
         >
           <Ionicons
             name="logo-github"
             size={20}
-            color={activeTab === 'github' ? AppColors.primary : colors.bodyText}
+            color={activeTab === 'github' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
           />
           <Text
             style={[
               styles.tabText,
-              { color: activeTab === 'github' ? AppColors.primary : colors.bodyText },
+              activeTab === 'github' && styles.tabTextActive,
             ]}
           >
             GitHub
@@ -113,15 +117,13 @@ export const Sidebar = ({ onClose }: Props) => {
         )}
       </ScrollView>
 
-      <View style={[styles.footer, { borderTopColor: colors.border }]}>
+      <View style={styles.footer}>
         <TouchableOpacity style={styles.footerButton}>
           <Ionicons name="add-circle-outline" size={24} color={AppColors.primary} />
-          <Text style={[styles.footerButtonText, { color: AppColors.primary }]}>
-            New Chat
-          </Text>
+          <Text style={styles.footerButtonText}>New Chat</Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </LinearGradient>
   );
 };
 
@@ -129,10 +131,8 @@ const ChatList = ({ chats }: any) => {
   if (chats.length === 0) {
     return (
       <View style={styles.emptyState}>
-        <Ionicons name="chatbubbles-outline" size={48} color={colors.bodyText} />
-        <Text style={[styles.emptyText, { color: colors.bodyText }]}>
-          No chats yet
-        </Text>
+        <Ionicons name="chatbubbles-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+        <Text style={styles.emptyText}>No chats yet</Text>
       </View>
     );
   }
@@ -142,14 +142,10 @@ const ChatList = ({ chats }: any) => {
       {chats.map((chat: any) => (
         <TouchableOpacity key={chat.id} style={styles.listItem}>
           <View style={styles.listItemContent}>
-            <Text style={[styles.listItemTitle, { color: colors.titleText }]}>
-              {chat.title}
-            </Text>
-            <Text style={[styles.listItemSubtitle, { color: colors.bodyText }]}>
-              {chat.messages.length} messages
-            </Text>
+            <Text style={styles.listItemTitle}>{chat.title}</Text>
+            <Text style={styles.listItemSubtitle}>{chat.messages.length} messages</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.bodyText} />
+          <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.4)" />
         </TouchableOpacity>
       ))}
     </View>
@@ -158,22 +154,7 @@ const ChatList = ({ chats }: any) => {
 
 const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRepo }: any) => {
   if (!isConnected) {
-    return (
-      <View style={styles.emptyState}>
-        <Ionicons name="logo-github" size={48} color={colors.bodyText} />
-        <Text style={[styles.emptyText, { color: colors.bodyText }]}>
-          Connect GitHub to see repositories
-        </Text>
-        <TouchableOpacity style={styles.connectButton}>
-          <LinearGradient
-            colors={[AppColors.primary, AppColors.primaryShade]}
-            style={styles.connectGradient}
-          >
-            <Text style={styles.connectButtonText}>Connect GitHub</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    );
+    return <GitHubConnect />;
   }
 
   return (
@@ -181,54 +162,76 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
       {user && (
         <View style={styles.userInfo}>
           <Ionicons name="person-circle" size={40} color={AppColors.primary} />
-          <Text style={[styles.userName, { color: colors.titleText }]}>
-            {user.name || user.login}
-          </Text>
+          <View style={styles.userDetails}>
+            <Text style={styles.userName}>{user.name || user.login}</Text>
+            <Text style={styles.userRepos}>{repositories.length} repositories</Text>
+          </View>
         </View>
       )}
 
-      {repositories.map((repo: any) => (
-        <TouchableOpacity
-          key={repo.id}
-          style={[
-            styles.repoItem,
-            selectedRepo?.id === repo.id && {
-              backgroundColor: colors.surfaceVariant,
-            },
-          ]}
-          onPress={() => onSelectRepo(repo)}
-        >
-          <View style={styles.repoContent}>
-            <Text style={[styles.repoName, { color: colors.titleText }]}>
-              {repo.name}
-            </Text>
+      {repositories.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyText}>Nessuna repository trovata</Text>
+        </View>
+      ) : (
+        repositories.map((repo: any) => (
+          <TouchableOpacity
+            key={repo.id}
+            style={[
+              styles.repoItem,
+              selectedRepo?.id === repo.id && styles.repoItemSelected,
+            ]}
+            onPress={() => onSelectRepo(repo)}
+          >
+            <View style={styles.repoHeader}>
+              <Ionicons 
+                name={repo.private ? 'lock-closed' : 'logo-github'} 
+                size={16} 
+                color={AppColors.primary} 
+              />
+              <Text style={styles.repoName} numberOfLines={1}>{repo.name}</Text>
+            </View>
+            
             {repo.description && (
-              <Text
-                style={[styles.repoDescription, { color: colors.bodyText }]}
-                numberOfLines={2}
-              >
+              <Text style={styles.repoDescription} numberOfLines={2}>
                 {repo.description}
               </Text>
             )}
+            
             <View style={styles.repoMeta}>
+              {repo.language && (
+                <View style={styles.repoMetaItem}>
+                  <View style={[styles.languageDot, { backgroundColor: getLanguageColor(repo.language) }]} />
+                  <Text style={styles.repoMetaText}>{repo.language}</Text>
+                </View>
+              )}
               <View style={styles.repoMetaItem}>
-                <Ionicons name="star-outline" size={14} color={colors.bodyText} />
-                <Text style={[styles.repoMetaText, { color: colors.bodyText }]}>
-                  {repo.stars}
-                </Text>
-              </View>
-              <View style={styles.repoMetaItem}>
-                <Ionicons name="git-branch-outline" size={14} color={colors.bodyText} />
-                <Text style={[styles.repoMetaText, { color: colors.bodyText }]}>
-                  {repo.forks}
-                </Text>
+                <Ionicons name="star-outline" size={14} color="rgba(255, 255, 255, 0.5)" />
+                <Text style={styles.repoMetaText}>{repo.stargazers_count}</Text>
               </View>
             </View>
-          </View>
-        </TouchableOpacity>
-      ))}
+          </TouchableOpacity>
+        ))
+      )}
     </View>
   );
+};
+
+const getLanguageColor = (language: string): string => {
+  const colors: Record<string, string> = {
+    JavaScript: '#f1e05a',
+    TypeScript: '#3178c6',
+    Python: '#3572A5',
+    Java: '#b07219',
+    Go: '#00ADD8',
+    Rust: '#dea584',
+    Ruby: '#701516',
+    PHP: '#4F5D95',
+    Swift: '#ffac45',
+    Kotlin: '#A97BFF',
+    Dart: '#00B4AB',
+  };
+  return colors[language] || '#8b949e';
 };
 
 const styles = StyleSheet.create({
@@ -240,6 +243,11 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 320,
     zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 20,
   },
   header: {
     flexDirection: 'row',
@@ -252,9 +260,18 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   closeButton: {
-    padding: 8,
+    padding: 4,
+  },
+  closeButtonBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchContainer: {
     paddingHorizontal: 20,
@@ -266,17 +283,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     gap: 8,
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
+    color: '#FFFFFF',
   },
   tabs: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(168, 85, 247, 0.1)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   tab: {
     flexDirection: 'row',
@@ -287,9 +306,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: 'transparent',
   },
+  tabActive: {
+    borderBottomColor: AppColors.primary,
+  },
   tabText: {
     fontSize: 14,
     fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  tabTextActive: {
+    color: AppColors.primary,
   },
   content: {
     flex: 1,
@@ -304,6 +330,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginTop: 16,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   connectButton: {
     marginTop: 24,
@@ -326,7 +353,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(168, 85, 247, 0.1)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   listItemContent: {
     flex: 1,
@@ -335,9 +362,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
+    color: '#FFFFFF',
   },
   listItemSubtitle: {
     fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   userInfo: {
     flexDirection: 'row',
@@ -346,31 +375,54 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(168, 85, 247, 0.1)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  userDetails: {
+    flex: 1,
   },
   userName: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  userRepos: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 2,
   },
   repoItem: {
     padding: 12,
     borderRadius: 12,
     marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
-  repoContent: {
+  repoItemSelected: {
+    backgroundColor: 'rgba(111, 92, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: AppColors.primary,
+  },
+  repoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    marginBottom: 6,
   },
   repoName: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '600',
+    color: '#FFFFFF',
   },
   repoDescription: {
     fontSize: 12,
     lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 8,
   },
   repoMeta: {
     flexDirection: 'row',
     gap: 16,
+    alignItems: 'center',
   },
   repoMetaItem: {
     flexDirection: 'row',
@@ -379,9 +431,16 @@ const styles = StyleSheet.create({
   },
   repoMetaText: {
     fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  languageDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   footer: {
     borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
     padding: 20,
   },
   footerButton: {
@@ -392,5 +451,6 @@ const styles = StyleSheet.create({
   footerButtonText: {
     fontSize: 14,
     fontWeight: '600',
+    color: AppColors.primary,
   },
 });
