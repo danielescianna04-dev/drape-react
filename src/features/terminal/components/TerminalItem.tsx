@@ -41,6 +41,8 @@ export const TerminalItem = ({ item }: Props) => {
     }
   };
 
+  const isTerminalCommand = item.type === ItemType.COMMAND && item.content.match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/);
+
   return (
     <Animated.View
       style={[
@@ -52,37 +54,62 @@ export const TerminalItem = ({ item }: Props) => {
       ]}
     >
       {item.type === ItemType.COMMAND && (
-        <View style={styles.commandRow}>
-          <Text style={[styles.prompt, { color: AppColors.primary }]}>$</Text>
-          <Text style={[styles.commandText, { color: colors.titleText }]}>
-            {item.content}
-          </Text>
-        </View>
+        isTerminalCommand ? (
+          <View style={styles.terminalCommand}>
+            <Text style={styles.terminalPrompt}>$ </Text>
+            <Text style={styles.terminalText}>{item.content}</Text>
+          </View>
+        ) : (
+          <View style={styles.messageBlock}>
+            <View style={styles.userHeader}>
+              <View style={styles.userAvatar}>
+                <Text style={styles.avatarText}>U</Text>
+              </View>
+              <Text style={styles.userName}>You</Text>
+            </View>
+            <View style={styles.messageContent}>
+              <Text style={styles.userMessage}>{item.content}</Text>
+            </View>
+          </View>
+        )
       )}
 
       {item.type === ItemType.OUTPUT && (
-        <Text style={[styles.outputText, { color: getTextColor() }]}>
-          {item.content}
-        </Text>
+        isTerminalCommand ? (
+          <Text style={styles.terminalOutput}>{item.content}</Text>
+        ) : (
+          <View style={styles.messageBlock}>
+            <View style={styles.assistantHeader}>
+              <View style={[styles.userAvatar, styles.assistantAvatar]}>
+                <Text style={styles.avatarText}>AI</Text>
+              </View>
+              <Text style={styles.assistantName}>Drape AI</Text>
+            </View>
+            <View style={styles.messageContent}>
+              <Text style={styles.assistantMessage}>{item.content}</Text>
+            </View>
+          </View>
+        )
       )}
 
       {item.type === ItemType.ERROR && (
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: AppColors.error }]}>
-            {item.content}
-          </Text>
-          {item.errorDetails && (
-            <Text style={[styles.errorDetails, { color: colors.bodyText }]}>
-              {item.errorDetails}
-            </Text>
-          )}
+        <View style={styles.messageBlock}>
+          <View style={styles.errorHeader}>
+            <View style={[styles.userAvatar, styles.errorAvatar]}>
+              <Text style={styles.avatarText}>!</Text>
+            </View>
+            <Text style={styles.errorName}>Error</Text>
+          </View>
+          <View style={styles.messageContent}>
+            <Text style={styles.errorMessage}>{item.content}</Text>
+          </View>
         </View>
       )}
 
       {item.type === ItemType.SYSTEM && (
-        <Text style={[styles.systemText, { color: AppColors.warning }]}>
-          {item.content}
-        </Text>
+        <View style={styles.systemBlock}>
+          <Text style={styles.systemText}>{item.content}</Text>
+        </View>
       )}
     </Animated.View>
   );
@@ -92,41 +119,114 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
   },
-  commandRow: {
+  terminalCommand: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    marginBottom: 4,
   },
-  prompt: {
-    fontSize: 14,
+  terminalPrompt: {
+    fontSize: 15,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginRight: 8,
+    color: '#00FF88',
+    fontWeight: '600',
   },
-  commandText: {
-    fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  terminalText: {
     flex: 1,
+    fontSize: 15,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: 'rgba(255, 255, 255, 0.95)',
+    lineHeight: 22,
   },
-  outputText: {
+  terminalOutput: {
     fontSize: 14,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 20,
+    marginBottom: 12,
   },
-  errorContainer: {
+  messageBlock: {
+    marginBottom: 4,
+  },
+  userHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    marginBottom: 8,
   },
-  errorText: {
+  assistantHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  errorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  userAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 4,
+    backgroundColor: AppColors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  assistantAvatar: {
+    backgroundColor: '#00D9FF',
+  },
+  errorAvatar: {
+    backgroundColor: AppColors.error,
+  },
+  avatarText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  userName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  assistantName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  errorName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: AppColors.error,
+  },
+  messageContent: {
+    paddingLeft: 32,
+  },
+  userMessage: {
+    fontSize: 15,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: 'rgba(255, 255, 255, 0.95)',
+    lineHeight: 22,
+  },
+  assistantMessage: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.85)',
+    lineHeight: 24,
+  },
+  errorMessage: {
     fontSize: 14,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: AppColors.error,
     lineHeight: 20,
   },
-  errorDetails: {
-    fontSize: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    opacity: 0.7,
+  systemBlock: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 4,
   },
   systemText: {
-    fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontStyle: 'italic',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
   },
 });

@@ -35,6 +35,7 @@ interface TerminalState {
   
   // Workstation
   currentWorkstation: WorkstationInfo | null;
+  workstations: WorkstationInfo[];
   isCreatingWorkstation: boolean;
   userId: string | null;
   
@@ -66,6 +67,8 @@ interface TerminalState {
   setSelectedRepository: (repo: GitHubRepository | null) => void;
   setShowGitHubSidebar: (show: boolean) => void;
   setWorkstation: (workstation: WorkstationInfo | null) => void;
+  addWorkstation: (workstation: WorkstationInfo) => void;
+  loadWorkstations: (workstations: WorkstationInfo[]) => void;
   setSelectedModel: (model: string) => void;
   setIsTerminalMode: (value: boolean) => void;
   setAutoApprove: (value: boolean) => void;
@@ -97,6 +100,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   gitHubUser: null,
   showGitHubSidebar: false,
   currentWorkstation: null,
+  workstations: [],
   isCreatingWorkstation: false,
   userId: null,
   selectedModel: 'auto',
@@ -129,6 +133,12 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setSelectedRepository: (repo) => set({ selectedRepository: repo }),
   setShowGitHubSidebar: (show) => set({ showGitHubSidebar: show }),
   setWorkstation: (workstation) => set({ currentWorkstation: workstation }),
+  addWorkstation: (workstation) =>
+    set((state) => ({
+      workstations: [...state.workstations, workstation],
+      currentWorkstation: workstation,
+    })),
+  loadWorkstations: (workstations) => set({ workstations }),
   setSelectedModel: (model) => set({ selectedModel: model }),
   setIsTerminalMode: (value) => set({ isTerminalMode: value }),
   setAutoApprove: (value) => set({ autoApprove: value }),

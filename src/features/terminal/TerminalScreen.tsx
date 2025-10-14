@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
+import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -19,6 +21,7 @@ import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
 import { githubService } from '../../core/github/githubService';
+import { aiService } from '../../core/ai/aiService';
 
 const colors = AppColors.dark;
 
@@ -26,8 +29,10 @@ export const TerminalScreen = () => {
   const [input, setInput] = useState('');
   const [showSidebar, setShowSidebar] = useState(false);
   const [isTerminalMode, setIsTerminalMode] = useState(true);
-  const [selectedModel, setSelectedModel] = useState('auto');
+  const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
+  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const scrollViewRef = useRef<ScrollView>(null);
+  const scaleAnim = useRef(new Animated.Value(1)).current;
   
   const {
     terminalItems,
@@ -38,11 +43,50 @@ export const TerminalScreen = () => {
     setGitHubUser,
     setGitHubRepositories,
     setIsGitHubConnected,
+    currentWorkstation,
   } = useTerminalStore();
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [terminalItems]);
+
+  useEffect(() => {
+    // Aggiorna il toggle in tempo reale mentre scrivi (solo in auto mode)
+    if (input.trim() && !forcedMode) {
+      setIsTerminalMode(isCommand(input.trim()));
+    }
+  }, [input, forcedMode]);
+
+  useEffect(() => {
+    // Animazione quando cambia il toggle
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 1.2,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [isTerminalMode]);
+
+  const handleToggleMode = (mode: 'terminal' | 'ai') => {
+    if (forcedMode === mode) {
+      // Doppio click - disattiva forced mode
+      setForcedMode(null);
+      // Torna in auto mode
+      if (input.trim()) {
+        setIsTerminalMode(isCommand(input.trim()));
+      }
+    } else {
+      // Attiva forced mode
+      setForcedMode(mode);
+      setIsTerminalMode(mode === 'terminal');
+    }
+  };
 
   useEffect(() => {
     // Handle GitHub OAuth callback
@@ -81,10 +125,21 @@ export const TerminalScreen = () => {
     handleGitHubCallback();
   }, []);
 
+  const isCommand = (text: string): boolean => {
+    const commandPrefixes = ['ls', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'echo', 'touch', 'grep', 'find', 'chmod', 'chown', 'ps', 'kill', 'top', 'df', 'du', 'tar', 'zip', 'unzip', 'wget', 'curl', 'git', 'npm', 'node', 'python', 'pip', 'java', 'gcc', 'make', 'docker', 'kubectl'];
+    const firstWord = text.trim().split(' ')[0].toLowerCase();
+    return commandPrefixes.includes(firstWord) || text.includes('&&') || text.includes('|') || text.includes('>');
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const userMessage = input.trim();
+    const shouldExecuteCommand = isCommand(userMessage);
+    
+    // Aggiorna il toggle in base al tipo rilevato
+    setIsTerminalMode(shouldExecuteCommand);
+    
     setInput('');
 
     addTerminalItem({
@@ -96,16 +151,46 @@ export const TerminalScreen = () => {
     setLoading(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      addTerminalItem({
-        content: `Response to: ${userMessage}`,
-        type: TerminalItemType.OUTPUT,
-        timestamp: new Date(),
-      });
+      if (shouldExecuteCommand) {
+        // Terminal mode - execute command
+        const response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/terminal/execute`,
+          { 
+            command: userMessage,
+            workstationId: currentWorkstation?.id
+          }
+        );
+        
+        addTerminalItem({
+          content: response.data.output,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(),
+        });
+      } else {
+        // Chat mode - AI response
+        const response = await axios.post(
+          `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`,
+          { 
+            prompt: userMessage,
+            model: selectedModel,
+            workstationId: currentWorkstation?.id,
+            context: currentWorkstation ? {
+              projectName: currentWorkstation.name,
+              language: currentWorkstation.language,
+              repositoryUrl: currentWorkstation.repositoryUrl
+            } : undefined
+          }
+        );
+        
+        addTerminalItem({
+          content: response.data.content,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(),
+        });
+      }
     } catch (error) {
       addTerminalItem({
-        content: `Error: ${error}`,
+        content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: TerminalItemType.ERROR,
         timestamp: new Date(),
       });
@@ -116,7 +201,22 @@ export const TerminalScreen = () => {
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={['#1a1a2e', '#1e1b3e', '#2d1b4e', '#000000']}
+        locations={[0, 0.3, 0.6, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       {showSidebar && <Sidebar onClose={() => setShowSidebar(false)} />}
+
+      {/* Project Context Header */}
+      {currentWorkstation && (
+        <View style={styles.contextHeader}>
+          <View style={styles.contextContent}>
+            <Ionicons name="folder-open" size={18} color={AppColors.primary} />
+            <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation.name}</Text>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         ref={scrollViewRef}
@@ -143,12 +243,13 @@ export const TerminalScreen = () => {
 
       {/* Floating Buttons */}
       <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.menuButton}>
-        <LinearGradient
-          colors={[AppColors.primary, AppColors.primaryShade]}
-          style={styles.menuButtonGradient}
-        >
-          <Ionicons name="menu" size={24} color="#FFFFFF" />
-        </LinearGradient>
+        <BlurView intensity={30} tint="dark" style={styles.menuBlur}>
+          <View style={styles.menuIconContainer}>
+            <View style={[styles.menuLine, { width: 20 }]} />
+            <View style={[styles.menuLine, { width: 14 }]} />
+            <View style={[styles.menuLine, { width: 17 }]} />
+          </View>
+        </BlurView>
       </TouchableOpacity>
 
       {/* Input Area - Exact Flutter replica */}
@@ -163,27 +264,44 @@ export const TerminalScreen = () => {
           {/* Top Controls */}
           <View style={styles.topControls}>
             {/* Mode Toggle */}
-            <View style={styles.modeToggle}>
-              <TouchableOpacity
-                onPress={() => setIsTerminalMode(true)}
-                style={[styles.modeButton, isTerminalMode && styles.modeButtonActive]}
-              >
-                <Ionicons
-                  name="terminal"
-                  size={16}
-                  color={isTerminalMode ? '#fff' : '#8A8A8A'}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setIsTerminalMode(false)}
-                style={[styles.modeButton, !isTerminalMode && styles.modeButtonActive]}
-              >
-                <Ionicons
-                  name="chatbubble-ellipses"
-                  size={16}
-                  color={!isTerminalMode ? '#fff' : '#8A8A8A'}
-                />
-              </TouchableOpacity>
+            <View style={styles.modeToggleContainer}>
+              <View style={styles.modeToggle}>
+                <TouchableOpacity
+                  onPress={() => handleToggleMode('terminal')}
+                  style={[
+                    styles.modeButton, 
+                    isTerminalMode && styles.modeButtonActive,
+                    forcedMode === 'terminal' && styles.modeButtonForced
+                  ]}
+                >
+                  <Animated.View style={{ transform: [{ scale: isTerminalMode ? scaleAnim : 1 }] }}>
+                    <Ionicons
+                      name="code-slash"
+                      size={16}
+                      color={isTerminalMode ? '#fff' : '#8A8A8A'}
+                    />
+                  </Animated.View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleToggleMode('ai')}
+                  style={[
+                    styles.modeButton, 
+                    !isTerminalMode && styles.modeButtonActive,
+                    forcedMode === 'ai' && styles.modeButtonForced
+                  ]}
+                >
+                  <Animated.View style={{ transform: [{ scale: !isTerminalMode ? scaleAnim : 1 }] }}>
+                    <Ionicons
+                      name="sparkles"
+                      size={16}
+                      color={!isTerminalMode ? '#fff' : '#8A8A8A'}
+                    />
+                  </Animated.View>
+                </TouchableOpacity>
+              </View>
+              {!forcedMode && (
+                <Text style={styles.autoLabel}>AUTO</Text>
+              )}
             </View>
 
             {/* Model Selector */}
@@ -245,14 +363,32 @@ export const TerminalScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#090A0B',
+  },
+  contextHeader: {
+    position: 'absolute',
+    top: 60,
+    left: 80,
+    right: 20,
+    height: 44,
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  contextContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contextName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.95)',
   },
   output: {
     flex: 1,
   },
   outputContent: {
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 120,
     paddingBottom: 180,
   },
   loadingRow: {
@@ -267,25 +403,36 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 60,
     left: 20,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
-    shadowColor: AppColors.primary,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 8,
+    elevation: 5,
   },
-  menuButtonGradient: {
+  menuBlur: {
     width: '100%',
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+  },
+  menuIconContainer: {
+    gap: 4,
+  },
+  menuLine: {
+    height: 2,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 1,
   },
   inputContainer: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 60,
     left: 0,
     right: 0,
     paddingHorizontal: 16,
@@ -309,6 +456,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 4,
   },
+  modeToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   modeToggle: {
     flexDirection: 'row',
     backgroundColor: 'transparent',
@@ -316,6 +468,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
     padding: 3,
+  },
+  autoLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#8B7CF6',
+    letterSpacing: 0.5,
   },
   modeButton: {
     width: 32,
@@ -326,6 +484,10 @@ const styles = StyleSheet.create({
   },
   modeButtonActive: {
     backgroundColor: '#8B7CF6',
+  },
+  modeButtonForced: {
+    borderWidth: 2,
+    borderColor: '#8B7CF6',
   },
   modelSelector: {
     flexDirection: 'row',

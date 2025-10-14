@@ -76,6 +76,11 @@ class GitHubService {
 
   // OAuth Web Flow - Redirect to GitHub
   startOAuthFlow(): void {
+    if (Platform.OS !== 'web') {
+      console.warn('OAuth flow is only supported on web platform');
+      return;
+    }
+    
     const redirectUri = window.location.origin;
     const scope = 'repo,user:email,read:user';
     const state = Math.random().toString(36).substring(7);

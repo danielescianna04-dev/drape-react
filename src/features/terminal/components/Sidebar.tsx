@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,20 +6,24 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Animated,
 } from 'react-native';
+import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { GitHubConnect } from './GitHubConnect';
+import { workstationService } from '../../../core/workstation/workstationService';
 
 interface Props {
   onClose: () => void;
 }
 
 export const Sidebar = ({ onClose }: Props) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'github'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
+  const slideAnim = useRef(new Animated.Value(-300)).current;
 
   const {
     chatHistory,
@@ -28,16 +32,43 @@ export const Sidebar = ({ onClose }: Props) => {
     gitHubUser,
     selectedRepository,
     setSelectedRepository,
+    addTerminalItem,
+    loadWorkstations,
   } = useTerminalStore();
 
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 11,
+    }).start();
+
+    // Carica workstations da Firestore
+    const loadData = async () => {
+      const workstations = await workstationService.getWorkstations();
+      loadWorkstations(workstations);
+    };
+    loadData();
+  }, []);
+
+  const handleClose = () => {
+    Animated.timing(slideAnim, {
+      toValue: -300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => onClose());
+  };
+
   return (
-    <LinearGradient
-      colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
-      style={styles.container}
-    >
+    <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
+      <LinearGradient
+        colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
+        style={StyleSheet.absoluteFill}
+      />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Drape</Text>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
           <View style={styles.closeButtonBg}>
             <Ionicons name="close" size={22} color="#FFFFFF" />
           </View>
@@ -59,6 +90,28 @@ export const Sidebar = ({ onClose }: Props) => {
 
       <View style={styles.tabs}>
         <TouchableOpacity
+          onPress={() => setActiveTab('projects')}
+          style={[
+            styles.tab,
+            activeTab === 'projects' && styles.tabActive,
+          ]}
+        >
+          <Ionicons
+            name="folder"
+            size={20}
+            color={activeTab === 'projects' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'projects' && styles.tabTextActive,
+            ]}
+          >
+            Progetti
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           onPress={() => setActiveTab('chat')}
           style={[
             styles.tab,
@@ -79,41 +132,13 @@ export const Sidebar = ({ onClose }: Props) => {
             Chats
           </Text>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab('github')}
-          style={[
-            styles.tab,
-            activeTab === 'github' && styles.tabActive,
-          ]}
-        >
-          <Ionicons
-            name="logo-github"
-            size={20}
-            color={activeTab === 'github' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-          />
-          <Text
-            style={[
-              styles.tabText,
-              activeTab === 'github' && styles.tabTextActive,
-            ]}
-          >
-            GitHub
-          </Text>
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {activeTab === 'chat' ? (
-          <ChatList chats={chatHistory} />
+        {activeTab === 'projects' ? (
+          <ProjectsList onClose={handleClose} addTerminalItem={addTerminalItem} />
         ) : (
-          <GitHubList
-            repositories={gitHubRepositories}
-            isConnected={isGitHubConnected}
-            user={gitHubUser}
-            selectedRepo={selectedRepository}
-            onSelectRepo={setSelectedRepository}
-          />
+          <ChatList chats={chatHistory} />
         )}
       </ScrollView>
 
@@ -123,7 +148,7 @@ export const Sidebar = ({ onClose }: Props) => {
           <Text style={styles.footerButtonText}>New Chat</Text>
         </TouchableOpacity>
       </View>
-    </LinearGradient>
+    </Animated.View>
   );
 };
 
@@ -208,6 +233,142 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
               <View style={styles.repoMetaItem}>
                 <Ionicons name="star-outline" size={14} color="rgba(255, 255, 255, 0.5)" />
                 <Text style={styles.repoMetaText}>{repo.stargazers_count}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))
+      )}
+    </View>
+  );
+};
+
+const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTerminalItem: any }) => {
+  const [repoUrl, setRepoUrl] = useState('');
+  const [isCloning, setIsCloning] = useState(false);
+  const { workstations, addWorkstation, setWorkstation } = useTerminalStore();
+
+  const extractRepoName = (url: string) => {
+    const match = url.match(/github\.com\/[^\/]+\/([^\/\.]+)/);
+    return match ? match[1] : 'Unknown';
+  };
+
+  const detectLanguage = async (repoUrl: string) => {
+    try {
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+      if (!match) return 'Unknown';
+      
+      const [, owner, repo] = match;
+      const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}`);
+      return response.data.language || 'Unknown';
+    } catch {
+      return 'Unknown';
+    }
+  };
+
+  const handleOpenWorkstation = (workstation: any) => {
+    setWorkstation(workstation);
+    
+    // Aggiungi messaggio di sistema nella terminal
+    addTerminalItem({
+      content: `📁 Progetto aperto: ${workstation.name} (${workstation.language})`,
+      type: 3, // SYSTEM
+      timestamp: new Date(),
+    });
+    
+    // Chiudi la sidebar
+    onClose();
+  };
+
+  const handleClone = async () => {
+    if (!repoUrl.trim() || isCloning) return;
+
+    setIsCloning(true);
+    try {
+      const repoName = extractRepoName(repoUrl);
+      const language = await detectLanguage(repoUrl);
+
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/workstation/create`,
+        {
+          repositoryUrl: repoUrl,
+          userId: 'user-' + Date.now(),
+        }
+      );
+
+      const workstation = {
+        id: response.data.workstationName,
+        name: repoName,
+        url: response.data.url,
+        status: response.data.state,
+        repositoryUrl: repoUrl,
+        language: language,
+      };
+
+      // Salva in Firestore
+      await workstationService.saveWorkstation(workstation);
+      
+      addWorkstation(workstation);
+      setRepoUrl('');
+    } catch (error) {
+      console.error('Clone error:', error);
+      alert('Errore durante il clone della repository');
+    } finally {
+      setIsCloning(false);
+    }
+  };
+
+  return (
+    <View style={styles.list}>
+      <View style={styles.cloneContainer}>
+        <Text style={styles.cloneLabel}>Clona Repository</Text>
+        <View style={styles.cloneInputWrapper}>
+          <TextInput
+            style={styles.cloneInput}
+            value={repoUrl}
+            onChangeText={setRepoUrl}
+            placeholder="https://github.com/user/repo"
+            placeholderTextColor="rgba(255, 255, 255, 0.4)"
+            editable={!isCloning}
+          />
+          <TouchableOpacity 
+            style={[styles.cloneButton, isCloning && styles.cloneButtonDisabled]}
+            onPress={handleClone}
+            disabled={isCloning}
+          >
+            <Ionicons 
+              name={isCloning ? "hourglass-outline" : "download-outline"} 
+              size={20} 
+              color="#FFFFFF" 
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {workstations.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+          <Text style={styles.emptyText}>Nessun progetto</Text>
+        </View>
+      ) : (
+        workstations.map((ws) => (
+          <TouchableOpacity 
+            key={ws.id} 
+            style={styles.projectItem}
+            onPress={() => handleOpenWorkstation(ws)}
+          >
+            <View style={styles.projectHeader}>
+              <Ionicons name="folder" size={16} color={AppColors.primary} />
+              <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+            </View>
+            <View style={styles.projectMeta}>
+              {ws.language && (
+                <View style={styles.languageTag}>
+                  <Text style={styles.languageText}>{ws.language}</Text>
+                </View>
+              )}
+              <View style={styles.projectStatus}>
+                <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? '#00FF88' : '#FFA500' }]} />
+                <Text style={styles.statusText}>{ws.status}</Text>
               </View>
             </View>
           </TouchableOpacity>
@@ -437,6 +598,96 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  cloneContainer: {
+    marginBottom: 20,
+  },
+  cloneLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  cloneInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  cloneInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  cloneButton: {
+    padding: 10,
+    backgroundColor: AppColors.primary,
+    borderRadius: 10,
+    margin: 4,
+  },
+  cloneButtonDisabled: {
+    opacity: 0.5,
+  },
+  projectItem: {
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  projectHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  projectName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  projectMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  languageTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    borderRadius: 6,
+  },
+  languageText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: AppColors.primary,
+  },
+  projectUrl: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginBottom: 8,
+  },
+  projectStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textTransform: 'uppercase',
   },
   footer: {
     borderTopWidth: 1,
