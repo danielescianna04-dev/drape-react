@@ -69,6 +69,7 @@ interface TerminalState {
   setWorkstation: (workstation: WorkstationInfo | null) => void;
   addWorkstation: (workstation: WorkstationInfo) => void;
   loadWorkstations: (workstations: WorkstationInfo[]) => void;
+  removeWorkstation: (workstationId: string) => void;
   setSelectedModel: (model: string) => void;
   setIsTerminalMode: (value: boolean) => void;
   setAutoApprove: (value: boolean) => void;
@@ -139,6 +140,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       currentWorkstation: workstation,
     })),
   loadWorkstations: (workstations) => set({ workstations }),
+  removeWorkstation: (workstationId) =>
+    set((state) => ({
+      workstations: state.workstations.filter((w) => w.id !== workstationId),
+      currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
+    })),
   setSelectedModel: (model) => set({ selectedModel: model }),
   setIsTerminalMode: (value) => set({ isTerminalMode: value }),
   setAutoApprove: (value) => set({ autoApprove: value }),

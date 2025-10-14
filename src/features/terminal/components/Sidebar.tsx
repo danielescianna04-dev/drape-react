@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { GitHubConnect } from './GitHubConnect';
+import { ProjectItem } from './ProjectItem';
 import { workstationService } from '../../../core/workstation/workstationService';
 
 interface Props {
@@ -286,20 +287,20 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
     try {
       const repoName = extractRepoName(repoUrl);
       const language = await detectLanguage(repoUrl);
-
-      const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/workstation/create`,
-        {
-          repositoryUrl: repoUrl,
-          userId: 'user-' + Date.now(),
-        }
-      );
+      // 
+      //       const response = await axios.post(
+      //         `${process.env.EXPO_PUBLIC_API_URL}/workstation/create`,
+      //         {
+      //           repositoryUrl: repoUrl,
+      //           userId: 'user-' + Date.now(),
+      //         }
+      //       );
 
       const workstation = {
-        id: response.data.workstationName,
+        id: 'ws-' + Date.now(),
         name: repoName,
-        url: response.data.url,
-        status: response.data.state,
+        url: repoUrl,
+        status: 'ready',
         repositoryUrl: repoUrl,
         language: language,
       };

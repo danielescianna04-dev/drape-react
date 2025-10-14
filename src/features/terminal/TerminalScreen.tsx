@@ -42,7 +42,7 @@ export const TerminalScreen = () => {
     setLoading,
     setGitHubUser,
     setGitHubRepositories,
-    setIsGitHubConnected,
+    
     currentWorkstation,
   } = useTerminalStore();
 
@@ -104,7 +104,7 @@ export const TerminalScreen = () => {
           
           setGitHubUser(user);
           setGitHubRepositories(repos);
-          setIsGitHubConnected(true);
+          
           
           // Clean URL
           window.history.replaceState({}, document.title, window.location.pathname);
@@ -117,7 +117,7 @@ export const TerminalScreen = () => {
           const repos = await githubService.fetchRepositories();
           setGitHubUser(user);
           setGitHubRepositories(repos);
-          setIsGitHubConnected(true);
+          
         }
       }
     };

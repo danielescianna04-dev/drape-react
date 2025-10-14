@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 
@@ -29,5 +29,27 @@ export const workstationService = {
       console.error('Error getting workstations:', error);
       return [];
     }
+  },
+
+  async deleteWorkstation(workstationId: string): Promise<void> {
+    try {
+      await deleteDoc(doc(db, COLLECTION, workstationId));
+    } catch (error) {
+      console.error('Error deleting workstation:', error);
+      throw error;
+    }
+  },
+
+  async createEmptyWorkstation(name: string): Promise<WorkstationInfo> {
+    const workstation: WorkstationInfo = {
+      id: 'ws-' + Date.now(),
+      name,
+      url: '',
+      status: 'ready',
+      repositoryUrl: '',
+      language: 'text',
+    };
+    await this.saveWorkstation(workstation);
+    return workstation;
   },
 };
