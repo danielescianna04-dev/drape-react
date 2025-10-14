@@ -16,6 +16,9 @@ import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
 import { workstationService } from '../../../core/workstation/workstationService';
+import { NewFolderModal } from './NewFolderModal';
+import { NewProjectModal } from './NewProjectModal';
+import { ImportGitHubModal } from './ImportGitHubModal';
 
 interface Props {
   onClose: () => void;
@@ -244,141 +247,264 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
 };
 
 const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTerminalItem: any }) => {
-  const [repoUrl, setRepoUrl] = useState('');
-  const [isCloning, setIsCloning] = useState(false);
-  const { workstations, addWorkstation, setWorkstation } = useTerminalStore();
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ projectId: string } | null>(null);
+  
+  const { 
+    workstations, 
+    addWorkstation, 
+    setWorkstation, 
+    removeWorkstation,
+    projectFolders, 
+    addProjectFolder,
+    toggleFolderExpanded,
+    removeProjectFolder,
+    moveProjectToFolder
+  } = useTerminalStore();
 
-  const extractRepoName = (url: string) => {
-    const match = url.match(/github\.com\/[^\/]+\/([^\/\.]+)/);
-    return match ? match[1] : 'Unknown';
+  const handleCreateProject = (name: string, language: string) => {
+    const newWorkstation = {
+      id: 'ws-' + Date.now(),
+      name,
+      language,
+      status: 'idle' as const,
+      createdAt: new Date(),
+      files: [],
+      folderId: null,
+    };
+    addWorkstation(newWorkstation);
   };
 
-  const detectLanguage = async (repoUrl: string) => {
-    try {
-      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
-      if (!match) return 'Unknown';
-      
-      const [, owner, repo] = match;
-      const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}`);
-      return response.data.language || 'Unknown';
-    } catch {
-      return 'Unknown';
-    }
+  const handleImportFromGitHub = (repoUrl: string) => {
+    const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'Imported';
+    const newWorkstation = {
+      id: 'ws-' + Date.now(),
+      name: repoName,
+      language: 'Unknown',
+      status: 'idle' as const,
+      createdAt: new Date(),
+      files: [],
+      githubUrl: repoUrl,
+      folderId: null,
+    };
+    addWorkstation(newWorkstation);
   };
 
-  const handleOpenWorkstation = (workstation: any) => {
-    setWorkstation(workstation);
-    
-    // Aggiungi messaggio di sistema nella terminal
+  const handleCreateFolder = (name: string) => {
+    const folder = {
+      id: 'folder-' + Date.now(),
+      name,
+      parentId: null,
+      isExpanded: true,
+      createdAt: new Date(),
+    };
+    addProjectFolder(folder);
+  };
+
+  const handleOpenWorkstation = (ws: any) => {
+    setWorkstation(ws);
     addTerminalItem({
-      content: `📁 Progetto aperto: ${workstation.name} (${workstation.language})`,
-      type: 3, // SYSTEM
+      id: Date.now().toString(),
+      type: 'output',
+      content: `Opened workstation: ${ws.name}`,
       timestamp: new Date(),
     });
-    
-    // Chiudi la sidebar
     onClose();
   };
 
-  const handleClone = async () => {
-    if (!repoUrl.trim() || isCloning) return;
-
-    setIsCloning(true);
-    try {
-      const repoName = extractRepoName(repoUrl);
-      const language = await detectLanguage(repoUrl);
-      // 
-      //       const response = await axios.post(
-      //         `${process.env.EXPO_PUBLIC_API_URL}/workstation/create`,
-      //         {
-      //           repositoryUrl: repoUrl,
-      //           userId: 'user-' + Date.now(),
-      //         }
-      //       );
-
-      const workstation = {
-        id: 'ws-' + Date.now(),
-        name: repoName,
-        url: repoUrl,
-        status: 'ready',
-        repositoryUrl: repoUrl,
-        language: language,
-      };
-
-      // Salva in Firestore
-      await workstationService.saveWorkstation(workstation);
-      
-      addWorkstation(workstation);
-      setRepoUrl('');
-    } catch (error) {
-      console.error('Clone error:', error);
-      alert('Errore durante il clone della repository');
-    } finally {
-      setIsCloning(false);
+  const handleDeleteWorkstation = (id: string, e: any) => {
+    e.stopPropagation();
+    if (confirm('Eliminare questo progetto?')) {
+      removeWorkstation(id);
     }
+  };
+
+  const handleMoveToFolder = (projectId: string, folderId: string | null) => {
+    moveProjectToFolder(projectId, folderId);
+    setContextMenu(null);
   };
 
   return (
     <View style={styles.list}>
-      <View style={styles.cloneContainer}>
-        <Text style={styles.cloneLabel}>Clona Repository</Text>
-        <View style={styles.cloneInputWrapper}>
-          <TextInput
-            style={styles.cloneInput}
-            value={repoUrl}
-            onChangeText={setRepoUrl}
-            placeholder="https://github.com/user/repo"
-            placeholderTextColor="rgba(255, 255, 255, 0.4)"
-            editable={!isCloning}
-          />
-          <TouchableOpacity 
-            style={[styles.cloneButton, isCloning && styles.cloneButtonDisabled]}
-            onPress={handleClone}
-            disabled={isCloning}
-          >
-            <Ionicons 
-              name={isCloning ? "hourglass-outline" : "download-outline"} 
-              size={20} 
-              color="#FFFFFF" 
-            />
-          </TouchableOpacity>
-        </View>
+      <NewProjectModal
+        visible={showNewProjectModal}
+        onClose={() => setShowNewProjectModal(false)}
+        onConfirm={handleCreateProject}
+      />
+
+      <ImportGitHubModal
+        visible={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onConfirm={handleImportFromGitHub}
+      />
+
+      <NewFolderModal
+        visible={showNewFolderModal}
+        onClose={() => setShowNewFolderModal(false)}
+        onConfirm={handleCreateFolder}
+      />
+
+      <View style={styles.actionButtonsContainer}>
+        <TouchableOpacity 
+          style={styles.compactButton}
+          onPress={() => setShowNewProjectModal(true)}
+        >
+          <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
+          <Text style={styles.compactButtonText}>Nuovo</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.compactButton}
+          onPress={() => setShowImportModal(true)}
+        >
+          <Ionicons name="logo-github" size={20} color={AppColors.primary} />
+          <Text style={styles.compactButtonText}>Importa</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.compactButton}
+          onPress={() => setShowNewFolderModal(true)}
+        >
+          <Ionicons name="folder-open-outline" size={20} color="#FFA500" />
+          <Text style={styles.compactButtonText}>Cartella</Text>
+        </TouchableOpacity>
       </View>
 
-      {workstations.length === 0 ? (
+      {projectFolders.length === 0 && workstations.length === 0 ? (
         <View style={styles.emptyState}>
           <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
           <Text style={styles.emptyText}>Nessun progetto</Text>
         </View>
       ) : (
-        workstations.map((ws) => (
-          <TouchableOpacity 
-            key={ws.id} 
-            style={styles.projectItem}
-            onPress={() => handleOpenWorkstation(ws)}
-          >
-            <View style={styles.projectHeader}>
-              <Ionicons name="folder" size={16} color={AppColors.primary} />
-              <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+        <>
+          {projectFolders.map((folder) => (
+            <View key={folder.id}>
+              <TouchableOpacity 
+                style={styles.folderItem}
+                onPress={() => toggleFolderExpanded(folder.id)}
+              >
+                <Ionicons 
+                  name={folder.isExpanded ? "chevron-down" : "chevron-forward"} 
+                  size={16} 
+                  color="rgba(255, 255, 255, 0.5)" 
+                />
+                <Ionicons name="folder" size={18} color="#FFA500" />
+                <Text style={styles.folderName}>{folder.name}</Text>
+                <TouchableOpacity 
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    if (confirm('Eliminare questa cartella?')) {
+                      removeProjectFolder(folder.id);
+                    }
+                  }}
+                  style={styles.deleteButton}
+                >
+                  <Ionicons name="trash-outline" size={14} color="#FF4444" />
+                </TouchableOpacity>
+              </TouchableOpacity>
+
+              {folder.isExpanded && workstations
+                .filter((w) => w.folderId === folder.id)
+                .map((ws) => (
+                  <TouchableOpacity 
+                    key={ws.id} 
+                    style={styles.projectItemInFolder}
+                    onPress={() => handleOpenWorkstation(ws)}
+                  >
+                    <View style={styles.projectHeader}>
+                      <Ionicons name="document" size={14} color={AppColors.primary} />
+                      <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+                      <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
+                        <Ionicons name="trash-outline" size={14} color="#FF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                ))}
             </View>
-            <View style={styles.projectMeta}>
-              {ws.language && (
-                <View style={styles.languageTag}>
-                  <Text style={styles.languageText}>{ws.language}</Text>
+          ))}
+
+          {workstations
+            .filter((w) => !w.folderId)
+            .map((ws) => (
+              <TouchableOpacity 
+                key={ws.id} 
+                style={styles.projectItem}
+                onPress={() => handleOpenWorkstation(ws)}
+              >
+                <View style={styles.projectHeader}>
+                  <Ionicons name="folder" size={16} color={AppColors.primary} />
+                  <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+                  <TouchableOpacity 
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      setContextMenu({ projectId: ws.id });
+                    }} 
+                    style={styles.menuButton}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={16} color="rgba(255, 255, 255, 0.5)" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
+                    <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                  </TouchableOpacity>
                 </View>
-              )}
-              <View style={styles.projectStatus}>
-                <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? '#00FF88' : '#FFA500' }]} />
-                <Text style={styles.statusText}>{ws.status}</Text>
-              </View>
+                <View style={styles.projectMeta}>
+                  {ws.language && (
+                    <View style={styles.languageTag}>
+                      <Text style={styles.languageText}>{ws.language}</Text>
+                    </View>
+                  )}
+                  <View style={styles.projectStatus}>
+                    <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? '#00FF88' : '#FFA500' }]} />
+                    <Text style={styles.statusText}>{ws.status}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+        </>
+      )}
+
+      {contextMenu && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setContextMenu(null)}
+        >
+          <TouchableOpacity 
+            style={styles.contextMenuOverlay}
+            activeOpacity={1}
+            onPress={() => setContextMenu(null)}
+          >
+            <View style={styles.contextMenu}>
+              <Text style={styles.contextMenuTitle}>Sposta in:</Text>
+              
+              <TouchableOpacity 
+                style={styles.contextMenuItem}
+                onPress={() => handleMoveToFolder(contextMenu.projectId, null)}
+              >
+                <Ionicons name="home-outline" size={18} color={AppColors.primary} />
+                <Text style={styles.contextMenuText}>Root</Text>
+              </TouchableOpacity>
+
+              {projectFolders.map((folder) => (
+                <TouchableOpacity 
+                  key={folder.id}
+                  style={styles.contextMenuItem}
+                  onPress={() => handleMoveToFolder(contextMenu.projectId, folder.id)}
+                >
+                  <Ionicons name="folder" size={18} color="#FFA500" />
+                  <Text style={styles.contextMenuText}>{folder.name}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </TouchableOpacity>
-        ))
+        </Modal>
       )}
     </View>
   );
 };
-
 const getLanguageColor = (language: string): string => {
   const colors: Record<string, string> = {
     JavaScript: '#f1e05a',
@@ -704,5 +830,129 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: AppColors.primary,
+  },
+
+  deleteButton: {
+    padding: 4,
+  },
+  importButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.3)',
+    marginBottom: 12,
+  },
+  importButtonText: {
+    color: AppColors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  newProjectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.3)',
+    marginBottom: 12,
+  },
+  newProjectText: {
+    color: AppColors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  compactButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: 10,
+    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.2)',
+  },
+  compactButtonText: {
+    color: AppColors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  folderItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: 'rgba(255, 165, 0, 0.1)',
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 165, 0, 0.2)',
+  },
+  folderName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFA500',
+  },
+  projectItemInFolder: {
+    padding: 10,
+    marginLeft: 24,
+    marginBottom: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(0, 255, 136, 0.3)',
+  },
+  menuButton: {
+    padding: 4,
+    marginRight: 4,
+  },
+  contextMenuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contextMenu: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+    minWidth: 250,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 255, 136, 0.2)',
+  },
+  contextMenuTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 12,
+  },
+  contextMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    marginBottom: 8,
+  },
+  contextMenuText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    flex: 1,
   },
 });

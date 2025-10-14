@@ -6,6 +6,7 @@ import {
   GitHubRepository,
   GitHubUser,
   WorkstationInfo,
+  ProjectFolder,
   AutocompleteOption,
 } from '../../shared/types';
 
@@ -36,6 +37,7 @@ interface TerminalState {
   // Workstation
   currentWorkstation: WorkstationInfo | null;
   workstations: WorkstationInfo[];
+  projectFolders: ProjectFolder[];
   isCreatingWorkstation: boolean;
   userId: string | null;
   
@@ -70,6 +72,10 @@ interface TerminalState {
   addWorkstation: (workstation: WorkstationInfo) => void;
   loadWorkstations: (workstations: WorkstationInfo[]) => void;
   removeWorkstation: (workstationId: string) => void;
+  addProjectFolder: (folder: ProjectFolder) => void;
+  removeProjectFolder: (folderId: string) => void;
+  toggleFolderExpanded: (folderId: string) => void;
+  moveProjectToFolder: (projectId: string, folderId: string | null) => void;
   setSelectedModel: (model: string) => void;
   setIsTerminalMode: (value: boolean) => void;
   setAutoApprove: (value: boolean) => void;
@@ -102,6 +108,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   showGitHubSidebar: false,
   currentWorkstation: null,
   workstations: [],
+  projectFolders: [],
   isCreatingWorkstation: false,
   userId: null,
   selectedModel: 'auto',
@@ -144,6 +151,29 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((state) => ({
       workstations: state.workstations.filter((w) => w.id !== workstationId),
       currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
+    })),
+  addProjectFolder: (folder) =>
+    set((state) => ({
+      projectFolders: [...state.projectFolders, folder],
+    })),
+  removeProjectFolder: (folderId) =>
+    set((state) => ({
+      projectFolders: state.projectFolders.filter((f) => f.id !== folderId && f.parentId !== folderId),
+      workstations: state.workstations.map((w) =>
+        w.folderId === folderId ? { ...w, folderId: null } : w
+      ),
+    })),
+  toggleFolderExpanded: (folderId) =>
+    set((state) => ({
+      projectFolders: state.projectFolders.map((f) =>
+        f.id === folderId ? { ...f, isExpanded: !f.isExpanded } : f
+      ),
+    })),
+  moveProjectToFolder: (projectId, folderId) =>
+    set((state) => ({
+      workstations: state.workstations.map((w) =>
+        w.id === projectId ? { ...w, folderId } : w
+      ),
     })),
   setSelectedModel: (model) => set({ selectedModel: model }),
   setIsTerminalMode: (value) => set({ isTerminalMode: value }),

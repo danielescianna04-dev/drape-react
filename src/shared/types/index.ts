@@ -58,6 +58,15 @@ export interface WorkstationInfo {
   id: string;
   status: 'creating' | 'running' | 'stopped';
   url?: string;
+  folderId?: string | null;
+}
+
+export interface ProjectFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  isExpanded: boolean;
+  createdAt: Date;
 }
 
 export interface AutocompleteOption {
