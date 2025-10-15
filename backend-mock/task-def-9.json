@@ -1,0 +1,119 @@
+{
+    "taskDefinition": {
+        "taskDefinitionArn": "arn:aws:ecs:us-east-1:703686967361:task-definition/warp-mobile-ai-ide-prod-task:9",
+        "containerDefinitions": [
+            {
+                "name": "warp-mobile-ai-ide-container",
+                "image": "703686967361.dkr.ecr.us-east-1.amazonaws.com/warp-mobile-ai-ide:web-support-fixed",
+                "cpu": 0,
+                "links": [],
+                "portMappings": [
+                    {
+                        "containerPort": 3000,
+                        "hostPort": 3000,
+                        "protocol": "tcp"
+                    }
+                ],
+                "essential": true,
+                "entryPoint": [],
+                "command": [],
+                "environment": [
+                    {
+                        "name": "PORT",
+                        "value": "3000"
+                    },
+                    {
+                        "name": "NODE_ENV",
+                        "value": "production"
+                    }
+                ],
+                "environmentFiles": [],
+                "mountPoints": [],
+                "volumesFrom": [],
+                "secrets": [],
+                "dnsServers": [],
+                "dnsSearchDomains": [],
+                "extraHosts": [],
+                "dockerSecurityOptions": [],
+                "dockerLabels": {},
+                "ulimits": [],
+                "logConfiguration": {
+                    "logDriver": "awslogs",
+                    "options": {
+                        "awslogs-group": "/ecs/warp-mobile-ai-ide-prod",
+                        "awslogs-region": "us-east-1",
+                        "awslogs-stream-prefix": "ecs"
+                    },
+                    "secretOptions": []
+                },
+                "healthCheck": {
+                    "command": [
+                        "CMD-SHELL",
+                        "curl -f http://localhost:3000/health || exit 1"
+                    ],
+                    "interval": 30,
+                    "timeout": 5,
+                    "retries": 3,
+                    "startPeriod": 60
+                },
+                "systemControls": [],
+                "credentialSpecs": []
+            }
+        ],
+        "family": "warp-mobile-ai-ide-prod-task",
+        "taskRoleArn": "arn:aws:iam::703686967361:role/warp-mobile-ai-ide-prod-ecs-task-role",
+        "executionRoleArn": "arn:aws:iam::703686967361:role/warp-mobile-ai-ide-prod-ecs-execution-role",
+        "networkMode": "awsvpc",
+        "revision": 9,
+        "volumes": [],
+        "status": "ACTIVE",
+        "requiresAttributes": [
+            {
+                "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+            },
+            {
+                "name": "ecs.capability.execution-role-awslogs"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.ecr-auth"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.docker-remote-api.1.17"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.task-iam-role"
+            },
+            {
+                "name": "ecs.capability.container-health-check"
+            },
+            {
+                "name": "ecs.capability.execution-role-ecr-pull"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+            },
+            {
+                "name": "ecs.capability.task-eni"
+            },
+            {
+                "name": "com.amazonaws.ecs.capability.docker-remote-api.1.29"
+            }
+        ],
+        "placementConstraints": [],
+        "compatibilities": [
+            "EC2",
+            "FARGATE"
+        ],
+        "requiresCompatibilities": [
+            "FARGATE"
+        ],
+        "cpu": "256",
+        "memory": "512",
+        "registeredAt": "2025-09-19T22:40:11.221000+02:00",
+        "registeredBy": "arn:aws:iam::703686967361:user/warp-admin"
+    },
+    "tags": []
+}

@@ -1,0 +1,9 @@
+{
+  "httpMethod": "POST",
+  "path": "/session/create",
+  "body": "{}",
+  "headers": {
+    "X-User-ID": "test-user",
+    "Content-Type": "application/json"
+  }
+}

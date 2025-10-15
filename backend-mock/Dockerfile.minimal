@@ -1,0 +1,37 @@
+# Dockerfile minimal per ECS - Solo server Express Node.js
+# Ottimizzato per CloudShell con spazio limitato
+
+FROM public.ecr.aws/docker/library/node:18-alpine
+
+# Installa solo le dipendenze minime
+RUN apk add --no-cache \
+    curl \
+    ca-certificates
+
+# Crea directory applicazione
+WORKDIR /app
+
+# Copia solo i file necessari
+COPY package*.json ./
+COPY ecs-server.js ./
+
+# Installa solo dipendenze di produzione
+RUN npm ci --only=production && npm cache clean --force
+
+# Crea utente non-root per sicurezza
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+# Cambia ownership dei file
+RUN chown -R nextjs:nodejs /app
+USER nextjs
+
+# Esponi porta
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Comando di avvio
+CMD ["node", "ecs-server.js"]

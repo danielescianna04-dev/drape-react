@@ -1,0 +1,14 @@
+# AWS Lambda Runtime per Node.js 18
+FROM public.ecr.aws/lambda/nodejs:18
+
+# Copia package.json prima per cache layer
+COPY package*.json ./
+
+# Installa dipendenze
+RUN npm ci --only=production
+
+# Copia tutti i file del progetto
+COPY . ./
+
+# Handler Lambda
+CMD [ "lambda/command-handler.handler" ]

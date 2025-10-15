@@ -1,0 +1,10 @@
+{
+  "httpMethod": "POST",
+  "path": "/session",
+  "body": "{\"action\": \"create\", \"userId\": \"test-user-debug\"}",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "pathParameters": null,
+  "queryStringParameters": null
+}

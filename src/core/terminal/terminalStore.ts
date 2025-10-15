@@ -57,6 +57,7 @@ interface TerminalState {
   
   // Actions
   addTerminalItem: (item: TerminalItem) => void;
+  executeCommand: (command: string, workstationId?: string) => Promise<void>;
   clearTerminal: () => void;
   setLoading: (loading: boolean) => void;
   setHasInteracted: (value: boolean) => void;
@@ -175,6 +176,22 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         w.id === projectId ? { ...w, folderId } : w
       ),
     })),
+  reorderWorkstations: (draggedId, targetId) =>
+    set((state) => {
+      const rootProjects = state.workstations.filter((w) => !w.folderId);
+      const otherProjects = state.workstations.filter((w) => w.folderId);
+      
+      const draggedIndex = rootProjects.findIndex((w) => w.id === draggedId);
+      const targetIndex = rootProjects.findIndex((w) => w.id === targetId);
+      
+      if (draggedIndex === -1 || targetIndex === -1) return state;
+      
+      const newRootProjects = [...rootProjects];
+      const [removed] = newRootProjects.splice(draggedIndex, 1);
+      newRootProjects.splice(targetIndex, 0, removed);
+      
+      return { workstations: [...newRootProjects, ...otherProjects] };
+    }),
   setSelectedModel: (model) => set({ selectedModel: model }),
   setIsTerminalMode: (value) => set({ isTerminalMode: value }),
   setAutoApprove: (value) => set({ autoApprove: value }),

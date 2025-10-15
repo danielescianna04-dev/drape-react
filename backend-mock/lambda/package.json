@@ -1,0 +1,9 @@
+{
+  "name": "warp-lambda",
+  "version": "1.0.0",
+  "main": "command-handler.js",
+  "dependencies": {
+    "uuid": "^9.0.0",
+    "aws-sdk": "^2.1500.0"
+  }
+}

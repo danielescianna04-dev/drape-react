@@ -1,0 +1,9 @@
+{
+  "Variables": {
+    "NODE_ENV": "production",
+    "ECS_ENDPOINT": "http://warp-mobile-ai-ide-prod-alb-1532835213.us-east-1.elb.amazonaws.com",
+    "ECS_CLUSTER_NAME": "warp-mobile-ai-ide-prod-cluster",
+    "ECS_SERVICE_NAME": "warp-mobile-ai-ide-prod-ecs-service",
+    "SESSIONS_TABLE": "warp-mobile-ai-ide-prod-sessions"
+  }
+}

@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Script alias per il Warp AI IDE Backend AWS
+# Rende più facile l'utilizzo dal container Warp
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLIENT="$SCRIPT_DIR/warp-client.js"
+
+# Controlla se il client esiste
+if [ ! -f "$CLIENT" ]; then
+    echo "❌ Client non trovato: $CLIENT"
+    exit 1
+fi
+
+# Funzione per eseguire il client
+run_client() {
+    node "$CLIENT" "$@"
+}
+
+# Se nessun argomento, mostra l'help
+if [ $# -eq 0 ]; then
+    run_client
+    exit 0
+fi
+
+# Gestisci comandi speciali
+case "$1" in
+    "status"|"health"|"ping")
+        echo "🏥 Controllo stato backend AWS..."
+        run_client health
+        ;;
+    
+    "session"|"login")
+        echo "👤 Creazione sessione..."
+        run_client session
+        ;;
+    
+    "flutter")
+        echo "🐦 Comando Flutter (eseguito su ECS)..."
+        run_client "$@"
+        ;;
+    
+    "python"|"python3"|"pip"|"pip3")
+        echo "🐍 Comando Python (eseguito su ECS)..."
+        run_client "$@"
+        ;;
+    
+    "dart")
+        echo "🎯 Comando Dart (eseguito su ECS)..."
+        run_client "$@"
+        ;;
+    
+    "build"|"compile"|"install")
+        echo "🔨 Comando di build (eseguito su ECS)..."
+        run_client "$@"
+        ;;
+    
+    *)
+        # Per tutti gli altri comandi, passa tutto al client
+        run_client "$@"
+        ;;
+esac

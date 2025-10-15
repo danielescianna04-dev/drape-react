@@ -1,0 +1,1 @@
+{"statusCode":400,"headers":{"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Authorization, X-User-ID, X-Session-ID","Content-Type":"application/json"},"body":"{\"success\":false,\"error\":\"Session not found\"}"}

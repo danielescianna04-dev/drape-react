@@ -1,0 +1,53 @@
+{
+  "name": "warp-terminal-backend",
+  "version": "1.0.0",
+  "description": "Backend server for Warp Mobile AI IDE terminal functionality",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "local": "node server-local.js",
+    "dev": "nodemon server.js",
+    "test": "echo \"No tests yet\" && exit 0",
+    "build-container": "./build-container.sh",
+    "docker:build": "docker build -t warp-dev-environment:latest -f Dockerfile.dev .",
+    "docker:test": "docker run --rm warp-dev-environment:latest /bin/bash -c 'node --version && python3 --version'"
+  },
+  "keywords": [
+    "terminal",
+    "docker",
+    "websocket",
+    "ide",
+    "mobile"
+  ],
+  "author": "Warp AI IDE",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.62.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.901.0",
+    "@google-cloud/aiplatform": "^5.7.0",
+    "@google-cloud/cloudbuild": "^5.3.0",
+    "@google-cloud/run": "^3.0.0",
+    "@google-cloud/storage": "^7.17.2",
+    "@google-cloud/vertexai": "^1.10.0",
+    "@google-cloud/workstations": "^2.2.0",
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.12.2",
+    "cors": "^2.8.5",
+    "dockerode": "^4.0.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "http-proxy-middleware": "^2.0.6",
+    "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.2",
+    "openai": "^5.20.3",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

@@ -19,12 +19,15 @@ import { workstationService } from '../../../core/workstation/workstationService
 import { NewFolderModal } from './NewFolderModal';
 import { NewProjectModal } from './NewProjectModal';
 import { ImportGitHubModal } from './ImportGitHubModal';
+import { DraggableProject } from './DraggableProject';
+import { DropZoneFolder } from './DropZoneFolder';
 
 interface Props {
   onClose: () => void;
+  onOpenAllProjects?: () => void;
 }
 
-export const Sidebar = ({ onClose }: Props) => {
+export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
@@ -147,9 +150,9 @@ export const Sidebar = ({ onClose }: Props) => {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.footerButton}>
-          <Ionicons name="add-circle-outline" size={24} color={AppColors.primary} />
-          <Text style={styles.footerButtonText}>New Chat</Text>
+        <TouchableOpacity style={styles.footerButton} onPress={onOpenAllProjects}>
+          <Ionicons name="grid-outline" size={24} color={AppColors.primary} />
+          <Text style={styles.footerButtonText}>All Projects</Text>
         </TouchableOpacity>
       </View>
     </Animated.View>
@@ -261,7 +264,8 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
     addProjectFolder,
     toggleFolderExpanded,
     removeProjectFolder,
-    moveProjectToFolder
+    moveProjectToFolder,
+    reorderWorkstations
   } = useTerminalStore();
 
   const handleCreateProject = (name: string, language: string) => {
@@ -351,7 +355,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
           style={styles.compactButton}
           onPress={() => setShowNewProjectModal(true)}
         >
-          <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
+          <Ionicons name="grid-outline" size={20} color={AppColors.primary} />
           <Text style={styles.compactButtonText}>Nuovo</Text>
         </TouchableOpacity>
 
@@ -380,32 +384,18 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       ) : (
         <>
           {projectFolders.map((folder) => (
-            <View key={folder.id}>
-              <TouchableOpacity 
-                style={styles.folderItem}
-                onPress={() => toggleFolderExpanded(folder.id)}
-              >
-                <Ionicons 
-                  name={folder.isExpanded ? "chevron-down" : "chevron-forward"} 
-                  size={16} 
-                  color="rgba(255, 255, 255, 0.5)" 
-                />
-                <Ionicons name="folder" size={18} color="#FFA500" />
-                <Text style={styles.folderName}>{folder.name}</Text>
-                <TouchableOpacity 
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    if (confirm('Eliminare questa cartella?')) {
-                      removeProjectFolder(folder.id);
-                    }
-                  }}
-                  style={styles.deleteButton}
-                >
-                  <Ionicons name="trash-outline" size={14} color="#FF4444" />
-                </TouchableOpacity>
-              </TouchableOpacity>
-
-              {folder.isExpanded && workstations
+            <DropZoneFolder
+              key={folder.id}
+              folder={folder}
+              isExpanded={folder.isExpanded}
+              onToggle={() => toggleFolderExpanded(folder.id)}
+              onDelete={() => {
+                if (confirm('Eliminare questa cartella?')) {
+                  removeProjectFolder(folder.id);
+                }
+              }}
+            >
+              {workstations
                 .filter((w) => w.folderId === folder.id)
                 .map((ws) => (
                   <TouchableOpacity 
@@ -422,45 +412,23 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
                     </View>
                   </TouchableOpacity>
                 ))}
-            </View>
+            </DropZoneFolder>
           ))}
 
           {workstations
             .filter((w) => !w.folderId)
-            .map((ws) => (
-              <TouchableOpacity 
-                key={ws.id} 
-                style={styles.projectItem}
+            .map((ws, idx) => (
+              <DraggableProject
+                key={ws.id}
+                project={ws}
+                index={idx}
                 onPress={() => handleOpenWorkstation(ws)}
-              >
-                <View style={styles.projectHeader}>
-                  <Ionicons name="folder" size={16} color={AppColors.primary} />
-                  <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
-                  <TouchableOpacity 
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      setContextMenu({ projectId: ws.id });
-                    }} 
-                    style={styles.menuButton}
-                  >
-                    <Ionicons name="ellipsis-vertical" size={16} color="rgba(255, 255, 255, 0.5)" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
-                    <Ionicons name="trash-outline" size={16} color="#FF4444" />
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.projectMeta}>
-                  {ws.language && (
-                    <View style={styles.languageTag}>
-                      <Text style={styles.languageText}>{ws.language}</Text>
-                    </View>
-                  )}
-                  <View style={styles.projectStatus}>
-                    <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? '#00FF88' : '#FFA500' }]} />
-                    <Text style={styles.statusText}>{ws.status}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
+                onDelete={(e) => handleDeleteWorkstation(ws.id, e)}
+                onDragEnd={handleMoveToFolder}
+                onReorder={reorderWorkstations}
+                folders={projectFolders}
+                allProjects={workstations.filter((w) => !w.folderId)}
+              />
             ))}
         </>
       )}
