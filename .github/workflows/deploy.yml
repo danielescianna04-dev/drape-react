@@ -12,10 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Setup Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v1
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          service_account_key: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY }}
+          credentials_json: ${{ secrets.GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY }}
+          
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
           project_id: drape-93229
           
       - name: Configure Docker for GCR
