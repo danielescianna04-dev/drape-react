@@ -28,8 +28,9 @@ jobs:
         npm install -g @expo/cli
       
     - name: 🔐 Configure EAS
-      run: |
-        echo "${{ secrets.EXPO_TOKEN }}" | eas login --token
+      run: eas login
+      env:
+        EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         
     - name: 🏗️ Build Android APK
       run: |
