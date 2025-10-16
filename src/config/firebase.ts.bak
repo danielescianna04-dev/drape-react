@@ -11,9 +11,7 @@ const firebaseConfig = {
   measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
-console.log('🔵 Initializing Firebase...');
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-console.log('✅ Firebase initialized');
 
 export { app, db };

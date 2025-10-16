@@ -45,9 +45,11 @@ export const workstationService = {
       id: 'ws-' + Date.now(),
       name,
       url: '',
-      status: 'ready',
+      status: 'idle',
       repositoryUrl: '',
       language: 'text',
+      createdAt: new Date(),
+      files: [],
     };
     await this.saveWorkstation(workstation);
     return workstation;

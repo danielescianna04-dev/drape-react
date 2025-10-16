@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   TextInput,
   Animated,
-} from 'react-native';
+  Modal,} from 'react-native';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';

@@ -217,7 +217,7 @@ export const TerminalScreen = () => {
         <View style={styles.contextHeader}>
           <View style={styles.contextContent}>
             <Ionicons name="folder-open" size={18} color={AppColors.primary} />
-            <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation.name}</Text>
+            <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</Text>
           </View>
           
           <TouchableOpacity

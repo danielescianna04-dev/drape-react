@@ -6,7 +6,7 @@ export enum TerminalItemType {
 }
 
 export interface TerminalItem {
-  content: string;
+  id?: string;  content: string;
   type: TerminalItemType;
   timestamp: Date;
   errorDetails?: string;
@@ -56,9 +56,15 @@ export interface GitHubUser {
 
 export interface WorkstationInfo {
   id: string;
-  status: 'creating' | 'running' | 'stopped';
+  name: string;
+  language: string;
+  status: 'creating' | 'running' | 'stopped' | 'idle' | 'ready';
   url?: string;
+  webUrl?: string;
   folderId?: string | null;
+  repositoryUrl?: string;
+  createdAt: Date;
+  files: any[];
 }
 
 export interface ProjectFolder {

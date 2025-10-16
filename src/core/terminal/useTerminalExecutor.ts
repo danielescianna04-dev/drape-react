@@ -1,6 +1,6 @@
 import { useTerminalStore } from './terminalStore';
 import { terminalExecutor } from './terminalExecutor';
-
+import { TerminalItemType } from '../../shared/types';
 export const useTerminalExecutor = () => {
   const { addTerminalItem, setLoading, currentWorkstation } = useTerminalStore();
 
@@ -8,7 +8,7 @@ export const useTerminalExecutor = () => {
     // Add command to terminal
     addTerminalItem({
       id: Date.now().toString(),
-      type: 'command',
+      type: TerminalItemType.COMMAND,
       content: command,
       timestamp: new Date(),
     });
@@ -23,7 +23,7 @@ export const useTerminalExecutor = () => {
       if (result.output) {
         addTerminalItem({
           id: (Date.now() + 1).toString(),
-          type: 'output',
+          type: TerminalItemType.OUTPUT,
           content: result.output,
           timestamp: new Date(),
         });
@@ -33,7 +33,7 @@ export const useTerminalExecutor = () => {
       if (result.error) {
         addTerminalItem({
           id: (Date.now() + 2).toString(),
-          type: 'error',
+          type: TerminalItemType.ERROR,
           content: result.error,
           timestamp: new Date(),
         });
@@ -43,7 +43,7 @@ export const useTerminalExecutor = () => {
     } catch (error: any) {
       addTerminalItem({
         id: (Date.now() + 3).toString(),
-        type: 'error',
+        type: TerminalItemType.ERROR,
         content: error.message || 'Command execution failed',
         timestamp: new Date(),
       });
@@ -61,7 +61,7 @@ export const useTerminalExecutor = () => {
 
     addTerminalItem({
       id: Date.now().toString(),
-      type: 'system',
+      type: TerminalItemType.SYSTEM,
       content: `🚀 Starting ${language} project...`,
       timestamp: new Date(),
     });
@@ -77,7 +77,7 @@ export const useTerminalExecutor = () => {
 
     addTerminalItem({
       id: Date.now().toString(),
-      type: 'system',
+      type: TerminalItemType.SYSTEM,
       content: `📦 Installing dependencies for ${language}...`,
       timestamp: new Date(),
     });
@@ -90,7 +90,7 @@ export const useTerminalExecutor = () => {
 
     addTerminalItem({
       id: Date.now().toString(),
-      type: 'system',
+      type: TerminalItemType.SYSTEM,
       content: `📥 Cloning repository: ${repoUrl}`,
       timestamp: new Date(),
     });

@@ -190,9 +190,13 @@ export const workstationService = {
   async createEmptyWorkstation(name: string): Promise<WorkstationInfo> {
     const workstation: WorkstationInfo = {
       id: 'ws-' + Date.now(),
+      name,
+      language: 'javascript',
       url: '',
       status: 'creating',
       repositoryUrl: '',
+      createdAt: new Date(),
+      files: [],
     };
     return workstation;
   }

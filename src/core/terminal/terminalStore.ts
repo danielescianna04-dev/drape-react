@@ -75,11 +75,12 @@ interface TerminalState {
   setWorkstation: (workstation: WorkstationInfo | null) => void;
   addWorkstation: (workstation: WorkstationInfo) => void;
   loadWorkstations: (workstations: WorkstationInfo[]) => void;
-  removeWorkstation: (workstationId: string) => void;
+  setProjectFolders: (folders: ProjectFolder[]) => void;  removeWorkstation: (workstationId: string) => void;
   addProjectFolder: (folder: ProjectFolder) => void;
   removeProjectFolder: (folderId: string) => void;
   toggleFolderExpanded: (folderId: string) => void;
   moveProjectToFolder: (projectId: string, folderId: string | null) => void;
+  reorderWorkstations: (draggedId: string, targetId: string) => void;
   setSelectedModel: (model: string) => void;
   setIsTerminalMode: (value: boolean) => void;
   setAutoApprove: (value: boolean) => void;
@@ -132,7 +133,11 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalItems: [...state.terminalItems, item],
       hasInteracted: true,
     })),
-    
+  
+  executeCommand: async (command: string, workstationId?: string) => {
+    // Implementazione gestita da useTerminalExecutor
+  },
+      
   clearTerminal: () => set({ terminalItems: [], hasInteracted: false }),
   setLoading: (loading) => set({ isLoading: loading }),
   setHasInteracted: (value) => set({ hasInteracted: value }),
@@ -151,7 +156,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       currentWorkstation: workstation,
     })),
   loadWorkstations: (workstations) => set({ workstations }),
-  removeWorkstation: (workstationId) =>
+  setProjectFolders: (folders) => set({ projectFolders: folders }),  removeWorkstation: (workstationId) =>
     set((state) => ({
       workstations: state.workstations.filter((w) => w.id !== workstationId),
       currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
