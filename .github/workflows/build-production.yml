@@ -3,7 +3,7 @@ name: Build Production App
 on:
   workflow_dispatch:  # Trigger manuale
   push:
-    branches: [ production ]  # Solo su branch production
+    branches: [ main ]  # Automatico su ogni push a main
 
 jobs:
   build:
