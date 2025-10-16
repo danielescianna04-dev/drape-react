@@ -37,9 +37,8 @@ export const FolderManager = ({ onOpenWorkstation, onDeleteWorkstation }: any) =
             <TouchableOpacity 
               onPress={(e) => {
                 e.stopPropagation();
-                if (confirm('Eliminare questa cartella?')) {
+                
                   removeProjectFolder(folder.id);
-                }
               }}
               style={styles.deleteButton}
             >

@@ -20,6 +20,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
+// import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 
@@ -207,6 +208,9 @@ export const TerminalScreen = () => {
         style={StyleSheet.absoluteFill}
       />
       {showSidebar && <Sidebar onClose={() => setShowSidebar(false)} />}
+      
+      {/* Preview Eye - appears when URL is detected */}
+      {/* <PreviewEye /> */}
 
       {/* Project Context Header */}
       {currentWorkstation && (
@@ -215,7 +219,25 @@ export const TerminalScreen = () => {
             <Ionicons name="folder-open" size={18} color={AppColors.primary} />
             <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation.name}</Text>
           </View>
-        </View>
+          
+          <TouchableOpacity
+            style={[
+              styles.eyeButton,
+              { backgroundColor: currentWorkstation.status === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
+            ]}
+            onPress={() => {
+              if (currentWorkstation.status === 'running' && currentWorkstation.webUrl) {
+                console.log('Opening web preview:', currentWorkstation.webUrl);
+              }
+            }}
+            disabled={currentWorkstation.status !== 'running'}
+          >
+            <Ionicons 
+              name="eye" 
+              size={16} 
+              color={currentWorkstation.status === 'running' ? 'white' : AppColors.textSecondary} 
+            />
+          </TouchableOpacity>        </View>
       )}
 
       <ScrollView
@@ -382,7 +404,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.95)',
-  },
+  eyeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },  },
   output: {
     flex: 1,
   },

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -167,11 +167,7 @@ export const AllProjectsScreen = ({ onClose }: Props) => {
             folder={folder}
             isExpanded={folder.isExpanded}
             onToggle={() => toggleFolderExpanded(folder.id)}
-            onDelete={() => {
-              if (confirm('Delete this folder?')) {
-                removeProjectFolder(folder.id);
-              }
-            }}
+            onDelete={() => removeProjectFolder(folder.id)}
           >
             <View style={styles.folderProjects}>
               {filteredProjects

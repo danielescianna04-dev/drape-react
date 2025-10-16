@@ -320,9 +320,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
 
   const handleDeleteWorkstation = (id: string, e: any) => {
     e.stopPropagation();
-    if (confirm('Eliminare questo progetto?')) {
-      removeWorkstation(id);
-    }
+    removeWorkstation(id);
   };
 
   const handleMoveToFolder = (projectId: string, folderId: string | null) => {
@@ -341,7 +339,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       <ImportGitHubModal
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
-        onConfirm={handleImportFromGitHub}
+        onImport={handleImportFromGitHub}
       />
 
       <NewFolderModal
@@ -390,9 +388,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
               isExpanded={folder.isExpanded}
               onToggle={() => toggleFolderExpanded(folder.id)}
               onDelete={() => {
-                if (confirm('Eliminare questa cartella?')) {
-                  removeProjectFolder(folder.id);
-                }
+                removeProjectFolder(folder.id);
               }}
             >
               {workstations

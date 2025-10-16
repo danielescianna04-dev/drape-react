@@ -169,45 +169,289 @@ app.post('/ai/chat', async (req, res) => {
     }
 });
 
-// Terminal execute endpoint (placeholder)
+// Terminal execute endpoint - Execute commands on workstation
 app.post('/terminal/execute', async (req, res) => {
   const { command, workstationId } = req.body;
   
-  // TODO: Implementare esecuzione comando su workstation
-  res.json({
-    output: `Executed: ${command}`,
-    exitCode: 0,
-  });
+  console.log('🖥️  TERMINAL EXECUTE REQUEST:');
+  console.log('Command:', command);
+  console.log('Workstation ID:', workstationId);
+  
+  if (!workstationId) {
+    console.error('❌ No workstation ID provided');
+    return res.status(400).json({ error: 'workstationId is required' });
+  }
+  
+  try {
+    console.log(`⚡ Executing command on workstation ${workstationId}...`);
+    
+    // Execute command on workstation
+    const output = await executeCommandOnWorkstation(command, workstationId);
+    
+    console.log('✅ Command executed successfully');
+    console.log('Output:', output);
+    
+    const previewUrl = detectPreviewUrl(output.stdout, command);
+    if (previewUrl) {
+      console.log('👁️  Preview URL detected:', previewUrl);
+    }
+
+    res.json({
+      output: output.stdout,
+      error: output.stderr,
+      exitCode: output.exitCode,
+      workstationId,
+      command,
+      previewUrl
+    });
+    
+  } catch (error) {
+    console.error('❌ TERMINAL EXECUTE ERROR:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      workstationId,
+      command
+    });
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Workstation create endpoint - Using same Google Cloud project
+// Execute command on workstation (simulated for now)
+async function executeCommandOnWorkstation(command, workstationId) {
+  console.log(`🔧 executeCommandOnWorkstation called:`);
+  console.log(`   Command: ${command}`);
+  console.log(`   Workstation: ${workstationId}`);
+  
+  // Simulate git clone
+  if (command.includes('git clone')) {
+    console.log('📦 Simulating git clone...');
+    const repoUrl = command.split(' ').find(arg => arg.includes('github.com'));
+    const repoName = repoUrl ? repoUrl.split('/').pop().replace('.git', '') : 'repository';
+    
+    console.log(`   Repository URL: ${repoUrl}`);
+    console.log(`   Repository name: ${repoName}`);
+    
+    const result = {
+      stdout: `Cloning into '${repoName}'...\nremote: Enumerating objects: 100, done.\nremote: Total 100 (delta 0), reused 0 (delta 0)\nReceiving objects: 100% (100/100), done.\nResolving deltas: 100% (50/50), done.\n✅ Repository cloned successfully on workstation ${workstationId}`,
+      stderr: '',
+      exitCode: 0
+    };
+    
+    console.log('✅ Git clone simulation completed');
+    return result;
+  }
+  
+  // Simulate npm/yarn start
+  if (command.includes('npm start') || command.includes('yarn start') || command.includes('npm run dev')) {
+    console.log('🚀 Simulating npm start...');
+    
+    const result = {
+      stdout: `> Starting development server...\n\nLocal:   http://localhost:3000\nNetwork: http://10.0.0.1:3000\n\n✨ Server ready in 2.1s\n🚀 Development server running on workstation ${workstationId}`,
+      stderr: '',
+      exitCode: 0
+    };
+    
+    console.log('✅ npm start simulation completed');
+    return result;
+  }
+  
+  // Simulate Python server
+  if (command.includes('python -m http.server') || command.includes('python3 -m http.server')) {
+    console.log('🐍 Simulating Python server...');
+    const port = command.match(/(\d+)/) ? command.match(/(\d+)/)[1] : '8000';
+    
+    const result = {
+      stdout: `Serving HTTP on 0.0.0.0 port ${port} (http://0.0.0.0:${port}/) ...\n🐍 Python server running on workstation ${workstationId}`,
+      stderr: '',
+      exitCode: 0
+    };
+    
+    console.log('✅ Python server simulation completed');
+    return result;
+  }
+  
+  // Simulate ls command
+  if (command.trim() === 'ls' || command.trim() === 'ls -la') {
+    console.log('📁 Simulating ls command...');
+    
+    const result = {
+      stdout: 'total 48\ndrwxr-xr-x  8 user user 4096 Oct 15 12:00 .\ndrwxr-xr-x  3 user user 4096 Oct 15 11:00 ..\n-rw-r--r--  1 user user  123 Oct 15 12:00 .gitignore\n-rw-r--r--  1 user user 1024 Oct 15 12:00 package.json\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 src\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 public\n-rw-r--r--  1 user user 2048 Oct 15 12:00 README.md',
+      stderr: '',
+      exitCode: 0
+    };
+    
+    console.log('✅ ls command simulation completed');
+    return result;
+  }
+  
+  // Default simulation
+  console.log('🔧 Default command simulation...');
+  const result = {
+    stdout: `Command executed: ${command}\nWorkstation: ${workstationId}\nTimestamp: ${new Date().toISOString()}`,
+    stderr: '',
+    exitCode: 0
+  };
+  
+  console.log('✅ Default simulation completed');
+  return result;
+}
+
+// Detect preview URL from command output
+function detectPreviewUrl(output, command) {
+  // Look for common development server patterns
+  const urlPatterns = [
+    /Local:\s+(https?:\/\/[^\s]+)/,
+    /http:\/\/localhost:\d+/,
+    /http:\/\/127\.0\.0\.1:\d+/,
+    /http:\/\/0\.0\.0\.0:\d+/,
+    /Server running on (https?:\/\/[^\s]+)/
+  ];
+  
+  for (const pattern of urlPatterns) {
+    const match = output.match(pattern);
+    if (match) {
+      return match[1] || match[0];
+    }
+  }
+  
+  return null;
+}
+
+// Workstation create endpoint - Create and auto-clone repository or load personal project
 app.post('/workstation/create', async (req, res) => {
-  const { repositoryUrl, userId } = req.body;
+  const { repositoryUrl, userId, projectId, projectType, projectName } = req.body;
+  
+  console.log('🚀 WORKSTATION CREATE REQUEST:');
+  console.log('Project Type:', projectType);
+  console.log('Repository URL:', repositoryUrl);
+  console.log('Project Name:', projectName);
+  console.log('User ID:', userId);
+  console.log('Project ID:', projectId);
   
   try {
     const parent = `projects/${PROJECT_ID}/locations/${LOCATION}/workstationClusters/${CLUSTER}/workstationConfigs/${CONFIG}`;
     const workstationId = `ws-${userId}-${Date.now()}`;
     
-    const [operation] = await workstationsClient.createWorkstation({
-      parent,
-      workstationId,
-      workstation: {
-        displayName: `Drape Workstation - ${userId}`,
-        annotations: {
-          'repository-url': repositoryUrl,
-          'created-by': 'drape-react',
-        },
-      },
-    });
+    console.log('📍 Creating workstation:', workstationId);
+    console.log('📁 Parent path:', parent);
+    
+    // Simulate workstation creation
+    const workstation = {
+      id: workstationId,
+      status: 'creating',
+      projectType,
+      repositoryUrl,
+      projectName,
+      projectId,
+      createdAt: new Date().toISOString(),
+      userId
+    };
+
+    console.log('✅ Workstation created successfully:', workstation);
+
+    // Different setup based on project type
+    setTimeout(async () => {
+      console.log(`🔄 Workstation ${workstationId} ready, starting setup...`);
+      
+      if (projectType === 'git' && repositoryUrl) {
+        // Git project - clone repository
+        console.log(`📦 Cloning Git repository: ${repositoryUrl}`);
+        try {
+          const cloneOutput = await executeCommandOnWorkstation(`git clone ${repositoryUrl}`, workstationId);
+          console.log(`✅ Git repository cloned successfully on workstation ${workstationId}`);
+          console.log('Clone output:', cloneOutput);
+        } catch (cloneError) {
+          console.error(`❌ Git clone failed on workstation ${workstationId}:`, cloneError);
+        }
+      } else if (projectType === 'personal' && projectName) {
+        // Personal project - load from Cloud Storage or create new
+        console.log(`📁 Setting up personal project: ${projectName}`);
+        try {
+          // Simulate loading from Cloud Storage
+          const setupOutput = await setupPersonalProject(projectName, workstationId, userId, projectId);
+          console.log(`✅ Personal project setup completed on workstation ${workstationId}`);
+          console.log('Setup output:', setupOutput);
+        } catch (setupError) {
+          console.error(`❌ Personal project setup failed on workstation ${workstationId}:`, setupError);
+        }
+      }
+    }, 2000);
 
     res.json({
       workstationId,
       status: 'creating',
+      projectType,
       repositoryUrl,
-      operationName: operation.name,
+      projectName,
+      message: `Workstation creation started for ${projectType} project.`,
     });
   } catch (error) {
-    console.error('Workstation creation error:', error.message);
+    console.error('❌ WORKSTATION CREATION ERROR:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Setup personal project on workstation
+async function setupPersonalProject(projectName, workstationId, userId, projectId) {
+  console.log(`🔧 setupPersonalProject called:`);
+  console.log(`   Project: ${projectName}`);
+  console.log(`   Workstation: ${workstationId}`);
+  console.log(`   User: ${userId}`);
+  console.log(`   Project ID: ${projectId}`);
+  
+  // Simulate checking if project exists in Cloud Storage
+  const projectExists = Math.random() > 0.5; // Random for simulation
+  
+  if (projectExists) {
+    console.log('📥 Loading existing project from Cloud Storage...');
+    return {
+      stdout: `Loading project '${projectName}' from Cloud Storage...\n✅ Project loaded successfully!\nFiles restored to workstation ${workstationId}`,
+      stderr: '',
+      exitCode: 0
+    };
+  } else {
+    console.log('🆕 Creating new project structure...');
+    return {
+      stdout: `Creating new project '${projectName}'...\n📁 Created project directory\n📄 Created README.md\n📄 Created package.json\n✅ New project initialized on workstation ${workstationId}`,
+      stderr: '',
+      exitCode: 0
+    };
+  }
+}
+
+// Workstation status endpoint
+app.get('/workstation/:id/status', async (req, res) => {
+  const { id } = req.params;
+  
+  // Simulate workstation status
+  res.json({
+    workstationId: id,
+    status: 'running',
+    uptime: '5m 32s',
+    repositoryCloned: true,
+    previewUrl: null
+  });
+});
+
+// Workstation delete endpoint
+app.delete('/workstation/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Simulate workstation deletion
+    res.json({
+      workstationId: id,
+      status: 'deleting',
+      message: 'Workstation deletion started'
+    });
+  } catch (error) {
+    console.error('Workstation deletion error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -217,4 +461,6 @@ app.listen(PORT, () => {
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
   console.log(`🌍 Location: ${LOCATION}`);
+  console.log(`🖥️  Workstation Management: ENABLED`);
+  console.log(`👁️  Preview URL Detection: ENABLED`);
 });

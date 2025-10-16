@@ -65,3 +65,14 @@ export const AppColors = {
   purpleLight: '#B6ADFF',
   purpleDark: '#5946D6',
 };
+// Simple colors export for navigation
+export const colors = {
+  primary: '#6F5CFF',
+  background: '#090A0B',
+  surface: '#1C1C1E',
+  text: '#EDEDED',
+  textSecondary: '#9CA3AF',
+  border: '#2C2C2E',
+  success: '#3FB950',
+  error: '#F85149',
+};
