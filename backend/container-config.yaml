@@ -1,0 +1,68 @@
+# Configurazione container ottimizzata per costi e performance
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: drape-workstation
+  annotations:
+    # Auto-scaling
+    autoscaling.knative.dev/minScale: "0"      # Spegne quando non usato
+    autoscaling.knative.dev/maxScale: "100"    # Scale fino a 100 istanze
+    autoscaling.knative.dev/target: "10"       # 10 richieste per container
+    
+    # Timeout e lifecycle
+    run.googleapis.com/timeout: "3600s"        # 1 ora max
+    run.googleapis.com/execution-environment: "gen2"
+    
+    # Costi ottimizzati
+    run.googleapis.com/cpu-throttling: "true"  # CPU solo quando serve
+    
+spec:
+  template:
+    metadata:
+      annotations:
+        # Risorse base (auto-scale up se serve)
+        run.googleapis.com/memory: "512Mi"      # 512MB base
+        run.googleapis.com/cpu: "0.5"           # 0.5 CPU base
+        
+        # Sicurezza
+        run.googleapis.com/sandbox: "gvisor"    # Isolamento extra
+        
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 3600
+      
+      containers:
+      - image: gcr.io/PROJECT_ID/drape-workstation
+        ports:
+        - containerPort: 8080
+        
+        # Variabili ambiente sicure
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: AUTO_SHUTDOWN_MINUTES
+          value: "30"                           # Spegne dopo 30 min idle
+          
+        # Risorse con auto-scaling
+        resources:
+          limits:
+            memory: "2Gi"                       # Max 2GB se serve
+            cpu: "2"                            # Max 2 CPU se serve
+          requests:
+            memory: "256Mi"                     # Minimo 256MB
+            cpu: "0.1"                          # Minimo 0.1 CPU
+            
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10

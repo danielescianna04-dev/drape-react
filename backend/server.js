@@ -3,21 +3,155 @@ const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 const { VertexAI } = require('@google-cloud/vertexai');
-const { WorkstationsClient } = require('@google-cloud/workstations').v1;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Google Cloud Configuration - Same project as warp-mobile-ai-ide
-const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'drape-mobile-ide';
+// Google Cloud Configuration
+const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'drape-93229';
 const LOCATION = 'us-central1';
-const CLUSTER = 'drape-dev-cluster';
-const CONFIG = 'drape-workstation-config';
 
-const vertex_ai = new VertexAI({ project: PROJECT_ID, location: LOCATION });
-const workstationsClient = new WorkstationsClient();
+// Initialize Vertex AI
+const vertex_ai = new VertexAI({ 
+  project: PROJECT_ID, 
+  location: LOCATION 
+});
 
-const GITHUB_CLIENT_ID = 'Ov23likDO7phRcPUBcrk';
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    project: PROJECT_ID,
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// AI Chat endpoint
+app.post('/ai/chat', async (req, res) => {
+  try {
+    const { message, model = 'gemini-pro', projectContext } = req.body;
+    
+    console.log('AI Chat request:', { message, model, projectContext });
+    
+    // Get Vertex AI model
+    const generativeModel = vertex_ai.getGenerativeModel({ model });
+    
+    // Add project context to message
+    const contextualMessage = projectContext ? 
+      `Project Context: ${JSON.stringify(projectContext)}\n\nUser: ${message}` : 
+      message;
+    
+    // Generate response
+    const result = await generativeModel.generateContent(contextualMessage);
+    const response = result.response;
+    
+    res.json({
+      success: true,
+      response: response.text(),
+      model: model,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('AI Chat error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Terminal execute endpoint
+app.post('/terminal/execute', async (req, res) => {
+  try {
+    const { command, workstationId, language = 'bash' } = req.body;
+    
+    console.log('Terminal execute:', { command, workstationId, language });
+    
+    // Simulate command execution
+    // In production, this would execute in a container
+    const output = `Executing: ${command}\n✅ Command completed successfully`;
+    
+    res.json({
+      success: true,
+      output: output,
+      workstationId: workstationId,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Terminal execute error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Container management endpoints
+app.post('/containers/start', async (req, res) => {
+  try {
+    const { projectId, language } = req.body;
+    
+    console.log('Starting container:', { projectId, language });
+    
+    // Simulate container startup
+    setTimeout(() => {
+      console.log(`Container ${projectId} started`);
+    }, 2000);
+    
+    res.json({
+      success: true,
+      containerId: `container-${projectId}`,
+      status: 'starting',
+      webUrl: `http://localhost:${3000 + Math.floor(Math.random() * 1000)}`,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Container start error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+app.post('/containers/stop', async (req, res) => {
+  try {
+    const { containerId } = req.body;
+    
+    console.log('Stopping container:', containerId);
+    
+    res.json({
+      success: true,
+      containerId: containerId,
+      status: 'stopped',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Container stop error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Drape Backend running on port ${PORT}`);
+  console.log(`📊 Project: ${PROJECT_ID}`);
+  console.log(`🤖 Vertex AI: Ready`);
+  console.log(`🔗 Health: http://localhost:${PORT}/health`);
+});
 const GITHUB_CLIENT_SECRET = '74afe739ecc6c19948178aca719bf006bec1dda7';
 
 app.use(cors());

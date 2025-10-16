@@ -1,4 +1,7 @@
 import { create } from 'zustand';
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { ProjectService } from '../firebase/projectService';
 import {
   TerminalItem,
   ChatSession,

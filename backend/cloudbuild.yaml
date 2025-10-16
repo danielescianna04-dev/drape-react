@@ -7,7 +7,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/drape-backend']
   
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run with secrets
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -21,6 +21,23 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GITHUB_CLIENT_ID=Ov23likDO7phRcPUBcrk'
+      - '--set-secrets'
+      - 'GITHUB_CLIENT_SECRET=GITHUB_CLIENT_SECRET:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest,GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY=GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/drape-backend'
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/GITHUB_CLIENT_SECRET/versions/latest
+      env: 'GITHUB_CLIENT_SECRET'
+    - versionName: projects/$PROJECT_ID/secrets/OPENAI_API_KEY/versions/latest
+      env: 'OPENAI_API_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/ANTHROPIC_API_KEY/versions/latest
+      env: 'ANTHROPIC_API_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/GOOGLE_AI_API_KEY/versions/latest
+      env: 'GOOGLE_AI_API_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY/versions/latest
+      env: 'GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY'
