@@ -590,9 +590,10 @@ app.delete('/workstation/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Drape Backend running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
   console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
   console.log(`🌍 Location: ${LOCATION}`);
   console.log(`🖥️  Workstation Management: ENABLED`);

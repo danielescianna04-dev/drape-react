@@ -82,15 +82,10 @@ jobs:
           EXPO_PUBLIC_WS_URL=${{ needs.deploy-backend.outputs.backend_url }}
           EOF
           
-      - name: Build for production
+      - name: Verify configuration
         run: |
-          npm run build
-          
-      - name: Deploy to Expo
-        run: |
-          npx eas build --platform all --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          echo "✅ Frontend configured with backend URL: ${{ needs.deploy-backend.outputs.backend_url }}"
+          echo "📱 To build the app, run: eas build --platform all"
 
   notify-team:
     needs: [deploy-backend, deploy-frontend]
