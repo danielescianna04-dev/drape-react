@@ -601,17 +601,6 @@ app.delete('/workstation/:id', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Drape Backend running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
-  console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
-  console.log(`🌍 Location: ${LOCATION}`);
-  console.log(`🖥️  Workstation Management: ENABLED`);
-  console.log(`👁️  Preview URL Detection: ENABLED`);
-});
-
-// Get project files from workstation
 app.post('/workstation/list-files', async (req, res) => {
     const { workstationId } = req.body;
     
@@ -670,3 +659,14 @@ app.post('/workstation/modify-file', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Drape Backend running on port ${PORT}`);
+  console.log(`📍 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
+  console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
+  console.log(`🌍 Location: ${LOCATION}`);
+  console.log(`🖥️  Workstation Management: ENABLED`);
+  console.log(`👁️  Preview URL Detection: ENABLED`);
+});
+
+// Get project files from workstation
