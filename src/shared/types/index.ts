@@ -6,7 +6,8 @@ export enum TerminalItemType {
 }
 
 export interface TerminalItem {
-  id?: string;  content: string;
+  id?: string;
+  content: string;
   type: TerminalItemType;
   timestamp: Date;
   errorDetails?: string;

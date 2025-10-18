@@ -20,7 +20,6 @@ import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
-import { SafeText } from '../../shared/components/SafeText';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
@@ -48,9 +47,6 @@ export const TerminalScreen = () => {
     currentWorkstation,
   } = useTerminalStore();
 
-
-  useEffect(() => {
-  }, [currentWorkstation]);
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [terminalItems]);
@@ -175,50 +171,10 @@ export const TerminalScreen = () => {
         });
       } else {
         // Chat mode - AI response
-        
-        let enhancedPrompt = userMessage;
-        if (currentWorkstation && /analizza|analyze|spiega|explain|cosa fa/i.test(userMessage)) {
-          addTerminalItem({
-            id: (Date.now() + 0.5).toString(),
-            content: '📂 Caricamento file...',
-            type: TerminalItemType.SYSTEM,
-            timestamp: new Date(),
-          });
-          
-          try {
-            const filesResponse = await axios.post(
-              `${process.env.EXPO_PUBLIC_API_URL}/workstation/list-files`,
-              { workstationId: currentWorkstation.id }
-            );
-            
-            const files = filesResponse.data.files || [];
-            const mainFiles = files.filter(f => 
-              f.includes('package.json') || f.includes('README') || 
-              f.includes('index') || f.includes('App') || f.includes('main')
-            ).slice(0, 5);
-            
-            const fileContents = await Promise.all(
-              mainFiles.map(async (filePath) => {
-                try {
-                  const content = await axios.post(
-                    `${process.env.EXPO_PUBLIC_API_URL}/workstation/read-file`,
-                    { workstationId: currentWorkstation.id, filePath }
-                  );
-                  return '\n--- ' + filePath + ' ---\n' + content.data.content;
-                } catch { return ''; }
-              })
-            );
-            
-            enhancedPrompt = userMessage + '\n\nFile del progetto:\n' + fileContents.join('\n');
-          } catch (error) {
-            console.error('Error loading files:', error);
-          }
-        }
-        
         const response = await axios.post(
           `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`,
           { 
-            prompt: enhancedPrompt,
+            prompt: userMessage,
             model: selectedModel,
             workstationId: currentWorkstation?.id,
             context: currentWorkstation ? {
@@ -261,11 +217,12 @@ export const TerminalScreen = () => {
       {/* <PreviewEye /> */}
 
       {/* Project Context Header */}
+      {/* Temporaneamente disabilitato per debug
       {currentWorkstation && (
         <View style={styles.contextHeader}>
           <View style={styles.contextContent}>
             <Ionicons name="folder-open" size={18} color={AppColors.primary} />
-            <SafeText style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</SafeText>
+            <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</Text>
           </View>
           
           <TouchableOpacity
@@ -289,6 +246,31 @@ export const TerminalScreen = () => {
         </View>
       )}
       */}
+        <View style={styles.contextHeader}>
+          <View style={styles.contextContent}>
+            <Ionicons name="folder-open" size={18} color={AppColors.primary} />
+            <Text style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</Text>
+          </View>
+          
+          <TouchableOpacity
+            style={[
+              styles.eyeButton,
+              { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
+            ]}
+            onPress={() => {
+              if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
+                console.log('Opening web preview:', currentWorkstation.webUrl);
+              }
+            }}
+            disabled={(currentWorkstation?.status || 'idle') !== 'running'}
+          >
+            <Ionicons 
+              name="eye" 
+              size={16} 
+              color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
+            />
+          </TouchableOpacity>        </View>
+      )}
 
       <ScrollView
         ref={scrollViewRef}
@@ -298,7 +280,7 @@ export const TerminalScreen = () => {
       >
         {!hasInteracted && terminalItems.length === 0 ? (
           <View style={{ padding: 20 }}>
-            <SafeText style={{ color: 'white', textAlign: 'center' }}>Welcome - WelcomeView disabled for debug</SafeText>
+            <Text style={{ color: 'white', textAlign: 'center' }}>Welcome - WelcomeView disabled for debug</Text>
           </View>
         ) : (
           terminalItems
@@ -310,9 +292,9 @@ export const TerminalScreen = () => {
         
         {isLoading && (
           <View style={styles.loadingRow}>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
+            <Text style={[styles.loadingDot, { color: AppColors.primary }]}>●</Text>
+            <Text style={[styles.loadingDot, { color: AppColors.primary }]}>●</Text>
+            <Text style={[styles.loadingDot, { color: AppColors.primary }]}>●</Text>
           </View>
         )}
       </ScrollView>
@@ -376,13 +358,13 @@ export const TerminalScreen = () => {
                 </TouchableOpacity>
               </View>
               {!forcedMode && (
-                <SafeText style={styles.autoLabel}>AUTO</SafeText>
+                <Text style={styles.autoLabel}>AUTO</Text>
               )}
             </View>
 
             {/* Model Selector */}
             <TouchableOpacity style={styles.modelSelector}>
-              <SafeText style={styles.modelText}>{selectedModel}</SafeText>
+              <Text style={styles.modelText}>{selectedModel}</Text>
               <Ionicons name="chevron-down" size={14} color="#8A8A8A" />
             </TouchableOpacity>
           </View>

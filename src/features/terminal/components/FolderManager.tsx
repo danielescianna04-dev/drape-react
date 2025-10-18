@@ -56,7 +56,7 @@ export const FolderManager = ({ onOpenWorkstation, onDeleteWorkstation }: any) =
               >
                 <View style={styles.projectHeader}>
                   <Ionicons name="document" size={14} color={AppColors.primary} />
-                  <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+                  <Text style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</Text>
                   <TouchableOpacity onPress={(e) => onDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
                     <Ionicons name="trash-outline" size={14} color="#FF4444" />
                   </TouchableOpacity>
@@ -76,7 +76,7 @@ export const FolderManager = ({ onOpenWorkstation, onDeleteWorkstation }: any) =
           >
             <View style={styles.projectHeader}>
               <Ionicons name="folder" size={16} color={AppColors.primary} />
-              <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+              <Text style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</Text>
               <TouchableOpacity 
                 onPress={(e) => {
                   e.stopPropagation();
@@ -93,12 +93,12 @@ export const FolderManager = ({ onOpenWorkstation, onDeleteWorkstation }: any) =
             <View style={styles.projectMeta}>
               {ws.language && (
                 <View style={styles.languageTag}>
-                  <Text style={styles.languageText}>{ws.language}</Text>
+                  <Text style={styles.languageText}>{ws.language || 'Unknown'}</Text>
                 </View>
               )}
               <View style={styles.projectStatus}>
                 <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? '#00FF88' : '#FFA500' }]} />
-                <Text style={styles.statusText}>{ws.status}</Text>
+                <Text style={styles.statusText}>{ws.status || 'unknown'}</Text>
               </View>
             </View>
           </TouchableOpacity>

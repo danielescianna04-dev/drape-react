@@ -75,8 +75,8 @@ export const workstationService = {
     try {
       const q = query(
         collection(db, COLLECTION), 
-        where('userId', '==', userId),
-        orderBy('lastAccessed', 'desc')
+        where('userId', '==', userId)
+        // orderBy('lastAccessed', 'desc') // TODO: Uncomment after creating index
       );
       
       const querySnapshot = await getDocs(q);
@@ -184,7 +184,24 @@ export const workstationService = {
   },
 
   async getWorkstations(): Promise<WorkstationInfo[]> {
-    return [];
+    try {
+      const userId = 'anonymous'; // TODO: get from auth
+      const projects = await this.getUserProjects(userId);
+      
+      return projects.map(project => ({
+        id: project.id,
+        name: project.name,
+        language: 'Unknown',
+        status: project.status as any,
+        createdAt: project.createdAt,
+        files: [],
+        githubUrl: project.repositoryUrl,
+        folderId: null,
+      }));
+    } catch (error) {
+      console.error('Error getting workstations:', error);
+      return [];
+    }
   },
 
   async createEmptyWorkstation(name: string): Promise<WorkstationInfo> {

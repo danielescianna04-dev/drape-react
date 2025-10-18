@@ -15,7 +15,7 @@ export const ProjectItem = ({ workstation, onPress, onDelete }: Props) => {
     <TouchableOpacity style={styles.projectItem} onPress={onPress}>
       <View style={styles.projectHeader}>
         <Ionicons name="folder" size={16} color={AppColors.primary} />
-        <Text style={styles.projectName} numberOfLines={1}>{workstation.name}</Text>
+        <Text style={styles.projectName} numberOfLines={1}>{workstation.name || 'Unnamed Project'}</Text>
         <TouchableOpacity onPress={onDelete} style={styles.deleteButton}>
           <Ionicons name="trash-outline" size={16} color="#FF4444" />
         </TouchableOpacity>
@@ -23,12 +23,12 @@ export const ProjectItem = ({ workstation, onPress, onDelete }: Props) => {
       <View style={styles.projectMeta}>
         {workstation.language && (
           <View style={styles.languageTag}>
-            <Text style={styles.languageText}>{workstation.language}</Text>
+            <Text style={styles.languageText}>{workstation.language || 'Unknown'}</Text>
           </View>
         )}
         <View style={styles.projectStatus}>
           <View style={[styles.statusDot, { backgroundColor: workstation.status === 'running' ? '#00FF88' : '#FFA500' }]} />
-          <Text style={styles.statusText}>{workstation.status}</Text>
+          <Text style={styles.statusText}>{workstation.status || 'unknown'}</Text>
         </View>
       </View>
     </TouchableOpacity>

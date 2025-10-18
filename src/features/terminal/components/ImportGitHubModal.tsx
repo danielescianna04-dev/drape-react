@@ -11,7 +11,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading }: Props) => {
+export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = false }: Props) => {
   const [repoUrl, setRepoUrl] = useState('');
 
   useEffect(() => {
@@ -21,18 +21,25 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading }: Pro
   }, [visible]);
 
   const checkClipboard = async () => {
-    const text = await Clipboard.getStringAsync();
-    if (text && text.includes('github.com')) {
-      setRepoUrl(text);
+    try {
+      const text = await Clipboard.getStringAsync();
+      if (text && typeof text === 'string' && text.includes('github.com')) {
+        setRepoUrl(text);
+      }
+    } catch (error) {
+      console.log('Clipboard error:', error);
     }
   };
 
   const handleImport = () => {
-    if (repoUrl.trim()) {
-      onImport(repoUrl.trim());
+    const url = String(repoUrl || '').trim();
+    if (url) {
+      onImport(url);
       setRepoUrl('');
     }
   };
+
+  const isValidUrl = String(repoUrl || '').trim().length > 0;
 
   return (
     <Modal
@@ -51,8 +58,8 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading }: Pro
           <Text style={styles.label}>GitHub URL</Text>
           <TextInput
             style={styles.input}
-            value={repoUrl}
-            onChangeText={setRepoUrl}
+            value={String(repoUrl || '')}
+            onChangeText={(text) => setRepoUrl(String(text || ''))}
             placeholder="https://github.com/username/repository"
             placeholderTextColor="rgba(255, 255, 255, 0.4)"
             autoCapitalize="none"
@@ -66,12 +73,12 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading }: Pro
               onPress={onClose}
               disabled={isLoading}
             >
-              <Text style={styles.cancelText}>Annulla</Text>
+              <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.importButton, (!repoUrl.trim() || isLoading) && styles.importButtonDisabled]} 
+              style={[styles.importButton, (!isValidUrl || isLoading) && styles.importButtonDisabled]} 
               onPress={handleImport}
-              disabled={!repoUrl.trim() || isLoading}
+              disabled={!isValidUrl || isLoading}
             >
               {isLoading ? (
                 <ActivityIndicator color="#000000" />

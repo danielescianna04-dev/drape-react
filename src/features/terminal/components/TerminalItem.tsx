@@ -13,6 +13,11 @@ export const TerminalItem = ({ item }: Props) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
 
+
+  // Protezione per content null/undefined
+  if (!item || item.content == null) {
+    return null;
+  }
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -41,7 +46,7 @@ export const TerminalItem = ({ item }: Props) => {
     }
   };
 
-  const isTerminalCommand = item.type === ItemType.COMMAND && item.content.match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/);
+  const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/);
 
   return (
     <Animated.View
@@ -57,7 +62,7 @@ export const TerminalItem = ({ item }: Props) => {
         isTerminalCommand ? (
           <View style={styles.terminalCommand}>
             <Text style={styles.terminalPrompt}>$ </Text>
-            <Text style={styles.terminalText}>{item.content}</Text>
+            <Text style={styles.terminalText}>{item.content || ''}</Text>
           </View>
         ) : (
           <View style={styles.messageBlock}>
@@ -68,7 +73,7 @@ export const TerminalItem = ({ item }: Props) => {
               <Text style={styles.userName}>You</Text>
             </View>
             <View style={styles.messageContent}>
-              <Text style={styles.userMessage}>{item.content}</Text>
+              <Text style={styles.userMessage}>{item.content || ''}</Text>
             </View>
           </View>
         )
@@ -76,7 +81,7 @@ export const TerminalItem = ({ item }: Props) => {
 
       {item.type === ItemType.OUTPUT && (
         isTerminalCommand ? (
-          <Text style={styles.terminalOutput}>{item.content}</Text>
+          <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
           <View style={styles.messageBlock}>
             <View style={styles.assistantHeader}>
@@ -86,7 +91,7 @@ export const TerminalItem = ({ item }: Props) => {
               <Text style={styles.assistantName}>Drape AI</Text>
             </View>
             <View style={styles.messageContent}>
-              <Text style={styles.assistantMessage}>{item.content}</Text>
+              <Text style={styles.assistantMessage}>{item.content || ''}</Text>
             </View>
           </View>
         )
@@ -101,14 +106,14 @@ export const TerminalItem = ({ item }: Props) => {
             <Text style={styles.errorName}>Error</Text>
           </View>
           <View style={styles.messageContent}>
-            <Text style={styles.errorMessage}>{item.content}</Text>
+            <Text style={styles.errorMessage}>{item.content || ''}</Text>
           </View>
         </View>
       )}
 
       {item.type === ItemType.SYSTEM && (
         <View style={styles.systemBlock}>
-          <Text style={styles.systemText}>{item.content}</Text>
+          <Text style={styles.systemText}>{item.content || ''}</Text>
         </View>
       )}
     </Animated.View>

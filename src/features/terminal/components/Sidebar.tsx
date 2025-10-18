@@ -8,6 +8,7 @@ import {
   TextInput,
   Animated,
   Modal,} from 'react-native';
+import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,7 +16,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
-import { workstationService } from '../../../core/workstation/workstationService';
+import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { NewFolderModal } from './NewFolderModal';
 import { NewProjectModal } from './NewProjectModal';
 import { ImportGitHubModal } from './ImportGitHubModal';
@@ -30,6 +31,9 @@ interface Props {
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
   const {
@@ -41,6 +45,13 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     setSelectedRepository,
     addTerminalItem,
     loadWorkstations,
+    addWorkstation,
+    workstations,
+    projectFolders,
+    toggleFolderExpanded,
+    removeProjectFolder,
+    setWorkstation,
+    removeWorkstation,
   } = useTerminalStore();
 
   useEffect(() => {
@@ -65,6 +76,20 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       duration: 200,
       useNativeDriver: true,
     }).start(() => onClose());
+  };
+
+  const handleOpenWorkstation = (ws: any) => {
+    setWorkstation(ws);
+    onClose();
+  };
+
+  const handleDeleteWorkstation = (id: string, e: any) => {
+    e.stopPropagation();
+    removeWorkstation(id);
+  };
+
+  const handleCreateFolder = (name: string) => {
+    console.log("Create folder:", name);
   };
 
   return (
@@ -143,7 +168,117 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {activeTab === 'projects' ? (
-          <ProjectsList onClose={handleClose} addTerminalItem={addTerminalItem} />
+          <>
+            <View style={styles.actionButtonsContainer}>
+              <TouchableOpacity 
+                style={styles.compactButton}
+                onPress={() => setShowNewProjectModal(true)}
+              >
+                <Ionicons name="grid-outline" size={20} color={AppColors.primary} />
+                <Text style={styles.compactButtonText}>Nuovo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.compactButton}
+                onPress={() => setShowImportModal(true)}
+              >
+                <Ionicons name="logo-github" size={20} color={AppColors.primary} />
+                <Text style={styles.compactButtonText}>Importa</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.compactButton}
+                onPress={() => setShowNewFolderModal(true)}
+              >
+                <Ionicons name="folder-open-outline" size={20} color="#FFA500" />
+                <Text style={styles.compactButtonText}>Cartella</Text>
+              </TouchableOpacity>
+            </View>
+
+            {projectFolders.length === 0 && workstations.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+                <Text style={styles.emptyText}>Nessun progetto</Text>
+              </View>
+            ) : (
+              <>
+                {workstations
+                  .filter((w) => !w.folderId)
+                  .map((ws) => (
+                    <TouchableOpacity 
+                      key={ws.id} 
+                      style={styles.projectItem}
+                      onPress={() => handleOpenWorkstation(ws)}
+                    >
+                      <View style={styles.projectHeader}>
+                        <Ionicons name="document" size={16} color={AppColors.primary} />
+                        <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
+                        <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
+                          <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+              </>
+            )}
+
+            {showImportModal && (
+              <Modal
+                visible={true}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowImportModal(false)}
+              >
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+                  <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24 }}>
+                    <SafeText style={{ fontSize: 20, fontWeight: '600', color: '#FFFFFF', marginBottom: 20 }}>Import GitHub Repo</SafeText>
+                    <TextInput
+                      style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, color: '#FFFFFF', marginBottom: 20 }}
+                      placeholder="Paste GitHub URL and press Enter"
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      onSubmitEditing={async (e) => {
+                        const url = String(e.nativeEvent.text || '').trim();
+                        console.log('🔵 URL submitted:', url);
+                        if (url) {
+                          try {
+                            const userId = useTerminalStore.getState().userId || 'anonymous';
+                            const project = await workstationService.saveGitProject(url, userId);
+                            const wsResult = await workstationService.createWorkstationForProject(project);
+                            
+                            const workstation = {
+                              id: wsResult.workstationId || project.id,
+                              name: project.name,
+                              language: 'Unknown',
+                              status: wsResult.status as any,
+                              createdAt: project.createdAt,
+                              files: [],
+                              githubUrl: project.repositoryUrl,
+                              folderId: null,
+                            };
+                            
+                            addWorkstation(workstation);
+                            setShowImportModal(false);
+                            console.log('🔵 Workstation added and modal closed');
+                          } catch (error) {
+                            console.error('Import error:', error);
+                          }
+                        }
+                      }}
+                    />
+                    <TouchableOpacity 
+                      style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: 12, borderRadius: 8, alignItems: 'center' }}
+                      onPress={() => {
+                        console.log('🔵 Cancel clicked');
+                        setShowImportModal(false);
+                      }}
+                    >
+                      <SafeText style={{ color: '#FFFFFF' }}>Cancel</SafeText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </Modal>
+            )}
+          </>
         ) : (
           <ChatList chats={chatHistory} />
         )}
@@ -196,17 +331,17 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
           <Ionicons name="person-circle" size={40} color={AppColors.primary} />
           <View style={styles.userDetails}>
             <Text style={styles.userName}>{user.name || user.login}</Text>
-            <Text style={styles.userRepos}>{repositories.length} repositories</Text>
+            <SafeText style={styles.userRepos}>{(repositories || []).length} repositories</SafeText>
           </View>
         </View>
       )}
 
-      {repositories.length === 0 ? (
+      {(repositories || []).length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>Nessuna repository trovata</Text>
         </View>
       ) : (
-        repositories.map((repo: any) => (
+        (repositories || []).map((repo: any) => (
           <TouchableOpacity
             key={repo.id}
             style={[
@@ -239,7 +374,7 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
               )}
               <View style={styles.repoMetaItem}>
                 <Ionicons name="star-outline" size={14} color="rgba(255, 255, 255, 0.5)" />
-                <Text style={styles.repoMetaText}>{repo.stargazers_count}</Text>
+                <Text style={styles.repoMetaText}>{String(repo.stargazers_count || 0)}</Text>
               </View>
             </View>
           </TouchableOpacity>
@@ -282,18 +417,30 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
   };
 
   const handleImportFromGitHub = (repoUrl: string) => {
-    const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'Imported';
-    const newWorkstation = {
-      id: 'ws-' + Date.now(),
-      name: repoName,
-      language: 'Unknown',
-      status: 'idle' as const,
-      createdAt: new Date(),
-      files: [],
-      githubUrl: repoUrl,
-      folderId: null,
-    };
-    addWorkstation(newWorkstation);
+    console.log('🔵 handleImportFromGitHub called with:', repoUrl);
+    try {
+      console.log('🔵 Processing repo URL...');
+      const repoName = String(repoUrl || '').split('/').pop()?.replace('.git', '') || 'Imported';
+      console.log('🔵 Repo name:', repoName);
+      
+      const newWorkstation = {
+        id: 'ws-' + Date.now(),
+        name: String(repoName),
+        language: 'Unknown',
+        status: 'idle' as const,
+        createdAt: new Date(),
+        files: [],
+        githubUrl: String(repoUrl || ''),
+        folderId: null,
+      };
+      console.log('🔵 New workstation:', newWorkstation);
+      
+      console.log('🔵 Adding workstation...');
+      addWorkstation(newWorkstation);
+      console.log('🔵 Workstation added successfully');
+    } catch (error) {
+      console.error('🔴 Import error:', error);
+    }
   };
 
   const handleCreateFolder = (name: string) => {
@@ -312,7 +459,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
     addTerminalItem({
       id: Date.now().toString(),
       type: 'output',
-      content: `Opened workstation: ${ws.name}`,
+      content: `Opened workstation: ${ws.name || 'Unnamed Project'}`,
       timestamp: new Date(),
     });
     onClose();
@@ -336,11 +483,36 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
         onConfirm={handleCreateProject}
       />
 
-      <ImportGitHubModal
+      <Modal
         visible={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onImport={handleImportFromGitHub}
-      />
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowImportModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24 }}>
+            <Text style={{ fontSize: 20, fontWeight: '600', color: '#FFFFFF', marginBottom: 20 }}>Import GitHub Repo</Text>
+            <TextInput
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, color: '#FFFFFF', marginBottom: 20 }}
+              placeholder="https://github.com/user/repo.git"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              onSubmitEditing={(e) => {
+                const url = String(e.nativeEvent.text || '').trim();
+                if (url) {
+                  handleImportFromGitHub(url);
+                  setShowImportModal(false);
+                }
+              }}
+            />
+            <TouchableOpacity 
+              style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: 12, borderRadius: 8, alignItems: 'center' }}
+              onPress={() => setShowImportModal(false)}
+            >
+              <Text style={{ color: '#FFFFFF' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <NewFolderModal
         visible={showNewFolderModal}
@@ -401,7 +573,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
                   >
                     <View style={styles.projectHeader}>
                       <Ionicons name="document" size={14} color={AppColors.primary} />
-                      <Text style={styles.projectName} numberOfLines={1}>{ws.name}</Text>
+                      <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
                       <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
                         <Ionicons name="trash-outline" size={14} color="#FF4444" />
                       </TouchableOpacity>
@@ -413,18 +585,20 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
 
           {workstations
             .filter((w) => !w.folderId)
-            .map((ws, idx) => (
-              <DraggableProject
-                key={ws.id}
-                project={ws}
-                index={idx}
+            .map((ws) => (
+              <TouchableOpacity 
+                key={ws.id} 
+                style={styles.projectItem}
                 onPress={() => handleOpenWorkstation(ws)}
-                onDelete={(e) => handleDeleteWorkstation(ws.id, e)}
-                onDragEnd={handleMoveToFolder}
-                onReorder={reorderWorkstations}
-                folders={projectFolders}
-                allProjects={workstations.filter((w) => !w.folderId)}
-              />
+              >
+                <View style={styles.projectHeader}>
+                  <Ionicons name="document" size={16} color={AppColors.primary} />
+                  <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
+                  <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
+                    <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
             ))}
         </>
       )}
@@ -469,6 +643,40 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
     </View>
   );
 };
+
+// Modal component separato per evitare problemi di sintassi
+const ImportModal = ({ visible, onClose, onImport }: { visible: boolean; onClose: () => void; onImport: (url: string) => void }) => (
+  <Modal
+    visible={visible}
+    transparent
+    animationType="fade"
+    onRequestClose={onClose}
+  >
+    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24 }}>
+        <SafeText style={{ fontSize: 20, fontWeight: '600', color: '#FFFFFF', marginBottom: 20 }}>Import GitHub Repo</SafeText>
+        <TextInput
+          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, color: '#FFFFFF', marginBottom: 20 }}
+          placeholder="https://github.com/user/repo.git"
+          placeholderTextColor="rgba(255,255,255,0.4)"
+          onSubmitEditing={(e) => {
+            const url = String(e.nativeEvent.text || '').trim();
+            if (url) {
+              onImport(url);
+              onClose();
+            }
+          }}
+        />
+        <TouchableOpacity 
+          style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: 12, borderRadius: 8, alignItems: 'center' }}
+          onPress={onClose}
+        >
+          <SafeText style={{ color: '#FFFFFF' }}>Cancel</SafeText>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </Modal>
+);
 const getLanguageColor = (language: string): string => {
   const colors: Record<string, string> = {
     JavaScript: '#f1e05a',

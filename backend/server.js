@@ -238,7 +238,7 @@ app.post('/github/exchange-code', async (req, res) => {
 
 // AI Chat endpoint - Using REST API for better auth compatibility
 app.post('/ai/chat', async (req, res) => {
-    const { prompt, conversationHistory = [], model = 'gemini-2.0-flash' } = req.body;
+    const { prompt, conversationHistory = [], model = 'gemini-2.0-flash', workstationId, context } = req.body;
     
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
@@ -252,6 +252,17 @@ app.post('/ai/chat', async (req, res) => {
         
         const { stdout: token } = await execAsync('gcloud auth print-access-token');
         const accessToken = token.trim();
+        
+        // Build system instruction with project context
+        let systemInstruction = 'Sei un assistente AI intelligente e versatile. Rispondi sempre in italiano in modo naturale e conversazionale.';
+        
+        if (context) {
+            systemInstruction += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
+            if (context.repositoryUrl) {
+                systemInstruction += `\n- Repository: ${context.repositoryUrl}`;
+            }
+            systemInstruction += '\n\nPuoi analizzare e modificare i file del progetto. Quando l\'utente chiede di modificare un file, fornisci il codice completo aggiornato.';
+        }
         
         // Prepare request to Vertex AI REST API
         const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/gemini-2.0-flash-exp:generateContent`;
@@ -274,7 +285,7 @@ app.post('/ai/chat', async (req, res) => {
                 maxOutputTokens: 2048
             },
             systemInstruction: {
-                parts: [{ text: 'Sei un assistente AI intelligente e versatile. Rispondi sempre in italiano in modo naturale e conversazionale.' }]
+                parts: [{ text: systemInstruction }]
             }
         };
         
@@ -598,4 +609,64 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌍 Location: ${LOCATION}`);
   console.log(`🖥️  Workstation Management: ENABLED`);
   console.log(`👁️  Preview URL Detection: ENABLED`);
+});
+
+// Get project files from workstation
+app.post('/workstation/list-files', async (req, res) => {
+    const { workstationId } = req.body;
+    
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        
+        // List files in workstation (assuming it's accessible via gcloud)
+        const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="find /workspace -type f -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.json' | head -50"`);
+        
+        const files = stdout.trim().split('\n').filter(f => f);
+        
+        res.json({ success: true, files });
+    } catch (error) {
+        console.error('List files error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Read file content from workstation
+app.post('/workstation/read-file', async (req, res) => {
+    const { workstationId, filePath } = req.body;
+    
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        
+        const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="cat ${filePath}"`);
+        
+        res.json({ success: true, content: stdout });
+    } catch (error) {
+        console.error('Read file error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Modify file in workstation
+app.post('/workstation/modify-file', async (req, res) => {
+    const { workstationId, filePath, content } = req.body;
+    
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        
+        // Escape content for shell
+        const escapedContent = content.replace(/'/g, "'\\''");
+        
+        await execAsync(`gcloud workstations ssh ${workstationId} --command="echo '${escapedContent}' > ${filePath}"`);
+        
+        res.json({ success: true, message: 'File modified successfully' });
+    } catch (error) {
+        console.error('Modify file error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });

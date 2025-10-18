@@ -158,7 +158,7 @@ export const DraggableProject = ({ project, index, onPress, onDelete, onDragEnd,
             <View style={styles.iconContainer}>
               <Ionicons name="cube-outline" size={18} color="#6F5CFF" />
             </View>
-            <Text style={styles.name} numberOfLines={1}>{project.name}</Text>
+            <Text style={styles.name} numberOfLines={1}>{project.name || 'Unnamed Project'}</Text>
             <TouchableOpacity 
               onPress={onDelete} 
               style={styles.deleteButton}
@@ -171,7 +171,7 @@ export const DraggableProject = ({ project, index, onPress, onDelete, onDragEnd,
             {project.language && (
               <View style={styles.languageTag}>
                 <View style={styles.languageDot} />
-                <Text style={styles.languageText}>{project.language}</Text>
+                <Text style={styles.languageText}>{project.language || 'Unknown'}</Text>
               </View>
             )}
             <View style={styles.status}>

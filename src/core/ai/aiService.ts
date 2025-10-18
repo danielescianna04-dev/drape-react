@@ -95,3 +95,34 @@ export class AIService {
 }
 
 export const aiService = new AIService();
+
+  async analyzeProject(workstationId: string): Promise<{
+    files: string[];
+    structure: any;
+    summary: string;
+  }> {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/ai/analyze-project`,
+        { workstationId },
+        { timeout: 30000 }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Project Analysis Error:', error);
+      throw error;
+    }
+  }
+
+  async modifyFile(workstationId: string, filePath: string, content: string): Promise<void> {
+    try {
+      await axios.post(
+        `${this.baseUrl}/workstation/modify-file`,
+        { workstationId, filePath, content },
+        { timeout: 10000 }
+      );
+    } catch (error) {
+      console.error('File Modification Error:', error);
+      throw error;
+    }
+  }
