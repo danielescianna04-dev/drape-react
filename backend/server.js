@@ -145,13 +145,15 @@ app.post('/containers/stop', async (req, res) => {
   }
 });
 
-// Start server
+// Start server (commentato - usa quello alla fine del file)
+/*
 app.listen(PORT, () => {
   console.log(`🚀 Drape Backend running on port ${PORT}`);
   console.log(`📊 Project: ${PROJECT_ID}`);
   console.log(`🤖 Vertex AI: Ready`);
   console.log(`🔗 Health: http://localhost:${PORT}/health`);
 });
+*/
 const GITHUB_CLIENT_SECRET = '74afe739ecc6c19948178aca719bf006bec1dda7';
 
 app.use(cors());
