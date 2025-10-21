@@ -91,6 +91,7 @@ interface TerminalState {
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
   setShowAutocomplete: (show: boolean) => void;
+  setWorkstationFiles: (workstationId: string, files: string[]) => void;
 }
 
 export const useTerminalStore = create<TerminalState>((set) => ({
@@ -219,4 +220,14 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
   setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),
   setShowAutocomplete: (show) => set({ showAutocomplete: show }),
+  setWorkstationFiles: (workstationId, files) =>
+    set((state) => ({
+      workstations: state.workstations.map((w) =>
+        w.id === workstationId ? { ...w, files } : w
+      ),
+      currentWorkstation:
+        state.currentWorkstation?.id === workstationId
+          ? { ...state.currentWorkstation, files }
+          : state.currentWorkstation,
+    })),
 }));

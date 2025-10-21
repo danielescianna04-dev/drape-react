@@ -162,7 +162,6 @@ export const DraggableProject = ({ project, index, onPress, onDelete, onDragEnd,
             <TouchableOpacity 
               onPress={onDelete} 
               style={styles.deleteButton}
-              onStartShouldSetResponder={() => true}
             >
               <Ionicons name="trash-outline" size={16} color="#FF6B6B" />
             </TouchableOpacity>

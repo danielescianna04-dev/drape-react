@@ -6,16 +6,18 @@ import { AppColors } from '../../../shared/theme/colors';
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onConfirm: (name: string) => void;
+  onConfirm: (name: string, language: string) => void;
 }
 
 export const NewProjectModal = ({ visible, onClose, onConfirm }: Props) => {
   const [projectName, setProjectName] = useState('');
+  const [language, setLanguage] = useState('');
 
   const handleConfirm = () => {
     if (projectName.trim()) {
-      onConfirm(projectName.trim());
+      onConfirm(projectName.trim(), language.trim());
       setProjectName('');
+      setLanguage('');
       onClose();
     }
   };
@@ -41,6 +43,14 @@ export const NewProjectModal = ({ visible, onClose, onConfirm }: Props) => {
             placeholder="Nome del progetto"
             placeholderTextColor="rgba(255, 255, 255, 0.4)"
             autoFocus
+          />
+
+          <TextInput
+            style={styles.input}
+            value={language}
+            onChangeText={setLanguage}
+            placeholder="Linguaggio (es. JavaScript)"
+            placeholderTextColor="rgba(255, 255, 255, 0.4)"
           />
 
           <View style={styles.buttons}>

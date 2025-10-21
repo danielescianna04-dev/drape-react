@@ -86,7 +86,7 @@ export const AllProjectsScreen = ({ onClose }: Props) => {
       <ImportGitHubModal
         visible={showImportModal}
         onClose={() => setShowImportModal(false)}
-        onConfirm={handleImportFromGitHub}
+        onImport={handleImportFromGitHub}
       />
       <NewFolderModal
         visible={showNewFolderModal}

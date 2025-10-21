@@ -605,6 +605,7 @@ app.delete('/workstation/:id', async (req, res) => {
 
 app.post('/workstation/list-files', async (req, res) => {
     const { workstationId } = req.body;
+    console.log('LIST FILES REQUEST:', { workstationId });
     
     try {
         const { exec } = require('child_process');
@@ -612,14 +613,19 @@ app.post('/workstation/list-files', async (req, res) => {
         const execAsync = promisify(exec);
         
         // List files in workstation (assuming it's accessible via gcloud)
-        const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="find /workspace -type f -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.json' | head -50"`);
+        const { stdout, stderr } = await execAsync(`gcloud workstations ssh ${workstationId} --command="find /workspace -type f -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.json' | head -50"`);
         
+        if (stderr) {
+          console.error('List files stderr:', stderr);
+        }
+
         const files = stdout.trim().split('\n').filter(f => f);
+        console.log('FILES:', files);
         
         res.json({ success: true, files });
     } catch (error) {
         console.error('List files error:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({ success: false, error: error.message, details: error });
     }
 });
 

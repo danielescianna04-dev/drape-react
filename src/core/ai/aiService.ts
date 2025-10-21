@@ -92,9 +92,6 @@ export class AIService {
       return false;
     }
   }
-}
-
-export const aiService = new AIService();
 
   async analyzeProject(workstationId: string): Promise<{
     files: string[];
@@ -126,3 +123,6 @@ export const aiService = new AIService();
       throw error;
     }
   }
+}
+
+export const aiService = new AIService();

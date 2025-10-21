@@ -11,17 +11,17 @@ const USER_KEY = 'github_user';
 const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 export interface GitHubRepository {
-  id: number;
+  id: string;
   name: string;
-  full_name: string;
-  description: string | null;
-  language: string | null;
-  private: boolean;
-  stargazers_count: number;
-  forks_count: number;
-  clone_url: string;
-  html_url: string;
-  updated_at: string;
+  fullName: string;
+  description?: string;
+  language: string;
+  isPrivate: boolean;
+  stars: number;
+  forks: number;
+  updatedAt: Date;
+  cloneUrl: string;
+  avatarUrl?: string;
 }
 
 export interface GitHubUser {
@@ -165,7 +165,22 @@ class GitHubService {
           affiliation: 'owner,collaborator',
         },
       });
-      return response.data;
+      
+      const repos: GitHubRepository[] = response.data.map((repo: any) => ({
+        id: repo.id.toString(),
+        name: repo.name,
+        fullName: repo.full_name,
+        description: repo.description,
+        language: repo.language,
+        isPrivate: repo.private,
+        stars: repo.stargazers_count,
+        forks: repo.forks_count,
+        updatedAt: new Date(repo.updated_at),
+        cloneUrl: repo.clone_url,
+        avatarUrl: repo.owner.avatar_url,
+      }));
+      
+      return repos;
     } catch (error) {
       console.error('Fetch repos error:', error);
       return [];

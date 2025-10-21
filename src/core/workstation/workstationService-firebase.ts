@@ -122,6 +122,18 @@ export const workstationService = {
     }
   },
 
+  async getWorkstationFiles(workstationId: string): Promise<string[]> {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/workstation/list-files`, {
+        workstationId,
+      });
+      return response.data.files || [];
+    } catch (error) {
+      console.error('Error getting workstation files:', error);
+      return [];
+    }
+  },
+
   // Esegui comando su workstation
   async executeCommand(command: string, workstationId: string): Promise<{
     output: string;

@@ -28,16 +28,118 @@ interface Props {
   onOpenAllProjects?: () => void;
 }
 
+const buildFileTree = (files: string[]) => {
+  const tree = {};
+
+  files.forEach(file => {
+    const parts = file.split('/');
+    let currentLevel = tree;
+    parts.forEach((part, index) => {
+      if (!currentLevel[part]) {
+        currentLevel[part] = index === parts.length - 1 ? null : {};
+      }
+      currentLevel = currentLevel[part];
+    });
+  });
+
+  return tree;
+};
+
+const FileTree = ({ tree, onFilePress }: { tree: any, onFilePress: (path: string) => void }) => {
+  const renderTree = (node: any, path: string) => {
+    return Object.keys(node).map(key => {
+      const newPath = path ? `${path}/${key}` : key;
+      if (node[key] === null) {
+        // It's a file
+        return (
+          <TouchableOpacity key={newPath} onPress={() => onFilePress(newPath)} style={styles.fileItem}>
+            <Ionicons name="document-text-outline" size={16} color="#fff" />
+            <Text style={styles.fileName}>{key}</Text>
+          </TouchableOpacity>
+        );
+      } else {
+        // It's a folder
+        return (
+          <View key={newPath} style={styles.fileTreeFolderItem}>
+            <Ionicons name="folder-outline" size={16} color="#fff" />
+            <Text style={styles.fileTreeFolderName}>{key}</Text>
+            <View style={styles.folderContent}>
+              {renderTree(node[key], newPath)}
+            </View>
+          </View>
+        );
+      }
+    });
+  };
+
+  return <View>{renderTree(tree, '')}</View>;
+};
+
+const ChatList = ({ chats }: { chats: any[] }) => {
+  return (
+    <View>
+      <Text style={styles.chatListTitle}>Chats</Text>
+      {chats.map(chat => (
+        <TouchableOpacity key={chat.id} style={styles.chatItem}>
+          <Text style={styles.chatItemTitle}>{chat.title}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
+const ProjectDetailView = ({ project, onBack }: { project: any, onBack: () => void }) => {
+  const { chatHistory } = useTerminalStore();
+  const [detailView, setDetailView] = useState<'chats' | 'files'>('files');
+  const projectChats = chatHistory.filter(chat => chat.repositoryId === project.id);
+  const fileTree = buildFileTree(project.files || []);
+
+  const handleFilePress = (path: string) => {
+    console.log('File pressed:', path);
+    // TODO: Open the file
+  };
+
+  return (
+    <View>
+      <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <Ionicons name="arrow-back" size={24} color={AppColors.primary} />
+        <Text style={styles.backButtonText}>All Projects</Text>
+      </TouchableOpacity>
+      <Text style={styles.projectTitle}>{project.name}</Text>
+
+      <View style={styles.sliderContainer}>
+        <TouchableOpacity 
+          style={[styles.sliderButton, detailView === 'files' && styles.sliderButtonActive]}
+          onPress={() => setDetailView('files')}
+        >
+          <Text style={styles.sliderButtonText}>Files</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.sliderButton, detailView === 'chats' && styles.sliderButtonActive]}
+          onPress={() => setDetailView('chats')}
+        >
+          <Text style={styles.sliderButtonText}>Chats</Text>
+        </TouchableOpacity>
+      </View>
+
+      {detailView === 'files' ? (
+        <FileTree tree={fileTree} onFilePress={handleFilePress} />
+      ) : (
+        <ChatList chats={projectChats} />
+      )}
+    </View>
+  );
+};
+
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [sidebarView, setSidebarView] = useState<'projects' | 'projectDetail'>('projects');
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
   const {
-    chatHistory,
     isGitHubConnected,
     gitHubRepositories,
     gitHubUser,
@@ -52,6 +154,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     removeProjectFolder,
     setWorkstation,
     removeWorkstation,
+    currentWorkstation,
+    setWorkstationFiles,
   } = useTerminalStore();
 
   useEffect(() => {
@@ -78,9 +182,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }).start(() => onClose());
   };
 
-  const handleOpenWorkstation = (ws: any) => {
+  const handleOpenWorkstation = async (ws: any) => {
     setWorkstation(ws);
-    onClose();
+    setSidebarView('projectDetail');
+    
+    const files = await workstationService.getWorkstationFiles(ws.id);
+    setWorkstationFiles(ws.id, files);
   };
 
   const handleDeleteWorkstation = async (id: string, e: any) => {
@@ -136,73 +243,16 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         </View>
       </View>
 
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          onPress={() => setActiveTab('projects')}
-          style={[
-            styles.tab,
-            activeTab === 'projects' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'projects' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="folder"
-                size={18}
-                color={activeTab === 'projects' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'projects' && styles.tabTextActive,
-              ]}
-            >
-              Progetti
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab('chat')}
-          style={[
-            styles.tab,
-            activeTab === 'chat' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'chat' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="chatbubbles"
-                size={18}
-                color={activeTab === 'chat' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'chat' && styles.tabTextActive,
-              ]}
-            >
-              Chats
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {activeTab === 'projects' ? (
-          <>
+        {currentWorkstation && sidebarView === 'projectDetail' ? (
+          <ProjectDetailView 
+            project={currentWorkstation}
+            onBack={() => setSidebarView('projects')}
+          />
+        ) : (
+          <View>
             <View style={styles.actionButtonsContainer}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => setShowNewProjectModal(true)}
                 activeOpacity={0.7}
@@ -213,7 +263,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 <Text style={styles.actionButtonText}>Nuovo</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => setShowImportModal(true)}
                 activeOpacity={0.7}
@@ -224,7 +274,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 <Text style={styles.actionButtonText}>Importa</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => setShowNewFolderModal(true)}
                 activeOpacity={0.7}
@@ -242,12 +292,42 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 <Text style={styles.emptyText}>Nessun progetto</Text>
               </View>
             ) : (
-              <>
+              <View>
+                {projectFolders.map((folder) => (
+                  <DropZoneFolder
+                    key={folder.id}
+                    folder={folder}
+                    isExpanded={folder.isExpanded}
+                    onToggle={() => toggleFolderExpanded(folder.id)}
+                    onDelete={() => {
+                      removeProjectFolder(folder.id);
+                    }}
+                  >
+                    {workstations
+                      .filter((w) => w.folderId === folder.id)
+                      .map((ws) => (
+                        <TouchableOpacity
+                          key={ws.id}
+                          style={styles.projectItemInFolder}
+                          onPress={() => handleOpenWorkstation(ws)}
+                        >
+                          <View style={styles.projectHeader}>
+                            <Ionicons name="document" size={14} color={AppColors.primary} />
+                            <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
+                            <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
+                              <Ionicons name="trash-outline" size={14} color="#FF4444" />
+                            </TouchableOpacity>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                  </DropZoneFolder>
+                ))}
+
                 {workstations
                   .filter((w) => !w.folderId)
                   .map((ws) => (
-                    <TouchableOpacity 
-                      key={ws.id} 
+                    <TouchableOpacity
+                      key={ws.id}
                       style={styles.projectItem}
                       onPress={() => handleOpenWorkstation(ws)}
                       activeOpacity={0.7}
@@ -261,8 +341,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                             <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
                             <Text style={styles.projectLanguage}>{ws.language || 'Unknown'}</Text>
                           </View>
-                          <TouchableOpacity 
-                            onPress={(e) => handleDeleteWorkstation(ws.id, e)} 
+                          <TouchableOpacity
+                            onPress={(e) => handleDeleteWorkstation(ws.id, e)}
                             style={styles.deleteButton}
                             activeOpacity={0.6}
                           >
@@ -276,7 +356,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                       </View>
                     </TouchableOpacity>
                   ))}
-              </>
+              </View>
             )}
 
             {showImportModal && (
@@ -292,7 +372,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                       <Ionicons name="cloud-download-outline" size={28} color="#58A6FF" />
                       <SafeText style={styles.modalTitle}>Importa da GitHub</SafeText>
                     </View>
-                    
+
                     <TextInput
                       style={styles.modalInput}
                       placeholder="https://github.com/user/repo"
@@ -302,16 +382,16 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                       onChangeText={(text) => setSearchQuery(text)}
                       returnKeyType="done"
                     />
-                    
+
                     <View style={styles.modalButtons}>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.modalCancelButton}
                         onPress={() => setShowImportModal(false)}
                       >
                         <SafeText style={styles.modalCancelText}>Annulla</SafeText>
                       </TouchableOpacity>
-                      
-                      <TouchableOpacity 
+
+                      <TouchableOpacity
                         style={styles.modalSubmitButton}
                         onPress={async () => {
                           const url = searchQuery.trim();
@@ -320,7 +400,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                               const userId = useTerminalStore.getState().userId || 'anonymous';
                               const project = await workstationService.saveGitProject(url, userId);
                               const wsResult = await workstationService.createWorkstationForProject(project);
-                              
+
                               const workstation = {
                                 id: wsResult.workstationId || project.id,
                                 name: project.name,
@@ -331,7 +411,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                                 githubUrl: project.repositoryUrl,
                                 folderId: null,
                               };
-                              
+
                               addWorkstation(workstation);
                               setShowImportModal(false);
                               setSearchQuery('');
@@ -347,10 +427,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                   </View>
                 </View>
               </Modal>
-            )}
-          </>
-        ) : (
-          <ChatList chats={chatHistory} />
+              )}
+          </View>
         )}
       </ScrollView>
 
@@ -370,30 +448,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     </>  );
 };
 
-const ChatList = ({ chats }: any) => {
-  if (chats.length === 0) {
-    return (
-      <View style={styles.emptyState}>
-        <Ionicons name="chatbubbles-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-        <Text style={styles.emptyText}>No chats yet</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.list}>
-      {chats.map((chat: any) => (
-        <TouchableOpacity key={chat.id} style={styles.listItem}>
-          <View style={styles.listItemContent}>
-            <Text style={styles.listItemTitle}>{chat.title}</Text>
-            <Text style={styles.listItemSubtitle}>{chat.messages.length} messages</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.4)" />
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-};
 
 const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRepo }: any) => {
   if (!isConnected) {
@@ -843,53 +897,6 @@ const styles = StyleSheet.create({
   },
   clearSearchButton: {
     padding: 2,
-  },
-  tabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 16,
-    marginHorizontal: 8,
-    padding: 4,
-  },
-  tab: {
-    flex: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  tabActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
-    borderColor: AppColors.primary,
-  },
-  tabContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  tabIconContainer: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabIconContainerActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  tabTextActive: {
-    color: AppColors.primary,
   },
   content: {
     flex: 1,
@@ -1349,6 +1356,97 @@ const styles = StyleSheet.create({
   modalSubmitText: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '600',
+  },
+  compactButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  compactButtonText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  projectTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    margin: 20,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+  },
+  backButtonText: {
+    color: AppColors.primary,
+    fontSize: 16,
+    marginLeft: 10,
+  },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  fileName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginLeft: 10,
+  },
+  fileTreeFolderItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+  },
+  fileTreeFolderName: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  folderContent: {
+    marginLeft: 20,
+  },
+  chatListTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    margin: 20,
+  },
+  chatItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  chatItemTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+  },
+  sliderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginVertical: 10,
+  },
+  sliderButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  sliderButtonActive: {
+    backgroundColor: AppColors.primary,
+  },
+  sliderButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
     fontWeight: '600',
   },
 });

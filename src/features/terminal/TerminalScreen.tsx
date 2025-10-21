@@ -20,10 +20,8 @@ import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
-import { SafeText } from '../../shared/components/SafeText';
-// import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
-import { aiService } from '../../core/ai/aiService';
+import { SafeText } from '../../shared/components/SafeText';
 
 const colors = AppColors.dark;
 
@@ -279,24 +277,29 @@ const TerminalScreen = () => {
             <SafeText style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</SafeText>
           </View>
           
-          <TouchableOpacity
-            style={[
-              styles.eyeButton,
-              { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
-            ]}
-            onPress={() => {
-              if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
-                console.log('Opening web preview:', currentWorkstation.webUrl);
-              }
-            }}
-            disabled={(currentWorkstation?.status || 'idle') !== 'running'}
-          >
-            <Ionicons 
-              name="eye" 
-              size={16} 
-              color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
-            />
-          </TouchableOpacity>
+          <View style={styles.rightHeaderIcons}>
+            <TouchableOpacity
+              style={[
+                styles.eyeButton,
+                { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
+              ]}
+              onPress={() => {
+                if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
+                  console.log('Opening web preview:', currentWorkstation.webUrl);
+                }
+              }}
+              disabled={(currentWorkstation?.status || 'idle') !== 'running'}
+            >
+              <Ionicons 
+                name="eye" 
+                size={16} 
+                color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.accountCircle}>
+              <Ionicons name="person-circle" size={28} color={AppColors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -343,6 +346,12 @@ const TerminalScreen = () => {
             <View style={[styles.menuLine, { width: 17 }]} />
           </View>
       </TouchableOpacity>
+
+      {currentWorkstation && (
+        <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.projectFilesButton}>
+          <Ionicons name="folder-open-outline" size={24} color={AppColors.primary} />
+        </TouchableOpacity>
+      )}
 
       <View style={styles.inputWrapper}>
         <Animated.View
@@ -495,6 +504,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.95)',
   },
+  rightHeaderIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'absolute',
+    right: 0,
+  },
+  accountCircle: {
+    marginLeft: 10,
+  },
   eyeButton: {
     width: 28,
     height: 28,
@@ -606,6 +624,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 1,
     opacity: 0.9,
+  },
+  projectFilesButton: {
+    position: 'absolute',
+    top: 60,
+    left: 80, // Position next to menuButton (left: 20 + width: 44 + some margin)
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   inputContainer: {
     paddingHorizontal: 16,
