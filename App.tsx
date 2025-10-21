@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SplashScreen } from './src/features/splash/SplashScreen';
-import { TerminalScreen } from './src/features/terminal/TerminalScreen';
+import TerminalScreen from './src/features/terminal/TerminalScreen';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 
 console.log('🔵 App.tsx loaded');

@@ -75,7 +75,8 @@ interface TerminalState {
   setWorkstation: (workstation: WorkstationInfo | null) => void;
   addWorkstation: (workstation: WorkstationInfo) => void;
   loadWorkstations: (workstations: WorkstationInfo[]) => void;
-  setProjectFolders: (folders: ProjectFolder[]) => void;  removeWorkstation: (workstationId: string) => void;
+  setProjectFolders: (folders: ProjectFolder[]) => void;
+  removeWorkstation: (workstationId: string) => Promise<void>;
   addProjectFolder: (folder: ProjectFolder) => void;
   removeProjectFolder: (folderId: string) => void;
   toggleFolderExpanded: (folderId: string) => void;
@@ -156,11 +157,20 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       currentWorkstation: workstation,
     })),
   loadWorkstations: (workstations) => set({ workstations }),
-  setProjectFolders: (folders) => set({ projectFolders: folders }),  removeWorkstation: (workstationId) =>
+  setProjectFolders: (folders) => set({ projectFolders: folders }),
+  removeWorkstation: async (workstationId) => {
+    // Rimuovi da Firestore
+    try {
+      await deleteDoc(doc(db, 'user_projects', workstationId));
+    } catch (error) {
+      console.error('Error deleting from Firestore:', error);
+    }
+    // Rimuovi dallo store locale
     set((state) => ({
       workstations: state.workstations.filter((w) => w.id !== workstationId),
       currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
-    })),
+    }));
+  },
   addProjectFolder: (folder) =>
     set((state) => ({
       projectFolders: [...state.projectFolders, folder],

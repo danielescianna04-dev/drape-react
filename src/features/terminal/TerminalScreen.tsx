@@ -27,7 +27,7 @@ import { aiService } from '../../core/ai/aiService';
 
 const colors = AppColors.dark;
 
-export const TerminalScreen = () => {
+const TerminalScreen = () => {
   const [input, setInput] = useState('');
   const [showSidebar, setShowSidebar] = useState(false);
   const [isTerminalMode, setIsTerminalMode] = useState(true);
@@ -35,6 +35,7 @@ export const TerminalScreen = () => {
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const scrollViewRef = useRef<ScrollView>(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const inputPositionAnim = useRef(new Animated.Value(0)).current;
   
   const {
     terminalItems,
@@ -50,6 +51,7 @@ export const TerminalScreen = () => {
 
 
   useEffect(() => {
+    console.log('📊 Terminal items count:', terminalItems.length);
   }, [currentWorkstation]);
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -138,6 +140,15 @@ export const TerminalScreen = () => {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+
+    // Animate input to bottom on first send
+    if (!hasInteracted) {
+      Animated.timing(inputPositionAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: false,
+      }).start();
+    }
 
     const userMessage = input.trim();
     const shouldExecuteCommand = isCommand(userMessage);
@@ -288,7 +299,6 @@ export const TerminalScreen = () => {
           </TouchableOpacity>
         </View>
       )}
-      */}
 
       <ScrollView
         ref={scrollViewRef}
@@ -296,9 +306,17 @@ export const TerminalScreen = () => {
         contentContainerStyle={styles.outputContent}
         showsVerticalScrollIndicator={false}
       >
-        {!hasInteracted && terminalItems.length === 0 ? (
-          <View style={{ padding: 20 }}>
-            <SafeText style={{ color: 'white', textAlign: 'center' }}>Welcome - WelcomeView disabled for debug</SafeText>
+        {terminalItems.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.logoWrapper}>
+              <View style={styles.logoIconContainer}>
+                <Ionicons name="code-slash" size={64} color="#8B7CF6" />
+              </View>
+              <SafeText style={styles.logoTitle}>Drape</SafeText>
+              <SafeText style={styles.logoSubtitle}>Mobile AI IDE</SafeText>
+              <View style={styles.logoDivider} />
+              <SafeText style={styles.logoDescription}>Start typing to begin your development journey</SafeText>
+            </View>
           </View>
         ) : (
           terminalItems
@@ -319,20 +337,28 @@ export const TerminalScreen = () => {
 
       {/* Floating Buttons */}
       <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.menuButton}>
-        <BlurView intensity={30} tint="dark" style={styles.menuBlur}>
           <View style={styles.menuIconContainer}>
             <View style={[styles.menuLine, { width: 20 }]} />
             <View style={[styles.menuLine, { width: 14 }]} />
             <View style={[styles.menuLine, { width: 17 }]} />
           </View>
-        </BlurView>
       </TouchableOpacity>
 
-      {/* Input Area - Exact Flutter replica */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.inputContainer}
-      >
+      <View style={styles.inputWrapper}>
+        <Animated.View
+          style={{
+            transform: [{
+              translateY: inputPositionAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 310],
+              })
+            }]
+          }}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.inputContainer}
+          >
         <LinearGradient
           colors={['rgba(28, 28, 30, 0.98)', 'rgba(28, 28, 30, 0.92)']}
           style={styles.inputGradient}
@@ -375,9 +401,9 @@ export const TerminalScreen = () => {
                   </Animated.View>
                 </TouchableOpacity>
               </View>
-              {!forcedMode && (
-                <SafeText style={styles.autoLabel}>AUTO</SafeText>
-              )}
+
+
+
             </View>
 
             {/* Model Selector */}
@@ -422,7 +448,8 @@ export const TerminalScreen = () => {
           </View>
         </LinearGradient>
       </KeyboardAvoidingView>
-
+        </Animated.View>
+      </View>
       {showSidebar && (
         <TouchableOpacity
           style={styles.overlay}
@@ -437,6 +464,15 @@ export const TerminalScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  inputWrapper: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 60,
+    pointerEvents: 'box-none',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
   },
@@ -458,6 +494,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.95)',
+  },
   eyeButton: {
     width: 28,
     height: 28,
@@ -465,11 +502,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
-  },  },
+  },
   output: {
     flex: 1,
   },
-  outputContent: {
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  logoWrapper: {
+    alignItems: 'center',
+    opacity: 0.9,
+  },
+  logoIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
+    shadowColor: '#8B7CF6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  logoTitle: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 8,
+    letterSpacing: -1.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  logoSubtitle: {
+    fontSize: 18,
+    color: '#8B7CF6',
+    fontWeight: '600',
+    marginBottom: 24,
+    letterSpacing: 1,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  logoDivider: {
+    width: 80,
+    height: 3,
+    backgroundColor: 'rgba(139, 124, 246, 0.4)',
+    marginBottom: 24,
+    borderRadius: 2,
+    shadowColor: '#8B7CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  logoDescription: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontWeight: '400',
+    maxWidth: 280,
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },  outputContent: {
     padding: 20,
     paddingTop: 120,
     paddingBottom: 180,
@@ -488,36 +592,22 @@ const styles = StyleSheet.create({
     left: 20,
     width: 44,
     height: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  menuBlur: {
-    width: '100%',
-    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
   },
   menuIconContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 4,
   },
   menuLine: {
     height: 2,
     backgroundColor: '#FFFFFF',
     borderRadius: 1,
+    opacity: 0.9,
   },
   inputContainer: {
-    position: 'absolute',
-    bottom: 60,
-    left: 0,
-    right: 0,
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
@@ -602,7 +692,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#F0F0F0',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: 'monospace',
     paddingHorizontal: 16,
     paddingVertical: 14,
     maxHeight: 120,
@@ -619,7 +709,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
 });
+export default TerminalScreen;
