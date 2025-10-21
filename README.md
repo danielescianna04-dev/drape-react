@@ -13,12 +13,8 @@ AI-powered mobile development environment with terminal, GitHub integration, and
 ## 🚀 Quick Start
 
 ```bash
-# Install dependencies
-npm install
-
-# Setup environment variables
-cp .env.example .env
-# Edit .env with your Firebase and API keys
+# One-command setup (installs dependencies + creates .env)
+npm run setup
 
 # Start development server
 npm start
