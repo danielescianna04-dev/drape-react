@@ -570,7 +570,6 @@ const styles = StyleSheet.create({
   loadingDot: {
     fontSize: 14,
   },
-  },
   inputContainer: {
     paddingHorizontal: 16,
     paddingBottom: 16,
