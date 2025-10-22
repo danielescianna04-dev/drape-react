@@ -336,7 +336,6 @@ const TerminalScreen = () => {
         )}
       </ScrollView>
 
-      </TouchableOpacity>
 
       <View style={styles.inputWrapper}>
         <Animated.View
