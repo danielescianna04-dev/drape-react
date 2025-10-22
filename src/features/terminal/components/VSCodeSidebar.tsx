@@ -28,6 +28,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
           <Ionicons name="folder" size={24} color={activePanel === 'files' ? AppColors.primary : '#888'} />
         </TouchableOpacity>
 
+        <TouchableOpacity 
+          style={[styles.iconButton, activePanel === 'chat' && styles.iconButtonActive]}
+          onPress={() => togglePanel('chat')}
+        >
+          <Ionicons name="chatbubbles" size={24} color={activePanel === 'chat' ? AppColors.primary : '#888'} />
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.iconButton, activePanel === 'terminal' && styles.iconButtonActive]}
+          onPress={() => togglePanel('terminal')}
+        >
+          <Ionicons name="terminal" size={24} color={activePanel === 'terminal' ? AppColors.primary : '#888'} />
+        </TouchableOpacity>
+
         <View style={styles.spacer} />
 
         <TouchableOpacity 
