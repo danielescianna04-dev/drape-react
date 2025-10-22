@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -13,6 +13,7 @@ interface Props {
 
 export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
   const { workstations, removeWorkstation } = useTerminalStore();
+  const [pressedCard, setPressedCard] = useState<string | null>(null);
 
   const tabs = [
     ...workstations.map(ws => ({
@@ -74,18 +75,23 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
             {tabs.map((tab, index) => (
               <TouchableOpacity
                 key={tab.id}
-                style={[styles.card, { 
-                  transform: [{ scale: 1 }],
-                  opacity: 1,
-                }]}
+                style={styles.card}
+                onPressIn={() => setPressedCard(tab.id)}
+                onPressOut={() => setPressedCard(null)}
                 onPress={() => {
                   onSelectTab(tab.type, tab.id);
                   onClose();
                 }}
-                activeOpacity={0.95}
+                activeOpacity={1}
               >
+                {pressedCard === tab.id && (
+                  <View style={styles.glowBorder} />
+                )}
                 <View style={styles.cardShadow} />
-                <View style={styles.cardInner}>
+                <View style={[
+                  styles.cardInner,
+                  pressedCard === tab.id && { transform: [{ scale: 0.98 }] }
+                ]}>
                   <View style={styles.cardPreview}>
                     <LinearGradient
                       colors={[
@@ -230,6 +236,21 @@ const styles = StyleSheet.create({
     width: '47%',
     aspectRatio: 0.65,
     marginBottom: 8,
+  },
+  glowBorder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    elevation: 20,
   },
   cardShadow: {
     position: 'absolute',
