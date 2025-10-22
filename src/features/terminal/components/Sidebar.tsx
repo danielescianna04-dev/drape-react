@@ -22,6 +22,10 @@ import { NewProjectModal } from './NewProjectModal';
 import { ImportGitHubModal } from './ImportGitHubModal';
 import { DraggableProject } from './DraggableProject';
 import { DropZoneFolder } from './DropZoneFolder';
+import { FileExplorer } from './FileExplorer';
+import { GitHubAuthModal } from './GitHubAuthModal';
+import { FileViewer } from './FileViewer';
+import { githubTokenService } from '../../../core/github/githubTokenService';
 
 interface Props {
   onClose: () => void;
@@ -34,6 +38,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingRepoUrl, setPendingRepoUrl] = useState('');
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
 
   const {
@@ -52,6 +61,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     removeProjectFolder,
     setWorkstation,
     removeWorkstation,
+    userId,
   } = useTerminalStore();
 
   useEffect(() => {
@@ -79,8 +89,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   };
 
   const handleOpenWorkstation = (ws: any) => {
-    setWorkstation(ws);
-    onClose();
+    setSelectedProjectId(ws.projectId || ws.id);
+    setSelectedRepoUrl(ws.githubUrl || '');
   };
 
   const handleDeleteWorkstation = async (id: string, e: any) => {
@@ -90,6 +100,54 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   const handleCreateFolder = (name: string) => {
     console.log("Create folder:", name);
+  };
+
+  const handleImportRepo = async (url: string, token?: string) => {
+    try {
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      
+      // Save token if provided
+      if (token) {
+        const match = url.match(/github\.com\/([^\/]+)\//);
+        if (match) {
+          await githubTokenService.saveToken(match[1], token, userId);
+        }
+      }
+      
+      const project = await workstationService.saveGitProject(url, userId);
+      const wsResult = await workstationService.createWorkstationForProject(project, token);
+      
+      const workstation = {
+        id: wsResult.workstationId || project.id,
+        projectId: project.id,
+        name: project.name,
+        language: 'Unknown',
+        status: wsResult.status as any,
+        createdAt: project.createdAt,
+        files: [],
+        githubUrl: project.repositoryUrl,
+        folderId: null,
+      };
+      
+      addWorkstation(workstation);
+      setShowImportModal(false);
+      setSearchQuery('');
+    } catch (error: any) {
+      console.log('🔴 Import error details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        requiresAuth: error.response?.data?.requiresAuth,
+        hasToken: !!token
+      });
+      
+      // If 401 and requiresAuth, show auth modal
+      if (error.response?.status === 401 && !token) {
+        console.log('🔐 Opening auth modal for:', url);
+        setPendingRepoUrl(url);
+        setShowAuthModal(true);
+        setShowImportModal(false);
+      }
+    }
   };
 
   return (
@@ -199,7 +257,26 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {activeTab === 'projects' ? (
+        {selectedProjectId ? (
+          <View style={styles.fileExplorerContainer}>
+            <View style={styles.fileExplorerHeader}>
+              <TouchableOpacity 
+                onPress={() => setSelectedProjectId(null)}
+                style={styles.backButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={20} color={AppColors.primary} />
+                <Text style={styles.backButtonText}>Progetti</Text>
+              </TouchableOpacity>
+            </View>
+            <FileExplorer 
+              projectId={selectedProjectId} 
+              onFileSelect={(path) => {
+                setSelectedFile(path);
+              }}
+            />
+          </View>
+        ) : activeTab === 'projects' ? (
           <>
             <View style={styles.actionButtonsContainer}>
               <TouchableOpacity 
@@ -316,28 +393,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                         onPress={async () => {
                           const url = searchQuery.trim();
                           if (url) {
-                            try {
-                              const userId = useTerminalStore.getState().userId || 'anonymous';
-                              const project = await workstationService.saveGitProject(url, userId);
-                              const wsResult = await workstationService.createWorkstationForProject(project);
-                              
-                              const workstation = {
-                                id: wsResult.workstationId || project.id,
-                                name: project.name,
-                                language: 'Unknown',
-                                status: wsResult.status as any,
-                                createdAt: project.createdAt,
-                                files: [],
-                                githubUrl: project.repositoryUrl,
-                                folderId: null,
-                              };
-                              
-                              addWorkstation(workstation);
-                              setShowImportModal(false);
-                              setSearchQuery('');
-                            } catch (error) {
-                              console.error('Import error:', error);
-                            }
+                            await handleImportRepo(url);
                           }
                         }}
                       >
@@ -367,6 +423,29 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         </TouchableOpacity>
       </View>
     </Animated.View>
+
+    <GitHubAuthModal
+      visible={showAuthModal}
+      repositoryUrl={pendingRepoUrl}
+      onAuthenticate={async (token) => {
+        setShowAuthModal(false);
+        await handleImportRepo(pendingRepoUrl, token);
+        setPendingRepoUrl('');
+      }}
+      onCancel={() => {
+        setShowAuthModal(false);
+        setPendingRepoUrl('');
+      }}
+    />
+
+    <FileViewer
+      visible={!!selectedFile}
+      projectId={selectedProjectId || ''}
+      filePath={selectedFile || ''}
+      repositoryUrl={selectedRepoUrl}
+      userId={userId || 'anonymous'}
+      onClose={() => setSelectedFile(null)}
+    />
     </>  );
 };
 
@@ -1350,5 +1429,30 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
+  },
+  fileExplorerContainer: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  fileExplorerHeader: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 8,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: AppColors.primary,
   },
 });

@@ -93,7 +93,7 @@ export const workstationService = {
   },
 
   // Crea workstation per progetto
-  async createWorkstationForProject(project: UserProject): Promise<{ workstationId: string; status: string }> {
+  async createWorkstationForProject(project: UserProject, githubToken?: string): Promise<{ workstationId: string; status: string }> {
     try {
       let result;
       
@@ -103,7 +103,9 @@ export const workstationService = {
           repositoryUrl: project.repositoryUrl,
           userId: project.userId,
           projectId: project.id,
-          projectType: 'git'
+          projectType: 'git',
+          projectName: project.name,
+          githubToken
         });
       } else {
         // Progetto personale - carica da Cloud Storage
@@ -216,5 +218,15 @@ export const workstationService = {
       files: [],
     };
     return workstation;
+  },
+
+  async getProjectFiles(projectId: string): Promise<string[]> {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/workstation/${projectId}/files`);
+      return response.data.files || [];
+    } catch (error) {
+      console.error('Error getting project files:', error);
+      throw error;
+    }
   }
 };

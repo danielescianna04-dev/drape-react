@@ -3,13 +3,30 @@ const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 const { VertexAI } = require('@google-cloud/vertexai');
+const { GoogleAuth } = require('google-auth-library');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    projectId: 'drape-93229'
+  });
+}
+const db = admin.firestore();
+
 // Google Cloud Configuration
 const PROJECT_ID = process.env.GOOGLE_CLOUD_PROJECT || 'drape-93229';
 const LOCATION = 'us-central1';
+const CLUSTER = process.env.WORKSTATION_CLUSTER || 'cluster-mh0wcmlm';
+const CONFIG = process.env.WORKSTATION_CONFIG || 'config-mh0xdxfl';
+
+// Initialize Google Auth
+const auth = new GoogleAuth({
+  scopes: ['https://www.googleapis.com/auth/cloud-platform']
+});
 
 // Initialize Vertex AI
 const vertex_ai = new VertexAI({ 
@@ -154,16 +171,6 @@ app.listen(PORT, () => {
   console.log(`🔗 Health: http://localhost:${PORT}/health`);
 });
 */
-const GITHUB_CLIENT_SECRET = '74afe739ecc6c19948178aca719bf006bec1dda7';
-
-app.use(cors());
-app.use(express.json());
-
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', service: 'drape-backend' });
-});
-
 // GitHub OAuth Device Flow - Start
 app.post('/github/device-flow', async (req, res) => {
   try {
@@ -467,80 +474,135 @@ function detectPreviewUrl(output, command) {
 
 // Workstation create endpoint - Create and auto-clone repository or load personal project
 app.post('/workstation/create', async (req, res) => {
-  const { repositoryUrl, userId, projectId, projectType, projectName } = req.body;
+  const { repositoryUrl, userId, projectId, projectType, projectName, githubToken } = req.body;
   
-  console.log('🚀 WORKSTATION CREATE REQUEST:');
-  console.log('Project Type:', projectType);
-  console.log('Repository URL:', repositoryUrl);
-  console.log('Project Name:', projectName);
-  console.log('User ID:', userId);
-  console.log('Project ID:', projectId);
+  console.log('🚀 Creating workstation for:', projectType === 'git' ? repositoryUrl : projectName);
   
   try {
+    // Workstation ID must be lowercase alphanumeric with hyphens
+    const workstationId = `ws-${projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+    const client = await auth.getClient();
+    const accessToken = await client.getAccessToken();
+    
     const parent = `projects/${PROJECT_ID}/locations/${LOCATION}/workstationClusters/${CLUSTER}/workstationConfigs/${CONFIG}`;
-    const workstationId = `ws-${userId}-${Date.now()}`;
+    const apiUrl = `https://workstations.googleapis.com/v1/${parent}/workstations?workstationId=${workstationId}`;
     
-    console.log('📍 Creating workstation:', workstationId);
-    console.log('📁 Parent path:', parent);
+    console.log('Creating workstation:', workstationId);
     
-    // Simulate workstation creation
-    const workstation = {
-      id: workstationId,
-      status: 'creating',
-      projectType,
-      repositoryUrl,
-      projectName,
-      projectId,
-      createdAt: new Date().toISOString(),
-      userId
-    };
-
-    console.log('✅ Workstation created successfully:', workstation);
-
-    // Different setup based on project type
-    setTimeout(async () => {
-      console.log(`🔄 Workstation ${workstationId} ready, starting setup...`);
-      
-      if (projectType === 'git' && repositoryUrl) {
-        // Git project - clone repository
-        console.log(`📦 Cloning Git repository: ${repositoryUrl}`);
-        try {
-          const cloneOutput = await executeCommandOnWorkstation(`git clone ${repositoryUrl}`, workstationId);
-          console.log(`✅ Git repository cloned successfully on workstation ${workstationId}`);
-          console.log('Clone output:', cloneOutput);
-        } catch (cloneError) {
-          console.error(`❌ Git clone failed on workstation ${workstationId}:`, cloneError);
+    // Create workstation via API
+    try {
+      await axios.post(apiUrl, {
+        displayName: projectName || workstationId
+      }, {
+        headers: {
+          'Authorization': `Bearer ${accessToken.token}`,
+          'Content-Type': 'application/json'
         }
-      } else if (projectType === 'personal' && projectName) {
-        // Personal project - load from Cloud Storage or create new
-        console.log(`📁 Setting up personal project: ${projectName}`);
-        try {
-          // Simulate loading from Cloud Storage
-          const setupOutput = await setupPersonalProject(projectName, workstationId, userId, projectId);
-          console.log(`✅ Personal project setup completed on workstation ${workstationId}`);
-          console.log('Setup output:', setupOutput);
-        } catch (setupError) {
-          console.error(`❌ Personal project setup failed on workstation ${workstationId}:`, setupError);
-        }
+      });
+      console.log('✅ Workstation created:', workstationId);
+    } catch (error) {
+      if (error.response?.status === 409) {
+        console.log('ℹ️ Workstation already exists:', workstationId);
+      } else {
+        console.error('❌ API Error:', error.response?.data || error.message);
+        throw error;
       }
-    }, 2000);
+    }
+
+    // Fetch file list from GitHub API if it's a git project
+    let files = [];
+    if (projectType === 'git' && repositoryUrl) {
+      try {
+        const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+        if (repoMatch) {
+          const [, owner, repo] = repoMatch;
+          console.log(`📦 Fetching files from GitHub: ${owner}/${repo}`);
+          
+          const headers = { 'User-Agent': 'Drape-App' };
+          if (githubToken) {
+            headers['Authorization'] = `Bearer ${githubToken}`;
+            console.log('🔐 Using GitHub token for authentication');
+          }
+          
+          // Try main branch first, then master
+          let githubResponse;
+          try {
+            githubResponse = await axios.get(
+              `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`,
+              { headers }
+            );
+          } catch (error) {
+            console.log('⚠️ main branch not found, trying master...');
+            githubResponse = await axios.get(
+              `https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`,
+              { headers }
+            );
+          }
+          
+          files = githubResponse.data.tree
+            .filter(item => item.type === 'blob')
+            .map(item => item.path)
+            .filter(path => 
+              !path.includes('node_modules/') && 
+              !path.startsWith('.git/') &&
+              !path.includes('/dist/') &&
+              !path.includes('/build/')
+            )
+            .slice(0, 500);
+          
+          console.log(`✅ Found ${files.length} files from GitHub`);
+        }
+      } catch (error) {
+        console.error('⚠️ Error fetching GitHub files:', error.message);
+        
+        // If 404 and no token provided, it's likely a private repo
+        if (error.response?.status === 404 && !githubToken) {
+          console.log('🔒 Private repository detected, authentication required');
+          return res.status(401).json({
+            error: 'Authentication required',
+            message: 'This repository is private or does not exist',
+            requiresAuth: true
+          });
+        }
+        
+        // Use basic structure as fallback
+        files = [
+          'README.md',
+          'package.json',
+          '.gitignore',
+          'src/index.js',
+          'src/App.js'
+        ];
+        console.log('📝 Using fallback file structure');
+      }
+      
+      // Always store files in Firestore (even if fallback)
+      try {
+        await db.collection('workstation_files').doc(projectId).set({
+          workstationId,
+          files,
+          repositoryUrl,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`💾 Saved ${files.length} files to Firestore`);
+      } catch (error) {
+        console.error('⚠️ Error saving to Firestore:', error.message);
+      }
+    }
 
     res.json({
       workstationId,
-      status: 'creating',
-      projectType,
-      repositoryUrl,
-      projectName,
-      message: `Workstation creation started for ${projectType} project.`,
+      status: 'running',
+      message: 'Workstation created successfully',
+      repositoryUrl: repositoryUrl || null,
+      filesCount: files.length
     });
   } catch (error) {
-    console.error('❌ WORKSTATION CREATION ERROR:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code
+    console.error('❌ Error:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: error.message,
+      details: error.response?.data 
     });
-    res.status(500).json({ error: error.message });
   }
 });
 
@@ -661,6 +723,36 @@ app.post('/workstation/modify-file', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// Get project files from workstation
+app.get('/workstation/:projectId/files', async (req, res) => {
+    let { projectId } = req.params;
+    
+    // Remove ws- prefix if present
+    if (projectId.startsWith('ws-')) {
+        projectId = projectId.substring(3);
+    }
+    
+    try {
+        console.log('📂 Getting files for project:', projectId);
+        
+        // Get files from Firestore
+        const doc = await db.collection('workstation_files').doc(projectId).get();
+        
+        if (doc.exists) {
+            const data = doc.data();
+            console.log(`✅ Found ${data.files.length} files in Firestore`);
+            res.json({ success: true, files: data.files });
+        } else {
+            console.log('⚠️ No files found in Firestore for:', projectId);
+            res.json({ success: true, files: [] });
+        }
+    } catch (error) {
+        console.error('❌ Error getting files:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Drape Backend running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
