@@ -990,7 +990,7 @@ const styles = StyleSheet.create({
   },
   connectButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   list: {
@@ -1147,13 +1147,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   projectName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
     marginBottom: 2,
   },
   projectLanguage: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500',
   },
@@ -1161,23 +1161,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 6,
   },
   languageTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     backgroundColor: 'rgba(139, 124, 246, 0.2)',
     borderRadius: 6,
   },
   languageText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     color: AppColors.primary,
   },
   projectUrl: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   projectStatus: {
     flexDirection: 'row',
@@ -1191,7 +1191,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'rgba(255, 255, 255, 0.7)',
     textTransform: 'uppercase',
     fontWeight: '600',
@@ -1217,7 +1217,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   footerButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: AppColors.primary,
   },
@@ -1244,7 +1244,7 @@ const styles = StyleSheet.create({
   },
   importButtonText: {
     color: AppColors.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   newProjectButton: {
@@ -1292,7 +1292,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: {
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -1446,7 +1446,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   backButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: AppColors.primary,
   },
