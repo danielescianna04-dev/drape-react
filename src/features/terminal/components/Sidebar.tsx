@@ -264,7 +264,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                       <View style={styles.projectItemContent}>
                         <View style={styles.projectHeader}>
                           <View style={styles.projectIconContainer}>
-                            <Ionicons name="document-text" size={18} color={AppColors.primary} />
+                            <Ionicons name="document-text" size={14} color={AppColors.primary} />
                           </View>
                           <View style={styles.projectInfo}>
                             <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
@@ -275,12 +275,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                             style={styles.deleteButton}
                             activeOpacity={0.6}
                           >
-                            <Ionicons name="trash" size={16} color="#FF6B6B" />
+                            <Ionicons name="close" size={14} color="rgba(255, 255, 255, 0.4)" />
                           </TouchableOpacity>
-                        </View>
-                        <View style={styles.projectStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? AppColors.primary : 'rgba(255, 255, 255, 0.4)' }]} />
-                          <Text style={styles.statusText}>{ws.status || 'idle'}</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -1042,25 +1038,26 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   projectItem: {
-    marginBottom: 6,
-    borderRadius: 4,
+    marginBottom: 2,
+    borderRadius: 0,
     backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   projectItemContent: {
-    padding: 6,
+    padding: 8,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 3,
+    gap: 8,
+    marginBottom: 0,
   },
   projectIconContainer: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 16,
+    height: 16,
+    borderRadius: 0,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1069,13 +1066,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   projectName: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: '#FFFFFF',
-    marginBottom: 2,
+    marginBottom: 0,
   },
   projectLanguage: {
-    fontSize: 10,
+    fontSize: 9,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500',
   },
@@ -1147,10 +1144,10 @@ const styles = StyleSheet.create({
   },
 
   deleteButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    width: 20,
+    height: 20,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
