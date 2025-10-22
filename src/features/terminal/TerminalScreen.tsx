@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     position: 'absolute',
     bottom: 0,
-    left: 0,
+    left: 50,
     right: 0,
     top: 60,
     pointerEvents: 'box-none',
@@ -489,6 +489,7 @@ const styles = StyleSheet.create({
   },
   output: {
     flex: 1,
+    paddingLeft: 50,
   },
   emptyState: {
     flex: 1,
