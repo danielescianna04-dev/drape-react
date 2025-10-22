@@ -39,6 +39,9 @@ const TerminalScreen = () => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const inputPositionAnim = useRef(new Animated.Value(0)).current;
   
+  const { tabs, activeTabId } = useTabStore();
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  
   const {
     terminalItems,
     isLoading,
@@ -302,13 +305,24 @@ const TerminalScreen = () => {
           </TouchableOpacity>
         </View>
       )}
+      )}
 
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.output}
-        contentContainerStyle={styles.outputContent}
-        showsVerticalScrollIndicator={false}
-      >
+      {activeTab?.type === 'file' ? (
+        <FileViewer
+          visible={true}
+          projectId={activeTab.data?.projectId || ''}
+          filePath={activeTab.data?.filePath || ''}
+          repositoryUrl={activeTab.data?.repositoryUrl || ''}
+          userId={'anonymous'}
+          onClose={() => {}}
+        />
+      ) : (
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.output}
+          contentContainerStyle={styles.outputContent}
+          showsVerticalScrollIndicator={false}
+        >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.logoWrapper}>

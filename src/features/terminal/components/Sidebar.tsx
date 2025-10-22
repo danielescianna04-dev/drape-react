@@ -26,6 +26,7 @@ import { FileExplorer } from './FileExplorer';
 import { GitHubAuthModal } from './GitHubAuthModal';
 import { FileViewer } from './FileViewer';
 import { githubTokenService } from '../../../core/github/githubTokenService';
+import { useTabStore } from '../../../core/tabs/tabStore';
 
 interface Props {
   onClose: () => void;
@@ -43,6 +44,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
+  
+  const { addTab } = useTabStore();
 
   const {
     chatHistory,
@@ -189,28 +192,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {selectedFile ? (
-          <View style={styles.fileViewerContainer}>
-            <View style={styles.fileExplorerHeader}>
-              <TouchableOpacity 
-                onPress={() => setSelectedFile(null)}
-                style={styles.backButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-back" size={20} color={AppColors.primary} />
-                <Text style={styles.backButtonText}>Files</Text>
-              </TouchableOpacity>
-            </View>
-            <FileViewer
-              visible={true}
-              projectId={selectedProjectId || ''}
-              filePath={selectedFile}
-              repositoryUrl={selectedRepoUrl}
-              userId={userId || 'anonymous'}
-              onClose={() => setSelectedFile(null)}
-            />
-          </View>
-        ) : selectedProjectId ? (
+        {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
             <View style={styles.fileExplorerHeader}>
               <TouchableOpacity 
@@ -225,7 +207,17 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             <FileExplorer 
               projectId={selectedProjectId} 
               onFileSelect={(path) => {
-                setSelectedFile(path);
+                addTab({
+                  id: `file-${selectedProjectId}-${path}`,
+                  type: 'file',
+                  title: path.split('/').pop() || 'File',
+                  data: {
+                    projectId: selectedProjectId,
+                    filePath: path,
+                    repositoryUrl: selectedRepoUrl,
+                  }
+                });
+                onClose();
               }}
             />
           </View>
