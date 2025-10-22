@@ -33,7 +33,6 @@ interface Props {
 }
 
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -189,68 +188,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         </View>
       </View>
 
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          onPress={() => setActiveTab('projects')}
-          style={[
-            styles.tab,
-            activeTab === 'projects' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'projects' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="folder"
-                size={18}
-                color={activeTab === 'projects' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'projects' && styles.tabTextActive,
-              ]}
-            >
-              Progetti
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab('chat')}
-          style={[
-            styles.tab,
-            activeTab === 'chat' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'chat' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="chatbubbles"
-                size={18}
-                color={activeTab === 'chat' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'chat' && styles.tabTextActive,
-              ]}
-            >
-              Chats
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
@@ -271,7 +208,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
               }}
             />
           </View>
-        ) : activeTab === 'projects' ? (
+        ) : (
           <>
             <View style={styles.actionButtonsContainer}>
               <TouchableOpacity 
@@ -400,23 +337,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
               </Modal>
             )}
           </>
-        ) : (
-          <ChatList chats={chatHistory} />
         )}
       </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity 
-          style={styles.footerButton} 
-          onPress={onOpenAllProjects}
-          activeOpacity={0.7}
-        >
-          <View style={styles.footerButtonContent}>
-            <Ionicons name="grid" size={20} color={AppColors.primary} />
-            <Text style={styles.footerButtonText}>All Projects</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
     </Animated.View>
 
     <GitHubAuthModal
