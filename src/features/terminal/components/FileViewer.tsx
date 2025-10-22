@@ -328,7 +328,8 @@ export const FileViewer = ({ visible, projectId, filePath, repositoryUrl, userId
           </View>
         ) : null}
       </KeyboardAvoidingView>
-  ) : null;
+    </Modal>
+  );
 };
 
 const styles = StyleSheet.create({
