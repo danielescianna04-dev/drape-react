@@ -217,7 +217,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="add-circle" size={20} color={AppColors.primary} />
+                  <Ionicons name="add-circle" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Nuovo</Text>
               </TouchableOpacity>
@@ -228,7 +228,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="cloud-download" size={20} color={AppColors.primary} />
+                  <Ionicons name="cloud-download" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Importa</Text>
               </TouchableOpacity>
@@ -239,7 +239,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="folder" size={20} color={AppColors.primary} />
+                  <Ionicons name="folder" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Cartella</Text>
               </TouchableOpacity>
@@ -1190,34 +1190,34 @@ const styles = StyleSheet.create({
   },
   actionButtonsContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-    marginBottom: 20,
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 12,
     paddingHorizontal: 8,
   },
   actionButton: {
     flex: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   actionButtonIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionButtonText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 11,
-    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    fontWeight: '500',
     textAlign: 'center',
   },
   folderItem: {
