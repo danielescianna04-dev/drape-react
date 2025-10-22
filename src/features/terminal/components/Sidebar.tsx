@@ -189,7 +189,28 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {selectedProjectId ? (
+        {selectedFile ? (
+          <View style={styles.fileViewerContainer}>
+            <View style={styles.fileExplorerHeader}>
+              <TouchableOpacity 
+                onPress={() => setSelectedFile(null)}
+                style={styles.backButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={20} color={AppColors.primary} />
+                <Text style={styles.backButtonText}>Files</Text>
+              </TouchableOpacity>
+            </View>
+            <FileViewer
+              visible={true}
+              projectId={selectedProjectId || ''}
+              filePath={selectedFile}
+              repositoryUrl={selectedRepoUrl}
+              userId={userId || 'anonymous'}
+              onClose={() => setSelectedFile(null)}
+            />
+          </View>
+        ) : selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
             <View style={styles.fileExplorerHeader}>
               <TouchableOpacity 
@@ -349,15 +370,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         setShowAuthModal(false);
         setPendingRepoUrl('');
       }}
-    />
-
-    <FileViewer
-      visible={!!selectedFile}
-      projectId={selectedProjectId || ''}
-      filePath={selectedFile || ''}
-      repositoryUrl={selectedRepoUrl}
-      userId={userId || 'anonymous'}
-      onClose={() => setSelectedFile(null)}
     />
     </>  );
 };
@@ -1347,6 +1359,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   fileExplorerContainer: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  fileViewerContainer: {
     flex: 1,
     paddingHorizontal: 12,
   },
