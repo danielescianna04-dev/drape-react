@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
+import { MultitaskingPanel } from './MultitaskingPanel';
 
 type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'settings' | null;
 
@@ -64,6 +65,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
         <Sidebar 
           onClose={() => setActivePanel(null)}
           onOpenAllProjects={onOpenAllProjects}
+        />
+      )}
+      
+      {activePanel === 'multitasking' && (
+        <MultitaskingPanel
+          onClose={() => setActivePanel(null)}
+          onSelectTab={(type, id) => {
+            // Handle tab selection
+            console.log('Selected tab:', type, id);
+          }}
         />
       )}
     </>
