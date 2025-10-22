@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 
-type PanelType = 'files' | 'chat' | 'terminal' | 'settings' | null;
+type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'settings' | null;
 
 interface Props {
   onOpenAllProjects?: () => void;
@@ -43,6 +43,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
         </TouchableOpacity>
 
         <View style={styles.spacer} />
+
+        <TouchableOpacity 
+          style={[styles.iconButton, activePanel === 'multitasking' && styles.iconButtonActive]}
+          onPress={() => togglePanel('multitasking')}
+        >
+          <Ionicons name="albums" size={24} color={activePanel === 'multitasking' ? AppColors.primary : '#888'} />
+        </TouchableOpacity>
 
         <TouchableOpacity 
           style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
