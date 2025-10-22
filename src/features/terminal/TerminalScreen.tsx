@@ -20,6 +20,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
+import { VSCodeSidebar } from './components/VSCodeSidebar';
 import { SafeText } from '../../shared/components/SafeText';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
@@ -29,7 +30,6 @@ const colors = AppColors.dark;
 
 const TerminalScreen = () => {
   const [input, setInput] = useState('');
-  const [showSidebar, setShowSidebar] = useState(false);
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
@@ -266,7 +266,8 @@ const TerminalScreen = () => {
         locations={[0, 0.3, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {showSidebar && <Sidebar onClose={() => setShowSidebar(false)} />}
+      {/* VSCode-style Sidebar */}
+      <VSCodeSidebar />
       
       {/* Preview Eye - appears when URL is detected */}
       {/* <PreviewEye /> */}
@@ -335,13 +336,6 @@ const TerminalScreen = () => {
         )}
       </ScrollView>
 
-      {/* Floating Buttons */}
-      <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.menuButton}>
-          <View style={styles.menuIconContainer}>
-            <View style={[styles.menuLine, { width: 20 }]} />
-            <View style={[styles.menuLine, { width: 14 }]} />
-            <View style={[styles.menuLine, { width: 17 }]} />
-          </View>
       </TouchableOpacity>
 
       <View style={styles.inputWrapper}>
@@ -450,15 +444,6 @@ const TerminalScreen = () => {
       </KeyboardAvoidingView>
         </Animated.View>
       </View>
-      {showSidebar && (
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={() => setShowSidebar(false)}
-        >
-          <BlurView intensity={10} style={StyleSheet.absoluteFill} />
-        </TouchableOpacity>
-      )}
     </View>
   );
 };
@@ -479,7 +464,7 @@ const styles = StyleSheet.create({
   contextHeader: {
     position: 'absolute',
     top: 60,
-    left: 80,
+    left: 60,
     right: 20,
     height: 44,
     justifyContent: 'center',
@@ -586,26 +571,6 @@ const styles = StyleSheet.create({
   loadingDot: {
     fontSize: 14,
   },
-  menuButton: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  menuIconContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-  },
-  menuLine: {
-    height: 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 1,
-    opacity: 0.9,
   },
   inputContainer: {
     paddingHorizontal: 16,
@@ -707,14 +672,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
 });
 export default TerminalScreen;

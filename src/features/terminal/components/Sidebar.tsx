@@ -152,11 +152,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   return (
     <>
-      <TouchableOpacity 
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
       <LinearGradient
         colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
