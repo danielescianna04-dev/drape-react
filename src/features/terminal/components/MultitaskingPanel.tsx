@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
@@ -34,14 +35,24 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
   return (
     <View style={styles.overlay}>
       <LinearGradient 
-        colors={['rgba(0,0,0,0.95)', 'rgba(0,0,0,0.98)']} 
+        colors={['#0a0a0f', '#1a1a2e', '#0f0f1e']} 
         style={StyleSheet.absoluteFill} 
       />
       
       <View style={styles.header}>
-        <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
+        <View>
+          <Text style={styles.tabCount}>{tabs.length}</Text>
+          <Text style={styles.tabLabel}>{tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
+        </View>
         <TouchableOpacity onPress={onClose} style={styles.doneButton}>
-          <Text style={styles.doneText}>Fine</Text>
+          <LinearGradient
+            colors={['#8B7CF6', '#7C6FE5']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.doneGradient}
+          >
+            <Text style={styles.doneText}>Fine</Text>
+          </LinearGradient>
         </TouchableOpacity>
       </View>
 
@@ -52,42 +63,65 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
       >
         {tabs.length === 0 ? (
           <View style={styles.empty}>
-            <Ionicons name="albums-outline" size={64} color="rgba(255,255,255,0.2)" />
+            <View style={styles.emptyIcon}>
+              <Ionicons name="albums-outline" size={72} color="rgba(139, 124, 246, 0.3)" />
+            </View>
             <Text style={styles.emptyText}>Nessuna scheda aperta</Text>
+            <Text style={styles.emptySubtext}>Tocca + per iniziare</Text>
           </View>
         ) : (
           <View style={styles.grid}>
-            {tabs.map((tab) => (
+            {tabs.map((tab, index) => (
               <TouchableOpacity
                 key={tab.id}
-                style={styles.card}
+                style={[styles.card, { 
+                  transform: [{ scale: 1 }],
+                  opacity: 1,
+                }]}
                 onPress={() => {
                   onSelectTab(tab.type, tab.id);
                   onClose();
                 }}
-                activeOpacity={0.9}
+                activeOpacity={0.95}
               >
-                <View style={styles.cardPreview}>
-                  <LinearGradient
-                    colors={['rgba(139, 124, 246, 0.1)', 'rgba(139, 124, 246, 0.05)']}
-                    style={styles.previewGradient}
-                  />
-                  <View style={styles.previewContent}>
-                    <Ionicons name={tab.icon} size={32} color={tab.color} />
-                    <Text style={styles.previewTitle} numberOfLines={2}>{tab.title}</Text>
-                    <Text style={styles.previewSubtitle}>{tab.subtitle}</Text>
+                <View style={styles.cardShadow} />
+                <View style={styles.cardInner}>
+                  <View style={styles.cardPreview}>
+                    <LinearGradient
+                      colors={[
+                        'rgba(139, 124, 246, 0.15)',
+                        'rgba(124, 111, 229, 0.1)',
+                        'rgba(139, 124, 246, 0.05)'
+                      ]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.previewGradient}
+                    />
+                    <View style={styles.previewContent}>
+                      <View style={styles.iconContainer}>
+                        <Ionicons name={tab.icon} size={36} color={tab.color} />
+                      </View>
+                      <Text style={styles.previewTitle} numberOfLines={2}>{tab.title}</Text>
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{tab.subtitle}</Text>
+                      </View>
+                    </View>
                   </View>
-                </View>
-                
-                <View style={styles.cardFooter}>
-                  <Text style={styles.cardTitle} numberOfLines={1}>{tab.title}</Text>
-                  <TouchableOpacity 
-                    onPress={(e) => handleCloseTab(e, tab.id, tab.type)}
-                    style={styles.closeButton}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="close" size={16} color="rgba(255,255,255,0.6)" />
-                  </TouchableOpacity>
+                  
+                  <View style={styles.cardFooter}>
+                    <View style={styles.footerContent}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>{tab.title}</Text>
+                      <TouchableOpacity 
+                        onPress={(e) => handleCloseTab(e, tab.id, tab.type)}
+                        style={styles.closeButton}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <View style={styles.closeButtonInner}>
+                          <Ionicons name="close" size={14} color="#FFFFFF" />
+                        </View>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               </TouchableOpacity>
             ))}
@@ -96,8 +130,13 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity style={styles.newTabButton}>
-          <Ionicons name="add" size={24} color={AppColors.primary} />
+        <TouchableOpacity style={styles.newTabButton} activeOpacity={0.8}>
+          <LinearGradient
+            colors={['rgba(139, 124, 246, 0.3)', 'rgba(124, 111, 229, 0.2)']}
+            style={styles.newTabGradient}
+          >
+            <Ionicons name="add" size={28} color="#FFFFFF" />
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     </View>
@@ -118,41 +157,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
   tabCount: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: 48,
+    fontWeight: '800',
     color: '#FFFFFF',
+    letterSpacing: -2,
+  },
+  tabLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: -4,
   },
   doneButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: AppColors.primary,
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#8B7CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  doneGradient: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
   },
   doneText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   content: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 100,
+    paddingHorizontal: 20,
+    paddingBottom: 120,
   },
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 100,
+    paddingVertical: 120,
+  },
+  emptyIcon: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   emptyText: {
-    fontSize: 16,
+    fontSize: 20,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
     color: 'rgba(255,255,255,0.4)',
-    marginTop: 16,
   },
   grid: {
     flexDirection: 'row',
@@ -161,9 +228,30 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '47%',
-    aspectRatio: 0.7,
-    borderRadius: 16,
+    aspectRatio: 0.65,
+    marginBottom: 8,
+  },
+  cardShadow: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    right: 8,
+    bottom: 8,
+    borderRadius: 20,
+    backgroundColor: '#8B7CF6',
+    opacity: 0.15,
+    shadowColor: '#8B7CF6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  cardInner: {
+    flex: 1,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
     overflow: 'hidden',
   },
   cardPreview: {
@@ -177,62 +265,96 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
-    padding: 16,
+    gap: 16,
+    padding: 20,
+  },
+  iconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   previewTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
-  previewSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.6)',
-    textAlign: 'center',
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(139, 124, 246, 0.3)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.4)',
+  },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   cardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.1)',
   },
+  footerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   cardTitle: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   closeButton: {
+    marginLeft: 8,
+  },
+  closeButtonInner: {
     width: 24,
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   footer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingBottom: 40,
-    paddingTop: 20,
+    paddingBottom: 50,
+    paddingTop: 24,
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'transparent',
   },
   newTabButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderWidth: 2,
-    borderColor: AppColors.primary,
+    borderRadius: 32,
+    overflow: 'hidden',
+    shadowColor: '#8B7CF6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  newTabGradient: {
+    width: 64,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(139, 124, 246, 0.5)',
+    borderRadius: 32,
   },
 });
