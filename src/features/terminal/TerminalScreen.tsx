@@ -352,7 +352,6 @@ const TerminalScreen = () => {
         )}
       </ScrollView>
 
-
       <View style={styles.inputWrapper}>
         <Animated.View
           style={{
@@ -459,6 +458,7 @@ const TerminalScreen = () => {
       </KeyboardAvoidingView>
         </Animated.View>
       </View>
+      )}
     </View>
   );
 };
