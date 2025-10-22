@@ -1120,25 +1120,25 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   projectItem: {
-    marginBottom: 12,
-    borderRadius: 12,
+    marginBottom: 8,
+    borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   projectItemContent: {
-    padding: 12,
+    padding: 10,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 6,
+    gap: 8,
+    marginBottom: 4,
   },
   projectIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1161,7 +1161,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
+    marginTop: 4,
   },
   languageTag: {
     paddingHorizontal: 6,
@@ -1177,7 +1177,7 @@ const styles = StyleSheet.create({
   projectUrl: {
     fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   projectStatus: {
     flexDirection: 'row',
