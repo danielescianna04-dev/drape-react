@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH - 100;
+const CARD_HEIGHT = SCREEN_HEIGHT * 0.7;
 
 interface Props {
   onClose: () => void;
@@ -13,7 +16,8 @@ interface Props {
 
 export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
   const { workstations, removeWorkstation } = useTerminalStore();
-  const [pressedCard, setPressedCard] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   const tabs = [
     ...workstations.map(ws => ({
@@ -22,7 +26,6 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
       title: ws.name || 'Unnamed Project',
       subtitle: ws.language || 'Unknown',
       icon: 'folder' as const,
-      color: AppColors.primary,
     })),
   ];
 
@@ -35,115 +38,71 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
 
   return (
     <View style={styles.overlay}>
-      <LinearGradient 
-        colors={['#0a0a0f', '#1a1a2e', '#0f0f1e']} 
-        style={StyleSheet.absoluteFill} 
-      />
-      
       <View style={styles.header}>
-        <View>
-          <Text style={styles.tabCount}>{tabs.length}</Text>
-          <Text style={styles.tabLabel}>{tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
-        </View>
+        <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
         <TouchableOpacity onPress={onClose} style={styles.doneButton}>
-          <LinearGradient
-            colors={['#8B7CF6', '#7C6FE5']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.doneGradient}
-          >
-            <Text style={styles.doneText}>Fine</Text>
-          </LinearGradient>
+          <Text style={styles.doneText}>Fine</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
-        style={styles.content} 
+      <ScrollView
+        ref={scrollViewRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
+          setCurrentIndex(index);
+        }}
       >
-        {tabs.length === 0 ? (
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="albums-outline" size={72} color="rgba(139, 124, 246, 0.3)" />
-            </View>
-            <Text style={styles.emptyText}>Nessuna scheda aperta</Text>
-            <Text style={styles.emptySubtext}>Tocca + per iniziare</Text>
-          </View>
-        ) : (
-          <View style={styles.grid}>
-            {tabs.map((tab, index) => (
-              <TouchableOpacity
-                key={tab.id}
-                style={styles.card}
-                onPressIn={() => setPressedCard(tab.id)}
-                onPressOut={() => setPressedCard(null)}
-                onPress={() => {
-                  onSelectTab(tab.type, tab.id);
-                  onClose();
-                }}
-                activeOpacity={1}
+        {tabs.map((tab, index) => (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.card}
+            onPress={() => {
+              onSelectTab(tab.type, tab.id);
+              onClose();
+            }}
+            activeOpacity={0.95}
+          >
+            <View style={styles.cardInner}>
+              <LinearGradient
+                colors={['rgba(139, 124, 246, 0.1)', 'rgba(124, 111, 229, 0.05)']}
+                style={styles.cardGradient}
+              />
+              
+              <TouchableOpacity 
+                onPress={(e) => handleCloseTab(e, tab.id, tab.type)}
+                style={styles.closeButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                {pressedCard === tab.id && (
-                  <View style={styles.glowBorder} />
-                )}
-                <View style={styles.cardShadow} />
-                <View style={[
-                  styles.cardInner,
-                  pressedCard === tab.id && { transform: [{ scale: 0.98 }] }
-                ]}>
-                  <View style={styles.cardPreview}>
-                    <LinearGradient
-                      colors={[
-                        'rgba(139, 124, 246, 0.15)',
-                        'rgba(124, 111, 229, 0.1)',
-                        'rgba(139, 124, 246, 0.05)'
-                      ]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.previewGradient}
-                    />
-                    <View style={styles.previewContent}>
-                      <View style={styles.iconContainer}>
-                        <Ionicons name={tab.icon} size={36} color={tab.color} />
-                      </View>
-                      <Text style={styles.previewTitle} numberOfLines={2}>{tab.title}</Text>
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{tab.subtitle}</Text>
-                      </View>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.cardFooter}>
-                    <View style={styles.footerContent}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>{tab.title}</Text>
-                      <TouchableOpacity 
-                        onPress={(e) => handleCloseTab(e, tab.id, tab.type)}
-                        style={styles.closeButton}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <View style={styles.closeButtonInner}>
-                          <Ionicons name="close" size={14} color="#FFFFFF" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
+                <Ionicons name="close-circle" size={28} color="rgba(255,255,255,0.6)" />
               </TouchableOpacity>
-            ))}
-          </View>
-        )}
+
+              <View style={styles.cardContent}>
+                <View style={styles.iconContainer}>
+                  <Ionicons name={tab.icon} size={48} color={AppColors.primary} />
+                </View>
+                <Text style={styles.cardTitle}>{tab.title}</Text>
+                <Text style={styles.cardSubtitle}>{tab.subtitle}</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
       </ScrollView>
 
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.newTabButton} activeOpacity={0.8}>
-          <LinearGradient
-            colors={['rgba(139, 124, 246, 0.3)', 'rgba(124, 111, 229, 0.2)']}
-            style={styles.newTabGradient}
-          >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
-          </LinearGradient>
-        </TouchableOpacity>
+      <View style={styles.pagination}>
+        {tabs.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              styles.dot,
+              currentIndex === index && styles.dotActive
+            ]}
+          />
+        ))}
       </View>
     </View>
   );
@@ -152,230 +111,115 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
 const styles = StyleSheet.create({
   overlay: {
     position: 'absolute',
-    left: 0,
+    left: 50,
     top: 0,
     right: 0,
     bottom: 0,
-    zIndex: 2000,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    zIndex: 1500,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 60,
-    paddingHorizontal: 24,
-    paddingBottom: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
   },
   tabCount: {
-    fontSize: 48,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -2,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: -4,
-  },
-  doneButton: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#8B7CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  doneGradient: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  doneText: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  content: {
+  doneButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: AppColors.primary,
+  },
+  doneText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 120,
-  },
-  empty: {
+    paddingHorizontal: 25,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 120,
-  },
-  emptyIcon: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  emptyText: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
   },
   card: {
-    width: '47%',
-    aspectRatio: 0.65,
-    marginBottom: 8,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    marginHorizontal: 25,
+    borderRadius: 24,
+    overflow: 'hidden',
   },
-  glowBorder: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 20,
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    shadowColor: '#FFFFFF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    elevation: 20,
-  },
-  cardShadow: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    bottom: 8,
-    borderRadius: 20,
-    backgroundColor: '#8B7CF6',
-    opacity: 0.15,
-    shadowColor: '#8B7CF6',
+  cardInner: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 24,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,
   },
-  cardInner: {
-    flex: 1,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    overflow: 'hidden',
-  },
-  cardPreview: {
-    flex: 1,
-    position: 'relative',
-  },
-  previewGradient: {
+  cardGradient: {
     ...StyleSheet.absoluteFillObject,
   },
-  previewContent: {
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+  },
+  cardContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    padding: 20,
+    gap: 20,
   },
   iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: 'rgba(139, 124, 246, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
+    borderColor: 'rgba(139, 124, 246, 0.4)',
   },
-  previewTitle: {
-    fontSize: 15,
+  cardTitle: {
+    fontSize: 24,
     fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
-    letterSpacing: -0.5,
+    paddingHorizontal: 40,
   },
-  badge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(139, 124, 246, 0.3)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.4)',
+  cardSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
   },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  cardFooter: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-  },
-  footerContent: {
+  pagination: {
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 30,
+    gap: 8,
   },
-  cardTitle: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#FFFFFF',
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
-  closeButton: {
-    marginLeft: 8,
-  },
-  closeButtonInner: {
+  dotActive: {
     width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingBottom: 50,
-    paddingTop: 24,
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-  },
-  newTabButton: {
-    borderRadius: 32,
-    overflow: 'hidden',
-    shadowColor: '#8B7CF6',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  newTabGradient: {
-    width: 64,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.5)',
-    borderRadius: 32,
+    backgroundColor: AppColors.primary,
   },
 });
