@@ -154,7 +154,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     <>
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
       <LinearGradient
-        colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
+        colors={['#1e1e1e', '#1a1a1a']}
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.header}>
@@ -1121,13 +1121,13 @@ const styles = StyleSheet.create({
   },
   projectItem: {
     marginBottom: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   projectItemContent: {
-    padding: 10,
+    padding: 8,
   },
   projectHeader: {
     flexDirection: 'row',
@@ -1139,7 +1139,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1166,8 +1166,10 @@ const styles = StyleSheet.create({
   languageTag: {
     paddingHorizontal: 6,
     paddingVertical: 2,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 6,
+    backgroundColor: 'transparent',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   languageText: {
     fontSize: 9,
