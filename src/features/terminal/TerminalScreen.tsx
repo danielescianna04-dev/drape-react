@@ -25,6 +25,8 @@ import { SafeText } from '../../shared/components/SafeText';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
+import { useTabStore } from '../../core/tabs/tabStore';
+import { FileViewer } from './components/FileViewer';
 
 const colors = AppColors.dark;
 

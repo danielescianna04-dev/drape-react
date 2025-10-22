@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useTabStore } from '../../../core/tabs/tabStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 100;
@@ -11,29 +11,31 @@ const CARD_HEIGHT = SCREEN_HEIGHT * 0.7;
 
 interface Props {
   onClose: () => void;
-  onSelectTab: (type: string, id: string) => void;
 }
 
-export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
-  const { workstations, removeWorkstation } = useTerminalStore();
+export const MultitaskingPanel = ({ onClose }: Props) => {
+  const { tabs, activeTabId, setActiveTab, removeTab } = useTabStore();
   const scrollViewRef = useRef<ScrollView>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const tabs = [
-    ...workstations.map(ws => ({
-      id: ws.id,
-      type: 'project',
-      title: ws.name || 'Unnamed Project',
-      subtitle: ws.language || 'Unknown',
-      icon: 'folder' as const,
-    })),
-  ];
-
-  const handleCloseTab = (e: any, id: string, type: string) => {
-    e.stopPropagation();
-    if (type === 'project') {
-      removeWorkstation(id);
+  const getTabIcon = (type: string) => {
+    switch (type) {
+      case 'terminal': return 'terminal';
+      case 'file': return 'document-text';
+      case 'chat': return 'chatbubbles';
+      case 'settings': return 'settings';
+      default: return 'folder';
     }
+  };
+
+  const handleSelectTab = (tabId: string) => {
+    setActiveTab(tabId);
+    onClose();
+  };
+
+  const handleCloseTab = (e: any, tabId: string) => {
+    e.stopPropagation();
+    removeTab(tabId);
   };
 
   return (
@@ -61,10 +63,7 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
           <TouchableOpacity
             key={tab.id}
             style={styles.card}
-            onPress={() => {
-              onSelectTab(tab.type, tab.id);
-              onClose();
-            }}
+            onPress={() => handleSelectTab(tab.id)}
             activeOpacity={0.95}
           >
             <View style={styles.cardInner}>
@@ -74,7 +73,7 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
               />
               
               <TouchableOpacity 
-                onPress={(e) => handleCloseTab(e, tab.id, tab.type)}
+                onPress={(e) => handleCloseTab(e, tab.id)}
                 style={styles.closeButton}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -83,10 +82,10 @@ export const MultitaskingPanel = ({ onClose, onSelectTab }: Props) => {
 
               <View style={styles.cardContent}>
                 <View style={styles.iconContainer}>
-                  <Ionicons name={tab.icon} size={48} color={AppColors.primary} />
+                  <Ionicons name={getTabIcon(tab.type)} size={48} color={AppColors.primary} />
                 </View>
                 <Text style={styles.cardTitle}>{tab.title}</Text>
-                <Text style={styles.cardSubtitle}>{tab.subtitle}</Text>
+                <Text style={styles.cardSubtitle}>{tab.type}</Text>
               </View>
             </View>
           </TouchableOpacity>

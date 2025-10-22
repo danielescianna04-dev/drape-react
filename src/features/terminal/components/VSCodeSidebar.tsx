@@ -71,10 +71,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
       {activePanel === 'multitasking' && (
         <MultitaskingPanel
           onClose={() => setActivePanel(null)}
-          onSelectTab={(type, id) => {
-            // Handle tab selection
-            console.log('Selected tab:', type, id);
-          }}
         />
       )}
     </>
