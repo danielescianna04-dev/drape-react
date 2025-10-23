@@ -267,7 +267,7 @@ const TerminalScreen = () => {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#1a1a2e', '#1e1b3e', '#2d1b4e', '#000000']}
+        colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']}
         locations={[0, 0.3, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
@@ -326,15 +326,6 @@ const TerminalScreen = () => {
         >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
-            <View style={styles.logoWrapper}>
-              <View style={styles.logoIconContainer}>
-                <Ionicons name="code-slash" size={64} color="#8B7CF6" />
-              </View>
-              <SafeText style={styles.logoTitle}>Drape</SafeText>
-              <SafeText style={styles.logoSubtitle}>Mobile AI IDE</SafeText>
-              <View style={styles.logoDivider} />
-              <SafeText style={styles.logoDescription}>Start typing to begin your development journey</SafeText>
-            </View>
           </View>
         ) : (
           terminalItems
