@@ -439,18 +439,11 @@ const TerminalScreen = () => {
               style={styles.sendButton}
               activeOpacity={0.7}
             >
-              <LinearGradient
-                colors={input.trim() && !isLoading ? ['#8B7CF6', '#7C6FE5'] : ['#1a1a1a', '#1a1a1a']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.sendGradient}
-              >
-                <Ionicons 
-                  name="arrow-up" 
-                  size={20} 
-                  color={input.trim() && !isLoading ? '#fff' : '#444'} 
-                />
-              </LinearGradient>
+              <Ionicons 
+                name="arrow-up-circle" 
+                size={32} 
+                color={input.trim() && !isLoading ? AppColors.primary : '#333'} 
+              />
             </TouchableOpacity>
 
           </View>
@@ -670,6 +663,13 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  sendButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
   input: {
     flex: 1,
