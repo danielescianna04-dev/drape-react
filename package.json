@@ -4,6 +4,7 @@
   "main": "index.ts",
   "scripts": {
     "setup": "node setup.js",
+    "setup:backend": "bash scripts/setup-backend.sh",
     "start": "expo start",
     "android": "expo start --android --localhost",
     "ios": "expo start --ios",
