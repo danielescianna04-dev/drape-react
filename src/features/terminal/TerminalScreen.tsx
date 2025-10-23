@@ -438,12 +438,11 @@ const TerminalScreen = () => {
               disabled={!input.trim() || isLoading}
               style={styles.sendButton}
             >
-              <LinearGradient
-                colors={input.trim() && !isLoading ? ['#8B7CF6', '#7C6FE5'] : ['#2A2A2A', '#2A2A2A']}
-                style={styles.sendGradient}
-              >
-                <Ionicons name="send" size={18} color={input.trim() && !isLoading ? '#fff' : '#8A8A8A'} />
-              </LinearGradient>
+              <Ionicons 
+                name="send" 
+                size={22} 
+                color={input.trim() && !isLoading ? AppColors.primary : '#444'} 
+              />
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -675,11 +674,4 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   sendGradient: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});
 export default TerminalScreen;
