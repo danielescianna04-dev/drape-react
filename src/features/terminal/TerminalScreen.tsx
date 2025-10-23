@@ -437,13 +437,22 @@ const TerminalScreen = () => {
               onPress={handleSend}
               disabled={!input.trim() || isLoading}
               style={styles.sendButton}
+              activeOpacity={0.7}
             >
-              <Ionicons 
-                name="send" 
-                size={22} 
-                color={input.trim() && !isLoading ? AppColors.primary : '#444'} 
-              />
+              <LinearGradient
+                colors={input.trim() && !isLoading ? ['#8B7CF6', '#7C6FE5'] : ['#1a1a1a', '#1a1a1a']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.sendGradient}
+              >
+                <Ionicons 
+                  name="arrow-up" 
+                  size={20} 
+                  color={input.trim() && !isLoading ? '#fff' : '#444'} 
+                />
+              </LinearGradient>
             </TouchableOpacity>
+
           </View>
         </LinearGradient>
       </KeyboardAvoidingView>
@@ -671,13 +680,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     maxHeight: 120,
     lineHeight: 20,
-  },
-  sendButton: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 12,
   },
 });
 export default TerminalScreen;
