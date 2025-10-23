@@ -93,7 +93,7 @@ export const workstationService = {
   },
 
   // Crea workstation per progetto
-  async createWorkstationForProject(project: UserProject): Promise<{ workstationId: string; status: string }> {
+  async createWorkstationForProject(project: UserProject, token?: string): Promise<{ workstationId: string; status: string }> {
     try {
       let result;
       
@@ -103,7 +103,8 @@ export const workstationService = {
           repositoryUrl: project.repositoryUrl,
           userId: project.userId,
           projectId: project.id,
-          projectType: 'git'
+          projectType: 'git',
+          token: token,
         });
       } else {
         // Progetto personale - carica da Cloud Storage
