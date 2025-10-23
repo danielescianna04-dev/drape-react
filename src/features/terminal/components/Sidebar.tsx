@@ -156,7 +156,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     <>
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
       <LinearGradient
-        colors={['#1e1e1e', '#1a1a1a']}
+        colors={['#0a0a0a', '#000000']}
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.header}>
