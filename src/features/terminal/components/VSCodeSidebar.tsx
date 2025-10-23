@@ -52,6 +52,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
           <Ionicons name="albums" size={24} color={activePanel === 'multitasking' ? AppColors.primary : '#888'} />
         </TouchableOpacity>
 
+        <View style={styles.spacer} />
+
         <TouchableOpacity 
           style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
           onPress={() => togglePanel('settings')}
