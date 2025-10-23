@@ -408,8 +408,8 @@ const TerminalScreen = () => {
 
             {/* Model Selector */}
             <TouchableOpacity style={styles.modelSelector}>
-              <SafeText style={styles.modelText}>{selectedModel}</SafeText>
-              <Ionicons name="chevron-down" size={14} color="#8A8A8A" />
+              <SafeText style={styles.modelText}>Gemini 2.0</SafeText>
+              <Ionicons name="chevron-down" size={12} color="#666" />
             </TouchableOpacity>
           </View>
 
