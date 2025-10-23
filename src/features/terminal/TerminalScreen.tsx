@@ -305,7 +305,6 @@ const TerminalScreen = () => {
           </TouchableOpacity>
         </View>
       )}
-      )}
 
       {activeTab?.type === 'file' ? (
         <FileViewer

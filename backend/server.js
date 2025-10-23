@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 // Initialize Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp({
-    projectId: 'drape-93229'
+    projectId: 'drape-mobile-ide'
   });
 }
 const db = admin.firestore();
@@ -479,35 +479,8 @@ app.post('/workstation/create', async (req, res) => {
   console.log('🚀 Creating workstation for:', projectType === 'git' ? repositoryUrl : projectName);
   
   try {
-    // Workstation ID must be lowercase alphanumeric with hyphens
     const workstationId = `ws-${projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
-    const client = await auth.getClient();
-    const accessToken = await client.getAccessToken();
-    
-    const parent = `projects/${PROJECT_ID}/locations/${LOCATION}/workstationClusters/${CLUSTER}/workstationConfigs/${CONFIG}`;
-    const apiUrl = `https://workstations.googleapis.com/v1/${parent}/workstations?workstationId=${workstationId}`;
-    
-    console.log('Creating workstation:', workstationId);
-    
-    // Create workstation via API
-    try {
-      await axios.post(apiUrl, {
-        displayName: projectName || workstationId
-      }, {
-        headers: {
-          'Authorization': `Bearer ${accessToken.token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      console.log('✅ Workstation created:', workstationId);
-    } catch (error) {
-      if (error.response?.status === 409) {
-        console.log('ℹ️ Workstation already exists:', workstationId);
-      } else {
-        console.error('❌ API Error:', error.response?.data || error.message);
-        throw error;
-      }
-    }
+    console.log('Workstation ID:', workstationId);
 
     // Fetch file list from GitHub API if it's a git project
     let files = [];
