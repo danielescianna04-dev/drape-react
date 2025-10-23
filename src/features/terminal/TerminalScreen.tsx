@@ -317,6 +317,7 @@ const TerminalScreen = () => {
           onClose={() => {}}
         />
       ) : (
+        <>
         <ScrollView
           ref={scrollViewRef}
           style={styles.output}
@@ -457,6 +458,7 @@ const TerminalScreen = () => {
         </LinearGradient>
       </KeyboardAvoidingView>
         </Animated.View>
+      </>
       </View>
       )}
     </View>
