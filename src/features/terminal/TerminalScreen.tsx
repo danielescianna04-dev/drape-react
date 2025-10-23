@@ -677,5 +677,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 12,
   },
-  sendGradient: {
+});
 export default TerminalScreen;
