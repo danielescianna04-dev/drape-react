@@ -671,6 +671,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   sendButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginLeft: 12,
   },
   sendGradient: {
