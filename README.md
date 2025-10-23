@@ -16,7 +16,14 @@ AI-powered mobile development environment with terminal, GitHub integration, and
 # One-command setup (installs dependencies + creates .env)
 npm run setup
 
-# Start development server
+# Setup backend authentication
+npm run setup:backend
+
+# Start backend
+cd backend
+GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json node server.js
+
+# Start app (in new terminal)
 npm start
 
 # Run on platform
@@ -24,6 +31,10 @@ npm run ios      # iOS Simulator
 npm run android  # Android Emulator
 npm run web      # Web Browser
 ```
+
+**📖 Full setup guide**: See [SETUP.md](./SETUP.md) for detailed instructions.
+
+**🔥 Firebase is pre-configured** - just run setup and start coding!
 
 ## ✨ Features
 
