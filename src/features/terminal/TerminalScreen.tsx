@@ -650,7 +650,6 @@ const styles = StyleSheet.create({
     color: '#888',
     fontWeight: '500',
   },
-  },
   mainInputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
