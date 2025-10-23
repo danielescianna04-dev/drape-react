@@ -458,8 +458,8 @@ const TerminalScreen = () => {
         </LinearGradient>
       </KeyboardAvoidingView>
         </Animated.View>
-      </>
       </View>
+      </>
       )}
     </View>
   );
