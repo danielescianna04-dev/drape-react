@@ -299,7 +299,7 @@ const TerminalScreen = () => {
           >
             <Ionicons 
               name="eye" 
-              size={16} 
+              size={14} 
               color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
             />
           </TouchableOpacity>
@@ -379,7 +379,7 @@ const TerminalScreen = () => {
                   <Animated.View style={{ transform: [{ scale: isTerminalMode ? scaleAnim : 1 }] }}>
                     <Ionicons
                       name="code-slash"
-                      size={16}
+                      size={14}
                       color={isTerminalMode ? '#fff' : '#8A8A8A'}
                     />
                   </Animated.View>
@@ -395,7 +395,7 @@ const TerminalScreen = () => {
                   <Animated.View style={{ transform: [{ scale: !isTerminalMode ? scaleAnim : 1 }] }}>
                     <Ionicons
                       name="sparkles"
-                      size={16}
+                      size={14}
                       color={!isTerminalMode ? '#fff' : '#8A8A8A'}
                     />
                   </Animated.View>
@@ -609,29 +609,29 @@ const styles = StyleSheet.create({
   modeToggle: {
     flexDirection: 'row',
     backgroundColor: 'transparent',
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    padding: 3,
+    borderColor: '#1a1a1a',
+    padding: 2,
   },
   autoLabel: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 9,
+    fontWeight: '600',
     color: '#8B7CF6',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   modeButton: {
-    width: 32,
-    height: 30,
+    width: 28,
+    height: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 15,
+    borderRadius: 10,
   },
   modeButtonActive: {
-    backgroundColor: '#8B7CF6',
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
   },
   modeButtonForced: {
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#8B7CF6',
   },
   modelSelector: {
