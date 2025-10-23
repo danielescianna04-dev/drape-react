@@ -417,7 +417,7 @@ const TerminalScreen = () => {
           <View style={styles.mainInputRow}>
             {/* Tools Button */}
             <TouchableOpacity style={styles.toolsButton}>
-              <Ionicons name="add-circle-outline" size={24} color="#8A8A8A" />
+              <Ionicons name="attach" size={24} color="#8A8A8A" />
             </TouchableOpacity>
 
             {/* Input Field */}
