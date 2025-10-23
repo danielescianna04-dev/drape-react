@@ -20,20 +20,27 @@ import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from './components/WelcomeView';
 import { TerminalItem as TerminalItemComponent } from './components/TerminalItem';
 import { Sidebar } from './components/Sidebar';
-import { githubService } from '../../core/github/githubService';
+import { VSCodeSidebar } from './components/VSCodeSidebar';
 import { SafeText } from '../../shared/components/SafeText';
+// import { PreviewEye } from './components/PreviewEye';
+import { githubService } from '../../core/github/githubService';
+import { aiService } from '../../core/ai/aiService';
+import { useTabStore } from '../../core/tabs/tabStore';
+import { FileViewer } from './components/FileViewer';
 
 const colors = AppColors.dark;
 
 const TerminalScreen = () => {
   const [input, setInput] = useState('');
-  const [showSidebar, setShowSidebar] = useState(false);
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const scrollViewRef = useRef<ScrollView>(null);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const inputPositionAnim = useRef(new Animated.Value(0)).current;
+  
+  const { tabs, activeTabId } = useTabStore();
+  const activeTab = tabs.find(t => t.id === activeTabId);
   
   const {
     terminalItems,
@@ -260,11 +267,12 @@ const TerminalScreen = () => {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#1a1a2e', '#1e1b3e', '#2d1b4e', '#000000']}
+        colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']}
         locations={[0, 0.3, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {showSidebar && <Sidebar onClose={() => setShowSidebar(false)} />}
+      {/* VSCode-style Sidebar */}
+      <VSCodeSidebar />
       
       {/* Preview Eye - appears when URL is detected */}
       {/* <PreviewEye /> */}
@@ -277,49 +285,46 @@ const TerminalScreen = () => {
             <SafeText style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</SafeText>
           </View>
           
-          <View style={styles.rightHeaderIcons}>
-            <TouchableOpacity
-              style={[
-                styles.eyeButton,
-                { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
-              ]}
-              onPress={() => {
-                if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
-                  console.log('Opening web preview:', currentWorkstation.webUrl);
-                }
-              }}
-              disabled={(currentWorkstation?.status || 'idle') !== 'running'}
-            >
-              <Ionicons 
-                name="eye" 
-                size={16} 
-                color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.accountCircle}>
-              <Ionicons name="person-circle" size={28} color={AppColors.primary} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.eyeButton,
+              { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
+            ]}
+            onPress={() => {
+              if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
+                console.log('Opening web preview:', currentWorkstation.webUrl);
+              }
+            }}
+            disabled={(currentWorkstation?.status || 'idle') !== 'running'}
+          >
+            <Ionicons 
+              name="eye" 
+              size={14} 
+              color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
+            />
+          </TouchableOpacity>
         </View>
       )}
 
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.output}
-        contentContainerStyle={styles.outputContent}
-        showsVerticalScrollIndicator={false}
-      >
+      {activeTab?.type === 'file' ? (
+        <FileViewer
+          visible={true}
+          projectId={activeTab.data?.projectId || ''}
+          filePath={activeTab.data?.filePath || ''}
+          repositoryUrl={activeTab.data?.repositoryUrl || ''}
+          userId={'anonymous'}
+          onClose={() => {}}
+        />
+      ) : (
+        <>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.output}
+          contentContainerStyle={styles.outputContent}
+          showsVerticalScrollIndicator={false}
+        >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
-            <View style={styles.logoWrapper}>
-              <View style={styles.logoIconContainer}>
-                <Ionicons name="code-slash" size={64} color="#8B7CF6" />
-              </View>
-              <SafeText style={styles.logoTitle}>Drape</SafeText>
-              <SafeText style={styles.logoSubtitle}>Mobile AI IDE</SafeText>
-              <View style={styles.logoDivider} />
-              <SafeText style={styles.logoDescription}>Start typing to begin your development journey</SafeText>
-            </View>
           </View>
         ) : (
           terminalItems
@@ -337,21 +342,6 @@ const TerminalScreen = () => {
           </View>
         )}
       </ScrollView>
-
-      {/* Floating Buttons */}
-      <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.menuButton}>
-          <View style={styles.menuIconContainer}>
-            <View style={[styles.menuLine, { width: 20 }]} />
-            <View style={[styles.menuLine, { width: 14 }]} />
-            <View style={[styles.menuLine, { width: 17 }]} />
-          </View>
-      </TouchableOpacity>
-
-      {currentWorkstation && (
-        <TouchableOpacity onPress={() => setShowSidebar(true)} style={styles.projectFilesButton}>
-          <Ionicons name="folder-open-outline" size={24} color={AppColors.primary} />
-        </TouchableOpacity>
-      )}
 
       <View style={styles.inputWrapper}>
         <Animated.View
@@ -388,7 +378,7 @@ const TerminalScreen = () => {
                   <Animated.View style={{ transform: [{ scale: isTerminalMode ? scaleAnim : 1 }] }}>
                     <Ionicons
                       name="code-slash"
-                      size={16}
+                      size={14}
                       color={isTerminalMode ? '#fff' : '#8A8A8A'}
                     />
                   </Animated.View>
@@ -404,7 +394,7 @@ const TerminalScreen = () => {
                   <Animated.View style={{ transform: [{ scale: !isTerminalMode ? scaleAnim : 1 }] }}>
                     <Ionicons
                       name="sparkles"
-                      size={16}
+                      size={14}
                       color={!isTerminalMode ? '#fff' : '#8A8A8A'}
                     />
                   </Animated.View>
@@ -417,8 +407,8 @@ const TerminalScreen = () => {
 
             {/* Model Selector */}
             <TouchableOpacity style={styles.modelSelector}>
-              <SafeText style={styles.modelText}>{selectedModel}</SafeText>
-              <Ionicons name="chevron-down" size={14} color="#8A8A8A" />
+              <SafeText style={styles.modelText}>Gemini 2.0</SafeText>
+              <Ionicons name="chevron-down" size={12} color="#666" />
             </TouchableOpacity>
           </View>
 
@@ -426,7 +416,7 @@ const TerminalScreen = () => {
           <View style={styles.mainInputRow}>
             {/* Tools Button */}
             <TouchableOpacity style={styles.toolsButton}>
-              <Ionicons name="add-circle-outline" size={24} color="#8A8A8A" />
+              <Ionicons name="attach" size={24} color="#8A8A8A" />
             </TouchableOpacity>
 
             {/* Input Field */}
@@ -446,27 +436,21 @@ const TerminalScreen = () => {
               onPress={handleSend}
               disabled={!input.trim() || isLoading}
               style={styles.sendButton}
+              activeOpacity={0.7}
             >
-              <LinearGradient
-                colors={input.trim() && !isLoading ? ['#8B7CF6', '#7C6FE5'] : ['#2A2A2A', '#2A2A2A']}
-                style={styles.sendGradient}
-              >
-                <Ionicons name="send" size={18} color={input.trim() && !isLoading ? '#fff' : '#8A8A8A'} />
-              </LinearGradient>
+              <Ionicons 
+                name="arrow-up-circle" 
+                size={32} 
+                color={input.trim() && !isLoading ? AppColors.primary : '#333'} 
+              />
             </TouchableOpacity>
+
           </View>
         </LinearGradient>
       </KeyboardAvoidingView>
         </Animated.View>
       </View>
-      {showSidebar && (
-        <TouchableOpacity
-          style={styles.overlay}
-          activeOpacity={1}
-          onPress={() => setShowSidebar(false)}
-        >
-          <BlurView intensity={10} style={StyleSheet.absoluteFill} />
-        </TouchableOpacity>
+      </>
       )}
     </View>
   );
@@ -476,7 +460,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     position: 'absolute',
     bottom: 0,
-    left: 0,
+    left: 50,
     right: 0,
     top: 60,
     pointerEvents: 'box-none',
@@ -488,7 +472,7 @@ const styles = StyleSheet.create({
   contextHeader: {
     position: 'absolute',
     top: 60,
-    left: 80,
+    left: 60,
     right: 20,
     height: 44,
     justifyContent: 'center',
@@ -504,15 +488,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.95)',
   },
-  rightHeaderIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'absolute',
-    right: 0,
-  },
-  accountCircle: {
-    marginLeft: 10,
-  },
   eyeButton: {
     width: 28,
     height: 28,
@@ -523,6 +498,7 @@ const styles = StyleSheet.create({
   },
   output: {
     flex: 1,
+    paddingLeft: 50,
   },
   emptyState: {
     flex: 1,
@@ -604,40 +580,6 @@ const styles = StyleSheet.create({
   loadingDot: {
     fontSize: 14,
   },
-  menuButton: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  menuIconContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 4,
-  },
-  menuLine: {
-    height: 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 1,
-    opacity: 0.9,
-  },
-  projectFilesButton: {
-    position: 'absolute',
-    top: 60,
-    left: 80, // Position next to menuButton (left: 20 + width: 44 + some margin)
-    width: 44,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
   inputContainer: {
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -668,43 +610,45 @@ const styles = StyleSheet.create({
   modeToggle: {
     flexDirection: 'row',
     backgroundColor: 'transparent',
-    borderRadius: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
-    padding: 3,
+    borderColor: '#1a1a1a',
+    padding: 2,
   },
   autoLabel: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 9,
+    fontWeight: '600',
     color: '#8B7CF6',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   modeButton: {
-    width: 32,
-    height: 30,
+    width: 28,
+    height: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 15,
+    borderRadius: 10,
   },
   modeButtonActive: {
-    backgroundColor: '#8B7CF6',
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
   },
   modeButtonForced: {
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#8B7CF6',
   },
   modelSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: 'rgba(42, 42, 42, 0.5)',
-    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#1a1a1a',
+    gap: 4,
   },
   modelText: {
-    fontSize: 12,
-    color: '#F0F0F0',
+    fontSize: 10,
+    color: '#888',
     fontWeight: '500',
   },
   mainInputRow: {
@@ -719,6 +663,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  sendButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
   input: {
     flex: 1,
     fontSize: 14,
@@ -728,24 +679,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     maxHeight: 120,
     lineHeight: 20,
-  },
-  sendButton: {
-    marginLeft: 12,
-  },
-  sendGradient: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
 });
 export default TerminalScreen;

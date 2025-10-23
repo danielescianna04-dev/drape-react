@@ -38,3 +38,4 @@ firebase-debug.log
 # Google Cloud
 gcloud-debug.log
 .gcloud/
+backend/service-account-key.json

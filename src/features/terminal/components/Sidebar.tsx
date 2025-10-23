@@ -26,6 +26,7 @@ import { FileExplorer } from './FileExplorer';
 import { GitHubAuthModal } from './GitHubAuthModal';
 import { FileViewer } from './FileViewer';
 import { githubTokenService } from '../../../core/github/githubTokenService';
+import { useTabStore } from '../../../core/tabs/tabStore';
 
 interface Props {
   onClose: () => void;
@@ -33,7 +34,6 @@ interface Props {
 }
 
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
-  const [activeTab, setActiveTab] = useState<'chat' | 'projects'>('projects');
   const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -44,6 +44,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
+  
+  const { addTab } = useTabStore();
 
   const {
     chatHistory,
@@ -152,14 +154,9 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   return (
     <>
-      <TouchableOpacity 
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
       <LinearGradient
-        colors={['rgba(28, 28, 30, 0.98)', 'rgba(15, 15, 20, 0.96)']}
+        colors={['#0a0a0a', '#000000']}
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.header}>
@@ -194,68 +191,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         </View>
       </View>
 
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          onPress={() => setActiveTab('projects')}
-          style={[
-            styles.tab,
-            activeTab === 'projects' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'projects' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="folder"
-                size={18}
-                color={activeTab === 'projects' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'projects' && styles.tabTextActive,
-              ]}
-            >
-              Progetti
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setActiveTab('chat')}
-          style={[
-            styles.tab,
-            activeTab === 'chat' && styles.tabActive,
-          ]}
-          activeOpacity={0.7}
-        >
-          <View style={styles.tabContent}>
-            <View style={[
-              styles.tabIconContainer,
-              activeTab === 'chat' && styles.tabIconContainerActive
-            ]}>
-              <Ionicons
-                name="chatbubbles"
-                size={18}
-                color={activeTab === 'chat' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === 'chat' && styles.tabTextActive,
-              ]}
-            >
-              Chats
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
@@ -272,11 +207,21 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             <FileExplorer 
               projectId={selectedProjectId} 
               onFileSelect={(path) => {
-                setSelectedFile(path);
+                addTab({
+                  id: `file-${selectedProjectId}-${path}`,
+                  type: 'file',
+                  title: path.split('/').pop() || 'File',
+                  data: {
+                    projectId: selectedProjectId,
+                    filePath: path,
+                    repositoryUrl: selectedRepoUrl,
+                  }
+                });
+                onClose();
               }}
             />
           </View>
-        ) : activeTab === 'projects' ? (
+        ) : (
           <>
             <View style={styles.actionButtonsContainer}>
               <TouchableOpacity 
@@ -285,7 +230,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="add-circle" size={20} color={AppColors.primary} />
+                  <Ionicons name="add-circle" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Nuovo</Text>
               </TouchableOpacity>
@@ -296,7 +241,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="cloud-download" size={20} color={AppColors.primary} />
+                  <Ionicons name="cloud-download" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Importa</Text>
               </TouchableOpacity>
@@ -307,7 +252,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="folder" size={20} color={AppColors.primary} />
+                  <Ionicons name="folder" size={16} color={AppColors.primary} />
                 </View>
                 <Text style={styles.actionButtonText}>Cartella</Text>
               </TouchableOpacity>
@@ -332,7 +277,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                       <View style={styles.projectItemContent}>
                         <View style={styles.projectHeader}>
                           <View style={styles.projectIconContainer}>
-                            <Ionicons name="document-text" size={18} color={AppColors.primary} />
+                            <Ionicons name="document-text" size={14} color={AppColors.primary} />
                           </View>
                           <View style={styles.projectInfo}>
                             <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
@@ -343,12 +288,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                             style={styles.deleteButton}
                             activeOpacity={0.6}
                           >
-                            <Ionicons name="trash" size={16} color="#FF6B6B" />
+                            <Ionicons name="close" size={14} color="rgba(255, 255, 255, 0.4)" />
                           </TouchableOpacity>
-                        </View>
-                        <View style={styles.projectStatus}>
-                          <View style={[styles.statusDot, { backgroundColor: ws.status === 'running' ? AppColors.primary : 'rgba(255, 255, 255, 0.4)' }]} />
-                          <Text style={styles.statusText}>{ws.status || 'idle'}</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -405,23 +346,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
               </Modal>
             )}
           </>
-        ) : (
-          <ChatList chats={chatHistory} />
         )}
       </ScrollView>
-
-      <View style={styles.footer}>
-        <TouchableOpacity 
-          style={styles.footerButton} 
-          onPress={onOpenAllProjects}
-          activeOpacity={0.7}
-        >
-          <View style={styles.footerButtonContent}>
-            <Ionicons name="grid" size={20} color={AppColors.primary} />
-            <Text style={styles.footerButtonText}>All Projects</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
     </Animated.View>
 
     <GitHubAuthModal
@@ -436,15 +362,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         setShowAuthModal(false);
         setPendingRepoUrl('');
       }}
-    />
-
-    <FileViewer
-      visible={!!selectedFile}
-      projectId={selectedProjectId || ''}
-      filePath={selectedFile || ''}
-      repositoryUrl={selectedRepoUrl}
-      userId={userId || 'anonymous'}
-      onClose={() => setSelectedFile(null)}
     />
     </>  );
 };
@@ -860,11 +777,11 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },  container: {
     position: 'absolute',
-    left: 0,
+    left: 50,
     top: 0,
     bottom: 0,
-    width: '80%',
-    maxWidth: 320,
+    width: '55%',
+    maxWidth: 220,
     zIndex: 1000,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
@@ -877,35 +794,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   closeButton: {
-    padding: 4,
+    padding: 2,
   },
   closeButtonBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   searchContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingHorizontal: 8,
+    marginBottom: 8,
   },
   searchWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -916,7 +833,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     color: '#FFFFFF',
     fontWeight: '500',
   },
@@ -995,7 +912,7 @@ const styles = StyleSheet.create({
   },
   connectButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   list: {
@@ -1125,26 +1042,27 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   projectItem: {
-    marginBottom: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 2,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   projectItemContent: {
-    padding: 16,
+    padding: 8,
   },
   projectHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
+    gap: 8,
+    marginBottom: 0,
   },
   projectIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    width: 16,
+    height: 16,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1152,13 +1070,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   projectName: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '500',
     color: '#FFFFFF',
-    marginBottom: 2,
+    marginBottom: 0,
   },
   projectLanguage: {
-    fontSize: 12,
+    fontSize: 9,
     color: 'rgba(255, 255, 255, 0.6)',
     fontWeight: '500',
   },
@@ -1166,23 +1084,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4,
   },
   languageTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: 'transparent',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   languageText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
     color: AppColors.primary,
   },
   projectUrl: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   projectStatus: {
     flexDirection: 'row',
@@ -1196,7 +1116,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'rgba(255, 255, 255, 0.7)',
     textTransform: 'uppercase',
     fontWeight: '600',
@@ -1205,14 +1125,14 @@ const styles = StyleSheet.create({
   footer: {
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 20,
+    padding: 8,
   },
   footerButton: {
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingVertical: 16,
+    paddingVertical: 10,
     paddingHorizontal: 20,
   },
   footerButtonContent: {
@@ -1222,16 +1142,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   footerButtonText: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '600',
     color: AppColors.primary,
   },
 
   deleteButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    width: 20,
+    height: 20,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1239,17 +1159,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 6,
+    padding: 10,
+    backgroundColor: 'transparent',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(0, 255, 136, 0.3)',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   importButtonText: {
     color: AppColors.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   newProjectButton: {
@@ -1271,34 +1191,34 @@ const styles = StyleSheet.create({
   },
   actionButtonsContainer: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-    marginBottom: 20,
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 12,
     paddingHorizontal: 8,
   },
   actionButton: {
     flex: 1,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     alignItems: 'center',
-    gap: 8,
+    gap: 4,
   },
   actionButtonIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionButtonText: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 12,
-    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    fontWeight: '500',
     textAlign: 'center',
   },
   folderItem: {
@@ -1434,6 +1354,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 12,
   },
+  fileViewerContainer: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
   fileExplorerHeader: {
     paddingVertical: 16,
     borderBottomWidth: 1,
@@ -1451,7 +1375,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   backButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: AppColors.primary,
   },
