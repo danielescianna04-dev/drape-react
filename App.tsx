@@ -26,20 +26,23 @@ export default function App() {
   
   console.log('🟢 App rendering, currentScreen:', currentScreen);
 
-  const handleImportRepo = async (url: string, token?: string) => {
+  const handleImportRepo = async (url: string, newToken?: string) => {
     try {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
       
-      if (token) {
-        const match = url.match(/github\.com\/([^\/]+)\//);
-        if (match) {
-          await githubTokenService.saveToken(match[1], token, userId);
-        }
+      const match = url.match(/github\.com\/([^\/]+)\//);
+      const owner = match ? match[1] : 'unknown';
+
+      let githubToken = newToken;
+      if (!githubToken) {
+        githubToken = await githubTokenService.getToken(owner, userId);
+      } else {
+        await githubTokenService.saveToken(owner, githubToken, userId);
       }
       
       const project = await workstationService.saveGitProject(url, userId);
-      const wsResult = await workstationService.createWorkstationForProject(project, token);
+      const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
       
       const workstation = {
         id: wsResult.workstationId || project.id,
@@ -62,7 +65,7 @@ export default function App() {
       setIsImporting(false);
       console.log('🔴 Import error:', error.response?.status);
       
-      if (error.response?.status === 401 && !token) {
+      if (error.response?.status === 401 && !newToken) {
         console.log('🔐 Opening auth modal for:', url);
         setPendingRepoUrl(url);
         setShowAuthModal(true);

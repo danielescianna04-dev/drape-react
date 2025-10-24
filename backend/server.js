@@ -6,6 +6,9 @@ const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const admin = require('firebase-admin');
 
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -177,7 +180,7 @@ app.post('/github/device-flow', async (req, res) => {
     const response = await axios.post(
       'https://github.com/login/device/code',
       new URLSearchParams({
-        client_id: req.body.client_id,
+        client_id: GITHUB_CLIENT_ID,
         scope: req.body.scope,
       }),
       {
@@ -200,7 +203,7 @@ app.post('/github/poll-device', async (req, res) => {
     const response = await axios.post(
       'https://github.com/login/oauth/access_token',
       new URLSearchParams({
-        client_id: req.body.client_id,
+        client_id: GITHUB_CLIENT_ID,
         device_code: req.body.device_code,
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       }),
@@ -558,10 +561,9 @@ app.post('/workstation/create', async (req, res) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log(`💾 Saved ${files.length} files to Firestore`);
-      } catch (error) {
-        console.error('⚠️ Error saving to Firestore:', error.message);
-      }
-    }
+        } catch (error) {
+          console.error('⚠️ Error saving files to Firestore:', error); // Log the full error object
+        }    }
 
     res.json({
       workstationId,
@@ -721,8 +723,8 @@ app.get('/workstation/:projectId/files', async (req, res) => {
             res.json({ success: true, files: [] });
         }
     } catch (error) {
-        console.error('❌ Error getting files:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('❌ Error getting files from Firestore:', error); // Log the full error object
+        res.status(500).json({ success: false, error: error.message, details: error });
     }
 });
 
