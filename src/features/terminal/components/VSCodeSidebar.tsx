@@ -20,7 +20,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
 
   return (
     <>
-      {/* Icon Bar - Always visible */}
       <View style={styles.iconBar}>
         <TouchableOpacity 
           style={[styles.iconButton, activePanel === 'files' && styles.iconButtonActive]}

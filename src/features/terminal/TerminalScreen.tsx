@@ -264,6 +264,7 @@ const TerminalScreen = () => {
     }
   };
 
+  console.log('🟢 Rendering TerminalScreen'); // Added log
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -271,10 +272,7 @@ const TerminalScreen = () => {
         locations={[0, 0.3, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {/* VSCode-style Sidebar */}
       <VSCodeSidebar />
-      
-
       {activeTab?.type === 'file' ? (
         <FileViewer
           visible={true}
@@ -369,9 +367,6 @@ const TerminalScreen = () => {
                   </Animated.View>
                 </TouchableOpacity>
               </View>
-
-
-
             </View>
 
             {/* Model Selector */}

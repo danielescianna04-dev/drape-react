@@ -10,10 +10,11 @@ import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
+import { AppNavigator } from './src/navigation/AppNavigator'; // New import
 
 console.log('🔵 App.tsx loaded');
 
-type Screen = 'splash' | 'home' | 'create' | 'terminal';
+type Screen = 'splash' | 'home' | 'create' | 'app'; // Changed 'terminal' to 'app'
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -60,7 +61,7 @@ export default function App() {
       setWorkstation(workstation); // Set as current workstation
       setShowImportModal(false);
       setIsImporting(false);
-      setCurrentScreen('terminal');
+      setCurrentScreen('app'); // Changed from 'terminal' to 'app'
     } catch (error: any) {
       setIsImporting(false);
       console.log('🔴 Import error:', error.response?.status);
@@ -101,12 +102,12 @@ export default function App() {
             }}
             onMyProjects={() => {
               console.log('My projects');
-              setCurrentScreen('terminal');
+              setCurrentScreen('app'); // Changed from 'terminal' to 'app'
             }}
             onOpenProject={(workstation) => {
               console.log('Opening project:', workstation.name);
               setWorkstation(workstation);
-              setCurrentScreen('terminal');
+              setCurrentScreen('app'); // Changed from 'terminal' to 'app'
             }}
           />
         </ErrorBoundary>
@@ -143,7 +144,7 @@ export default function App() {
             onBack={() => setCurrentScreen('home')}
             onCreate={(projectData) => {
               console.log('Creating project:', projectData);
-              setCurrentScreen('terminal');
+              setCurrentScreen('app'); // Changed from 'terminal' to 'app'
             }}
           />
         </ErrorBoundary>
@@ -152,7 +153,21 @@ export default function App() {
     );
   }
 
-  console.log('🟢 Rendering TerminalScreen');
+  // Render AppNavigator for tabbed interface
+  if (currentScreen === 'app') {
+    console.log('🟢 Rendering AppNavigator');
+    return (
+      <>
+        <ErrorBoundary>
+          <AppNavigator />
+        </ErrorBoundary>
+        <StatusBar style="light" />
+      </>
+    );
+  }
+
+  // Fallback for any unhandled screen state (should not happen)
+  console.log('🟢 Rendering TerminalScreen (Fallback)');
   return (
     <>
       <ErrorBoundary>
