@@ -274,37 +274,6 @@ const TerminalScreen = () => {
       {/* VSCode-style Sidebar */}
       <VSCodeSidebar />
       
-      {/* Preview Eye - appears when URL is detected */}
-      {/* <PreviewEye /> */}
-
-      {/* Project Context Header */}
-      {currentWorkstation && (
-        <View style={styles.contextHeader}>
-          <View style={styles.contextContent}>
-            <Ionicons name="folder-open" size={18} color={AppColors.primary} />
-            <SafeText style={styles.contextName} numberOfLines={1}>{currentWorkstation?.name || "No Project"}</SafeText>
-          </View>
-          
-          <TouchableOpacity
-            style={[
-              styles.eyeButton,
-              { backgroundColor: (currentWorkstation?.status || 'idle') === 'running' ? AppColors.success : AppColors.dark.surfaceVariant }
-            ]}
-            onPress={() => {
-              if ((currentWorkstation?.status || 'idle') === 'running' && currentWorkstation?.webUrl) {
-                console.log('Opening web preview:', currentWorkstation.webUrl);
-              }
-            }}
-            disabled={(currentWorkstation?.status || 'idle') !== 'running'}
-          >
-            <Ionicons 
-              name="eye" 
-              size={14} 
-              color={(currentWorkstation?.status || 'idle') === 'running' ? 'white' : AppColors.textSecondary} 
-            />
-          </TouchableOpacity>
-        </View>
-      )}
 
       {activeTab?.type === 'file' ? (
         <FileViewer

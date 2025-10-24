@@ -104,7 +104,7 @@ export const workstationService = {
           userId: project.userId,
           projectId: project.id,
           projectType: 'git',
-          token: token,
+          githubToken: token,
         });
       } else {
         // Progetto personale - carica da Cloud Storage
@@ -125,9 +125,7 @@ export const workstationService = {
 
   async getWorkstationFiles(workstationId: string): Promise<string[]> {
     try {
-      const response = await axios.post(`${API_BASE_URL}/workstation/list-files`, {
-        workstationId,
-      });
+      const response = await axios.get(`${API_BASE_URL}/workstation/${workstationId}/files`);
       return response.data.files || [];
     } catch (error) {
       console.error('Error getting workstation files:', error);

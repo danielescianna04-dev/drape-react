@@ -1,22 +1,68 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { AppColors } from '../../shared/theme/colors';
+import { workstationService } from '../../core/workstation/workstationService-firebase';
 
 interface Props {
   onCreateProject: () => void;
   onImportProject: () => void;
   onMyProjects: () => void;
+  onOpenProject: (workstation: any) => void;
 }
 
-// Mock recent projects - sostituire con dati reali da Firestore
-const recentProjects = [
-  { id: '1', name: 'sitoPacifica', language: 'React', lastOpened: '2 hours ago' },
-  { id: '2', name: 'drape-backend', language: 'Node.js', lastOpened: '1 day ago' },
-];
+export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject }: Props) => {
+  const [recentProjects, setRecentProjects] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects }: Props) => {
+  useEffect(() => {
+    loadRecentProjects();
+  }, []);
+
+  const loadRecentProjects = async () => {
+    try {
+      const workstations = await workstationService.getWorkstations();
+      const recent = workstations
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 8);
+      setRecentProjects(recent);
+    } catch (error) {
+      console.error('Error loading recent projects:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - new Date(date).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    return 'now';
+  };
+
+  const handleBrowseFiles = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        Alert.alert('File Selected', `${file.name}\nSize: ${(file.size || 0) / 1024} KB`);
+      }
+    } catch (error) {
+      console.error('Error picking document:', error);
+      Alert.alert('Error', 'Failed to open file picker');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -31,89 +77,64 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View style={styles.logo}>
-            <Ionicons name="code-slash" size={32} color={AppColors.primary} />
+          <View>
+            <Text style={styles.title}>Drape</Text>
+            <Text style={styles.subtitle}>Mobile AI IDE</Text>
           </View>
-          <Text style={styles.title}>Drape</Text>
-          <Text style={styles.subtitle}>Mobile AI IDE</Text>
+          <TouchableOpacity style={styles.profileButton} activeOpacity={0.7}>
+            <Ionicons name="person-circle-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.buttonsContainer}>
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={onCreateProject}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconCircle}>
-              <Ionicons name="add-circle-outline" size={24} color="rgba(255, 255, 255, 0.9)" />
-            </View>
-            <View style={styles.buttonText}>
-              <Text style={styles.buttonTitle}>Create Project</Text>
-              <Text style={styles.buttonSubtitle}>Start a new project from scratch</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.2)" />
-          </TouchableOpacity>
+        <View style={styles.section}>
+          <View style={styles.grid}>
+            <TouchableOpacity style={styles.card} onPress={onCreateProject} activeOpacity={0.7}>
+              <Ionicons name="add-circle-outline" size={32} color={AppColors.primary} />
+              <Text style={styles.cardTitle}>Create</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={onImportProject}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconCircle}>
-              <Ionicons name="cloud-download-outline" size={24} color="rgba(255, 255, 255, 0.9)" />
-            </View>
-            <View style={styles.buttonText}>
-              <Text style={styles.buttonTitle}>Import Project</Text>
-              <Text style={styles.buttonSubtitle}>Clone from GitHub repository</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.2)" />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.card} onPress={onImportProject} activeOpacity={0.7}>
+              <Ionicons name="cloud-download-outline" size={32} color={AppColors.primary} />
+              <Text style={styles.cardTitle}>Import</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={onMyProjects}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconCircle}>
-              <Ionicons name="folder-open-outline" size={24} color="rgba(255, 255, 255, 0.9)" />
-            </View>
-            <View style={styles.buttonText}>
-              <Text style={styles.buttonTitle}>My Projects</Text>
-              <Text style={styles.buttonSubtitle}>Open existing projects</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.2)" />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.card} onPress={handleBrowseFiles} activeOpacity={0.7}>
+              <Ionicons name="folder-open-outline" size={32} color={AppColors.primary} />
+              <Text style={styles.cardTitle}>Browse</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {recentProjects.length > 0 && (
-          <View style={styles.recentSection}>
-            <View style={styles.recentHeader}>
-              <Text style={styles.recentTitle}>Recent</Text>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>I miei progetti</Text>
               <TouchableOpacity onPress={onMyProjects}>
-                <Text style={styles.seeAll}>See All</Text>
+                <Ionicons name="arrow-forward" size={18} color="rgba(255, 255, 255, 0.4)" />
               </TouchableOpacity>
             </View>
-
+            
             {recentProjects.map((project) => (
               <TouchableOpacity 
                 key={project.id}
-                style={styles.recentProject}
+                style={styles.projectItem}
                 activeOpacity={0.7}
+                onPress={() => onOpenProject(project)}
               >
-                <View style={styles.projectIcon}>
-                  <Ionicons name="folder" size={20} color={AppColors.primary} />
+                <View style={styles.projectLeft}>
+                  <View style={styles.projectIconContainer}>
+                    <Ionicons name="folder" size={18} color={AppColors.primary} />
+                  </View>
+                  <View style={styles.projectDetails}>
+                    <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
+                    <Text style={styles.projectMeta}>{project.language || 'Unknown'}</Text>
+                  </View>
                 </View>
-                <View style={styles.projectInfo}>
-                  <Text style={styles.projectName}>{project.name}</Text>
-                  <Text style={styles.projectMeta}>{project.language} • {project.lastOpened}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="rgba(255, 255, 255, 0.2)" />
+                <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
-
-        <Text style={styles.footer}>Powered by AI • Built for Mobile</Text>
       </ScrollView>
     </View>
   );
@@ -127,129 +148,104 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingTop: 80,
     paddingBottom: 40,
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  logo: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-  },
-  title: {
-    fontSize: 42,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 4,
-    letterSpacing: -1,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: 'rgba(255, 255, 255, 0.4)',
-    fontWeight: '500',
-  },
-  buttonsContainer: {
-    gap: 12,
-    marginBottom: 32,
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 18,
-    gap: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    flex: 1,
-  },
-  buttonTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  buttonSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  recentSection: {
-    marginTop: 8,
-  },
-  recentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 48,
   },
-  recentTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  profileButton: {
+    padding: 4,
   },
-  seeAll: {
+  title: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -2,
+    marginBottom: 4,
+  },
+  subtitle: {
     fontSize: 14,
-    color: AppColors.primary,
-    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.4)',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
-  recentProject: {
+  section: {
+    marginBottom: 40,
+  },
+  sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 14,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  grid: {
+    flexDirection: 'row',
     gap: 12,
+  },
+  card: {
+    flex: 1,
+    paddingVertical: 32,
     backgroundColor: 'rgba(255, 255, 255, 0.02)',
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.04)',
-    marginBottom: 8,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  projectIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  projectItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 4,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  projectLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  projectIconContainer: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  projectInfo: {
+  projectDetails: {
     flex: 1,
   },
   projectName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
     marginBottom: 2,
   },
   projectMeta: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.4)',
   },
-  footer: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.25)',
-    marginTop: 32,
+  projectTime: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontWeight: '500',
   },
 });

@@ -64,6 +64,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     setWorkstation,
     removeWorkstation,
     userId,
+    currentWorkstation,
   } = useTerminalStore();
 
   useEffect(() => {
@@ -74,13 +75,19 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       friction: 11,
     }).start();
 
+    // Auto-open current project if exists
+    if (currentWorkstation && !selectedProjectId) {
+      setSelectedProjectId(currentWorkstation.projectId || currentWorkstation.id);
+      setSelectedRepoUrl(currentWorkstation.githubUrl || '');
+    }
+
     // Carica workstations da Firestore
     const loadData = async () => {
       const workstations = await workstationService.getWorkstations();
       loadWorkstations(workstations);
     };
     loadData();
-  }, []);
+  }, [currentWorkstation]);
 
   const handleClose = () => {
     Animated.timing(slideAnim, {
@@ -194,16 +201,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
-            <View style={styles.fileExplorerHeader}>
-              <TouchableOpacity 
-                onPress={() => setSelectedProjectId(null)}
-                style={styles.backButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-back" size={20} color={AppColors.primary} />
-                <Text style={styles.backButtonText}>Progetti</Text>
-              </TouchableOpacity>
-            </View>
             <FileExplorer 
               projectId={selectedProjectId} 
               onFileSelect={(path) => {
@@ -226,24 +223,13 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             <View style={styles.actionButtonsContainer}>
               <TouchableOpacity 
                 style={styles.actionButton}
-                onPress={() => setShowNewProjectModal(true)}
+                onPress={() => setShowNewFolderModal(true)}
                 activeOpacity={0.7}
               >
                 <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="add-circle" size={16} color={AppColors.primary} />
+                  <Ionicons name="folder" size={16} color={AppColors.primary} />
                 </View>
-                <Text style={styles.actionButtonText}>Nuovo</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => setShowImportModal(true)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="cloud-download" size={16} color={AppColors.primary} />
-                </View>
-                <Text style={styles.actionButtonText}>Importa</Text>
+                <Text style={styles.actionButtonText}>Cartella</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
