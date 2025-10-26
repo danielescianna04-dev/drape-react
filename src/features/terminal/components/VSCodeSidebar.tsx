@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, Animated, Dimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
@@ -17,32 +18,37 @@ interface Props {
 
 export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
+  const scaleAnim = useSharedValue(1);
 
   const togglePanel = (panel: PanelType) => {
-    if (panel === 'multitasking' && activePanel !== 'multitasking') {
-      // Open panel immediately and animate scale down
-      setActivePanel(panel);
-      Animated.spring(scaleAnim, {
-        toValue: 0.75,
-        useNativeDriver: true,
-        tension: 50,
-        friction: 10,
-      }).start();
-    } else if (activePanel === 'multitasking' && panel !== 'multitasking') {
-      // Animate scale up and close panel
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 50,
-        friction: 10,
-      }).start(() => {
-        setActivePanel(panel);
-      });
+    if (panel === 'multitasking') {
+      if (activePanel === 'multitasking') {
+        // If multitasking is active and the multitasking button is pressed again, close it
+        setActivePanel(null);
+      } else {
+        // If multitasking is not active and the multitasking button is pressed, open it
+        setActivePanel('multitasking');
+      }
     } else {
+      // Handle other panels (files, chat, terminal, settings)
       setActivePanel(activePanel === panel ? null : panel);
     }
   };
+
+  // Effect to handle scale animation based on activePanel
+  useEffect(() => {
+    if (activePanel === 'multitasking') {
+      scaleAnim.value = withSpring(0.75, { tension: 10, friction: 20 });
+    } else {
+      scaleAnim.value = withSpring(1, { tension: 10, friction: 20 });
+    }
+  }, [activePanel]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scaleAnim.value }],
+    };
+  });
 
   return (
     <>
@@ -99,7 +105,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
       {activePanel !== 'multitasking' ? (
         <ContentRenderer
           children={children}
-          scaleAnim={scaleAnim}
+          scaleAnim={animatedStyle}
         />
       ) : (
         <MultitaskingPanel

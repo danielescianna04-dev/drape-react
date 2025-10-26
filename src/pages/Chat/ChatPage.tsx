@@ -1,15 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  ScrollView,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  Animated,
-} from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, interpolate, Extrapolate } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -42,8 +33,8 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
   const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
   const scrollViewRef = useRef<ScrollView>(null);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const inputPositionAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useSharedValue(1);
+  const inputPositionAnim = useSharedValue(0);
   
   const { tabs, activeTabId } = useTabStore();
   const activeTab = tabs.find(t => t.id === activeTabId);
@@ -77,19 +68,22 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
 
   useEffect(() => {
     // Animazione quando cambia il toggle
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 1.2,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    if (isTerminalMode) {
+      scaleAnim.value = withSpring(1.2, { duration: 100 });
+      scaleAnim.value = withSpring(1, { duration: 100 });
+    } else {
+      scaleAnim.value = withSpring(1.2, { duration: 100 });
+      scaleAnim.value = withSpring(1, { duration: 100 });
+    }
   }, [isTerminalMode]);
+
+  const modeToggleAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: isTerminalMode ? scaleAnim.value : 1 }],
+    };
+  });
+
+
 
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (forcedMode === mode) {
@@ -154,11 +148,7 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
 
     // Animate input to bottom on first send
     if (!hasInteracted) {
-      Animated.timing(inputPositionAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start();
+      inputPositionAnim.value = withTiming(1, { duration: 400 });
     }
 
     const userMessage = input.trim();
@@ -322,15 +312,7 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
 
       <View style={styles.inputWrapper}>
         <Animated.View
-          style={
-            {
-            transform: [{
-              translateY: inputPositionAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 310],
-              })
-            }]
-          }}
+          style={inputWrapperAnimatedStyle}
         >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -353,7 +335,7 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
                     forcedMode === 'terminal' && styles.modeButtonForced
                   ]}
                 >
-                  <Animated.View style={{ transform: [{ scale: isTerminalMode ? scaleAnim : 1 }] }}>
+                  <Animated.View style={modeToggleAnimatedStyle}>
                     <Ionicons
                       name="code-slash"
                       size={14}
@@ -499,10 +481,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 2,
     borderColor: 'rgba(139, 124, 246, 0.3)',
-    shadowColor: '#8B7CF6',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
+    boxShadow: '0px 8px 20px rgba(139, 124, 246, 0.2)',
     elevation: 8,
   },
   logoTitle: {
@@ -511,9 +490,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 8,
     letterSpacing: -1.5,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    textShadow: '0px 2px 4px rgba(0, 0, 0, 0.3)',
   },
   logoSubtitle: {
     fontSize: 18,
@@ -521,9 +498,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 24,
     letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
   },
   logoDivider: {
     width: 80,
@@ -531,10 +506,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 124, 246, 0.4)',
     marginBottom: 24,
     borderRadius: 2,
-    shadowColor: '#8B7CF6',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    boxShadow: '0px 2px 4px rgba(139, 124, 246, 0.3)',
   },
   logoDescription: {
     fontSize: 16,
@@ -543,9 +515,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     maxWidth: 280,
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
   },  outputContent: {
     padding: 20,
     paddingTop: 160,
@@ -567,10 +537,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     borderColor: 'rgba(139, 124, 246, 0.15)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 30,
+    boxShadow: '0px 8px 30px rgba(0, 0, 0, 0.15)',
     elevation: 8,
   },
   topControls: {

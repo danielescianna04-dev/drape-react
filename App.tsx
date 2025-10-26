@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SplashScreen } from './src/features/splash/SplashScreen';
+import * as Linking from 'expo-linking';
 
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
@@ -26,6 +27,46 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   
   const { addWorkstation, setWorkstation } = useTerminalStore();
+
+  const handleDeepLink = (url: string) => {
+    const { path } = Linking.parse(url);
+    if (path) {
+      const githubUrlIndex = path.indexOf('github.com');
+      if (githubUrlIndex > -1) {
+        const githubUrl = path.substring(githubUrlIndex);
+        handleImportRepo(githubUrl);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleInitialUrl = async () => {
+      try {
+        const url = await Linking.getInitialURL();
+        console.log('Initial URL:', url);
+        if (url) {
+          handleDeepLink(url);
+        }
+      } catch (error) {
+        console.error('Error getting initial URL:', error);
+      }
+    };
+
+    handleInitialUrl();
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      console.log('Received URL:', url);
+      try {
+        handleDeepLink(url);
+      } catch (error) {
+        console.error('Error handling deep link:', error);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
   
   console.log('🟢 App rendering, currentScreen:', currentScreen);
 
@@ -81,7 +122,7 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <SplashScreen onFinish={() => {
-          console.log('🟡 Splash finished');
+          console.log('🟡 Splash finished, setting screen to home');
           setCurrentScreen('home');
         }} />
         <StatusBar style="light" />

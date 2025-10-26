@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -21,26 +22,15 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const insets = useSafeAreaInsets();
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useSharedValue(1);
+  const opacityAnim = useSharedValue(0);
 
   console.log('🎯 MultitaskingPanel opened, tabs:', tabs.length);
 
   useEffect(() => {
     // Animate in
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: SCALE,
-        useNativeDriver: true,
-        tension: 50,
-        friction: 10,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    scaleAnim.value = withSpring(SCALE, { tension: 10, friction: 20 });
+    opacityAnim.value = withTiming(1, { duration: 200 });
 
     // Scroll to active tab
     const activeIndex = tabs.findIndex(t => t.id === activeTabId);
@@ -52,21 +42,16 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
     }
   }, []);
 
+  const overlayAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: opacityAnim.value,
+    };
+  });
+
   const handleSelectTab = (tabId: string) => {
     setActiveTab(tabId);
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 50,
-        friction: 10,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
+    scaleAnim.value = withSpring(1, { tension: 10, friction: 20 });
+    opacityAnim.value = withTiming(0, { duration: 150 }, () => {
       onClose();
     });
   };
@@ -99,7 +84,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
   return (
     <>
       {/* Overlay UI */}
-      <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>
+      <Animated.View style={[styles.overlay, overlayAnimatedStyle]}>
         <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
           <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
           <View style={styles.headerButtons}>
