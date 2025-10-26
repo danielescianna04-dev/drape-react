@@ -311,9 +311,6 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
       </ScrollView>
 
       <View style={styles.inputWrapper}>
-        <Animated.View
-          style={inputWrapperAnimatedStyle}
-        >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.inputContainer}
@@ -408,7 +405,6 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
           </View>
         </LinearGradient>
       </KeyboardAvoidingView>
-        </Animated.View>
       </View>
         </>
       )}
