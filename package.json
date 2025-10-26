@@ -39,7 +39,9 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
-    "typescript": "~5.9.2"
+    "@types/react-native": "^0.72.8",
+    "typescript": "~5.9.2",
+    "@react-native-community/cli": "latest"
   },
   "private": true
 }

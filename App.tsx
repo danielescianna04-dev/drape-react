@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SplashScreen } from './src/features/splash/SplashScreen';
-import TerminalScreen from './src/features/terminal/TerminalScreen';
+
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
@@ -11,6 +11,8 @@ import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
+import ChatPage from './src/pages/Chat/ChatPage';
+import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 
 console.log('🔵 App.tsx loaded');
 
@@ -157,7 +159,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <TerminalScreen />
+        <VSCodeSidebar>
+          {(isCardMode, cardDimensions) => (
+            <ChatPage isCardMode={isCardMode} cardDimensions={cardDimensions} />
+          )}
+        </VSCodeSidebar>
       </ErrorBoundary>
       <StatusBar style="light" />
     </SafeAreaProvider>

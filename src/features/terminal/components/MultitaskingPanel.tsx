@@ -13,7 +13,7 @@ const CARD_HEIGHT = SCREEN_HEIGHT * SCALE;
 
 interface Props {
   onClose: () => void;
-  children: React.ReactNode;
+  children: (isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
 }
 
 export const MultitaskingPanel = ({ onClose, children }: Props) => {
@@ -143,7 +143,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
                 ]}>
                   {isActive && (
                     <View style={styles.contentWrapper}>
-                      {children}
+                      {children(true, { width: CARD_WIDTH, height: CARD_HEIGHT })}
                     </View>
                   )}
                   
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: '#333333',
     zIndex: 1500,
   },
   header: {
@@ -244,12 +244,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   contentWrapper: {
-    width: CONTENT_WIDTH,
-    height: SCREEN_HEIGHT,
+    width: CARD_WIDTH,
+    height: CARD_HEIGHT,
+    overflow: 'hidden',
   },
   cardActive: {
     borderColor: 'rgba(139, 124, 246, 0.8)',

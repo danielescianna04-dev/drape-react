@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
+import { ContentRenderer } from './ContentRenderer';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'settings' | null;
 
 interface Props {
   onOpenAllProjects?: () => void;
-  children?: React.ReactNode;
+  children?: (isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
 }
 
 export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
@@ -93,19 +96,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
         />
       )}
       
-      {activePanel !== 'multitasking' && (
-        <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
-          {children}
-        </Animated.View>
-      )}
-      
-      {activePanel === 'multitasking' && (
+      {activePanel !== 'multitasking' ? (
+        <ContentRenderer
+          children={children}
+          scaleAnim={scaleAnim}
+        />
+      ) : (
         <MultitaskingPanel
           onClose={() => togglePanel(null)}
         >
-          <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
-            {children}
-          </Animated.View>
+          {({ isCardMode, cardDimensions }) => children && children(isCardMode, cardDimensions)}
         </MultitaskingPanel>
       )}
     </>
