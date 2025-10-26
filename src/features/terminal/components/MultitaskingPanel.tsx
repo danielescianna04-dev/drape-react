@@ -1,22 +1,90 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 100;
-const CARD_HEIGHT = SCREEN_HEIGHT * 0.7;
+const CONTENT_WIDTH = SCREEN_WIDTH - 50; // Minus sidebar
+const SCALE = 0.75;
+const CARD_WIDTH = CONTENT_WIDTH * 0.9;
+const CARD_HEIGHT = SCREEN_HEIGHT * SCALE;
 
 interface Props {
   onClose: () => void;
+  children: React.ReactNode;
 }
 
-export const MultitaskingPanel = ({ onClose }: Props) => {
-  const { tabs, activeTabId, setActiveTab, removeTab } = useTabStore();
+export const MultitaskingPanel = ({ onClose, children }: Props) => {
+  const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useTabStore();
   const scrollViewRef = useRef<ScrollView>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const insets = useSafeAreaInsets();
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+
+  console.log('🎯 MultitaskingPanel opened, tabs:', tabs.length);
+
+  useEffect(() => {
+    // Animate in
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: SCALE,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 10,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Scroll to active tab
+    const activeIndex = tabs.findIndex(t => t.id === activeTabId);
+    if (activeIndex !== -1) {
+      setCurrentIndex(activeIndex);
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ x: activeIndex * (CARD_WIDTH + 40), animated: false });
+      }, 100);
+    }
+  }, []);
+
+  const handleSelectTab = (tabId: string) => {
+    setActiveTab(tabId);
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 10,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
+  };
+
+  const handleCloseTab = (e: any, tabId: string) => {
+    e.stopPropagation();
+    if (tabs.length === 1) return;
+    removeTab(tabId);
+  };
+
+  const handleAddTab = () => {
+    const newTab = {
+      id: `terminal-${Date.now()}`,
+      type: 'terminal' as const,
+      title: `Terminal ${tabs.length + 1}`,
+    };
+    addTab(newTab);
+  };
 
   const getTabIcon = (type: string) => {
     switch (type) {
@@ -28,82 +96,90 @@ export const MultitaskingPanel = ({ onClose }: Props) => {
     }
   };
 
-  const handleSelectTab = (tabId: string) => {
-    setActiveTab(tabId);
-    onClose();
-  };
-
-  const handleCloseTab = (e: any, tabId: string) => {
-    e.stopPropagation();
-    removeTab(tabId);
-  };
-
   return (
-    <View style={styles.overlay}>
-      <View style={styles.header}>
-        <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
-        <TouchableOpacity onPress={onClose} style={styles.doneButton}>
-          <Text style={styles.doneText}>Fine</Text>
-        </TouchableOpacity>
-      </View>
+    <>
+      {/* Overlay UI */}
+      <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
+          <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity onPress={handleAddTab} style={styles.addButton}>
+              <Ionicons name="add-circle" size={28} color={AppColors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose} style={styles.doneButton}>
+              <Text style={styles.doneText}>Fine</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      <ScrollView
-        ref={scrollViewRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        onMomentumScrollEnd={(e) => {
-          const index = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
-          setCurrentIndex(index);
-        }}
-      >
-        {tabs.map((tab, index) => (
-          <TouchableOpacity
-            key={tab.id}
-            style={styles.card}
-            onPress={() => handleSelectTab(tab.id)}
-            activeOpacity={0.95}
-          >
-            <View style={styles.cardInner}>
-              <LinearGradient
-                colors={['rgba(139, 124, 246, 0.1)', 'rgba(124, 111, 229, 0.05)']}
-                style={styles.cardGradient}
-              />
-              
-              <TouchableOpacity 
-                onPress={(e) => handleCloseTab(e, tab.id)}
-                style={styles.closeButton}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          snapToInterval={CARD_WIDTH + 40}
+          decelerationRate="fast"
+          onMomentumScrollEnd={(e) => {
+            const index = Math.round(e.nativeEvent.contentOffset.x / (CARD_WIDTH + 40));
+            setCurrentIndex(index);
+          }}
+        >
+          {tabs.map((tab, index) => {
+            const isActive = tab.id === activeTabId;
+            
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={styles.card}
+                onPress={() => handleSelectTab(tab.id)}
+                activeOpacity={0.95}
               >
-                <Ionicons name="close-circle" size={28} color="rgba(255,255,255,0.6)" />
-              </TouchableOpacity>
+                <View style={[
+                  styles.cardBorder,
+                  isActive && styles.cardActive,
+                  currentIndex === index && styles.cardFocused
+                ]}>
+                  {isActive && (
+                    <View style={styles.contentWrapper}>
+                      {children}
+                    </View>
+                  )}
+                  
+                  <TouchableOpacity 
+                    onPress={(e) => handleCloseTab(e, tab.id)}
+                    style={styles.closeButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <View style={styles.closeButtonBg}>
+                      <Ionicons name="close" size={18} color="#fff" />
+                    </View>
+                  </TouchableOpacity>
 
-              <View style={styles.cardContent}>
-                <View style={styles.iconContainer}>
-                  <Ionicons name={getTabIcon(tab.type)} size={48} color={AppColors.primary} />
+                  <View style={styles.cardHeader}>
+                    <Ionicons name={getTabIcon(tab.type)} size={20} color={AppColors.primary} />
+                    <Text style={styles.cardTitle} numberOfLines={1}>{tab.title}</Text>
+                  </View>
                 </View>
-                <Text style={styles.cardTitle}>{tab.title}</Text>
-                <Text style={styles.cardSubtitle}>{tab.type}</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-      <View style={styles.pagination}>
-        {tabs.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dot,
-              currentIndex === index && styles.dotActive
-            ]}
-          />
-        ))}
-      </View>
-    </View>
+        <View style={styles.pagination}>
+          {tabs.map((_, index) => (
+            <View
+              key={index}
+              style={[
+                styles.dot,
+                currentIndex === index && styles.dotActive
+              ]}
+            />
+          ))}
+        </View>
+      </Animated.View>
+    </>
   );
 };
 
@@ -114,14 +190,13 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.95)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     zIndex: 1500,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
@@ -129,6 +204,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addButton: {
+    padding: 4,
   },
   doneButton: {
     paddingHorizontal: 20,
@@ -145,64 +228,83 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 25,
+    paddingHorizontal: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: '100%',
   },
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    marginHorizontal: 25,
-    borderRadius: 24,
-    overflow: 'hidden',
+    marginHorizontal: 20,
   },
-  cardInner: {
+  cardBorder: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.2)',
     borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cardGradient: {
-    ...StyleSheet.absoluteFillObject,
+  contentWrapper: {
+    width: CONTENT_WIDTH,
+    height: SCREEN_HEIGHT,
+  },
+  cardActive: {
+    borderColor: 'rgba(139, 124, 246, 0.8)',
+    shadowColor: AppColors.primary,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  cardFocused: {
+    borderColor: 'rgba(139, 124, 246, 1)',
+    borderWidth: 3,
+  },
+  cardHeader: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    zIndex: 10,
   },
   closeButton: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: 12,
+    right: 12,
     zIndex: 10,
   },
-  cardContent: {
+  closeButtonBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  previewPlaceholder: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
+    gap: 12,
   },
-  iconContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.4)',
-  },
-  cardTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  cardSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.6)',
-    textAlign: 'center',
+  previewText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   pagination: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { SplashScreen } from './src/features/splash/SplashScreen';
 import TerminalScreen from './src/features/terminal/TerminalScreen';
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
@@ -76,19 +77,19 @@ export default function App() {
 
   if (currentScreen === 'splash') {
     return (
-      <>
+      <SafeAreaProvider>
         <SplashScreen onFinish={() => {
           console.log('🟡 Splash finished');
           setCurrentScreen('home');
         }} />
         <StatusBar style="light" />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   if (currentScreen === 'home') {
     return (
-      <>
+      <SafeAreaProvider>
         <ErrorBoundary>
           <ProjectsHomeScreen
             onCreateProject={() => {
@@ -131,13 +132,13 @@ export default function App() {
           }}
         />
         <StatusBar style="light" />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   if (currentScreen === 'create') {
     return (
-      <>
+      <SafeAreaProvider>
         <ErrorBoundary>
           <CreateProjectScreen
             onBack={() => setCurrentScreen('home')}
@@ -148,17 +149,17 @@ export default function App() {
           />
         </ErrorBoundary>
         <StatusBar style="light" />
-      </>
+      </SafeAreaProvider>
     );
   }
 
   console.log('🟢 Rendering TerminalScreen');
   return (
-    <>
+    <SafeAreaProvider>
       <ErrorBoundary>
         <TerminalScreen />
       </ErrorBoundary>
       <StatusBar style="light" />
-    </>
+    </SafeAreaProvider>
   );
 }

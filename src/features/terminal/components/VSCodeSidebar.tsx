@@ -9,13 +9,36 @@ type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'settings' | n
 
 interface Props {
   onOpenAllProjects?: () => void;
+  children?: React.ReactNode;
 }
 
-export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
+export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
+  const scaleAnim = React.useRef(new Animated.Value(1)).current;
 
   const togglePanel = (panel: PanelType) => {
-    setActivePanel(activePanel === panel ? null : panel);
+    if (panel === 'multitasking' && activePanel !== 'multitasking') {
+      // Open panel immediately and animate scale down
+      setActivePanel(panel);
+      Animated.spring(scaleAnim, {
+        toValue: 0.75,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 10,
+      }).start();
+    } else if (activePanel === 'multitasking' && panel !== 'multitasking') {
+      // Animate scale up and close panel
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 10,
+      }).start(() => {
+        setActivePanel(panel);
+      });
+    } else {
+      setActivePanel(activePanel === panel ? null : panel);
+    }
   };
 
   return (
@@ -70,10 +93,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects }: Props) => {
         />
       )}
       
+      {activePanel !== 'multitasking' && (
+        <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
+          {children}
+        </Animated.View>
+      )}
+      
       {activePanel === 'multitasking' && (
         <MultitaskingPanel
-          onClose={() => setActivePanel(null)}
-        />
+          onClose={() => togglePanel(null)}
+        >
+          <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
+            {children}
+          </Animated.View>
+        </MultitaskingPanel>
       )}
     </>
   );

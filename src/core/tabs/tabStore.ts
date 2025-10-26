@@ -6,7 +6,9 @@ export interface Tab {
   id: string;
   type: TabType;
   title: string;
-  data?: any; // Dati specifici per ogni tipo di tab
+  data?: any;
+  terminalItems?: any[];
+  workstationId?: string;
 }
 
 interface TabStore {

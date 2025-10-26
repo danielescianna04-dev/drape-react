@@ -27,6 +27,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { FileViewer } from './components/FileViewer';
+import { TabBar } from './components/TabBar';
 
 const colors = AppColors.dark;
 
@@ -272,7 +273,8 @@ const TerminalScreen = () => {
         style={StyleSheet.absoluteFill}
       />
       {/* VSCode-style Sidebar */}
-      <VSCodeSidebar />
+      <VSCodeSidebar>
+      <TabBar />
       
 
       {activeTab?.type === 'file' ? (
@@ -419,8 +421,9 @@ const TerminalScreen = () => {
       </KeyboardAvoidingView>
         </Animated.View>
       </View>
-      </>
+        </>
       )}
+      </VSCodeSidebar>
     </View>
   );
 };
@@ -431,7 +434,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 50,
     right: 0,
-    top: 60,
+    top: 100,
     pointerEvents: 'box-none',
     justifyContent: 'center',
   },
@@ -440,7 +443,7 @@ const styles = StyleSheet.create({
   },
   contextHeader: {
     position: 'absolute',
-    top: 60,
+    top: 100,
     left: 60,
     right: 20,
     height: 44,
@@ -468,6 +471,7 @@ const styles = StyleSheet.create({
   output: {
     flex: 1,
     paddingLeft: 50,
+    paddingTop: 40,
   },
   emptyState: {
     flex: 1,
@@ -538,7 +542,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },  outputContent: {
     padding: 20,
-    paddingTop: 120,
+    paddingTop: 160,
     paddingBottom: 180,
   },
   loadingRow: {
