@@ -1,59 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import React, { useState, useCallback } from 'react';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
+import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
+import { TabBar } from './TabBar';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'settings' | null;
+type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'vertical' | 'settings' | null;
 
 interface Props {
   onOpenAllProjects?: () => void;
-  children?: (isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
+  children?: (isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
 }
 
 export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
-  const scaleAnim = useSharedValue(1);
 
-  const togglePanel = (panel: PanelType) => {
-    if (panel === 'multitasking') {
-      if (activePanel === 'multitasking') {
-        // If multitasking is active and the multitasking button is pressed again, close it
-        setActivePanel(null);
-      } else {
-        // If multitasking is not active and the multitasking button is pressed, open it
-        setActivePanel('multitasking');
-      }
-    } else {
-      // Handle other panels (files, chat, terminal, settings)
-      setActivePanel(activePanel === panel ? null : panel);
-    }
-  };
-
-  // Effect to handle scale animation based on activePanel
-  useEffect(() => {
-    if (activePanel === 'multitasking') {
-      scaleAnim.value = withSpring(0.75, { tension: 10, friction: 20 });
-    } else {
-      scaleAnim.value = withSpring(1, { tension: 10, friction: 20 });
-    }
-  }, [activePanel]);
-
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: scaleAnim.value }],
-    };
-  });
+  const togglePanel = useCallback((panel: PanelType) => {
+    setActivePanel(prev => prev === panel ? null : panel);
+  }, []);
 
   return (
     <>
-      {/* Icon Bar - Always visible */}
-      <View style={styles.iconBar}>
+      <View 
+        style={styles.iconBar}
+        onTouchStart={(e) => {
+          const touch = e.nativeEvent;
+          const timer = setTimeout(() => {
+            setActivePanel('vertical');
+          }, 500);
+          e.currentTarget.dataset = { timer };
+        }}
+        onTouchEnd={(e) => {
+          const timer = e.currentTarget.dataset?.timer;
+          if (timer) clearTimeout(timer);
+        }}
+      >
         <TouchableOpacity 
           style={[styles.iconButton, activePanel === 'files' && styles.iconButtonActive]}
           onPress={() => togglePanel('files')}
@@ -94,7 +78,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
         </TouchableOpacity>
       </View>
 
-      {/* Sliding Panel */}
       {activePanel === 'files' && (
         <Sidebar 
           onClose={() => setActivePanel(null)}
@@ -102,16 +85,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
         />
       )}
       
-      {activePanel !== 'multitasking' ? (
-        <ContentRenderer
-          children={children}
-          scaleAnim={animatedStyle}
-        />
+      <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
+      
+      {activePanel === 'vertical' ? (
+        <VerticalCardSwitcher onClose={() => setActivePanel(null)}>
+          {(isCardMode, cardDimensions, animatedStyle) => children && children(isCardMode, cardDimensions, animatedStyle)}
+        </VerticalCardSwitcher>
+      ) : activePanel !== 'multitasking' ? (
+        <ContentRenderer children={children} animatedStyle={{}} />
       ) : (
-        <MultitaskingPanel
-          onClose={() => togglePanel(null)}
-        >
-          {({ isCardMode, cardDimensions }) => children && children(isCardMode, cardDimensions)}
+        <MultitaskingPanel onClose={() => togglePanel(null)}>
+          {(isCardMode, cardDimensions, animatedStyle) => children && children(isCardMode, cardDimensions, animatedStyle)}
         </MultitaskingPanel>
       )}
     </>

@@ -18,16 +18,16 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
-import { TabBar } from '../../features/terminal/components/TabBar';
 
 const colors = AppColors.dark;
 
 interface ChatPageProps {
   isCardMode: boolean;
   cardDimensions: { width: number; height: number; };
+  animatedStyle?: any;
 }
 
-const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
+const ChatPage = ({ isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
@@ -261,18 +261,17 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
   };
 
   return (
-    <View style={[
+    <Animated.View style={[
       styles.container,
-      isCardMode && { width: cardDimensions.width, height: cardDimensions.height }
+      isCardMode && { width: cardDimensions.width, height: cardDimensions.height },
+      animatedStyle
     ]}>
       <LinearGradient
         colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']}
         locations={[0, 0.3, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <TabBar />
       
-
       {activeTab?.type === 'file' ? (
         <FileViewer
           visible={true}
@@ -408,7 +407,7 @@ const ChatPage = ({ isCardMode, cardDimensions }: ChatPageProps) => {
       </View>
         </>
       )}
-      </View>
+      </Animated.View>
   );
 };
 

@@ -5,7 +5,11 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-export const TabBar = () => {
+interface TabBarProps {
+  isCardMode?: boolean;
+}
+
+export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useTabStore();
   const scaleAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
   const insets = useSafeAreaInsets();
@@ -23,6 +27,8 @@ export const TabBar = () => {
       }
     });
   }, [tabs]);
+
+  if (isCardMode) return null;
 
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();

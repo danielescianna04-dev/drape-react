@@ -1,20 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CONTENT_WIDTH = SCREEN_WIDTH - 50; // Minus sidebar
-const SCALE = 0.75;
-const CARD_WIDTH = CONTENT_WIDTH * 0.9;
-const CARD_HEIGHT = SCREEN_HEIGHT * SCALE;
+const CONTENT_WIDTH = SCREEN_WIDTH - 50;
+const SCALE = 0.85;
+const HEADER_HEIGHT = 120;
+const PAGINATION_HEIGHT = 120;
+const AVAILABLE_HEIGHT = SCREEN_HEIGHT - HEADER_HEIGHT - PAGINATION_HEIGHT;
+const CARD_WIDTH = CONTENT_WIDTH * 0.88;
+const CARD_HEIGHT = AVAILABLE_HEIGHT;
+const TAB_BAR_HEIGHT = 90;
 
 interface Props {
   onClose: () => void;
-  children: (isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
+  children: (isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
 }
 
 export const MultitaskingPanel = ({ onClose, children }: Props) => {
@@ -22,38 +26,48 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const insets = useSafeAreaInsets();
-  const scaleAnim = useSharedValue(1);
-  const opacityAnim = useSharedValue(0);
-
-  console.log('🎯 MultitaskingPanel opened, tabs:', tabs.length);
+  const animProgress = useSharedValue(1);
 
   useEffect(() => {
-    // Animate in
-    scaleAnim.value = withSpring(SCALE, { tension: 10, friction: 20 });
-    opacityAnim.value = withTiming(1, { duration: 200 });
+    animProgress.value = 0;
+    animProgress.value = withTiming(1, {
+      duration: 300,
+      easing: Easing.out(Easing.ease),
+    });
 
-    // Scroll to active tab
     const activeIndex = tabs.findIndex(t => t.id === activeTabId);
     if (activeIndex !== -1) {
       setCurrentIndex(activeIndex);
       setTimeout(() => {
         scrollViewRef.current?.scrollTo({ x: activeIndex * (CARD_WIDTH + 40), animated: false });
-      }, 100);
+      }, 50);
     }
   }, []);
 
-  const overlayAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: opacityAnim.value,
-    };
-  });
+  const overlayAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(animProgress.value, [0, 1], [0, 1], Extrapolate.CLAMP),
+  }));
+
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { 
+        scale: interpolate(
+          animProgress.value, 
+          [0, 1], 
+          [1, SCALE],
+          Extrapolate.CLAMP
+        ) 
+      }
+    ],
+  }));
 
   const handleSelectTab = (tabId: string) => {
     setActiveTab(tabId);
-    scaleAnim.value = withSpring(1, { tension: 10, friction: 20 });
-    opacityAnim.value = withTiming(0, { duration: 150 }, () => {
-      onClose();
+    animProgress.value = withTiming(0, {
+      duration: 400,
+      easing: Easing.bezier(0.4, 0.0, 0.6, 1),
     });
+    setTimeout(onClose, 400);
   };
 
   const handleCloseTab = (e: any, tabId: string) => {
@@ -83,7 +97,6 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
 
   return (
     <>
-      {/* Overlay UI */}
       <Animated.View style={[styles.overlay, overlayAnimatedStyle]}>
         <View style={[styles.header, { paddingTop: insets.top + 20 }]}>
           <Text style={styles.tabCount}>{tabs.length} {tabs.length === 1 ? 'Scheda' : 'Schede'}</Text>
@@ -128,7 +141,13 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
                 ]}>
                   {isActive && (
                     <View style={styles.contentWrapper}>
-                      {children(true, { width: CARD_WIDTH, height: CARD_HEIGHT })}
+                      {children(true, { width: CARD_WIDTH, height: CARD_HEIGHT }, contentAnimatedStyle)}
+                    </View>
+                  )}
+                  
+                  {!isActive && (
+                    <View style={styles.inactiveCard}>
+                      <Ionicons name={getTabIcon(tab.type)} size={48} color="rgba(255,255,255,0.3)" />
                     </View>
                   )}
                   
@@ -175,7 +194,7 @@ const styles = StyleSheet.create({
     top: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#333333',
+    backgroundColor: '#0a0a0a',
     zIndex: 1500,
   },
   header: {
@@ -216,34 +235,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: '100%',
   },
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     marginHorizontal: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cardBorder: {
     flex: 1,
-    borderRadius: 24,
+    borderRadius: 16,
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.5)',
     overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  cardBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
   },
   contentWrapper: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
     overflow: 'hidden',
   },
+  inactiveCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0a0a0a',
+  },
   cardActive: {
-    borderColor: 'rgba(139, 124, 246, 0.8)',
+    borderColor: AppColors.primary,
     shadowColor: AppColors.primary,
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.8,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
   },
   cardFocused: {
-    borderColor: 'rgba(139, 124, 246, 1)',
+    borderColor: AppColors.primary,
     borderWidth: 3,
   },
   cardHeader: {
@@ -279,16 +311,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
     flex: 1,
-  },
-  previewPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  previewText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.4)',
   },
   pagination: {
     flexDirection: 'row',
