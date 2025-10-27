@@ -43,6 +43,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Always use tab-specific terminal items
   const tabTerminalItems = currentTab?.terminalItems || [];
   const isLoading = currentTab?.isLoading || false;
+  const hasChatStarted = tabTerminalItems.length > 0;
   
   console.log('📋 ChatPage - Tab:', currentTab?.id, 'Items:', tabTerminalItems.length, 'isCardMode:', isCardMode);
   
@@ -283,11 +284,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       isCardMode && { width: cardDimensions.width, height: cardDimensions.height },
       animatedStyle
     ]}>
-      <LinearGradient
-        colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']}
-        locations={[0, 0.3, 0.6, 1]}
-        style={StyleSheet.absoluteFill}
-      />
+      {/* ChatGPT-style clean dark background */}
+      <View style={styles.background} />
       
       {currentTab?.type === 'file' ? (
         <FileViewer
@@ -326,7 +324,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         )}
       </ScrollView>
 
-      <View style={styles.inputWrapper}>
+      <View style={[
+        styles.inputWrapper,
+        !hasChatStarted && styles.inputWrapperCentered
+      ]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.inputContainer}
@@ -429,13 +430,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  background: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#212121',
+  },
   inputWrapper: {
     position: 'absolute',
     bottom: 0,
     left: 50,
     right: 0,
-    top: 100,
     pointerEvents: 'box-none',
+  },
+  inputWrapperCentered: {
+    top: 100,
     justifyContent: 'center',
   },
   container: {

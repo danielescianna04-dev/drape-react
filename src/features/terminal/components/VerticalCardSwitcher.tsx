@@ -18,8 +18,14 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
   const activeIndex = tabs.findIndex(t => t.id === activeTabId);
   const startY = useRef(0);
   const lastPosition = useRef(0);
-  const SWIPE_THRESHOLD = 50;
-  const SENSITIVITY = 3;
+  const lastTime = useRef(0);
+  const velocity = useRef(0);
+  const maxVelocity = useRef(0);
+  const touchCount = useRef(0);
+  const firstDirection = useRef<'up' | 'down' | null>(null);
+  const SWIPE_THRESHOLD = 10; // Very low
+  const FLICK_VELOCITY_THRESHOLD = 0.3;
+  const SENSITIVITY = 6;
 
   const SPRING_CONFIG = {
     damping: 40,
@@ -38,49 +44,103 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
           const currentPos = lastPosition.current;
           const currentIndex = activeIndex * SCREEN_HEIGHT;
           const delta = currentPos - currentIndex;
+          const vel = maxVelocity.current;
+          const touches = touchCount.current;
           
-          console.log('🔄 Snap - pos:', currentPos, 'target:', currentIndex, 'delta:', delta);
+          console.log('🔄 Snap - delta:', delta.toFixed(0), 'maxVel:', vel.toFixed(2), 'touches:', touches, 'dir:', firstDirection.current);
           
-          if (Math.abs(delta) > SWIPE_THRESHOLD) {
-            let newIndex = activeIndex;
-            
-            // delta > 0 means scrolled up (next tab)
-            // delta < 0 means scrolled down (prev tab)
+          let newIndex = activeIndex;
+          
+          // Use first direction if detected (for quick swipes)
+          if (firstDirection.current && touches <= 5) {
+            if (firstDirection.current === 'up' && activeIndex < tabs.length - 1) {
+              newIndex = activeIndex + 1;
+              console.log('👆 Quick up - next tab');
+            } else if (firstDirection.current === 'down' && activeIndex > 0) {
+              newIndex = activeIndex - 1;
+              console.log('👇 Quick down - prev tab');
+            }
+          }
+          // Quick tap with few touches
+          else if (touches <= 2 && Math.abs(delta) < 10) {
+            if (activeIndex < tabs.length - 1) {
+              newIndex = activeIndex + 1;
+              console.log('👆 Quick tap - next tab');
+            }
+          }
+          // Fast flick
+          else if (Math.abs(vel) > FLICK_VELOCITY_THRESHOLD) {
+            if (vel > 0 && activeIndex < tabs.length - 1) {
+              newIndex = activeIndex + 1;
+              console.log('⚡ Flick up - next tab');
+            } else if (vel < 0 && activeIndex > 0) {
+              newIndex = activeIndex - 1;
+              console.log('⚡ Flick down - prev tab');
+            }
+          }
+          // Normal swipe - check distance
+          else if (Math.abs(delta) > SWIPE_THRESHOLD) {
             if (delta > SWIPE_THRESHOLD && activeIndex < tabs.length - 1) {
               newIndex = activeIndex + 1;
-              console.log('⬆️ Next tab:', newIndex);
+              console.log('⬆️ Next tab');
             } else if (delta < -SWIPE_THRESHOLD && activeIndex > 0) {
               newIndex = activeIndex - 1;
-              console.log('⬇️ Previous tab:', newIndex);
+              console.log('⬇️ Previous tab');
             }
+          }
             
-            if (newIndex !== activeIndex && tabs[newIndex]) {
-              console.log('✅ Switching to:', tabs[newIndex].title);
-              setActiveTab(tabs[newIndex].id);
-            } else {
-              scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
-            }
+          if (newIndex !== activeIndex && tabs[newIndex]) {
+            console.log('✅ Switching to:', tabs[newIndex].title);
+            setActiveTab(tabs[newIndex].id);
           } else {
-            console.log('❌ Not enough delta');
             scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
           }
           
           startY.current = 0;
           lastPosition.current = 0;
+          lastTime.current = 0;
+          velocity.current = 0;
+          maxVelocity.current = 0;
+          touchCount.current = 0;
+          firstDirection.current = null;
           if (onScrollEnd) onScrollEnd();
           return;
         }
         
         if (startY.current === 0) {
           startY.current = dy;
+          lastTime.current = Date.now();
+          touchCount.current = 0;
         }
+        
+        touchCount.current++;
         
         const rawDelta = dy - startY.current;
         const delta = rawDelta * SENSITIVITY;
         
+        // Detect direction on first significant movement
+        if (!firstDirection.current && Math.abs(rawDelta) > 3) {
+          firstDirection.current = rawDelta > 0 ? 'down' : 'up';
+          console.log('🎯 Direction detected:', firstDirection.current);
+        }
+        
         const newPos = activeIndex * SCREEN_HEIGHT - delta;
         
-        console.log('📍 Moving - delta:', delta, 'newPos:', newPos);
+        // Calculate velocity
+        const now = Date.now();
+        const timeDelta = now - lastTime.current;
+        if (timeDelta > 0) {
+          const posDelta = newPos - lastPosition.current;
+          velocity.current = posDelta / timeDelta;
+          // Track peak velocity
+          if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
+            maxVelocity.current = velocity.current;
+          }
+        }
+        lastTime.current = now;
+        
+        console.log('📍 Moving - delta:', delta.toFixed(0), 'vel:', velocity.current.toFixed(2), 'max:', maxVelocity.current.toFixed(2));
+        
         scrollPosition.value = newPos;
         lastPosition.current = newPos;
       });
