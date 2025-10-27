@@ -16,18 +16,19 @@ import { SafeText } from '../../shared/components/SafeText';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
-import { useTabStore } from '../../core/tabs/tabStore';
+import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 
 const colors = AppColors.dark;
 
 interface ChatPageProps {
+  tab?: Tab;
   isCardMode: boolean;
   cardDimensions: { width: number; height: number; };
   animatedStyle?: any;
 }
 
-const ChatPage = ({ isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
+const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
@@ -36,25 +37,36 @@ const ChatPage = ({ isCardMode, cardDimensions, animatedStyle }: ChatPageProps) 
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
   
-  const { tabs, activeTabId } = useTabStore();
-  const activeTab = tabs.find(t => t.id === activeTabId);
+  const { tabs, activeTabId, updateTab } = useTabStore();
+  const currentTab = tab || tabs.find(t => t.id === activeTabId);
+  
+  // Use tab-specific terminal items or fallback to global
+  const tabTerminalItems = currentTab?.terminalItems || [];
   
   const {
-    terminalItems,
+    terminalItems: globalTerminalItems,
     isLoading,
     hasInteracted,
-    addTerminalItem,
+    addTerminalItem: addGlobalTerminalItem,
     setLoading,
     setGitHubUser,
     setGitHubRepositories,
-    
     currentWorkstation,
   } = useTerminalStore();
+  
+  // Use tab-specific items if in card mode, otherwise use global
+  const terminalItems = isCardMode ? tabTerminalItems : globalTerminalItems;
+  
+  // Add item to tab-specific storage
+  const addTerminalItem = (item: any) => {
+    if (isCardMode && currentTab) {
+      const newItems = [...tabTerminalItems, item];
+      updateTab(currentTab.id, { terminalItems: newItems });
+    } else {
+      addGlobalTerminalItem(item);
+    }
+  };
 
-
-  useEffect(() => {
-    console.log('📊 Terminal items count:', terminalItems.length);
-  }, [currentWorkstation]);
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [terminalItems]);
@@ -272,12 +284,12 @@ const ChatPage = ({ isCardMode, cardDimensions, animatedStyle }: ChatPageProps) 
         style={StyleSheet.absoluteFill}
       />
       
-      {activeTab?.type === 'file' ? (
+      {currentTab?.type === 'file' ? (
         <FileViewer
           visible={true}
-          projectId={activeTab.data?.projectId || ''}
-          filePath={activeTab.data?.filePath || ''}
-          repositoryUrl={activeTab.data?.repositoryUrl || ''}
+          projectId={currentTab.data?.projectId || ''}
+          filePath={currentTab.data?.filePath || ''}
+          repositoryUrl={currentTab.data?.repositoryUrl || ''}
           userId={'anonymous'}
           onClose={() => {}}
         />

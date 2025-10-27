@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
@@ -7,16 +7,19 @@ import { MultitaskingPanel } from './MultitaskingPanel';
 import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
+import { Tab } from '../../../core/tabs/tabStore';
 
 type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'vertical' | 'settings' | null;
 
 interface Props {
   onOpenAllProjects?: () => void;
-  children?: (isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
+  children?: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
 }
 
 export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
+  const trackpadScrollRef = useRef<((dy: number) => void) | null>(null);
+  const scrollEndTimer = useRef<NodeJS.Timeout | null>(null);
 
   const togglePanel = useCallback((panel: PanelType) => {
     setActivePanel(prev => prev === panel ? null : panel);
@@ -61,6 +64,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
 
         <View style={styles.spacer} />
 
+        <View 
+          style={styles.trackpad}
+          onTouchStart={(e) => {
+            setActivePanel('vertical');
+          }}
+          onTouchMove={(e) => {
+            const dy = e.nativeEvent.pageY;
+            if (trackpadScrollRef.current) {
+              trackpadScrollRef.current(dy);
+            }
+          }}
+          onTouchEnd={() => {
+            if (trackpadScrollRef.current) {
+              trackpadScrollRef.current(-1); // Signal to snap
+            }
+            setTimeout(() => setActivePanel(null), 400);
+          }}
+        />
+
         <TouchableOpacity 
           style={[styles.iconButton, activePanel === 'multitasking' && styles.iconButtonActive]}
           onPress={() => togglePanel('multitasking')}
@@ -88,14 +110,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
       <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
       
       {activePanel === 'vertical' ? (
-        <VerticalCardSwitcher onClose={() => setActivePanel(null)}>
-          {(isCardMode, cardDimensions, animatedStyle) => children && children(isCardMode, cardDimensions, animatedStyle)}
+        <VerticalCardSwitcher 
+          onClose={() => setActivePanel(null)}
+          onScrollRef={(ref) => trackpadScrollRef.current = ref}
+          onScrollEnd={() => {
+            if (scrollEndTimer.current) clearTimeout(scrollEndTimer.current);
+          }}
+        >
+          {(tab, isCardMode, cardDimensions) => children && children(tab, isCardMode, cardDimensions)}
         </VerticalCardSwitcher>
       ) : activePanel !== 'multitasking' ? (
         <ContentRenderer children={children} animatedStyle={{}} />
       ) : (
         <MultitaskingPanel onClose={() => togglePanel(null)}>
-          {(isCardMode, cardDimensions, animatedStyle) => children && children(isCardMode, cardDimensions, animatedStyle)}
+          {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
         </MultitaskingPanel>
       )}
     </>
@@ -130,5 +158,15 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
+  },
+  trackpad: {
+    width: 36,
+    height: 160,
+    marginHorizontal: 7,
+    marginBottom: 12,
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
 });
