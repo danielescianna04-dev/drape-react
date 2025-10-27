@@ -202,8 +202,8 @@ export default function App() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <VSCodeSidebar>
-          {(isCardMode, cardDimensions) => (
-            <ChatPage isCardMode={isCardMode} cardDimensions={cardDimensions} />
+          {(tab, isCardMode, cardDimensions) => (
+            <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
           )}
         </VSCodeSidebar>
       </ErrorBoundary>

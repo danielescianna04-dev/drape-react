@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTabStore } from '../../../core/tabs/tabStore';
+import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -18,7 +18,7 @@ const TAB_BAR_HEIGHT = 90;
 
 interface Props {
   onClose: () => void;
-  children: (isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
+  children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
 }
 
 export const MultitaskingPanel = ({ onClose, children }: Props) => {
@@ -141,7 +141,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
                 ]}>
                   {isActive && (
                     <View style={styles.contentWrapper}>
-                      {children(true, { width: CARD_WIDTH, height: CARD_HEIGHT }, contentAnimatedStyle)}
+                      {children(tab, true, { width: CARD_WIDTH, height: CARD_HEIGHT }, contentAnimatedStyle)}
                     </View>
                   )}
                   

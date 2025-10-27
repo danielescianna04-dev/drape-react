@@ -1,14 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Dimensions, ScrollView, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, Dimensions } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnUI, interpolate } from 'react-native-reanimated';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SIDEBAR_WIDTH = 50;
-const AVAILABLE_WIDTH = SCREEN_WIDTH - SIDEBAR_WIDTH;
-const CARD_WIDTH = AVAILABLE_WIDTH * 0.9;
-const CARD_HEIGHT = SCREEN_HEIGHT * 0.6;
-const CARD_SPACING = 15;
-const CARD_LEFT = SIDEBAR_WIDTH + (AVAILABLE_WIDTH - CARD_WIDTH) / 2;
 
 interface Props {
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
@@ -19,134 +14,122 @@ interface Props {
 
 export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollEnd }: Props) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollPosition = useSharedValue(0);
   const activeIndex = tabs.findIndex(t => t.id === activeTabId);
   const startY = useRef(0);
-  const currentScrollY = useRef(0);
-  const isScrolling = useRef(false);
-  const hasInitialized = useRef(false);
+  const lastPosition = useRef(0);
+  const SWIPE_THRESHOLD = 50;
+  const SENSITIVITY = 3;
 
-  const snapToNearest = () => {
-    const newIndex = Math.round(currentScrollY.current / (CARD_HEIGHT + CARD_SPACING));
-    const clampedIndex = Math.max(0, Math.min(tabs.length - 1, newIndex));
-    const targetY = clampedIndex * (CARD_HEIGHT + CARD_SPACING);
-    
-    if (scrollViewRef.current) {
-      scrollViewRef.current.scrollTo({
-        y: targetY,
-        animated: true,
-      });
-    }
-    
-    if (tabs[clampedIndex] && tabs[clampedIndex].id !== activeTabId) {
-      setActiveTab(tabs[clampedIndex].id);
-    }
-    
-    isScrolling.current = false;
-    startY.current = 0;
-    if (onScrollEnd) onScrollEnd();
+  const SPRING_CONFIG = {
+    damping: 40,
+    stiffness: 300,
+    mass: 1,
   };
 
-  // Initial scroll to active card without animation
   useEffect(() => {
-    if (scrollViewRef.current && !hasInitialized.current) {
-      const targetY = activeIndex * (CARD_HEIGHT + CARD_SPACING);
-      scrollViewRef.current.scrollTo({
-        y: targetY,
-        animated: false,
-      });
-      currentScrollY.current = targetY;
-      hasInitialized.current = true;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (scrollViewRef.current && activeIndex >= 0 && !isScrolling.current && hasInitialized.current) {
-      const targetY = activeIndex * (CARD_HEIGHT + CARD_SPACING);
-      scrollViewRef.current.scrollTo({
-        y: targetY,
-        animated: false,
-      });
-      currentScrollY.current = targetY;
-    }
+    scrollPosition.value = withSpring(activeIndex * SCREEN_HEIGHT, SPRING_CONFIG);
   }, [activeIndex]);
 
   useEffect(() => {
     if (onScrollRef) {
       onScrollRef((dy: number) => {
         if (dy === -1) {
-          // Special signal to snap
-          snapToNearest();
+          const currentPos = lastPosition.current;
+          const currentIndex = activeIndex * SCREEN_HEIGHT;
+          const delta = currentPos - currentIndex;
+          
+          console.log('🔄 Snap - pos:', currentPos, 'target:', currentIndex, 'delta:', delta);
+          
+          if (Math.abs(delta) > SWIPE_THRESHOLD) {
+            let newIndex = activeIndex;
+            
+            // delta > 0 means scrolled up (next tab)
+            // delta < 0 means scrolled down (prev tab)
+            if (delta > SWIPE_THRESHOLD && activeIndex < tabs.length - 1) {
+              newIndex = activeIndex + 1;
+              console.log('⬆️ Next tab:', newIndex);
+            } else if (delta < -SWIPE_THRESHOLD && activeIndex > 0) {
+              newIndex = activeIndex - 1;
+              console.log('⬇️ Previous tab:', newIndex);
+            }
+            
+            if (newIndex !== activeIndex && tabs[newIndex]) {
+              console.log('✅ Switching to:', tabs[newIndex].title);
+              setActiveTab(tabs[newIndex].id);
+            } else {
+              scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
+            }
+          } else {
+            console.log('❌ Not enough delta');
+            scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
+          }
+          
+          startY.current = 0;
+          lastPosition.current = 0;
+          if (onScrollEnd) onScrollEnd();
           return;
         }
         
         if (startY.current === 0) {
           startY.current = dy;
-          isScrolling.current = true;
         }
-        const delta = startY.current - dy;
-        const newScrollY = Math.max(0, currentScrollY.current + delta);
         
-        if (scrollViewRef.current) {
-          scrollViewRef.current.scrollTo({
-            y: newScrollY,
-            animated: false,
-          });
-        }
+        const rawDelta = dy - startY.current;
+        const delta = rawDelta * SENSITIVITY;
+        
+        const newPos = activeIndex * SCREEN_HEIGHT - delta;
+        
+        console.log('📍 Moving - delta:', delta, 'newPos:', newPos);
+        scrollPosition.value = newPos;
+        lastPosition.current = newPos;
       });
     }
-    
-    return () => {
-      startY.current = 0;
-      isScrolling.current = false;
-    };
-  }, [onScrollRef]);
+  }, [onScrollRef, activeIndex, tabs]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.tabIndicator}>
-          {tabs.find(t => t.id === activeTabId)?.title || 'Terminal'} ({activeIndex + 1}/{tabs.length})
-        </Text>
-      </View>
-      
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
-        snapToInterval={CARD_HEIGHT + CARD_SPACING}
-        decelerationRate="fast"
-        snapToAlignment="start"
-        scrollEventThrottle={16}
-        onScroll={(e) => {
-          currentScrollY.current = e.nativeEvent.contentOffset.y;
-        }}
-        scrollEnabled={false}
-      >
-        {tabs.map((tab, index) => (
-          <View
-            key={tab.id}
-            style={[
-              styles.card,
-              tab.id === activeTabId && styles.cardActive
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.cardHeader}
-              onPress={() => {
-                setActiveTab(tab.id);
-                setTimeout(() => onClose(), 200);
-              }}
-            >
-              <Text style={styles.cardTitle}>{tab.title}</Text>
-            </TouchableOpacity>
-            <View style={styles.cardContent}>
-              {children(tab, true, { width: CARD_WIDTH, height: CARD_HEIGHT - 40 })}
-            </View>
-          </View>
-        ))}
-      </ScrollView>
+      {tabs.map((tab, index) => {
+        const animatedStyle = useAnimatedStyle(() => {
+          const inputRange = [
+            (index - 1) * SCREEN_HEIGHT,
+            index * SCREEN_HEIGHT,
+            (index + 1) * SCREEN_HEIGHT,
+          ];
+          
+          const translateY = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [SCREEN_HEIGHT, 0, -SCREEN_HEIGHT],
+            'clamp'
+          );
+          
+          const scale = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [0.92, 1, 0.92],
+            'clamp'
+          );
+          
+          const opacity = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [0.3, 1, 0.3],
+            'clamp'
+          );
+          
+          return {
+            transform: [{ translateY }, { scale }],
+            opacity,
+          };
+        });
+
+        return (
+          <Animated.View key={tab.id} style={[styles.screen, animatedStyle]}>
+            {children(tab, true, { width: SCREEN_WIDTH, height: SCREEN_HEIGHT })}
+          </Animated.View>
+        );
+      })}
     </View>
   );
 };
@@ -155,59 +138,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
-    paddingTop: 60,
   },
-  header: {
-    height: 50,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(139, 124, 246, 0.3)',
-  },
-  tabIndicator: {
-    color: 'rgba(139, 124, 246, 1)',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingVertical: 20,
-    paddingHorizontal: CARD_LEFT,
-  },
-  card: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT,
-    marginBottom: CARD_SPACING,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
-    overflow: 'hidden',
-    backgroundColor: '#1a1a1a',
-  },
-  cardActive: {
-    borderColor: 'rgba(139, 124, 246, 0.8)',
-    shadowColor: 'rgba(139, 124, 246, 0.5)',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  cardHeader: {
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  cardTitle: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  cardContent: {
-    flex: 1,
+  screen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
 });

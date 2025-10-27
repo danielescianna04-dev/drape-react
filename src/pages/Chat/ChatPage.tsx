@@ -40,30 +40,35 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const { tabs, activeTabId, updateTab } = useTabStore();
   const currentTab = tab || tabs.find(t => t.id === activeTabId);
   
-  // Use tab-specific terminal items or fallback to global
+  // Always use tab-specific terminal items
   const tabTerminalItems = currentTab?.terminalItems || [];
+  const isLoading = currentTab?.isLoading || false;
+  
+  console.log('📋 ChatPage - Tab:', currentTab?.id, 'Items:', tabTerminalItems.length, 'isCardMode:', isCardMode);
   
   const {
-    terminalItems: globalTerminalItems,
-    isLoading,
     hasInteracted,
-    addTerminalItem: addGlobalTerminalItem,
-    setLoading,
     setGitHubUser,
     setGitHubRepositories,
     currentWorkstation,
   } = useTerminalStore();
   
-  // Use tab-specific items if in card mode, otherwise use global
-  const terminalItems = isCardMode ? tabTerminalItems : globalTerminalItems;
+  // Always use tab-specific items
+  const terminalItems = tabTerminalItems;
   
-  // Add item to tab-specific storage
+  // Set loading state for current tab
+  const setLoading = (loading: boolean) => {
+    if (currentTab) {
+      updateTab(currentTab.id, { isLoading: loading });
+    }
+  };
+  
+  // Always add item to tab-specific storage
   const addTerminalItem = (item: any) => {
-    if (isCardMode && currentTab) {
+    if (currentTab) {
       const newItems = [...tabTerminalItems, item];
+      console.log('💾 Saving to tab:', currentTab.id, 'New count:', newItems.length);
       updateTab(currentTab.id, { terminalItems: newItems });
-    } else {
-      addGlobalTerminalItem(item);
     }
   };
 

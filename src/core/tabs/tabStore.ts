@@ -9,6 +9,7 @@ export interface Tab {
   data?: any;
   terminalItems?: any[];
   workstationId?: string;
+  isLoading?: boolean;
 }
 
 interface TabStore {
