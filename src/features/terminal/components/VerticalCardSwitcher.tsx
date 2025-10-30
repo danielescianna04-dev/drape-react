@@ -25,9 +25,16 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
   const firstDirection = useRef<'up' | 'down' | null>(null);
   const hasMovedEnough = useRef(false);
   const SWIPE_THRESHOLD = 40; // Drag must be at least 40px
-  const FLICK_VELOCITY_THRESHOLD = 0.5; // Increased from 0.3
-  const SENSITIVITY = 1; // 1:1 control for scroll-driven animation
-  const DEADZONE = 6; // ignore micro-jitters
+  const FLICK_VELOCITY_THRESHOLD = 0.2; // consider flick from ~200 px/s
+  const SENSITIVITY = 1; // 1:1 distance
+  const DEADZONE = 1; // minimal deadzone
+  const DRAG_VELOCITY_ACTIVATE = 0.02; // activate drag for very quick flicks (~20 px/s)
+  const MIN_GAIN = 0.2; // softer response for small moves
+  const FULL_GAIN_AT = 80; // px distance to reach 1:1 response
+  const accumulatedRelative = { current: 0 } as React.MutableRefObject<number>;
+  const totalDelta = { current: 0 } as React.MutableRefObject<number>;
+  const gestureStartTime = { current: 0 } as React.MutableRefObject<number>;
+  const lastDySample = { current: 0 } as React.MutableRefObject<number>;
 
   const SPRING_CONFIG = {
     damping: 28,
@@ -53,9 +60,18 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
         if (dy === -1) { // Gesture End
           const currentIndex = activeIndex * SCREEN_HEIGHT;
 
-          // If we haven't moved enough, it's a tap. Reset state and avoid any animation.
-          if (!hasMovedEnough.current) {
-            // Set position directly (no spring) to avoid visible swipe animation on tap
+          // Decide via velocity OR distance; only then treat as tap
+          const currentPos = lastPosition.current;
+          const delta = currentPos - currentIndex;
+          const elapsedMs = Math.max(1, Date.now() - gestureStartTime.current);
+          const inferredVel = totalDelta.current / elapsedMs; // px per ms
+          const vel = Math.abs(maxVelocity.current) > Math.abs(inferredVel) ? maxVelocity.current : inferredVel;
+          let newIndex = activeIndex;
+
+          // TAP: very small displacement, quick, and low velocity → snap instantly (no spring)
+          const isTapByDistance = Math.abs(totalDelta.current) < 8 && Math.abs(delta) < DEADZONE;
+          const isTapByTime = elapsedMs < 220;
+          if ((isTapByDistance && isTapByTime) || (Math.abs(delta) < DEADZONE && Math.abs(vel) < 0.15)) {
             scrollPosition.value = currentIndex;
             lastPosition.current = currentIndex;
             startY.current = 0;
@@ -66,75 +82,134 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
             if (onScrollEnd) onScrollEnd();
             return;
           }
-          
-          // --- Swipe logic ---
-          const currentPos = lastPosition.current;
-          const delta = currentPos - currentIndex;
-          const vel = maxVelocity.current;
-          let newIndex = activeIndex;
-          
+
           if (Math.abs(vel) > FLICK_VELOCITY_THRESHOLD) {
             if (vel > 0 && activeIndex < tabs.length - 1) newIndex = activeIndex + 1;
             else if (vel < 0 && activeIndex > 0) newIndex = activeIndex - 1;
-          }
-          else if (Math.abs(delta) > SWIPE_THRESHOLD) {
+          } else if (Math.abs(delta) > SWIPE_THRESHOLD) {
             if (delta > SWIPE_THRESHOLD && activeIndex < tabs.length - 1) newIndex = activeIndex + 1;
             else if (delta < -SWIPE_THRESHOLD && activeIndex > 0) newIndex = activeIndex - 1;
           }
-            
-          // If tab is changing, setActiveTab will trigger this whole useEffect again, resetting state.
+
+          console.log(
+            'VerticalCardSwitcher:end',
+            JSON.stringify({
+              activeIndex,
+              delta: Math.round(delta),
+              vel: Number(vel.toFixed(4)),
+              maxVel: Number(maxVelocity.current.toFixed(4)),
+              mode: 'hybrid',
+              totalDelta: Math.round(totalDelta.current),
+            })
+          );
+
           if (newIndex !== activeIndex && tabs[newIndex]) {
             setActiveTab(tabs[newIndex].id);
           } else {
-            // If not changing tab (snap-back), animate back and reset gesture-start state.
+            // snap-back to current index
             scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
-            lastPosition.current = currentIndex; // Explicitly sync state after snap-back
-            startY.current = 0;
-            hasMovedEnough.current = false;
+            lastPosition.current = currentIndex;
           }
+          // reset gesture state
+          startY.current = 0;
+          hasMovedEnough.current = false;
+          velocity.current = 0;
+          maxVelocity.current = 0;
+          lastTime.current = 0;
+          accumulatedRelative.current = 0;
+          totalDelta.current = 0;
+          gestureStartTime.current = 0;
           if (onScrollEnd) onScrollEnd();
           return;
         }
         
         // --- Gesture Start ---
         if (startY.current === 0) {
+          // hybrid mode: track both absolute and relative deltas
           startY.current = dy;
-          lastTime.current = Date.now();
+          const nowStart = Date.now();
+          lastTime.current = nowStart;
+          gestureStartTime.current = nowStart;
           touchCount.current = 0;
           lastPosition.current = activeIndex * SCREEN_HEIGHT;
           hasMovedEnough.current = false;
           maxVelocity.current = 0;
           firstDirection.current = null;
+          accumulatedRelative.current = 0;
+          totalDelta.current = 0;
+          lastDySample.current = dy;
         }
         
         // --- Gesture Move ---
-        const rawDelta = dy - startY.current;
+        // compute delta in hybrid: accumulate relative and compare with absolute
+        const step = dy - lastDySample.current;
+        lastDySample.current = dy;
+        // Heuristica: se dy sembra già un delta (|dy| molto più grande di |step|), somma dy; altrimenti usa lo step
+        const relIncrement = Math.abs(dy) > Math.abs(step) * 2 ? dy : step;
+        accumulatedRelative.current += relIncrement;
+        totalDelta.current += relIncrement;
+        const absDelta = dy - startY.current;
+        const rawDelta = Math.abs(accumulatedRelative.current) > Math.abs(absDelta)
+          ? accumulatedRelative.current
+          : absDelta;
         
-        // Decide commit eligibility by threshold, but always follow finger for visual control
-        if (!hasMovedEnough.current && Math.abs(rawDelta) > SWIPE_THRESHOLD) {
+        // Decide commit eligibility by threshold, velocity o gesto rapido (tempo breve + delta minimo)
+        const gestureElapsed = Date.now() - gestureStartTime.current;
+        const quickGesture = gestureElapsed < 180 && Math.abs(totalDelta.current) > 12;
+        if (!hasMovedEnough.current && (Math.abs(rawDelta) > SWIPE_THRESHOLD || Math.abs(velocity.current) > DRAG_VELOCITY_ACTIVATE || quickGesture)) {
           hasMovedEnough.current = true;
         }
         
-        const effectiveDelta = Math.abs(rawDelta) < DEADZONE ? 0 : rawDelta;
-        const delta = effectiveDelta * SENSITIVITY;
-        let newPos = activeIndex * SCREEN_HEIGHT - delta;
-        // Clamp within bounds
-        const minPos = 0;
-        const maxPos = Math.max(0, tabs.length - 1) * SCREEN_HEIGHT;
-        if (newPos < minPos) newPos = minPos;
-        if (newPos > maxPos) newPos = maxPos;
+        // Compute base position from raw delta (used for velocity calc)
+        const baseDelta = rawDelta * SENSITIVITY;
+        const basePos = activeIndex * SCREEN_HEIGHT - baseDelta;
 
+        // Update instantaneous velocity BEFORE visual gating (avoid chicken-and-egg)
         const now = Date.now();
         const timeDelta = now - lastTime.current;
+        let instantVel = 0;
         if (timeDelta > 0) {
-          const posDelta = newPos - lastPosition.current;
-          velocity.current = posDelta / timeDelta;
+          const posDeltaTemp = basePos - lastPosition.current;
+          instantVel = posDeltaTemp / timeDelta;
+          velocity.current = instantVel;
           if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
             maxVelocity.current = velocity.current;
           }
+          console.log(
+            'VerticalCardSwitcher:move',
+            JSON.stringify({
+              v: Number(velocity.current.toFixed(4)),
+              maxV: Number(maxVelocity.current.toFixed(4)),
+              rawDelta: Math.round(rawDelta),
+              pos: Math.round(basePos),
+              idx: activeIndex,
+            })
+          );
         }
         lastTime.current = now;
-        
+
+        // Gain compresso: piccoli movimenti molto attenuati; flick veloci mostrati ma contenuti
+        const belowDeadzone = Math.abs(rawDelta) < DEADZONE;
+        const fastFlick = Math.abs(instantVel) > DRAG_VELOCITY_ACTIVATE;
+        const magnitude = Math.abs(rawDelta);
+        let gainLinear = Math.min(1, Math.max(0, (magnitude - 10) / (FULL_GAIN_AT - 10)));
+        let gain = gainLinear > 0 ? Math.max(MIN_GAIN, gainLinear) : (fastFlick ? MIN_GAIN : 0);
+        // Se sotto deadzone e non è flick veloce, resta fermo
+        if (belowDeadzone && !fastFlick) gain = 0;
+        const effectiveDelta = rawDelta * gain;
+        const delta = effectiveDelta * SENSITIVITY;
+        let newPos = activeIndex * SCREEN_HEIGHT - delta;
+        // Edge resistance instead of hard clamp
+        const minPos = 0;
+        const maxPos = Math.max(0, tabs.length - 1) * SCREEN_HEIGHT;
+        if (newPos < minPos) {
+          const overflow = minPos - newPos;
+          newPos = minPos - overflow / 3;
+        } else if (newPos > maxPos) {
+          const overflow = newPos - maxPos;
+          newPos = maxPos + overflow / 3;
+        }
+
         scrollPosition.value = newPos;
         lastPosition.current = newPos;
       });
