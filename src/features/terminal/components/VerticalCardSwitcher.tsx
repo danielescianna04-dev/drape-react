@@ -23,9 +23,9 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
   const maxVelocity = useRef(0);
   const touchCount = useRef(0);
   const firstDirection = useRef<'up' | 'down' | null>(null);
-  const SWIPE_THRESHOLD = 10; // Very low
-  const FLICK_VELOCITY_THRESHOLD = 0.3;
-  const SENSITIVITY = 6;
+  const SWIPE_THRESHOLD = 50; // Increased from 10 - must drag at least 50px
+  const FLICK_VELOCITY_THRESHOLD = 0.5; // Increased from 0.3
+  const SENSITIVITY = 4; // Decreased from 6
 
   const SPRING_CONFIG = {
     damping: 40,
@@ -41,35 +41,25 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
     if (onScrollRef) {
       onScrollRef((dy: number) => {
         if (dy === -1) {
-          const currentPos = lastPosition.current;
           const currentIndex = activeIndex * SCREEN_HEIGHT;
+          
+          // If lastPosition was never set (no movement), initialize it now
+          if (lastPosition.current === 0 && activeIndex > 0) {
+            lastPosition.current = currentIndex;
+            console.log('⚠️ lastPosition was 0, resetting to:', currentIndex);
+          }
+          
+          const currentPos = lastPosition.current;
           const delta = currentPos - currentIndex;
           const vel = maxVelocity.current;
           const touches = touchCount.current;
           
-          console.log('🔄 Snap - delta:', delta.toFixed(0), 'maxVel:', vel.toFixed(2), 'touches:', touches, 'dir:', firstDirection.current);
+          console.log('🔄 Snap - activeIndex:', activeIndex, 'currentPos:', currentPos.toFixed(0), 'currentIndex:', currentIndex.toFixed(0), 'delta:', delta.toFixed(0), 'maxVel:', vel.toFixed(2));
           
           let newIndex = activeIndex;
           
-          // Use first direction if detected (for quick swipes)
-          if (firstDirection.current && touches <= 5) {
-            if (firstDirection.current === 'up' && activeIndex < tabs.length - 1) {
-              newIndex = activeIndex + 1;
-              console.log('👆 Quick up - next tab');
-            } else if (firstDirection.current === 'down' && activeIndex > 0) {
-              newIndex = activeIndex - 1;
-              console.log('👇 Quick down - prev tab');
-            }
-          }
-          // Quick tap with few touches
-          else if (touches <= 2 && Math.abs(delta) < 10) {
-            if (activeIndex < tabs.length - 1) {
-              newIndex = activeIndex + 1;
-              console.log('👆 Quick tap - next tab');
-            }
-          }
           // Fast flick
-          else if (Math.abs(vel) > FLICK_VELOCITY_THRESHOLD) {
+          if (Math.abs(vel) > FLICK_VELOCITY_THRESHOLD) {
             if (vel > 0 && activeIndex < tabs.length - 1) {
               newIndex = activeIndex + 1;
               console.log('⚡ Flick up - next tab');
@@ -108,9 +98,12 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
         }
         
         if (startY.current === 0) {
+          const currentIndex = activeIndex * SCREEN_HEIGHT;
           startY.current = dy;
           lastTime.current = Date.now();
           touchCount.current = 0;
+          lastPosition.current = currentIndex; // Initialize to current position
+          console.log('🎬 Touch start - activeIndex:', activeIndex, 'lastPosition set to:', currentIndex);
         }
         
         touchCount.current++;
