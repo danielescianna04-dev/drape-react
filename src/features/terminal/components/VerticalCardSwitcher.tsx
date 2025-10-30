@@ -23,122 +23,119 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
   const maxVelocity = useRef(0);
   const touchCount = useRef(0);
   const firstDirection = useRef<'up' | 'down' | null>(null);
-  const SWIPE_THRESHOLD = 50; // Increased from 10 - must drag at least 50px
+  const hasMovedEnough = useRef(false);
+  const SWIPE_THRESHOLD = 40; // Drag must be at least 40px
   const FLICK_VELOCITY_THRESHOLD = 0.5; // Increased from 0.3
   const SENSITIVITY = 4; // Decreased from 6
 
   const SPRING_CONFIG = {
-    damping: 40,
-    stiffness: 300,
-    mass: 1,
+    damping: 28,
+    stiffness: 240,
+    mass: 0.9,
   };
 
   useEffect(() => {
+    // When the active tab changes, reset all gesture state to ensure a clean slate.
+    // This prevents state from a previous tab's gestures from leaking into the current one.
     scrollPosition.value = withSpring(activeIndex * SCREEN_HEIGHT, SPRING_CONFIG);
-  }, [activeIndex]);
+    startY.current = 0;
+    lastPosition.current = activeIndex * SCREEN_HEIGHT;
+    lastTime.current = 0;
+    velocity.current = 0;
+    maxVelocity.current = 0;
+    touchCount.current = 0;
+    firstDirection.current = null;
+    hasMovedEnough.current = false;
 
-  useEffect(() => {
     if (onScrollRef) {
       onScrollRef((dy: number) => {
-        if (dy === -1) {
+        if (dy === -1) { // Gesture End
           const currentIndex = activeIndex * SCREEN_HEIGHT;
-          
-          // If lastPosition was never set (no movement), initialize it now
-          if (lastPosition.current === 0 && activeIndex > 0) {
+
+          // If we haven't moved enough, it's a tap. Reset state and avoid any animation.
+          if (!hasMovedEnough.current) {
+            // Set position directly (no spring) to avoid visible swipe animation on tap
+            scrollPosition.value = currentIndex;
             lastPosition.current = currentIndex;
-            console.log('⚠️ lastPosition was 0, resetting to:', currentIndex);
+            startY.current = 0;
+            hasMovedEnough.current = false;
+            velocity.current = 0;
+            maxVelocity.current = 0;
+            lastTime.current = 0;
+            if (onScrollEnd) onScrollEnd();
+            return;
           }
           
+          // --- Swipe logic ---
           const currentPos = lastPosition.current;
           const delta = currentPos - currentIndex;
           const vel = maxVelocity.current;
-          const touches = touchCount.current;
-          
-          console.log('🔄 Snap - activeIndex:', activeIndex, 'currentPos:', currentPos.toFixed(0), 'currentIndex:', currentIndex.toFixed(0), 'delta:', delta.toFixed(0), 'maxVel:', vel.toFixed(2));
-          
           let newIndex = activeIndex;
           
-          // Fast flick
           if (Math.abs(vel) > FLICK_VELOCITY_THRESHOLD) {
-            if (vel > 0 && activeIndex < tabs.length - 1) {
-              newIndex = activeIndex + 1;
-              console.log('⚡ Flick up - next tab');
-            } else if (vel < 0 && activeIndex > 0) {
-              newIndex = activeIndex - 1;
-              console.log('⚡ Flick down - prev tab');
-            }
+            if (vel > 0 && activeIndex < tabs.length - 1) newIndex = activeIndex + 1;
+            else if (vel < 0 && activeIndex > 0) newIndex = activeIndex - 1;
           }
-          // Normal swipe - check distance
           else if (Math.abs(delta) > SWIPE_THRESHOLD) {
-            if (delta > SWIPE_THRESHOLD && activeIndex < tabs.length - 1) {
-              newIndex = activeIndex + 1;
-              console.log('⬆️ Next tab');
-            } else if (delta < -SWIPE_THRESHOLD && activeIndex > 0) {
-              newIndex = activeIndex - 1;
-              console.log('⬇️ Previous tab');
-            }
+            if (delta > SWIPE_THRESHOLD && activeIndex < tabs.length - 1) newIndex = activeIndex + 1;
+            else if (delta < -SWIPE_THRESHOLD && activeIndex > 0) newIndex = activeIndex - 1;
           }
             
+          // If tab is changing, setActiveTab will trigger this whole useEffect again, resetting state.
           if (newIndex !== activeIndex && tabs[newIndex]) {
-            console.log('✅ Switching to:', tabs[newIndex].title);
             setActiveTab(tabs[newIndex].id);
           } else {
+            // If not changing tab (snap-back), animate back and reset gesture-start state.
             scrollPosition.value = withSpring(currentIndex, SPRING_CONFIG);
+            lastPosition.current = currentIndex; // Explicitly sync state after snap-back
+            startY.current = 0;
+            hasMovedEnough.current = false;
           }
-          
-          startY.current = 0;
-          lastPosition.current = 0;
-          lastTime.current = 0;
-          velocity.current = 0;
-          maxVelocity.current = 0;
-          touchCount.current = 0;
-          firstDirection.current = null;
           if (onScrollEnd) onScrollEnd();
           return;
         }
         
+        // --- Gesture Start ---
         if (startY.current === 0) {
-          const currentIndex = activeIndex * SCREEN_HEIGHT;
           startY.current = dy;
           lastTime.current = Date.now();
           touchCount.current = 0;
-          lastPosition.current = currentIndex; // Initialize to current position
-          console.log('🎬 Touch start - activeIndex:', activeIndex, 'lastPosition set to:', currentIndex);
+          lastPosition.current = activeIndex * SCREEN_HEIGHT;
+          hasMovedEnough.current = false;
+          maxVelocity.current = 0;
+          firstDirection.current = null;
         }
         
-        touchCount.current++;
-        
+        // --- Gesture Move ---
         const rawDelta = dy - startY.current;
-        const delta = rawDelta * SENSITIVITY;
         
-        // Detect direction on first significant movement
-        if (!firstDirection.current && Math.abs(rawDelta) > 3) {
-          firstDirection.current = rawDelta > 0 ? 'down' : 'up';
-          console.log('🎯 Direction detected:', firstDirection.current);
+        // Mark as 'moved enough' only after a clear drag, not on small jitters
+        if (!hasMovedEnough.current && Math.abs(rawDelta) > 40) {
+          hasMovedEnough.current = true;
         }
         
-        const newPos = activeIndex * SCREEN_HEIGHT - delta;
-        
-        // Calculate velocity
-        const now = Date.now();
-        const timeDelta = now - lastTime.current;
-        if (timeDelta > 0) {
-          const posDelta = newPos - lastPosition.current;
-          velocity.current = posDelta / timeDelta;
-          // Track peak velocity
-          if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
-            maxVelocity.current = velocity.current;
-          }
+        // Only animate and calculate velocity if the gesture has been confirmed as a drag
+        if (hasMovedEnough.current) {
+            const delta = rawDelta * SENSITIVITY;
+            const newPos = activeIndex * SCREEN_HEIGHT - delta;
+            
+            const now = Date.now();
+            const timeDelta = now - lastTime.current;
+            if (timeDelta > 0) {
+              const posDelta = newPos - lastPosition.current;
+              velocity.current = posDelta / timeDelta;
+              if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
+                maxVelocity.current = velocity.current;
+              }
+            }
+            lastTime.current = now;
+            
+            scrollPosition.value = newPos;
+            lastPosition.current = newPos;
         }
-        lastTime.current = now;
-        
-        console.log('📍 Moving - delta:', delta.toFixed(0), 'vel:', velocity.current.toFixed(2), 'max:', maxVelocity.current.toFixed(2));
-        
-        scrollPosition.value = newPos;
-        lastPosition.current = newPos;
       });
     }
-  }, [onScrollRef, activeIndex, tabs]);
+  }, [activeIndex, onScrollRef, tabs, SENSITIVITY, SWIPE_THRESHOLD, FLICK_VELOCITY_THRESHOLD, SPRING_CONFIG, setActiveTab, onScrollEnd]);
 
   return (
     <View style={styles.container}>
@@ -160,21 +157,45 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
           const scale = interpolate(
             scrollPosition.value,
             inputRange,
-            [0.92, 1, 0.92],
+            [0.94, 1, 0.94],
             'clamp'
           );
           
           const opacity = interpolate(
             scrollPosition.value,
             inputRange,
-            [0.3, 1, 0.3],
+            [0.35, 1, 0.35],
+            'clamp'
+          );
+
+          // Subtle premium 3D tilt and depth
+          const tiltDeg = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [6, 0, -6],
+            'clamp'
+          );
+
+          const shadowOpacity = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [0.35, 0.12, 0.35],
+            'clamp'
+          );
+
+          const elevation = interpolate(
+            scrollPosition.value,
+            inputRange,
+            [8, 2, 8],
             'clamp'
           );
           
           return {
-            transform: [{ translateY }, { scale }],
+            transform: [{ translateY }, { scale }, { rotateX: `${tiltDeg}deg` }],
             opacity,
-          };
+            shadowOpacity,
+            elevation,
+          } as any;
         });
 
         return (
