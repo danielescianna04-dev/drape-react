@@ -26,7 +26,8 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
   const hasMovedEnough = useRef(false);
   const SWIPE_THRESHOLD = 40; // Drag must be at least 40px
   const FLICK_VELOCITY_THRESHOLD = 0.5; // Increased from 0.3
-  const SENSITIVITY = 4; // Decreased from 6
+  const SENSITIVITY = 1; // 1:1 control for scroll-driven animation
+  const DEADZONE = 6; // ignore micro-jitters
 
   const SPRING_CONFIG = {
     damping: 28,
@@ -109,30 +110,33 @@ export const VerticalCardSwitcher = ({ children, onClose, onScrollRef, onScrollE
         // --- Gesture Move ---
         const rawDelta = dy - startY.current;
         
-        // Mark as 'moved enough' only after a clear drag, not on small jitters
-        if (!hasMovedEnough.current && Math.abs(rawDelta) > 40) {
+        // Decide commit eligibility by threshold, but always follow finger for visual control
+        if (!hasMovedEnough.current && Math.abs(rawDelta) > SWIPE_THRESHOLD) {
           hasMovedEnough.current = true;
         }
         
-        // Only animate and calculate velocity if the gesture has been confirmed as a drag
-        if (hasMovedEnough.current) {
-            const delta = rawDelta * SENSITIVITY;
-            const newPos = activeIndex * SCREEN_HEIGHT - delta;
-            
-            const now = Date.now();
-            const timeDelta = now - lastTime.current;
-            if (timeDelta > 0) {
-              const posDelta = newPos - lastPosition.current;
-              velocity.current = posDelta / timeDelta;
-              if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
-                maxVelocity.current = velocity.current;
-              }
-            }
-            lastTime.current = now;
-            
-            scrollPosition.value = newPos;
-            lastPosition.current = newPos;
+        const effectiveDelta = Math.abs(rawDelta) < DEADZONE ? 0 : rawDelta;
+        const delta = effectiveDelta * SENSITIVITY;
+        let newPos = activeIndex * SCREEN_HEIGHT - delta;
+        // Clamp within bounds
+        const minPos = 0;
+        const maxPos = Math.max(0, tabs.length - 1) * SCREEN_HEIGHT;
+        if (newPos < minPos) newPos = minPos;
+        if (newPos > maxPos) newPos = maxPos;
+
+        const now = Date.now();
+        const timeDelta = now - lastTime.current;
+        if (timeDelta > 0) {
+          const posDelta = newPos - lastPosition.current;
+          velocity.current = posDelta / timeDelta;
+          if (Math.abs(velocity.current) > Math.abs(maxVelocity.current)) {
+            maxVelocity.current = velocity.current;
+          }
         }
+        lastTime.current = now;
+        
+        scrollPosition.value = newPos;
+        lastPosition.current = newPos;
       });
     }
   }, [activeIndex, onScrollRef, tabs, SENSITIVITY, SWIPE_THRESHOLD, FLICK_VELOCITY_THRESHOLD, SPRING_CONFIG, setActiveTab, onScrollEnd]);
