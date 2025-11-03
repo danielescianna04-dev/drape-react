@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, interpolate, Extrapolate } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +18,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const colors = AppColors.dark;
 
@@ -28,6 +29,50 @@ interface ChatPageProps {
   animatedStyle?: any;
 }
 
+const LoadingIndicator = () => {
+  const rotation = useSharedValue(0);
+
+  React.useEffect(() => {
+    rotation.value = withTiming(360, {
+      duration: 800,
+      easing: Easing.linear,
+    });
+
+    const interval = setInterval(() => {
+      rotation.value = rotation.value + 360;
+      rotation.value = withTiming(rotation.value, {
+        duration: 800,
+        easing: Easing.linear,
+      });
+    }, 800);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
+  return (
+    <View style={styles.loadingContainer}>
+      <Animated.View style={[styles.loadingSpinnerWrapper, animatedStyle]}>
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+          <View
+            key={i}
+            style={[
+              styles.loadingRay,
+              {
+                transform: [{ rotate: `${i * 45}deg` }],
+                opacity: 1 - (i * 0.1),
+              },
+            ]}
+          />
+        ))}
+      </Animated.View>
+    </View>
+  );
+};
+
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
@@ -36,7 +81,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const scrollViewRef = useRef<ScrollView>(null);
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
-  
+  const borderAnim = useSharedValue(0);
+  const insets = useSafeAreaInsets();
+
   const { tabs, activeTabId, updateTab } = useTabStore();
   const currentTab = tab || tabs.find(t => t.id === activeTabId);
   
@@ -100,6 +147,58 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       transform: [{ scale: isTerminalMode ? scaleAnim.value : 1 }],
     };
   });
+
+  const cardBorderAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      borderWidth: borderAnim.value * 2,
+      borderColor: `rgba(139, 124, 246, ${borderAnim.value * 0.3})`,
+    };
+  });
+
+  const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
+    // Se la chat non è iniziata, usa top centrato verticalmente (allineato al trackpad)
+    if (!hasChatStarted) {
+      return {
+        top: 410, // Posizione centrata rispetto al trackpad
+      };
+    }
+
+    // Durante animazione: usa translateY per spostare verso il basso
+    // mantenendo bottom:20 come riferimento
+    const animProgress = inputPositionAnim.value;
+
+    if (animProgress < 1) {
+      // Calcola quanto deve scendere: da top:410 a bottom:20
+      const translateY = interpolate(
+        animProgress,
+        [0, 1],
+        [-310, 0], // Da -310 (più in alto) a 0 (posizione normale bottom:20)
+        Extrapolate.CLAMP
+      );
+
+      return {
+        bottom: 20,
+        transform: [{ translateY }]
+      };
+    }
+
+    // Dopo animazione: posizione finale bottom
+    return { bottom: 20 };
+  });
+
+  useEffect(() => {
+    if (isCardMode) {
+      borderAnim.value = withSpring(1, {
+        damping: 15,
+        stiffness: 300,
+      });
+    } else {
+      borderAnim.value = withSpring(0, {
+        damping: 20,
+        stiffness: 250,
+      });
+    }
+  }, [isCardMode]);
 
 
 
@@ -165,15 +264,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (!input.trim() || isLoading) return;
 
     // Animate input to bottom on first send
-    if (!hasInteracted) {
+    if (!hasChatStarted) {
       inputPositionAnim.value = withTiming(1, { duration: 400 });
     }
 
     const userMessage = input.trim();
-    const shouldExecuteCommand = isCommand(userMessage);
-    
-    // Aggiorna il toggle in base al tipo rilevato
-    setIsTerminalMode(shouldExecuteCommand);
+
+    // Se c'è un forced mode, usa quello, altrimenti auto-detect
+    const shouldExecuteCommand = forcedMode
+      ? forcedMode === 'terminal'
+      : isCommand(userMessage);
+
+    // Aggiorna il toggle in base al tipo rilevato (solo se non in forced mode)
+    if (!forcedMode) {
+      setIsTerminalMode(shouldExecuteCommand);
+    }
     
     setInput('');
 
@@ -281,11 +386,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   return (
     <Animated.View style={[
       styles.container,
-      isCardMode && { width: cardDimensions.width, height: cardDimensions.height },
+      isCardMode && {
+        width: cardDimensions.width,
+        height: cardDimensions.height - insets.top - 10, // Riduci altezza per notch + piccolo margin
+        borderRadius: 16,
+        overflow: 'hidden',
+        marginTop: insets.top + 10, // Inizia sotto il notch con piccolo spazio
+      },
+      cardBorderAnimatedStyle,
       animatedStyle
     ]}>
-      {/* ChatGPT-style clean dark background */}
-      <View style={styles.background} />
+      {/* Premium gradient background */}
+      <LinearGradient
+        colors={[
+          '#0a0a0a',
+          '#121212',
+          '#1a1a1a',
+          '#0f0f0f',
+        ]}
+        locations={[0, 0.3, 0.7, 1]}
+        style={styles.background}
+      >
+        {/* Subtle glow effects */}
+        <View style={styles.glowTop} />
+        <View style={styles.glowBottom} />
+      </LinearGradient>
       
       {currentTab?.type === 'file' ? (
         <FileViewer
@@ -300,7 +425,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <>
         <ScrollView
           ref={scrollViewRef}
-          style={styles.output}
+          style={[styles.output, isCardMode && styles.outputCardMode]}
           contentContainerStyle={styles.outputContent}
           showsVerticalScrollIndicator={false}
         >
@@ -310,23 +435,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         ) : (
           terminalItems
             .filter(item => item && item.content != null)
-            .map((item, index) => (
-            <TerminalItemComponent key={index} item={item} />
-          ))
+            .map((item, index, filteredArray) => {
+              // Check if next item is also an OUTPUT (AI response)
+              const nextItem = filteredArray[index + 1];
+              const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
+
+              return (
+                <TerminalItemComponent
+                  key={index}
+                  item={item}
+                  isNextItemOutput={isNextItemOutput}
+                />
+              );
+            })
         )}
         
-        {isLoading && (
-          <View style={styles.loadingRow}>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
-            <SafeText style={[styles.loadingDot, { color: AppColors.primary }]}>●</SafeText>
-          </View>
-        )}
+        {isLoading && <LoadingIndicator />}
       </ScrollView>
 
-      <View style={[
+      <Animated.View style={[
         styles.inputWrapper,
-        !hasChatStarted && styles.inputWrapperCentered
+        isCardMode && styles.inputWrapperCardMode,
+        inputWrapperAnimatedStyle
       ]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -422,10 +552,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           </View>
         </LinearGradient>
       </KeyboardAvoidingView>
-      </View>
+      </Animated.View>
         </>
       )}
-      </Animated.View>
+    </Animated.View>
   );
 };
 
@@ -435,11 +565,29 @@ const styles = StyleSheet.create({
   },
   background: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#212121',
+  },
+  glowTop: {
+    position: 'absolute',
+    top: -100,
+    left: -50,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    opacity: 0.6,
+  },
+  glowBottom: {
+    position: 'absolute',
+    bottom: -150,
+    right: -80,
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: 'rgba(139, 124, 246, 0.05)',
+    opacity: 0.5,
   },
   inputWrapper: {
     position: 'absolute',
-    bottom: 0,
     left: 50,
     right: 0,
     pointerEvents: 'box-none',
@@ -448,8 +596,8 @@ const styles = StyleSheet.create({
     top: 100,
     justifyContent: 'center',
   },
-  container: {
-    flex: 1,
+  inputWrapperCardMode: {
+    left: 0, // Remove sidebar offset in card mode
   },
   contextHeader: {
     position: 'absolute',
@@ -483,6 +631,9 @@ const styles = StyleSheet.create({
     paddingLeft: 50,
     paddingTop: 40,
   },
+  outputCardMode: {
+    paddingLeft: 0, // Remove sidebar offset in card mode
+  },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -503,7 +654,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 2,
     borderColor: 'rgba(139, 124, 246, 0.3)',
-    boxShadow: '0px 8px 20px rgba(139, 124, 246, 0.2)',
     elevation: 8,
   },
   logoTitle: {
@@ -511,16 +661,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FFFFFF',
     marginBottom: 8,
-    letterSpacing: -1.5,
-    textShadow: '0px 2px 4px rgba(0, 0, 0, 0.3)',
   },
   logoSubtitle: {
     fontSize: 18,
     color: '#8B7CF6',
     fontWeight: '600',
     marginBottom: 24,
-    letterSpacing: 1,
-    textShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
   },
   logoDivider: {
     width: 80,
@@ -528,7 +674,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 124, 246, 0.4)',
     marginBottom: 24,
     borderRadius: 2,
-    boxShadow: '0px 2px 4px rgba(139, 124, 246, 0.3)',
   },
   logoDescription: {
     fontSize: 16,
@@ -537,19 +682,37 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     maxWidth: 280,
-    textShadow: '0px 1px 2px rgba(0, 0, 0, 0.2)',
   },  outputContent: {
     padding: 20,
-    paddingTop: 160,
-    paddingBottom: 180,
+    paddingTop: 60,
+    paddingBottom: 120,
   },
-  loadingRow: {
-    flexDirection: 'row',
-    gap: 4,
-    marginTop: 16,
+  loadingContainer: {
+    marginBottom: 4,
+    alignItems: 'flex-start',
   },
-  loadingDot: {
-    fontSize: 14,
+  loadingLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 8,
+  },
+  loadingSpinnerWrapper: {
+    width: 16,
+    height: 16,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingRay: {
+    position: 'absolute',
+    width: 2,
+    height: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 1,
+    top: 0,
+    left: '50%',
+    marginLeft: -1,
   },
   inputContainer: {
     paddingHorizontal: 16,
@@ -559,7 +722,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     borderColor: 'rgba(139, 124, 246, 0.15)',
-    boxShadow: '0px 8px 30px rgba(0, 0, 0, 0.15)',
     elevation: 8,
   },
   topControls: {

@@ -93,7 +93,11 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                   size={14} 
                   color={isActive ? AppColors.primary : '#666'} 
                 />
-                <Text style={[styles.tabTitle, isActive && styles.tabTitleActive]}>
+                <Text
+                  style={[styles.tabTitle, isActive && styles.tabTitleActive]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
                   {tab.title}
                 </Text>
                 {tabs.length > 1 && (

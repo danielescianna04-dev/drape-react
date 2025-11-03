@@ -65,74 +65,119 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   return (
     <View style={styles.container}>
+      {/* Animated gradient background */}
       <LinearGradient
-        colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']}
-        locations={[0, 0.3, 0.6, 1]}
+        colors={['#000000', '#0a0510', '#050208', '#000000']}
+        locations={[0, 0.3, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView 
+      {/* Glow effects */}
+      <View style={styles.glowTop} />
+      <View style={styles.glowBottom} />
+
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
+        {/* Minimal header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Drape</Text>
-            <Text style={styles.subtitle}>Mobile AI IDE</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.logo}>drape</Text>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>AI IDE</Text>
+            </View>
           </View>
-          <TouchableOpacity style={styles.profileButton} activeOpacity={0.7}>
-            <Ionicons name="person-circle-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
+          <TouchableOpacity style={styles.avatarButton} activeOpacity={0.8}>
+            <LinearGradient
+              colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
+              style={styles.avatarGradient}
+            >
+              <Ionicons name="person" size={18} color="rgba(255, 255, 255, 0.9)" />
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.grid}>
-            <TouchableOpacity style={styles.card} onPress={onCreateProject} activeOpacity={0.7}>
-              <Ionicons name="add-circle-outline" size={32} color={AppColors.primary} />
-              <Text style={styles.cardTitle}>Create</Text>
+        {/* Quick actions - horizontal cards */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity style={styles.primaryAction} onPress={onCreateProject} activeOpacity={0.85}>
+            <LinearGradient
+              colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.08)']}
+              style={styles.primaryActionGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.actionContent}>
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+                <Text style={styles.primaryActionText}>New Project</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={18} color="rgba(255, 255, 255, 0.6)" />
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <View style={styles.secondaryActions}>
+            <TouchableOpacity style={styles.secondaryAction} onPress={onImportProject} activeOpacity={0.85}>
+              <Ionicons name="cloud-download-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
+              <Text style={styles.secondaryActionText}>Import</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.card} onPress={onImportProject} activeOpacity={0.7}>
-              <Ionicons name="cloud-download-outline" size={32} color={AppColors.primary} />
-              <Text style={styles.cardTitle}>Import</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.card} onPress={handleBrowseFiles} activeOpacity={0.7}>
-              <Ionicons name="folder-open-outline" size={32} color={AppColors.primary} />
-              <Text style={styles.cardTitle}>Browse</Text>
+            <TouchableOpacity style={styles.secondaryAction} onPress={handleBrowseFiles} activeOpacity={0.85}>
+              <Ionicons name="folder-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
+              <Text style={styles.secondaryActionText}>Browse</Text>
             </TouchableOpacity>
           </View>
         </View>
 
+        {/* Projects section */}
         {recentProjects.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>I miei progetti</Text>
-              <TouchableOpacity onPress={onMyProjects}>
-                <Ionicons name="arrow-forward" size={18} color="rgba(255, 255, 255, 0.4)" />
+          <View style={styles.projectsContainer}>
+            <View style={styles.projectsHeader}>
+              <Text style={styles.projectsTitle}>Recent</Text>
+              <TouchableOpacity onPress={onMyProjects} style={styles.viewAllButton} activeOpacity={0.8}>
+                <Text style={styles.viewAllText}>View all</Text>
+                <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.5)" />
               </TouchableOpacity>
             </View>
-            
-            {recentProjects.map((project) => (
-              <TouchableOpacity 
-                key={project.id}
-                style={styles.projectItem}
-                activeOpacity={0.7}
-                onPress={() => onOpenProject(project)}
-              >
-                <View style={styles.projectLeft}>
-                  <View style={styles.projectIconContainer}>
-                    <Ionicons name="folder" size={18} color={AppColors.primary} />
-                  </View>
-                  <View style={styles.projectDetails}>
-                    <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
-                    <Text style={styles.projectMeta}>{project.language || 'Unknown'}</Text>
-                  </View>
-                </View>
-                <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
-              </TouchableOpacity>
-            ))}
+
+            <View style={styles.projectsGrid}>
+              {recentProjects.map((project) => (
+                <TouchableOpacity
+                  key={project.id}
+                  style={styles.projectCard}
+                  activeOpacity={0.85}
+                  onPress={() => onOpenProject(project)}
+                >
+                  <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.02)']}
+                    style={styles.projectCardGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <View style={styles.projectCardContent}>
+                      <View style={styles.projectIconCircle}>
+                        <LinearGradient
+                          colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
+                          style={styles.projectIconGradient}
+                        >
+                          <Ionicons name="folder" size={14} color="rgba(255, 255, 255, 0.8)" />
+                        </LinearGradient>
+                      </View>
+
+                      <View style={styles.projectInfo}>
+                        <Text style={styles.projectTitle} numberOfLines={1}>{project.name}</Text>
+                        <View style={styles.projectMeta}>
+                          <Text style={styles.projectLang}>{project.language || 'Unknown'}</Text>
+                          <Text style={styles.projectDate}>{getTimeAgo(project.createdAt)}</Text>
+                        </View>
+                      </View>
+
+                      <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.25)" />
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         )}
       </ScrollView>
@@ -144,108 +189,209 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  glowTop: {
+    position: 'absolute',
+    top: -200,
+    left: -100,
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    opacity: 0.5,
+  },
+  glowBottom: {
+    position: 'absolute',
+    bottom: -100,
+    right: -150,
+    width: 500,
+    height: 500,
+    borderRadius: 250,
+    backgroundColor: 'rgba(107, 93, 214, 0.06)',
+    opacity: 0.4,
+  },
   scrollView: {
     flex: 1,
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 80,
+    paddingTop: 60,
     paddingBottom: 40,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 48,
-  },
-  profileButton: {
-    padding: 4,
-  },
-  title: {
-    fontSize: 48,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -2,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.4)',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  section: {
     marginBottom: 40,
   },
-  sectionHeader: {
+  headerLeft: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 10,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  logo: {
+    fontSize: 24,
+    fontWeight: '600',
     color: '#FFFFFF',
+    letterSpacing: -0.5,
   },
-  grid: {
-    flexDirection: 'row',
-    gap: 12,
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
   },
-  card: {
-    flex: 1,
-    paddingVertical: 32,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderRadius: 12,
+  badgeText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    letterSpacing: 0.5,
+  },
+  avatarButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  avatarGradient: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
-  cardTitle: {
-    fontSize: 15,
+  quickActions: {
+    marginBottom: 48,
+  },
+  primaryAction: {
+    marginBottom: 12,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  primaryActionGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+    borderRadius: 14,
+  },
+  actionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  primaryActionText: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  projectItem: {
+  secondaryActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 4,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  projectLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
-    flex: 1,
   },
-  projectIconContainer: {
-    width: 32,
-    height: 32,
+  secondaryAction: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  projectDetails: {
-    flex: 1,
-  },
-  projectName: {
+  secondaryActionText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 2,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  projectsContainer: {
+    marginBottom: 32,
+  },
+  projectsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  projectsTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewAllText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  projectsGrid: {
+    gap: 8,
+  },
+  projectCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  projectCardGradient: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+  },
+  projectCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  projectIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  projectIconGradient: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.25)',
+  },
+  projectInfo: {
+    flex: 1,
+  },
+  projectTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.95)',
+    marginBottom: 3,
   },
   projectMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  projectLang: {
     fontSize: 11,
+    fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.4)',
   },
-  projectTime: {
+  projectDate: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.3)',
     fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.35)',
   },
 });

@@ -1,15 +1,18 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity } from 'react-native';
 import { TerminalItem as TerminalItemType, TerminalItemType as ItemType } from '../../../shared/types';
 import { AppColors } from '../../../shared/theme/colors';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 
 const colors = AppColors.dark;
 
 interface Props {
   item: TerminalItemType;
+  isNextItemOutput?: boolean;
 }
 
-export const TerminalItem = ({ item }: Props) => {
+export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
 
@@ -65,14 +68,8 @@ export const TerminalItem = ({ item }: Props) => {
             <Text style={styles.terminalText}>{item.content || ''}</Text>
           </View>
         ) : (
-          <View style={styles.messageBlock}>
-            <View style={styles.userHeader}>
-              <View style={styles.userAvatar}>
-                <Text style={styles.avatarText}>U</Text>
-              </View>
-              <Text style={styles.userName}>You</Text>
-            </View>
-            <View style={styles.messageContent}>
+          <View style={styles.userMessageBlock}>
+            <View style={styles.userMessageCard}>
               <Text style={styles.userMessage}>{item.content || ''}</Text>
             </View>
           </View>
@@ -83,14 +80,14 @@ export const TerminalItem = ({ item }: Props) => {
         isTerminalCommand ? (
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
-          <View style={styles.messageBlock}>
-            <View style={styles.assistantHeader}>
-              <View style={[styles.userAvatar, styles.assistantAvatar]}>
-                <Text style={styles.avatarText}>AI</Text>
-              </View>
-              <Text style={styles.assistantName}>Drape AI</Text>
+          <View style={styles.assistantMessageRow}>
+            <View style={styles.dotContainer}>
+              <TouchableOpacity style={styles.actionButton}>
+                <Text style={styles.actionDot}>●</Text>
+              </TouchableOpacity>
+              {isNextItemOutput && <View style={styles.connectingLine} />}
             </View>
-            <View style={styles.messageContent}>
+            <View style={styles.assistantMessageContent}>
               <Text style={styles.assistantMessage}>{item.content || ''}</Text>
             </View>
           </View>
@@ -99,15 +96,8 @@ export const TerminalItem = ({ item }: Props) => {
 
       {item.type === ItemType.ERROR && (
         <View style={styles.messageBlock}>
-          <View style={styles.errorHeader}>
-            <View style={[styles.userAvatar, styles.errorAvatar]}>
-              <Text style={styles.avatarText}>!</Text>
-            </View>
-            <Text style={styles.errorName}>Error</Text>
-          </View>
-          <View style={styles.messageContent}>
-            <Text style={styles.errorMessage}>{item.content || ''}</Text>
-          </View>
+          <Text style={styles.errorName}>Error</Text>
+          <Text style={styles.errorMessage}>{item.content || ''}</Text>
         </View>
       )}
 
@@ -124,6 +114,7 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
   },
+  // Terminal styles
   terminalCommand: {
     flexDirection: 'row',
     marginBottom: 4,
@@ -148,90 +139,103 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
+  // Minimal professional chat styles
   messageBlock: {
     marginBottom: 4,
   },
-  userHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+  userMessageBlock: {
+    marginBottom: 4,
+    alignItems: 'flex-start',
   },
-  assistantHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+  userMessageCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  errorHeader: {
+  assistantMessageRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  userAvatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    backgroundColor: AppColors.primary,
+  dotContainer: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  actionButton: {
+    width: 20,
+    height: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 2,
+    zIndex: 2,
   },
-  assistantAvatar: {
-    backgroundColor: '#00D9FF',
+  actionDot: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
-  errorAvatar: {
-    backgroundColor: AppColors.error,
+  connectingLine: {
+    position: 'absolute',
+    top: 22,
+    width: 1.5,
+    height: 26,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 1,
   },
-  avatarText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
+  assistantMessageContent: {
+    flex: 1,
   },
   userName: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 4,
+    textAlign: 'right',
   },
   assistantName: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'left',
   },
   errorName: {
     fontSize: 13,
     fontWeight: '600',
-    color: AppColors.error,
-  },
-  messageContent: {
-    paddingLeft: 32,
+    color: '#E85D75',
+    marginBottom: 4,
   },
   userMessage: {
     fontSize: 15,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: 'rgba(255, 255, 255, 0.95)',
     lineHeight: 22,
+    fontWeight: '400',
   },
   assistantMessage: {
     fontSize: 15,
     color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 24,
+    lineHeight: 22,
+    fontWeight: '400',
+    textAlign: 'left',
   },
   errorMessage: {
     fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: AppColors.error,
+    color: 'rgba(255, 255, 255, 0.8)',
     lineHeight: 20,
+    fontWeight: '400',
   },
   systemBlock: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 4,
+    borderRadius: 6,
   },
   systemText: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
+    fontWeight: '500',
   },
 });
