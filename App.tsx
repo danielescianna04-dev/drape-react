@@ -14,6 +14,7 @@ import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
+import { useTabStore } from './src/core/tabs/tabStore';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 
@@ -29,6 +30,7 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   
   const { addWorkstation, setWorkstation } = useTerminalStore();
+  const { addTerminalItem: addTerminalItemToStore } = useTabStore();
 
   const handleDeepLink = (url: string) => {
     const { path } = Linking.parse(url);
@@ -76,7 +78,7 @@ export default function App() {
     try {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
-      
+
       const match = url.match(/github\.com\/([^\/]+)\//);
       const owner = match ? match[1] : 'unknown';
 
@@ -86,10 +88,10 @@ export default function App() {
       } else {
         await githubTokenService.saveToken(owner, githubToken, userId);
       }
-      
+
       const project = await workstationService.saveGitProject(url, userId);
       const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
-      
+
       const workstation = {
         id: wsResult.workstationId || project.id,
         projectId: project.id,
@@ -101,16 +103,33 @@ export default function App() {
         githubUrl: project.repositoryUrl,
         folderId: null,
       };
-      
+
       addWorkstation(workstation);
       setWorkstation(workstation); // Set as current workstation
       setShowImportModal(false);
       setIsImporting(false);
       setCurrentScreen('terminal');
+
+      // Add loading message to chat after switching to terminal
+      setTimeout(() => {
+        const { activeTabId, tabs } = useTabStore.getState();
+        const currentTab = tabs.find(t => t.id === activeTabId);
+
+        if (currentTab) {
+          console.log('Adding loading message to tab:', currentTab.id);
+          addTerminalItemToStore(currentTab.id, {
+            id: `loading-${Date.now()}`,
+            type: 'loading',
+            content: 'Cloning repository to workstation',
+            timestamp: new Date(),
+          });
+          // Success message will be added by FileExplorer when files are loaded
+        }
+      }, 100);
     } catch (error: any) {
       setIsImporting(false);
       console.log('🔴 Import error:', error.response?.status);
-      
+
       if (error.response?.status === 401 && !newToken) {
         console.log('🔐 Opening auth modal for:', url);
         setPendingRepoUrl(url);
@@ -160,8 +179,27 @@ export default function App() {
               }}
               onOpenProject={(workstation) => {
                 console.log('Opening project:', workstation.name);
+
+                // Set workstation and switch to terminal screen first
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
+
+                // Add loading message to the active tab
+                setTimeout(() => {
+                  const { activeTabId, tabs } = useTabStore.getState();
+                  const currentTab = tabs.find(t => t.id === activeTabId);
+
+                  if (currentTab) {
+                    console.log('Adding loading message to tab:', currentTab.id);
+                    addTerminalItemToStore(currentTab.id, {
+                      id: `loading-${Date.now()}`,
+                      type: 'loading',
+                      content: 'Cloning repository to workstation',
+                      timestamp: new Date(),
+                    });
+                    // Success message will be added by FileExplorer when files are loaded
+                  }
+                }, 100);
               }}
             />
           </Animated.View>

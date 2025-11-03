@@ -707,21 +707,94 @@ app.post('/workstation/modify-file', async (req, res) => {
     }
 });
 
+// Helper function to clone and read repository files
+async function cloneAndReadRepository(repositoryUrl, projectId) {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
+
+    // Create repos directory if it doesn't exist
+    try {
+        await fs.mkdir(reposDir, { recursive: true });
+    } catch (err) {
+        console.error('Error creating repos directory:', err);
+    }
+
+    // Check if repository is already cloned
+    try {
+        await fs.access(repoPath);
+        console.log('✅ Repository already cloned at:', repoPath);
+    } catch {
+        // Repository not cloned yet, clone it now
+        console.log('📦 Cloning repository:', repositoryUrl);
+        try {
+            await execAsync(`git clone ${repositoryUrl} ${repoPath}`);
+            console.log('✅ Repository cloned successfully');
+        } catch (cloneError) {
+            console.error('❌ Error cloning repository:', cloneError.message);
+            throw new Error(`Failed to clone repository: ${cloneError.message}`);
+        }
+    }
+
+    // Read files from the cloned repository
+    async function readDirectory(dirPath, basePath = '') {
+        const files = [];
+        try {
+            const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+            for (const entry of entries) {
+                // Skip .git directory and node_modules
+                if (entry.name === '.git' || entry.name === 'node_modules') continue;
+
+                const fullPath = path.join(dirPath, entry.name);
+                const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+
+                files.push({
+                    name: entry.name,
+                    type: entry.isDirectory() ? 'directory' : 'file',
+                    path: relativePath
+                });
+            }
+        } catch (err) {
+            console.error('Error reading directory:', err);
+        }
+
+        return files;
+    }
+
+    return await readDirectory(repoPath);
+}
+
 // Get project files from workstation
 app.get('/workstation/:projectId/files', async (req, res) => {
     let { projectId } = req.params;
-    
+    const { repositoryUrl } = req.query;
+
     // Remove ws- prefix if present
     if (projectId.startsWith('ws-')) {
         projectId = projectId.substring(3);
     }
-    
+
     try {
         console.log('📂 Getting files for project:', projectId);
-        
-        // Get files from Firestore
+        console.log('🔗 Repository URL:', repositoryUrl);
+
+        // If repositoryUrl is provided, clone and read from local filesystem
+        if (repositoryUrl) {
+            const files = await cloneAndReadRepository(repositoryUrl, projectId);
+            console.log(`✅ Found ${files.length} files in cloned repository`);
+            res.json({ success: true, files });
+            return;
+        }
+
+        // Fallback to Firestore
         const doc = await db.collection('workstation_files').doc(projectId).get();
-        
+
         if (doc.exists) {
             const data = doc.data();
             console.log(`✅ Found ${data.files.length} files in Firestore`);
@@ -731,8 +804,19 @@ app.get('/workstation/:projectId/files', async (req, res) => {
             res.json({ success: true, files: [] });
         }
     } catch (error) {
-        console.error('❌ Error getting files from Firestore:', error); // Log the full error object
-        res.status(500).json({ success: false, error: error.message, details: error });
+        console.error('❌ Error getting files:', error.message);
+
+        // If repository clone failed (private or not found), return error
+        if (error.message.includes('Failed to clone repository')) {
+            console.log('⚠️ Clone failed - repository private or not found');
+            res.status(403).json({
+                success: false,
+                error: 'Repository is private or not found. Authentication required.',
+                needsAuth: true
+            });
+        } else {
+            res.status(500).json({ success: false, error: error.message });
+        }
     }
 });
 

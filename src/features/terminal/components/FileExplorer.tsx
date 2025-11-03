@@ -3,17 +3,20 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
+import { useTabStore } from '../../../core/tabs/tabStore';
 
 interface Props {
   projectId: string;
+  repositoryUrl?: string;
   onFileSelect: (path: string) => void;
 }
 
-export const FileExplorer = ({ projectId, onFileSelect }: Props) => {
+export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) => {
   const [files, setFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const { addTerminalItem } = useTabStore();
 
   useEffect(() => {
     loadFiles();
@@ -23,11 +26,37 @@ export const FileExplorer = ({ projectId, onFileSelect }: Props) => {
     try {
       setLoading(true);
       setError(null);
-      const fileList = await workstationService.getWorkstationFiles(projectId);
+      const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl);
       setFiles(fileList);
+
+      // Add success message to chat when files are loaded successfully
+      if (fileList.length > 0 && repositoryUrl) {
+        const { activeTabId } = useTabStore.getState();
+        if (activeTabId) {
+          // Extract repo name from URL
+          const repoName = repositoryUrl.split('/').pop()?.replace('.git', '') || 'Repository';
+          addTerminalItem(activeTabId, {
+            id: `success-${Date.now()}`,
+            type: 'output',
+            content: `✓ Repository cloned successfully: ${repoName}`,
+            timestamp: new Date(),
+          });
+        }
+      }
     } catch (err: any) {
       console.error('Error loading files:', err);
       setError(err.message || 'Failed to load files');
+
+      // Add error message to chat
+      const { activeTabId } = useTabStore.getState();
+      if (activeTabId) {
+        addTerminalItem(activeTabId, {
+          id: `error-${Date.now()}`,
+          type: 'error',
+          content: `✗ ${err.message || 'Failed to clone repository'}`,
+          timestamp: new Date(),
+        });
+      }
     } finally {
       setLoading(false);
     }
