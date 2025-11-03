@@ -18,6 +18,9 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
+import { GitHubView } from '../../features/terminal/components/views/GitHubView';
+import { BrowserView } from '../../features/terminal/components/views/BrowserView';
+import { PreviewView } from '../../features/terminal/components/views/PreviewView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const colors = AppColors.dark;
@@ -513,6 +516,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           userId={'anonymous'}
           onClose={() => {}}
         />
+      ) : currentTab?.type === 'github' ? (
+        <GitHubView tab={currentTab} />
+      ) : currentTab?.type === 'browser' ? (
+        <BrowserView tab={currentTab} />
+      ) : currentTab?.type === 'preview' ? (
+        <PreviewView tab={currentTab} />
       ) : (
         <>
         <ScrollView

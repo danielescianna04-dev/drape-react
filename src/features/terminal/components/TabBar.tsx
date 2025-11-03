@@ -1,9 +1,10 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TabTypeSelector, TabType } from './TabTypeSelector';
 
 interface TabBarProps {
   isCardMode?: boolean;
@@ -14,6 +15,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const scaleAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
   const visibilityAnim = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
+  const [showTabTypeSelector, setShowTabTypeSelector] = useState(false);
 
   useEffect(() => {
     tabs.forEach(tab => {
@@ -58,11 +60,61 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   };
 
   const handleAddTab = () => {
-    const newTab = {
-      id: `terminal-${Date.now()}`,
-      type: 'terminal' as const,
-      title: `Terminal ${tabs.length + 1}`,
-    };
+    setShowTabTypeSelector(true);
+  };
+
+  const handleSelectTabType = (type: TabType) => {
+    const timestamp = Date.now();
+    let newTab;
+
+    switch (type) {
+      case 'chat':
+        newTab = {
+          id: `chat-${timestamp}`,
+          type: 'chat' as const,
+          title: 'Nuova Chat',
+          data: { chatId: timestamp.toString() }
+        };
+        break;
+      case 'terminal':
+        newTab = {
+          id: `terminal-${timestamp}`,
+          type: 'terminal' as const,
+          title: 'Terminal',
+        };
+        break;
+      case 'github':
+        newTab = {
+          id: `github-${timestamp}`,
+          type: 'github' as const,
+          title: 'GitHub',
+        };
+        break;
+      case 'browser':
+        newTab = {
+          id: `browser-${timestamp}`,
+          type: 'browser' as const,
+          title: 'Browser',
+        };
+        break;
+      case 'preview':
+        newTab = {
+          id: `preview-${timestamp}`,
+          type: 'preview' as const,
+          title: 'Preview',
+        };
+        break;
+      case 'file':
+        newTab = {
+          id: `file-${timestamp}`,
+          type: 'file' as const,
+          title: 'File',
+        };
+        break;
+      default:
+        return;
+    }
+
     addTab(newTab);
   };
 
@@ -71,6 +123,9 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
       case 'terminal': return 'terminal';
       case 'file': return 'document-text';
       case 'chat': return 'chatbubbles';
+      case 'github': return 'logo-github';
+      case 'browser': return 'globe';
+      case 'preview': return 'eye';
       case 'settings': return 'settings';
       default: return 'terminal';
     }
@@ -142,6 +197,12 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
       <TouchableOpacity style={styles.addButton} onPress={handleAddTab}>
         <Ionicons name="add" size={18} color="#666" />
       </TouchableOpacity>
+
+      <TabTypeSelector
+        visible={showTabTypeSelector}
+        onClose={() => setShowTabTypeSelector(false)}
+        onSelectType={handleSelectTabType}
+      />
     </Animated.View>
   );
 };
