@@ -45,7 +45,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
   
-  const { addTab } = useTabStore();
+  const { addTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
   const {
     chatHistory,
@@ -76,7 +76,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }).start();
 
     // Auto-open current project if exists
-    if (currentWorkstation) {
+    if (currentWorkstation && !selectedProjectId) {
       setSelectedProjectId(currentWorkstation.projectId || currentWorkstation.id);
       setSelectedRepoUrl(currentWorkstation.githubUrl || '');
     }
@@ -98,8 +98,34 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   };
 
   const handleOpenWorkstation = (ws: any) => {
-    setSelectedProjectId(ws.projectId || ws.id);
-    setSelectedRepoUrl(ws.githubUrl || '');
+    // Add loading message to active tab FIRST
+    const { activeTabId, tabs } = useTabStore.getState();
+    const currentTab = tabs.find(t => t.id === activeTabId);
+
+    if (currentTab) {
+      // Add loading message
+      addTerminalItemToStore(currentTab.id, {
+        id: `loading-${Date.now()}`,
+        type: 'loading',
+        content: 'Cloning repository to workstation',
+        timestamp: new Date(),
+      });
+    }
+
+    // Close sidebar to show the chat with loading message
+    onClose();
+
+    // After a delay, add success message and optionally open file explorer
+    setTimeout(() => {
+      if (currentTab) {
+        addTerminalItemToStore(currentTab.id, {
+          id: `success-${Date.now()}`,
+          type: 'output',
+          content: `✓ Repository cloned successfully: ${ws.name || 'Project'}`,
+          timestamp: new Date(),
+        });
+      }
+    }, 2000);
   };
 
   const handleDeleteWorkstation = async (id: string, e: any) => {
@@ -201,20 +227,9 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
-            <View style={styles.fileExplorerHeader}>
-              <TouchableOpacity
-                onPress={() => setSelectedProjectId(null)}
-                style={styles.backButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.7)" />
-              </TouchableOpacity>
-              <Text style={styles.fileExplorerTitle} numberOfLines={1}>
-                {currentWorkstation?.name || 'Progetto'}
-              </Text>
-            </View>
             <FileExplorer
               projectId={selectedProjectId}
+              repositoryUrl={selectedRepoUrl}
               onFileSelect={(path) => {
                 addTab({
                   id: `file-${selectedProjectId}-${path}`,
@@ -232,30 +247,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           </View>
         ) : (
           <>
-            <View style={styles.actionButtonsContainer}>
-              <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => setShowNewFolderModal(true)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="folder" size={16} color={AppColors.primary} />
-                </View>
-                <Text style={styles.actionButtonText}>Cartella</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.actionButton}
-                onPress={() => setShowNewFolderModal(true)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.actionButtonIconContainer}>
-                  <Ionicons name="folder" size={16} color={AppColors.primary} />
-                </View>
-                <Text style={styles.actionButtonText}>Cartella</Text>
-              </TouchableOpacity>
-            </View>
-
             {projectFolders.length === 0 && workstations.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
@@ -1357,23 +1348,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   fileExplorerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: 8,
   },
-  fileExplorerTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    flex: 1,
-  },
   backButton: {
-    padding: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   backButtonText: {
     fontSize: 13,

@@ -3,6 +3,7 @@ export enum TerminalItemType {
   OUTPUT = 'output',
   ERROR = 'error',
   SYSTEM = 'system',
+  LOADING = 'loading',
 }
 
 export interface TerminalItem {

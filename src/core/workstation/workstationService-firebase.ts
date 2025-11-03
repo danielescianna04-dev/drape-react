@@ -123,12 +123,31 @@ export const workstationService = {
     }
   },
 
-  async getWorkstationFiles(workstationId: string): Promise<string[]> {
+  async getWorkstationFiles(workstationId: string, repositoryUrl?: string): Promise<string[]> {
     try {
-      const response = await axios.get(`${API_BASE_URL}/workstation/${workstationId}/files`);
-      return response.data.files || [];
-    } catch (error) {
+      const url = repositoryUrl
+        ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
+        : `${API_BASE_URL}/workstation/${workstationId}/files`;
+      const response = await axios.get(url);
+      const files = response.data.files || [];
+
+      // Convert file objects to path strings for compatibility
+      return files.map((file: any) => {
+        // If it's already a string, return it
+        if (typeof file === 'string') return file;
+        // If it's an object with path property, return the path
+        if (file && typeof file === 'object' && file.path) return file.path;
+        // If it's an object with name property, return the name
+        if (file && typeof file === 'object' && file.name) return file.name;
+        // Fallback
+        return String(file);
+      });
+    } catch (error: any) {
       console.error('Error getting workstation files:', error);
+      // If it's a 403 (private repo), throw the error with the message
+      if (error.response?.status === 403) {
+        throw new Error(error.response?.data?.error || 'Repository is private or not found');
+      }
       return [];
     }
   },

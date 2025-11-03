@@ -1,20 +1,24 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView } from 'react-native';
 import { TerminalItem as TerminalItemType, TerminalItemType as ItemType } from '../../../shared/types';
 import { AppColors } from '../../../shared/theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 
 const colors = AppColors.dark;
 
 interface Props {
   item: TerminalItemType;
   isNextItemOutput?: boolean;
+  outputItem?: TerminalItemType; // For terminal commands, include the output
 }
 
-export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
+export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [dotCount, setDotCount] = useState(1);
 
 
   // Protezione per content null/undefined
@@ -36,6 +40,16 @@ export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
     ]).start();
   }, []);
 
+  // Animated dots for loading state
+  useEffect(() => {
+    if (item.type === ItemType.LOADING) {
+      const interval = setInterval(() => {
+        setDotCount((prev) => (prev >= 3 ? 1 : prev + 1));
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [item.type]);
+
   const getTextColor = () => {
     switch (item.type) {
       case ItemType.COMMAND:
@@ -49,7 +63,7 @@ export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
     }
   };
 
-  const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/);
+  const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/i);
 
   return (
     <Animated.View
@@ -62,7 +76,62 @@ export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
       ]}
     >
       {item.type === ItemType.COMMAND && (
-        isTerminalCommand ? (
+        isTerminalCommand && outputItem ? (
+          // Terminal command with output - show as card with title
+          <View style={styles.bashCard}>
+            <View style={styles.bashHeader}>
+              <Text style={styles.bashTitle}>Bash</Text>
+              <TouchableOpacity
+                onPress={() => setIsModalVisible(true)}
+                style={styles.expandButton}
+              >
+                <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.bashContent}>
+              <View style={styles.bashRow}>
+                <Text style={styles.bashLabel}>IN</Text>
+                <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
+              </View>
+              <View style={styles.bashDivider} />
+              <View style={styles.bashRow}>
+                <Text style={styles.bashLabel}>OUT</Text>
+                <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
+              </View>
+            </View>
+
+            {/* Full screen modal */}
+            <Modal
+              visible={isModalVisible}
+              animationType="slide"
+              transparent={false}
+              onRequestClose={() => setIsModalVisible(false)}
+            >
+              <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Bash Output</Text>
+                  <TouchableOpacity
+                    onPress={() => setIsModalVisible(false)}
+                    style={styles.closeButton}
+                  >
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.modalContent}>
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalLabel}>INPUT</Text>
+                    <Text style={styles.modalInput}>{item.content || ''}</Text>
+                  </View>
+                  <View style={styles.modalDivider} />
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalLabel}>OUTPUT</Text>
+                    <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
+                  </View>
+                </ScrollView>
+              </View>
+            </Modal>
+          </View>
+        ) : isTerminalCommand ? (
           <View style={styles.terminalCommand}>
             <Text style={styles.terminalPrompt}>$ </Text>
             <Text style={styles.terminalText}>{item.content || ''}</Text>
@@ -106,6 +175,17 @@ export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
           <Text style={styles.systemText}>{item.content || ''}</Text>
         </View>
       )}
+
+      {item.type === ItemType.LOADING && (
+        <View style={styles.loadingBlock}>
+          <View style={styles.loadingContent}>
+            <Text style={styles.loadingText}>
+              {item.content || ''}
+              {'.'.repeat(dotCount)}
+            </Text>
+          </View>
+        </View>
+      )}
     </Animated.View>
   );
 };
@@ -139,6 +219,122 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 20,
     marginBottom: 12,
+  },
+  // Bash card styles (terminal command + output grouped)
+  bashCard: {
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  bashHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  bashTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  expandButton: {
+    padding: 4,
+  },
+  bashContent: {
+    padding: 12,
+  },
+  bashRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  bashDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginVertical: 8,
+    marginHorizontal: -12, // Extend to card edges (compensate for bashContent padding)
+  },
+  bashLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.4)',
+    width: 32,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  bashInput: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 18,
+  },
+  bashOutput: {
+    flex: 1,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.65)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 18,
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingTop: 60, // Safe area
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  closeButton: {
+    padding: 8,
+  },
+  modalContent: {
+    flex: 1,
+    padding: 20,
+  },
+  modalSection: {
+    marginBottom: 24,
+  },
+  modalLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  modalInput: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 22,
+  },
+  modalOutput: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 20,
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginVertical: 24,
   },
   // Minimal professional chat styles
   messageBlock: {
@@ -238,5 +434,25 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
     fontWeight: '500',
+  },
+  loadingBlock: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  loadingContent: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  loadingText: {
+    fontSize: 15,
+    color: 'rgba(139, 124, 246, 0.9)',
+    lineHeight: 22,
+    fontWeight: '400',
   },
 });

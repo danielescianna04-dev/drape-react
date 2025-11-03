@@ -87,7 +87,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const keyboardHeight = useSharedValue(0); // Track keyboard height
   const insets = useSafeAreaInsets();
 
-  const { tabs, activeTabId, updateTab } = useTabStore();
+  const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
   const currentTab = tab || tabs.find(t => t.id === activeTabId);
 
   // Always use tab-specific terminal items
@@ -118,14 +118,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const addTerminalItem = useCallback((item: any) => {
     if (!currentTab) return;
 
-    // Get fresh state from the store to avoid race conditions
-    const freshTab = tabs.find(t => t.id === currentTab.id);
-    const currentItems = freshTab?.terminalItems || [];
-    const newItems = [...currentItems, item];
-
-    console.log('💾 Saving to tab:', currentTab.id, 'New count:', newItems.length);
-    updateTab(currentTab.id, { terminalItems: newItems });
-  }, [currentTab, tabs, updateTab]);
+    console.log('💾 Adding item to tab:', currentTab.id);
+    // Use atomic function from store to avoid race conditions
+    addTerminalItemToStore(currentTab.id, item);
+  }, [currentTab, addTerminalItemToStore]);
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -529,21 +525,50 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <View style={styles.emptyState}>
           </View>
         ) : (
-          terminalItems
-            .filter(item => item && item.content != null)
-            .map((item, index, filteredArray) => {
-              // Check if next item is also an OUTPUT (AI response)
-              const nextItem = filteredArray[index + 1];
-              const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
+          <>
+            {(() => {
+              const filtered = terminalItems.filter(item => item && item.content != null);
+              console.log('🟣 Rendering items, filtered count:', filtered.length);
 
-              return (
-                <TerminalItemComponent
-                  key={index}
-                  item={item}
-                  isNextItemOutput={isNextItemOutput}
-                />
-              );
-            })
+              return filtered.reduce((acc, item, index, filteredArray) => {
+                console.log('🟣 Processing item', index, ':', item.type, item.content?.substring(0, 30));
+
+                // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
+                const prevItem = filteredArray[index - 1];
+                const isOutputAfterTerminalCommand =
+                  item.type === TerminalItemType.OUTPUT &&
+                  prevItem?.type === TerminalItemType.COMMAND &&
+                  isCommand(prevItem.content || '');
+
+                if (isOutputAfterTerminalCommand) {
+                  console.log('🟣 Skipping output item', index, '(will be grouped with command)');
+                  return acc;
+                }
+
+                // Check if next item is an OUTPUT for this COMMAND
+                const nextItem = filteredArray[index + 1];
+                const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
+                const outputItem =
+                  item.type === TerminalItemType.COMMAND &&
+                  isCommand(item.content || '') &&
+                  nextItem?.type === TerminalItemType.OUTPUT
+                    ? nextItem
+                    : undefined;
+
+                console.log('🟣 Rendering item', index, 'with outputItem:', !!outputItem);
+
+                acc.push(
+                  <TerminalItemComponent
+                    key={index}
+                    item={item}
+                    isNextItemOutput={isNextItemOutput}
+                    outputItem={outputItem}
+                  />
+                );
+                return acc;
+              }, [] as JSX.Element[]);
+            })()}
+          </>
         )}
         
         {isLoading && <LoadingIndicator />}

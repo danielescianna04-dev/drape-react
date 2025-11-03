@@ -15,11 +15,12 @@ export interface Tab {
 interface TabStore {
   tabs: Tab[];
   activeTabId: string | null;
-  
+
   addTab: (tab: Tab) => void;
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
+  addTerminalItem: (tabId: string, item: any) => void;
 }
 
 export const useTabStore = create<TabStore>((set) => ({
@@ -61,8 +62,24 @@ export const useTabStore = create<TabStore>((set) => ({
   }),
   
   setActiveTab: (id) => set({ activeTabId: id }),
-  
+
   updateTab: (id, updates) => set((state) => ({
     tabs: state.tabs.map(t => t.id === id ? { ...t, ...updates } : t),
   })),
+
+  addTerminalItem: (tabId, item) => {
+    console.log('🔵 Store addTerminalItem called:', { tabId, itemType: item?.type, itemContent: item?.content?.substring(0, 50) });
+    set((state) => {
+      const tab = state.tabs.find(t => t.id === tabId);
+      const currentItems = tab?.terminalItems || [];
+      console.log('🔵 Current items count:', currentItems.length, '→ New count:', currentItems.length + 1);
+      return {
+        tabs: state.tabs.map(t =>
+          t.id === tabId
+            ? { ...t, terminalItems: [...(t.terminalItems || []), item] }
+            : t
+        ),
+      };
+    });
+  },
 }));
