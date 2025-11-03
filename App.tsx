@@ -191,7 +191,9 @@ export default function App() {
             exiting={FadeOut.duration(200)}
             style={{ flex: 1 }}
           >
-            <VSCodeSidebar>
+            <VSCodeSidebar
+              onExit={() => setCurrentScreen('home')}
+            >
               {(tab, isCardMode, cardDimensions) => (
                 <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
               )}

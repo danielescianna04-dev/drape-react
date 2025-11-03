@@ -76,70 +76,71 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Minimal header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.logo}>drape</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>AI IDE</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.avatarButton} activeOpacity={0.8}>
-            <LinearGradient
-              colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
-              style={styles.avatarGradient}
-            >
-              <Ionicons name="person" size={18} color="rgba(255, 255, 255, 0.9)" />
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        {/* Quick actions - horizontal cards */}
-        <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.primaryAction} onPress={onCreateProject} activeOpacity={0.85}>
-            <LinearGradient
-              colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.08)']}
-              style={styles.primaryActionGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <View style={styles.actionContent}>
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-                <Text style={styles.primaryActionText}>New Project</Text>
-              </View>
-              <Ionicons name="arrow-forward" size={18} color="rgba(255, 255, 255, 0.6)" />
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <View style={styles.secondaryActions}>
-            <TouchableOpacity style={styles.secondaryAction} onPress={onImportProject} activeOpacity={0.85}>
-              <Ionicons name="cloud-download-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
-              <Text style={styles.secondaryActionText}>Import</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.secondaryAction} onPress={handleBrowseFiles} activeOpacity={0.85}>
-              <Ionicons name="folder-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
-              <Text style={styles.secondaryActionText}>Browse</Text>
-            </TouchableOpacity>
+      {/* Minimal header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.logo}>drape</Text>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>AI IDE</Text>
           </View>
         </View>
+        <TouchableOpacity style={styles.avatarButton} activeOpacity={0.8}>
+          <LinearGradient
+            colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
+            style={styles.avatarGradient}
+          >
+            <Ionicons name="person" size={18} color="rgba(255, 255, 255, 0.9)" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
 
-        {/* Projects section */}
-        {recentProjects.length > 0 && (
-          <View style={styles.projectsContainer}>
-            <View style={styles.projectsHeader}>
-              <Text style={styles.projectsTitle}>Recent</Text>
-              <TouchableOpacity onPress={onMyProjects} style={styles.viewAllButton} activeOpacity={0.8}>
-                <Text style={styles.viewAllText}>View all</Text>
-                <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.5)" />
-              </TouchableOpacity>
+      {/* Quick actions - horizontal cards */}
+      <View style={styles.quickActions}>
+        <TouchableOpacity style={styles.primaryAction} onPress={onCreateProject} activeOpacity={0.85}>
+          <LinearGradient
+            colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.08)']}
+            style={styles.primaryActionGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.actionContent}>
+              <Ionicons name="add" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryActionText}>New Project</Text>
             </View>
+            <Ionicons name="arrow-forward" size={18} color="rgba(255, 255, 255, 0.6)" />
+          </LinearGradient>
+        </TouchableOpacity>
 
+        <View style={styles.secondaryActions}>
+          <TouchableOpacity style={styles.secondaryAction} onPress={onImportProject} activeOpacity={0.85}>
+            <Ionicons name="cloud-download-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
+            <Text style={styles.secondaryActionText}>Import</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.secondaryAction} onPress={handleBrowseFiles} activeOpacity={0.85}>
+            <Ionicons name="folder-outline" size={20} color="rgba(255, 255, 255, 0.7)" />
+            <Text style={styles.secondaryActionText}>Browse</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Projects section */}
+      {recentProjects.length > 0 && (
+        <View style={styles.projectsContainer}>
+          <View style={styles.projectsHeader}>
+            <Text style={styles.projectsTitle}>Recent</Text>
+            <TouchableOpacity onPress={onMyProjects} style={styles.viewAllButton} activeOpacity={0.8}>
+              <Text style={styles.viewAllText}>View all</Text>
+              <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.5)" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Only projects grid scrolls */}
+          <ScrollView
+            style={styles.projectsScrollView}
+            contentContainerStyle={styles.projectsScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             <View style={styles.projectsGrid}>
               {recentProjects.map((project) => (
                 <TouchableOpacity
@@ -178,9 +179,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 </TouchableOpacity>
               ))}
             </View>
-          </View>
-        )}
-      </ScrollView>
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 };
@@ -209,19 +210,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(107, 93, 214, 0.06)',
     opacity: 0.4,
   },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 40,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 40,
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    marginBottom: 24,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -262,7 +257,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   quickActions: {
-    marginBottom: 48,
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  projectsScrollView: {
+    flex: 1,
+  },
+  projectsScrollContent: {
+    paddingBottom: 20,
   },
   primaryAction: {
     marginBottom: 12,
@@ -311,13 +313,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
   },
   projectsContainer: {
-    marginBottom: 32,
+    flex: 1,
+    paddingHorizontal: 20,
   },
   projectsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
     paddingHorizontal: 4,
   },
   projectsTitle: {

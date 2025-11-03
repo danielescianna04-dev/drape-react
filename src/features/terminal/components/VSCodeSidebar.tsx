@@ -9,6 +9,9 @@ import { MultitaskingPanel } from './MultitaskingPanel';
 import { VerticalCardSwitcher } from './VerticalCardSwitcher';
 import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
+import { SettingsPanel } from './SettingsPanel';
+import { ChatPanel } from './ChatPanel';
+import { TerminalPanel } from './TerminalPanel';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 
 type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'vertical' | 'settings' | null;
@@ -17,10 +20,11 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 interface Props {
   onOpenAllProjects?: () => void;
+  onExit?: () => void;
   children?: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }, animatedStyle?: any) => React.ReactNode;
 }
 
-export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
+export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
   const { tabs, activeTabId, setActiveTab } = useTabStore();
@@ -282,7 +286,14 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
 
         <View style={styles.spacer} />
 
-        <TouchableOpacity 
+        <TouchableOpacity
+          style={styles.iconButton}
+          onPress={onExit}
+        >
+          <Ionicons name="exit-outline" size={24} color="#888" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
           onPress={() => togglePanel('settings')}
         >
@@ -291,12 +302,24 @@ export const VSCodeSidebar = ({ onOpenAllProjects, children }: Props) => {
       </View>
 
       {activePanel === 'files' && (
-        <Sidebar 
+        <Sidebar
           onClose={() => setActivePanel(null)}
           onOpenAllProjects={onOpenAllProjects}
         />
       )}
-      
+
+      {activePanel === 'chat' && (
+        <ChatPanel onClose={() => setActivePanel(null)} />
+      )}
+
+      {activePanel === 'terminal' && (
+        <TerminalPanel onClose={() => setActivePanel(null)} />
+      )}
+
+      {activePanel === 'settings' && (
+        <SettingsPanel onClose={() => setActivePanel(null)} />
+      )}
+
       <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
       {/* Show normal content always (behind vertical panel) */}

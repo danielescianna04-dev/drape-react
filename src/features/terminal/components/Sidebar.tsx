@@ -76,7 +76,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }).start();
 
     // Auto-open current project if exists
-    if (currentWorkstation && !selectedProjectId) {
+    if (currentWorkstation) {
       setSelectedProjectId(currentWorkstation.projectId || currentWorkstation.id);
       setSelectedRepoUrl(currentWorkstation.githubUrl || '');
     }
@@ -201,8 +201,20 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
-            <FileExplorer 
-              projectId={selectedProjectId} 
+            <View style={styles.fileExplorerHeader}>
+              <TouchableOpacity
+                onPress={() => setSelectedProjectId(null)}
+                style={styles.backButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.7)" />
+              </TouchableOpacity>
+              <Text style={styles.fileExplorerTitle} numberOfLines={1}>
+                {currentWorkstation?.name || 'Progetto'}
+              </Text>
+            </View>
+            <FileExplorer
+              projectId={selectedProjectId}
               onFileSelect={(path) => {
                 addTab({
                   id: `file-${selectedProjectId}-${path}`,
@@ -1345,20 +1357,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   fileExplorerHeader: {
-    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: 8,
   },
+  fileExplorerTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flex: 1,
+  },
   backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
-    alignSelf: 'flex-start',
+    padding: 4,
   },
   backButtonText: {
     fontSize: 13,
