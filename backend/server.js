@@ -51,68 +51,70 @@ app.get('/health', (req, res) => {
 });
 
 // AI Chat endpoint
-app.post('/ai/chat', async (req, res) => {
-  try {
-    const { message, model = 'gemini-pro', projectContext } = req.body;
-    
-    console.log('AI Chat request:', { message, model, projectContext });
-    
-    // Get Vertex AI model
-    const generativeModel = vertex_ai.getGenerativeModel({ model });
-    
-    // Add project context to message
-    const contextualMessage = projectContext ? 
-      `Project Context: ${JSON.stringify(projectContext)}\n\nUser: ${message}` : 
-      message;
-    
-    // Generate response
-    const result = await generativeModel.generateContent(contextualMessage);
-    const response = result.response;
-    
-    res.json({
-      success: true,
-      response: response.text(),
-      model: model,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('AI Chat error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+// DISABLED - Old endpoint that conflicts with the newer one below (line 252)
+// app.post('/ai/chat', async (req, res) => {
+//   try {
+//     const { message, model = 'gemini-pro', projectContext } = req.body;
+//
+//     console.log('AI Chat request:', { message, model, projectContext });
+//
+//     // Get Vertex AI model
+//     const generativeModel = vertex_ai.getGenerativeModel({ model });
+//
+//     // Add project context to message
+//     const contextualMessage = projectContext ?
+//       `Project Context: ${JSON.stringify(projectContext)}\n\nUser: ${message}` :
+//       message;
+//
+//     // Generate response
+//     const result = await generativeModel.generateContent(contextualMessage);
+//     const response = result.response;
+//
+//     res.json({
+//       success: true,
+//       response: response.text(),
+//       model: model,
+//       timestamp: new Date().toISOString()
+//     });
+//
+//   } catch (error) {
+//     console.error('AI Chat error:', error);
+//     res.status(500).json({
+//       success: false,
+//       error: error.message,
+//       timestamp: new Date().toISOString()
+//     });
+//   }
+// });
 
-// Terminal execute endpoint
-app.post('/terminal/execute', async (req, res) => {
-  try {
-    const { command, workstationId, language = 'bash' } = req.body;
-    
-    console.log('Terminal execute:', { command, workstationId, language });
-    
-    // Simulate command execution
-    // In production, this would execute in a container
-    const output = `Executing: ${command}\n✅ Command completed successfully`;
-    
-    res.json({
-      success: true,
-      output: output,
-      workstationId: workstationId,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('Terminal execute error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
+// DISABLED - Old simple endpoint that just returns "Command completed successfully"
+// Use the more complete endpoint at line 343 instead
+// app.post('/terminal/execute', async (req, res) => {
+//   try {
+//     const { command, workstationId, language = 'bash' } = req.body;
+//
+//     console.log('Terminal execute:', { command, workstationId, language });
+//
+//     // Simulate command execution
+//     // In production, this would execute in a container
+//     const output = `Executing: ${command}\n✅ Command completed successfully`;
+//
+//     res.json({
+//       success: true,
+//       output: output,
+//       workstationId: workstationId,
+//       timestamp: new Date().toISOString()
+//     });
+//
+//   } catch (error) {
+//     console.error('Terminal execute error:', error);
+//     res.status(500).json({
+//       success: false,
+//       error: error.message,
+//       timestamp: new Date().toISOString()
+//     });
+//   }
+// });
 
 // Container management endpoints
 app.post('/containers/start', async (req, res) => {
@@ -319,9 +321,21 @@ app.post('/ai/chat', async (req, res) => {
         
     } catch (error) {
         console.error('AI Chat error:', error.response?.data || error.message);
+
+        // Handle specific error codes
+        const errorCode = error.response?.data?.error?.code;
+        const errorMessage = error.response?.data?.error?.message || error.message;
+
+        if (errorCode === 429) {
+            return res.status(429).json({
+                success: false,
+                error: 'Quota API esaurita. Attendi qualche minuto e riprova. Le richieste si resettano ogni 60 secondi.'
+            });
+        }
+
         res.status(500).json({
             success: false,
-            error: error.response?.data?.error?.message || error.message
+            error: errorMessage
         });
     }
 });
@@ -329,25 +343,24 @@ app.post('/ai/chat', async (req, res) => {
 // Terminal execute endpoint - Execute commands on workstation
 app.post('/terminal/execute', async (req, res) => {
   const { command, workstationId } = req.body;
-  
-  console.log('🖥️  TERMINAL EXECUTE REQUEST:');
-  console.log('Command:', command);
-  console.log('Workstation ID:', workstationId);
-  
-  if (!workstationId) {
-    console.error('❌ No workstation ID provided');
-    return res.status(400).json({ error: 'workstationId is required' });
-  }
-  
+
+  console.log('Terminal execute:', { command, workstationId, language: req.body.language });
+
+  // Allow simulation mode even without workstationId for testing
+  const simulationMode = !workstationId;
+
   try {
-    console.log(`⚡ Executing command on workstation ${workstationId}...`);
-    
-    // Execute command on workstation
-    const output = await executeCommandOnWorkstation(command, workstationId);
-    
+    if (simulationMode) {
+      console.log('🧪 Running in simulation mode (no workstation)');
+    } else {
+      console.log(`⚡ Executing command on workstation ${workstationId}...`);
+    }
+
+    // Execute command on workstation (or simulate if no workstationId)
+    const output = await executeCommandOnWorkstation(command, workstationId || 'simulation');
+
     console.log('✅ Command executed successfully');
-    console.log('Output:', output);
-    
+
     const previewUrl = detectPreviewUrl(output.stdout, command);
     if (previewUrl) {
       console.log('👁️  Preview URL detected:', previewUrl);
@@ -357,19 +370,13 @@ app.post('/terminal/execute', async (req, res) => {
       output: output.stdout,
       error: output.stderr,
       exitCode: output.exitCode,
-      workstationId,
+      workstationId: workstationId || 'simulation',
       command,
       previewUrl
     });
-    
+
   } catch (error) {
     console.error('❌ TERMINAL EXECUTE ERROR:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      workstationId,
-      command
-    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -428,10 +435,11 @@ async function executeCommandOnWorkstation(command, workstationId) {
     return result;
   }
   
-  // Simulate ls command
-  if (command.trim() === 'ls' || command.trim() === 'ls -la') {
+  // Simulate ls command (case-insensitive)
+  const cmdLower = command.trim().toLowerCase();
+  if (cmdLower === 'ls' || cmdLower === 'ls -la') {
     console.log('📁 Simulating ls command...');
-    
+
     const result = {
       stdout: 'total 48\ndrwxr-xr-x  8 user user 4096 Oct 15 12:00 .\ndrwxr-xr-x  3 user user 4096 Oct 15 11:00 ..\n-rw-r--r--  1 user user  123 Oct 15 12:00 .gitignore\n-rw-r--r--  1 user user 1024 Oct 15 12:00 package.json\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 src\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 public\n-rw-r--r--  1 user user 2048 Oct 15 12:00 README.md',
       stderr: '',

@@ -113,6 +113,7 @@ export const TerminalItem = ({ item, isNextItemOutput }: Props) => {
 const styles = StyleSheet.create({
   container: {
     marginBottom: 16,
+    marginTop: 8, // Add space above each message card
   },
   // Terminal styles
   terminalCommand: {

@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -82,11 +82,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
   const borderAnim = useSharedValue(0);
+  const hasChatStartedAnim = useSharedValue(0); // 0 = not started, 1 = started
+  const cardModeAnim = useSharedValue(isCardMode ? 1 : 0); // Animate card mode transitions
+  const keyboardHeight = useSharedValue(0); // Track keyboard height
   const insets = useSafeAreaInsets();
 
   const { tabs, activeTabId, updateTab } = useTabStore();
   const currentTab = tab || tabs.find(t => t.id === activeTabId);
-  
+
   // Always use tab-specific terminal items
   const tabTerminalItems = currentTab?.terminalItems || [];
   const isLoading = currentTab?.isLoading || false;
@@ -112,17 +115,65 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   };
   
   // Always add item to tab-specific storage
-  const addTerminalItem = (item: any) => {
-    if (currentTab) {
-      const newItems = [...tabTerminalItems, item];
-      console.log('💾 Saving to tab:', currentTab.id, 'New count:', newItems.length);
-      updateTab(currentTab.id, { terminalItems: newItems });
-    }
-  };
+  const addTerminalItem = useCallback((item: any) => {
+    if (!currentTab) return;
+
+    // Get fresh state from the store to avoid race conditions
+    const freshTab = tabs.find(t => t.id === currentTab.id);
+    const currentItems = freshTab?.terminalItems || [];
+    const newItems = [...currentItems, item];
+
+    console.log('💾 Saving to tab:', currentTab.id, 'New count:', newItems.length);
+    updateTab(currentTab.id, { terminalItems: newItems });
+  }, [currentTab, tabs, updateTab]);
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [terminalItems]);
+
+  // Keyboard listeners - move input box up when keyboard opens
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        // Only move up if chat has started (input is at bottom)
+        if (hasChatStarted) {
+          keyboardHeight.value = withSpring(e.endCoordinates.height, {
+            damping: 25,
+            stiffness: 300,
+            mass: 0.5,
+          });
+        }
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        keyboardHeight.value = withSpring(0, {
+          damping: 25,
+          stiffness: 300,
+          mass: 0.5,
+        });
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, [hasChatStarted]);
+
+  // Sync hasChatStartedAnim with actual state (for tab switching)
+  useEffect(() => {
+    if (hasChatStarted) {
+      hasChatStartedAnim.value = 1;
+      inputPositionAnim.value = 1;
+    } else {
+      hasChatStartedAnim.value = 0;
+      inputPositionAnim.value = 0;
+    }
+  }, [hasChatStarted, currentTab?.id]);
 
   useEffect(() => {
     // Aggiorna il toggle in tempo reale mentre scrivi (solo in auto mode)
@@ -155,47 +206,88 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     };
   });
 
-  const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
-    // Se la chat non è iniziata, usa top centrato verticalmente (allineato al trackpad)
-    if (!hasChatStarted) {
-      return {
-        top: 410, // Posizione centrata rispetto al trackpad
-      };
-    }
+  const cardDimensionsAnimatedStyle = useAnimatedStyle(() => {
+    'worklet';
+    // Animate dimensions and border radius when entering/exiting card mode
+    const borderRadius = interpolate(
+      cardModeAnim.value,
+      [0, 1],
+      [0, 16]
+    );
 
-    // Durante animazione: usa translateY per spostare verso il basso
-    // mantenendo bottom:20 come riferimento
+    const marginTop = interpolate(
+      cardModeAnim.value,
+      [0, 1],
+      [0, insets.top + 10]
+    );
+
+    // Animate width and height too - use fixed values when in card mode
+    const width = interpolate(
+      cardModeAnim.value,
+      [0, 0.01, 1],
+      [0, cardDimensions.width, cardDimensions.width]
+    );
+
+    const height = interpolate(
+      cardModeAnim.value,
+      [0, 0.01, 1],
+      [0, cardDimensions.height - insets.top - 10, cardDimensions.height - insets.top - 10]
+    );
+
+    return {
+      width: width > 0 ? width : undefined,
+      height: height > 0 ? height : undefined,
+      borderRadius,
+      marginTop,
+      overflow: 'hidden',
+    };
+  });
+
+  const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
+    'worklet';
     const animProgress = inputPositionAnim.value;
 
-    if (animProgress < 1) {
-      // Calcola quanto deve scendere: da top:410 a bottom:20
-      const translateY = interpolate(
-        animProgress,
-        [0, 1],
-        [-310, 0], // Da -310 (più in alto) a 0 (posizione normale bottom:20)
-        Extrapolate.CLAMP
-      );
+    // Anima da top:410 (centro) verso posizione più bassa (ma non troppo)
+    // Usiamo un translateY smooth che sposta verso il basso
+    const baseTranslateY = interpolate(
+      animProgress,
+      [0, 1],
+      [0, 280], // Sposta 280px verso il basso (un po' più in alto rispetto a prima)
+      Extrapolate.CLAMP
+    );
 
-      return {
-        bottom: 20,
-        transform: [{ translateY }]
-      };
-    }
+    // When keyboard is open, move up by 80% of keyboard height
+    const keyboardOffset = keyboardHeight.value * 0.8;
+    const translateY = baseTranslateY - keyboardOffset;
 
-    // Dopo animazione: posizione finale bottom
-    return { bottom: 20 };
+    return {
+      top: 410,
+      transform: [{ translateY }]
+    };
   });
 
   useEffect(() => {
     if (isCardMode) {
       borderAnim.value = withSpring(1, {
-        damping: 15,
-        stiffness: 300,
+        damping: 20,
+        stiffness: 180,
+        mass: 0.6,
+      });
+      cardModeAnim.value = withSpring(1, {
+        damping: 20,
+        stiffness: 180,
+        mass: 0.6,
       });
     } else {
       borderAnim.value = withSpring(0, {
         damping: 20,
-        stiffness: 250,
+        stiffness: 180,
+        mass: 0.6,
+      });
+      cardModeAnim.value = withSpring(0, {
+        damping: 20,
+        stiffness: 180,
+        mass: 0.6,
       });
     }
   }, [isCardMode]);
@@ -263,9 +355,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    // Animate input to bottom on first send
+    // Animate input to bottom on first send - Apple-style smooth animation
     if (!hasChatStarted) {
-      inputPositionAnim.value = withTiming(1, { duration: 400 });
+      hasChatStartedAnim.value = 1; // Mark chat as started
+      inputPositionAnim.value = withSpring(1, {
+        damping: 20,
+        stiffness: 180,
+        mass: 0.8,
+      });
+      // Dismiss keyboard with animation
+      Keyboard.dismiss();
     }
 
     const userMessage = input.trim();
@@ -356,11 +455,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             prompt: enhancedPrompt,
             model: selectedModel,
             workstationId: currentWorkstation?.id,
-            context: currentWorkstation ? { 
+            context: currentWorkstation ? {
               projectName: currentWorkstation.name || 'Unnamed Project',
               language: currentWorkstation.language || 'Unknown',
               repositoryUrl: currentWorkstation.repositoryUrl || ''
             } : undefined
+          },
+          {
+            timeout: 60000 // 60 seconds timeout for AI requests
           }
         );
         
@@ -386,13 +488,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   return (
     <Animated.View style={[
       styles.container,
-      isCardMode && {
-        width: cardDimensions.width,
-        height: cardDimensions.height - insets.top - 10, // Riduci altezza per notch + piccolo margin
-        borderRadius: 16,
-        overflow: 'hidden',
-        marginTop: insets.top + 10, // Inizia sotto il notch con piccolo spazio
-      },
+      cardDimensionsAnimatedStyle, // Animated width, height, borderRadius, marginTop, overflow
       cardBorderAnimatedStyle,
       animatedStyle
     ]}>
@@ -629,7 +725,7 @@ const styles = StyleSheet.create({
   output: {
     flex: 1,
     paddingLeft: 50,
-    paddingTop: 40,
+    paddingTop: 100, // Further increased to add space below TabBar
   },
   outputCardMode: {
     paddingLeft: 0, // Remove sidebar offset in card mode
@@ -684,8 +780,8 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },  outputContent: {
     padding: 20,
-    paddingTop: 60,
-    paddingBottom: 120,
+    paddingTop: 20, // Reduced since output already has paddingTop:80
+    paddingBottom: 300, // Space for input box at bottom
   },
   loadingContainer: {
     marginBottom: 4,

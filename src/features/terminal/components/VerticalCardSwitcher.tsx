@@ -1,7 +1,6 @@
-import React, { useEffect, useCallback, memo } from 'react';
+import React, { useEffect, memo, useCallback } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate, useAnimatedReaction } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate, useAnimatedReaction, runOnJS } from 'react-native-reanimated';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -89,27 +88,30 @@ interface Props {
   onClose: () => void;
   trackpadTranslation?: Animated.SharedValue<number>;
   isTrackpadActive?: Animated.SharedValue<boolean>;
+  skipZoomAnimation?: Animated.SharedValue<boolean>;
+  onGestureEnd?: () => void;
 }
 
 export const VerticalCardSwitcher = ({
   children,
   onClose,
   trackpadTranslation,
-  isTrackpadActive
+  isTrackpadActive,
+  skipZoomAnimation,
 }: Props) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
   const scrollPosition = useSharedValue(0);
   const activeIndex = tabs.findIndex(t => t.id === activeTabId);
-  const gestureStartPosition = useSharedValue(0);
-  const isGestureActive = useSharedValue(false);
+  const zoomScale = useSharedValue(1); // For exit animation
 
+  // Apple-style smooth spring config
   const SPRING_CONFIG = {
-    damping: 18,
-    stiffness: 380,
-    mass: 0.4,
+    damping: 20,
+    stiffness: 180,
+    mass: 0.8,
     overshootClamping: false,
     restDisplacementThreshold: 0.01,
-    restSpeedThreshold: 2,
+    restSpeedThreshold: 0.5,
   };
 
   // Smooth spring animation when active tab changes
@@ -120,23 +122,48 @@ export const VerticalCardSwitcher = ({
   // React to trackpad translation on UI thread
   useAnimatedReaction(
     () => {
-      if (!trackpadTranslation || !isTrackpadActive) return 0;
-      return trackpadTranslation.value;
+      if (!trackpadTranslation || !isTrackpadActive) return { value: 0, active: false };
+      return { value: trackpadTranslation.value, active: isTrackpadActive.value };
     },
-    (currentValue) => {
-      if (isTrackpadActive && isTrackpadActive.value && trackpadTranslation) {
+    (current, previous) => {
+      if (current.active && trackpadTranslation) {
+        // User is actively dragging
         const basePosition = activeIndex * SCREEN_HEIGHT;
-        // Multiply by 3 for higher sensitivity (3x more responsive)
-        const amplifiedValue = currentValue * 3;
+        const amplifiedValue = current.value * 3;
         scrollPosition.value = basePosition - amplifiedValue;
+        zoomScale.value = 1; // Keep at scale 1 while dragging
+      } else if (previous && previous.active && !current.active) {
+        // User released - check if this was a quick flick
+        if (skipZoomAnimation && skipZoomAnimation.value) {
+          // Quick flick - minimal or no zoom
+          zoomScale.value = withSpring(1.02, {
+            damping: 60,
+            stiffness: 600,
+            mass: 0.1,
+          });
+        } else {
+          // Slow drag - full zoom animation with slight overshoot
+          zoomScale.value = withSpring(1.1, {
+            damping: 22,
+            stiffness: 90,
+            mass: 1.2,
+            overshootClamping: false, // Allow slight bounce for natural feel
+          });
+        }
       }
     },
     [trackpadTranslation, isTrackpadActive, activeIndex]
   );
 
 
+  const containerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: zoomScale.value }],
+    };
+  });
+
   return (
-    <View style={styles.container}>
+    <Animated.View style={[styles.container, containerAnimatedStyle]}>
       <View style={styles.cardsWrapper}>
         {tabs.map((tab, index) => (
           <CardView
@@ -148,7 +175,7 @@ export const VerticalCardSwitcher = ({
           />
         ))}
       </View>
-    </View>
+    </Animated.View>
   );
 };
 

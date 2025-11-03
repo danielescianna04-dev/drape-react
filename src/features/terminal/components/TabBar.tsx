@@ -12,6 +12,7 @@ interface TabBarProps {
 export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useTabStore();
   const scaleAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
+  const visibilityAnim = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -28,7 +29,19 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
     });
   }, [tabs]);
 
-  if (isCardMode) return null;
+  // Animate TabBar visibility
+  useEffect(() => {
+    Animated.spring(visibilityAnim, {
+      toValue: isCardMode ? 0 : 1,
+      useNativeDriver: true,
+      damping: 20,
+      stiffness: 180,
+      mass: 0.6,
+    }).start();
+  }, [isCardMode]);
+
+  // Don't render if fully hidden
+  if (isCardMode && visibilityAnim._value === 0) return null;
 
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();
@@ -64,9 +77,21 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView 
-        horizontal 
+    <Animated.View style={[
+      styles.container,
+      {
+        paddingTop: insets.top,
+        opacity: visibilityAnim,
+        transform: [{
+          translateY: visibilityAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-20, 0], // Slide up/down
+          })
+        }]
+      }
+    ]}>
+      <ScrollView
+        horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -117,7 +142,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
       <TouchableOpacity style={styles.addButton} onPress={handleAddTab}>
         <Ionicons name="add" size={18} color="#666" />
       </TouchableOpacity>
-    </View>
+    </Animated.View>
   );
 };
 
