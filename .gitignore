@@ -39,3 +39,6 @@ firebase-debug.log
 gcloud-debug.log
 .gcloud/
 backend/service-account-key.json
+
+# Cloned repositories (temporary workspace files)
+backend/cloned_repos/

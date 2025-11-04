@@ -260,7 +260,15 @@ app.post('/ai/chat', async (req, res) => {
 
     try {
         // Build system message with project context and tool capabilities
-        let systemMessage = 'Sei un assistente AI intelligente e versatile specializzato in programmazione. Rispondi sempre in italiano in modo naturale e conversazionale.';
+        let systemMessage = `Sei un assistente AI esperto di programmazione.
+
+IMPORTANTE: Rispondi SEMPRE in italiano corretto e fluente. Usa grammatica italiana perfetta, evita errori di ortografia e usa un tono professionale ma amichevole.
+
+Linee guida per le risposte:
+- Scrivi in italiano standard senza errori
+- Usa terminologia tecnica appropriata
+- Sii chiaro e conciso
+- Quando non sei sicuro di qualcosa, ammettilo onestamente`;
 
         if (context) {
             systemMessage += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
