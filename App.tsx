@@ -30,7 +30,7 @@ export default function App() {
   const [isImporting, setIsImporting] = useState(false);
   
   const { addWorkstation, setWorkstation } = useTerminalStore();
-  const { addTerminalItem: addTerminalItemToStore } = useTabStore();
+  const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
 
   const handleDeepLink = (url: string) => {
     const { path } = Linking.parse(url);
@@ -110,8 +110,8 @@ export default function App() {
       setIsImporting(false);
       setCurrentScreen('terminal');
 
-      // Add loading message to chat after switching to terminal
-      setTimeout(() => {
+      // Add loading message to chat and clone repository
+      setTimeout(async () => {
         const { activeTabId, tabs } = useTabStore.getState();
         const currentTab = tabs.find(t => t.id === activeTabId);
 
@@ -123,7 +123,38 @@ export default function App() {
             content: 'Cloning repository to workstation',
             timestamp: new Date(),
           });
-          // Success message will be added by FileExplorer when files are loaded
+
+          // Clone repository and update loading message
+          try {
+            await workstationService.getWorkstationFiles(workstation.projectId, url);
+
+            // Stop loading animation by changing type to system
+            updateTerminalItemsByType(currentTab.id, 'loading', {
+              type: 'system',
+              content: 'Cloning repository to workstation'
+            });
+
+            const repoName = url.split('/').pop()?.replace('.git', '') || project.name;
+            addTerminalItemToStore(currentTab.id, {
+              id: `success-${Date.now()}`,
+              type: 'output',
+              content: `✓ Repository cloned successfully: ${repoName}`,
+              timestamp: new Date(),
+            });
+          } catch (err: any) {
+            // Stop loading animation
+            updateTerminalItemsByType(currentTab.id, 'loading', {
+              type: 'system',
+              content: 'Cloning repository to workstation'
+            });
+
+            addTerminalItemToStore(currentTab.id, {
+              id: `error-${Date.now()}`,
+              type: 'error',
+              content: `✗ ${err.message || 'Failed to clone repository'}`,
+              timestamp: new Date(),
+            });
+          }
         }
       }, 100);
     } catch (error: any) {
@@ -177,19 +208,23 @@ export default function App() {
                 console.log('My projects');
                 setCurrentScreen('terminal');
               }}
-              onOpenProject={(workstation) => {
+              onOpenProject={async (workstation) => {
                 console.log('Opening project:', workstation.name);
 
-                // Set workstation and switch to terminal screen first
+                // Set workstation and switch to terminal screen
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
 
-                // Add loading message to the active tab
-                setTimeout(() => {
+                // Clear old terminal items and add fresh loading message
+                setTimeout(async () => {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
-                  if (currentTab) {
+                  if (currentTab && workstation.githubUrl) {
+                    // Clear old messages
+                    clearTerminalItems(currentTab.id);
+
+                    // Add loading message for fresh clone
                     console.log('Adding loading message to tab:', currentTab.id);
                     addTerminalItemToStore(currentTab.id, {
                       id: `loading-${Date.now()}`,
@@ -197,7 +232,38 @@ export default function App() {
                       content: 'Cloning repository to workstation',
                       timestamp: new Date(),
                     });
-                    // Success message will be added by FileExplorer when files are loaded
+
+                    // Clone repository and update loading message
+                    try {
+                      await workstationService.getWorkstationFiles(workstation.projectId || workstation.id, workstation.githubUrl);
+
+                      // Stop loading animation by changing type to system
+                      updateTerminalItemsByType(currentTab.id, 'loading', {
+                        type: 'system',
+                        content: 'Cloning repository to workstation'
+                      });
+
+                      const repoName = workstation.githubUrl.split('/').pop()?.replace('.git', '') || workstation.name;
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `success-${Date.now()}`,
+                        type: 'output',
+                        content: `✓ Repository cloned successfully: ${repoName}`,
+                        timestamp: new Date(),
+                      });
+                    } catch (err: any) {
+                      // Stop loading animation
+                      updateTerminalItemsByType(currentTab.id, 'loading', {
+                        type: 'system',
+                        content: 'Cloning repository to workstation'
+                      });
+
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `error-${Date.now()}`,
+                        type: 'error',
+                        content: `✗ ${err.message || 'Failed to clone repository'}`,
+                        timestamp: new Date(),
+                      });
+                    }
                   }
                 }, 100);
               }}

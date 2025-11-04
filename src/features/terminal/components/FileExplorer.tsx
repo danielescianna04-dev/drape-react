@@ -28,35 +28,11 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
       setError(null);
       const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl);
       setFiles(fileList);
-
-      // Add success message to chat when files are loaded successfully
-      if (fileList.length > 0 && repositoryUrl) {
-        const { activeTabId } = useTabStore.getState();
-        if (activeTabId) {
-          // Extract repo name from URL
-          const repoName = repositoryUrl.split('/').pop()?.replace('.git', '') || 'Repository';
-          addTerminalItem(activeTabId, {
-            id: `success-${Date.now()}`,
-            type: 'output',
-            content: `✓ Repository cloned successfully: ${repoName}`,
-            timestamp: new Date(),
-          });
-        }
-      }
+      // Success/error messages are handled by App.tsx, not here
     } catch (err: any) {
       console.error('Error loading files:', err);
       setError(err.message || 'Failed to load files');
-
-      // Add error message to chat
-      const { activeTabId } = useTabStore.getState();
-      if (activeTabId) {
-        addTerminalItem(activeTabId, {
-          id: `error-${Date.now()}`,
-          type: 'error',
-          content: `✗ ${err.message || 'Failed to clone repository'}`,
-          timestamp: new Date(),
-        });
-      }
+      // Error message is handled by App.tsx
     } finally {
       setLoading(false);
     }

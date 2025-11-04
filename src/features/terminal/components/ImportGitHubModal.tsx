@@ -65,6 +65,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
             autoCapitalize="none"
             autoCorrect={false}
             editable={!isLoading}
+            keyboardAppearance="dark"
           />
 
           <View style={styles.buttons}>

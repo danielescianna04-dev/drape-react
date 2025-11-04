@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
@@ -17,6 +17,7 @@ import { SafeText } from '../../shared/components/SafeText';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
+import { ToolService } from '../../core/ai/toolService';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
 import { BrowserView } from '../../features/terminal/components/views/BrowserView';
@@ -80,7 +81,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
+  const [selectedModel, setSelectedModel] = useState('llama-3.1-8b-instant');
+  const [conversationHistory, setConversationHistory] = useState<string[]>([]);
+  const isProcessingToolsRef = useRef(false); // Prevent duplicate tool processing
   const scrollViewRef = useRef<ScrollView>(null);
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
@@ -91,32 +94,34 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const insets = useSafeAreaInsets();
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
-  const currentTab = tab || tabs.find(t => t.id === activeTabId);
+
+  // Memoize currentTab to prevent infinite re-renders
+  const currentTab = useMemo(() => {
+    return tab || tabs.find(t => t.id === activeTabId);
+  }, [tab, tabs, activeTabId]);
 
   // Always use tab-specific terminal items
-  const tabTerminalItems = currentTab?.terminalItems || [];
+  const tabTerminalItems = useMemo(() => currentTab?.terminalItems || [], [currentTab?.terminalItems]);
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
-  
-  console.log('📋 ChatPage - Tab:', currentTab?.id, 'Items:', tabTerminalItems.length, 'isCardMode:', isCardMode);
-  
+
   const {
     hasInteracted,
     setGitHubUser,
     setGitHubRepositories,
     currentWorkstation,
   } = useTerminalStore();
-  
-  // Always use tab-specific items
+
+  // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
-  
+
   // Set loading state for current tab
   const setLoading = (loading: boolean) => {
     if (currentTab) {
       updateTab(currentTab.id, { isLoading: loading });
     }
   };
-  
+
   // Always add item to tab-specific storage
   const addTerminalItem = useCallback((item: any) => {
     if (!currentTab) return;
@@ -126,9 +131,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
 
+  // Scroll to end when items count changes (not the array reference)
+  const itemsCount = terminalItems.length;
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [terminalItems]);
+    if (itemsCount > 0) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [itemsCount]);
 
   // Keyboard listeners - move input box up when keyboard opens
   useEffect(() => {
@@ -192,9 +201,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [isTerminalMode]);
 
-  const modeToggleAnimatedStyle = useAnimatedStyle(() => {
+  const terminalModeAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ scale: isTerminalMode ? scaleAnim.value : 1 }],
+      transform: [{ scale: scaleAnim.value }],
+    };
+  });
+
+  const aiModeAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: scaleAnim.value }],
     };
   });
 
@@ -354,6 +369,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
+    // Reset tool processing flag for new message
+    isProcessingToolsRef.current = false;
+
     // Animate input to bottom on first send - Apple-style smooth animation
     if (!hasChatStarted) {
       hasChatStartedAnim.value = 1; // Mark chat as started
@@ -362,9 +380,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         stiffness: 180,
         mass: 0.8,
       });
-      // Dismiss keyboard with animation
-      Keyboard.dismiss();
     }
+
+    // Always dismiss keyboard when sending
+    Keyboard.dismiss();
 
     const userMessage = input.trim();
 
@@ -448,29 +467,157 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           }
         }
         
-        const response = await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`,
-          {
-            prompt: enhancedPrompt,
-            model: selectedModel,
-            workstationId: currentWorkstation?.id,
-            context: currentWorkstation ? {
-              projectName: currentWorkstation.name || 'Unnamed Project',
-              language: currentWorkstation.language || 'Unknown',
-              repositoryUrl: currentWorkstation.repositoryUrl || ''
-            } : undefined
-          },
-          {
-            timeout: 60000 // 60 seconds timeout for AI requests
-          }
-        );
-        
+        // Create streaming message placeholder
+        const streamingMessageId = (Date.now() + 2).toString();
+        let streamedContent = '';
+
         addTerminalItem({
-          id: (Date.now() + 2).toString(),
-          content: response.data.content || '',
+          id: streamingMessageId,
+          content: '',
           type: TerminalItemType.OUTPUT,
           timestamp: new Date(),
         });
+
+        // Use XMLHttpRequest for streaming (works in React Native)
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+
+          xhr.open('POST', `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+
+          let buffer = '';
+
+          xhr.onprogress = () => {
+            const newData = xhr.responseText.substring(buffer.length);
+            buffer = xhr.responseText;
+
+            const lines = newData.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.substring(6).trim();
+                if (data === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.text) {
+                    streamedContent += parsed.text;
+
+                    // Update the message content in real-time
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                              ...t,
+                              terminalItems: t.terminalItems?.map(item =>
+                                item.id === streamingMessageId
+                                  ? { ...item, content: streamedContent }
+                                  : item
+                              )
+                            }
+                          : t
+                      )
+                    }));
+                  }
+                } catch (e) {
+                  // Skip invalid JSON
+                }
+              }
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status === 200) {
+              resolve();
+            } else {
+              reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error('Network error'));
+
+          xhr.send(JSON.stringify({
+            prompt: enhancedPrompt,
+            model: selectedModel,
+            conversationHistory: conversationHistory,
+            workstationId: currentWorkstation?.id,
+            projectId: currentWorkstation?.projectId || currentWorkstation?.id,
+            repositoryUrl: currentWorkstation?.githubUrl || currentWorkstation?.repositoryUrl,
+            context: currentWorkstation ? {
+              projectName: currentWorkstation.name || 'Unnamed Project',
+              language: currentWorkstation.language || 'Unknown',
+              repositoryUrl: currentWorkstation.githubUrl || currentWorkstation.repositoryUrl || ''
+            } : undefined
+          }));
+        });
+
+        // After streaming completes, clean up and process tool calls
+        if ((currentWorkstation?.projectId || currentWorkstation?.id) && !isProcessingToolsRef.current) {
+          const projectId = currentWorkstation.projectId || currentWorkstation.id;
+
+          // Detect tool calls from the AI's response
+          const toolCalls = ToolService.detectToolCalls(streamedContent);
+
+          if (toolCalls.length > 0) {
+            // Set flag to prevent duplicate processing
+            isProcessingToolsRef.current = true;
+            console.log('🔧 Processing', toolCalls.length, 'tool calls');
+
+            // Clean the AI message by removing tool call syntax
+            const cleanedContent = ToolService.removeToolCallsFromText(streamedContent);
+
+            // Update the AI message to remove tool call syntax
+            useTabStore.setState((state) => ({
+              tabs: state.tabs.map(t =>
+                t.id === currentTab?.id
+                  ? {
+                      ...t,
+                      terminalItems: t.terminalItems?.map(item =>
+                        item.id === streamingMessageId
+                          ? { ...item, content: cleanedContent }
+                          : item
+                      )
+                    }
+                  : t
+              )
+            }));
+
+            // Execute each tool call in separate terminal items
+            for (const toolCall of toolCalls) {
+              // Show what we're executing
+              addTerminalItem({
+                id: (Date.now() + Math.random()).toString(),
+                content: `🔧 ${toolCall.tool}(${Object.values(toolCall.args).join(', ')})`,
+                type: TerminalItemType.SYSTEM,
+                timestamp: new Date(),
+              });
+
+              // Small delay for visual separation
+              await new Promise(resolve => setTimeout(resolve, 100));
+
+              // Execute the tool and show result
+              const result = await ToolService.executeTool(projectId, toolCall);
+
+              addTerminalItem({
+                id: (Date.now() + Math.random()).toString(),
+                content: result,
+                type: TerminalItemType.OUTPUT,
+                timestamp: new Date(),
+              });
+
+              // Small delay between tools
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+
+            // Update streamedContent for conversation history
+            streamedContent = cleanedContent;
+
+            // Reset flag after processing
+            isProcessingToolsRef.current = false;
+          }
+        }
+
+        // Update conversation history with both user message and AI response
+        setConversationHistory([...conversationHistory, userMessage, streamedContent]);
       }
     } catch (error) {
       addTerminalItem({
@@ -537,11 +684,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <>
             {(() => {
               const filtered = terminalItems.filter(item => item && item.content != null);
-              console.log('🟣 Rendering items, filtered count:', filtered.length);
 
               return filtered.reduce((acc, item, index, filteredArray) => {
-                console.log('🟣 Processing item', index, ':', item.type, item.content?.substring(0, 30));
-
                 // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
                 const prevItem = filteredArray[index - 1];
                 const isOutputAfterTerminalCommand =
@@ -550,7 +694,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   isCommand(prevItem.content || '');
 
                 if (isOutputAfterTerminalCommand) {
-                  console.log('🟣 Skipping output item', index, '(will be grouped with command)');
                   return acc;
                 }
 
@@ -563,8 +706,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   nextItem?.type === TerminalItemType.OUTPUT
                     ? nextItem
                     : undefined;
-
-                console.log('🟣 Rendering item', index, 'with outputItem:', !!outputItem);
 
                 acc.push(
                   <TerminalItemComponent
@@ -603,13 +744,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               <View style={styles.modeToggle}>
                 <TouchableOpacity
                   onPress={() => handleToggleMode('terminal')}
-                  style={[ 
-                    styles.modeButton, 
+                  style={[
+                    styles.modeButton,
                     isTerminalMode && styles.modeButtonActive,
                     forcedMode === 'terminal' && styles.modeButtonForced
                   ]}
                 >
-                  <Animated.View style={modeToggleAnimatedStyle}>
+                  <Animated.View style={isTerminalMode ? terminalModeAnimatedStyle : undefined}>
                     <Ionicons
                       name="code-slash"
                       size={14}
@@ -619,13 +760,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => handleToggleMode('ai')}
-                  style={[ 
-                    styles.modeButton, 
+                  style={[
+                    styles.modeButton,
                     !isTerminalMode && styles.modeButtonActive,
                     forcedMode === 'ai' && styles.modeButtonForced
                   ]}
                 >
-                  <Animated.View style={{ transform: [{ scale: !isTerminalMode ? scaleAnim : 1 }] }}>
+                  <Animated.View style={!isTerminalMode ? aiModeAnimatedStyle : undefined}>
                     <Ionicons
                       name="sparkles"
                       size={14}
@@ -641,7 +782,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             {/* Model Selector */}
             <TouchableOpacity style={styles.modelSelector}>
-              <SafeText style={styles.modelText}>Gemini 2.0</SafeText>
+              <SafeText style={styles.modelText}>Llama 3.1 8B</SafeText>
               <Ionicons name="chevron-down" size={12} color="#666" />
             </TouchableOpacity>
           </View>
@@ -663,6 +804,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               multiline
               maxLength={1000}
               onSubmitEditing={handleSend}
+              keyboardAppearance="dark"
             />
 
             {/* Send Button */}

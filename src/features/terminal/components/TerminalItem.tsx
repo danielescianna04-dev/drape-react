@@ -171,18 +171,40 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
       )}
 
       {item.type === ItemType.SYSTEM && (
-        <View style={styles.systemBlock}>
-          <Text style={styles.systemText}>{item.content || ''}</Text>
-        </View>
+        item.content === 'Cloning repository to workstation' ? (
+          // Show as Git Clone card when it's the cloning message (finished loading)
+          <View style={styles.loadingCard}>
+            <View style={styles.loadingHeader}>
+              <Text style={styles.loadingTitle}>Git Clone</Text>
+            </View>
+            <View style={styles.loadingBody}>
+              <View style={styles.loadingRow}>
+                <Text style={styles.loadingLabel}>STATUS</Text>
+                <Text style={styles.loadingStatus}>{item.content}</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          // Normal system message
+          <View style={styles.systemBlock}>
+            <Text style={styles.systemText}>{item.content || ''}</Text>
+          </View>
+        )
       )}
 
       {item.type === ItemType.LOADING && (
-        <View style={styles.loadingBlock}>
-          <View style={styles.loadingContent}>
-            <Text style={styles.loadingText}>
-              {item.content || ''}
-              {'.'.repeat(dotCount)}
-            </Text>
+        <View style={styles.loadingCard}>
+          <View style={styles.loadingHeader}>
+            <Text style={styles.loadingTitle}>Git Clone</Text>
+          </View>
+          <View style={styles.loadingBody}>
+            <View style={styles.loadingRow}>
+              <Text style={styles.loadingLabel}>STATUS</Text>
+              <Text style={styles.loadingStatus}>
+                {item.content || ''}
+                {'.'.repeat(dotCount)}
+              </Text>
+            </View>
           </View>
         </View>
       )}
@@ -435,24 +457,52 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
-  loadingBlock: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  loadingContent: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  // Loading card styles (same as bash card)
+  loadingCard: {
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-    paddingHorizontal: 16,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  loadingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  loadingTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  loadingBody: {
+    paddingHorizontal: 14,
     paddingVertical: 12,
   },
-  loadingText: {
-    fontSize: 15,
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  loadingLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(139, 124, 246, 0.6)',
+    letterSpacing: 0.5,
+    width: 48,
+    flexShrink: 0,
+  },
+  loadingStatus: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: 'rgba(139, 124, 246, 0.9)',
-    lineHeight: 22,
-    fontWeight: '400',
+    lineHeight: 18,
   },
 });

@@ -250,88 +250,108 @@ app.post('/github/exchange-code', async (req, res) => {
   }
 });
 
-// AI Chat endpoint - Using REST API for better auth compatibility
+// AI Chat endpoint - Using Groq for fast and free streaming with tool calling
 app.post('/ai/chat', async (req, res) => {
-    const { prompt, conversationHistory = [], model = 'gemini-2.0-flash', workstationId, context } = req.body;
-    
+    const { prompt, conversationHistory = [], model = 'llama-3.1-8b-instant', workstationId, context, projectId, repositoryUrl } = req.body;
+
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
     }
-    
+
     try {
-        // Get access token
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        
-        const { stdout: token } = await execAsync('gcloud auth print-access-token');
-        const accessToken = token.trim();
-        
-        // Build system instruction with project context
-        let systemInstruction = 'Sei un assistente AI intelligente e versatile. Rispondi sempre in italiano in modo naturale e conversazionale.';
-        
+        // Build system message with project context and tool capabilities
+        let systemMessage = 'Sei un assistente AI intelligente e versatile specializzato in programmazione. Rispondi sempre in italiano in modo naturale e conversazionale.';
+
         if (context) {
-            systemInstruction += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
+            systemMessage += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
             if (context.repositoryUrl) {
-                systemInstruction += `\n- Repository: ${context.repositoryUrl}`;
+                systemMessage += `\n- Repository: ${context.repositoryUrl}`;
             }
-            systemInstruction += '\n\nPuoi analizzare e modificare i file del progetto. Quando l\'utente chiede di modificare un file, fornisci il codice completo aggiornato.';
+            systemMessage += '\n\nHai accesso ai seguenti strumenti per interagire con il progetto:\n';
+            systemMessage += '1. read_file(path) - Leggi il contenuto di un file\n';
+            systemMessage += '2. write_file(path, content) - Scrivi o sovrascrivi un file\n';
+            systemMessage += '3. list_files(directory) - Elenca i file in una directory\n';
+            systemMessage += '4. search_in_files(pattern) - Cerca un pattern nei file del progetto\n\n';
+            systemMessage += 'Quando hai bisogno di leggere o modificare file, usa questi strumenti specificando chiaramente quale vuoi usare.\n';
+            systemMessage += 'Esempio: "Leggo il file src/App.tsx usando read_file(src/App.tsx)"\n';
+            systemMessage += 'Dopo aver modificato un file, spiega sempre cosa hai cambiato.';
         }
-        
-        // Prepare request to Vertex AI REST API
-        const endpoint = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/gemini-2.0-flash-exp:generateContent`;
-        
-        const requestBody = {
-            contents: [
-                // Add conversation history
-                ...conversationHistory.map((msg, i) => ({
-                    role: i % 2 === 0 ? 'user' : 'model',
-                    parts: [{ text: msg }]
-                })),
-                // Add current prompt
-                {
-                    role: 'user',
-                    parts: [{ text: prompt }]
-                }
-            ],
-            generationConfig: {
+
+        // Build messages array for Groq
+        const messages = [
+            { role: 'system', content: systemMessage },
+            ...conversationHistory.map((msg, i) => ({
+                role: i % 2 === 0 ? 'user' : 'assistant',
+                content: msg
+            })),
+            { role: 'user', content: prompt }
+        ];
+
+        // Set headers for SSE streaming
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        // Stream response from Groq
+        const response = await axios.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+                model: model,
+                messages: messages,
                 temperature: 0.7,
-                maxOutputTokens: 2048
+                max_tokens: 2048,
+                stream: true
             },
-            systemInstruction: {
-                parts: [{ text: systemInstruction }]
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                responseType: 'stream'
             }
-        };
-        
-        const response = await axios.post(endpoint, requestBody, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
+        );
+
+        // Forward stream to client
+        response.data.on('data', (chunk) => {
+            const lines = chunk.toString().split('\n').filter(line => line.trim());
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const data = line.substring(6).trim();
+                    if (data === '[DONE]') {
+                        res.write('data: [DONE]\n\n');
+                        continue;
+                    }
+
+                    try {
+                        const jsonData = JSON.parse(data);
+                        const text = jsonData.choices?.[0]?.delta?.content;
+
+                        if (text) {
+                            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
             }
         });
-        
-        const content = response.data.candidates?.[0]?.content?.parts?.[0]?.text || 'Nessuna risposta disponibile';
-        
-        res.json({
-            success: true,
-            content,
-            model: 'gemini-2.0-flash-exp',
-            usage: response.data.usageMetadata
+
+        response.data.on('end', () => {
+            res.write('data: [DONE]\n\n');
+            res.end();
         });
-        
+
+        response.data.on('error', (error) => {
+            console.error('Stream error:', error);
+            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+            res.end();
+        });
+
     } catch (error) {
         console.error('AI Chat error:', error.response?.data || error.message);
 
-        // Handle specific error codes
-        const errorCode = error.response?.data?.error?.code;
         const errorMessage = error.response?.data?.error?.message || error.message;
-
-        if (errorCode === 429) {
-            return res.status(429).json({
-                success: false,
-                error: 'Quota API esaurita. Attendi qualche minuto e riprova. Le richieste si resettano ogni 60 secondi.'
-            });
-        }
 
         res.status(500).json({
             success: false,
@@ -668,41 +688,121 @@ app.post('/workstation/list-files', async (req, res) => {
     }
 });
 
-// Read file content from workstation
+// Read file content from cloned repository
 app.post('/workstation/read-file', async (req, res) => {
-    const { workstationId, filePath } = req.body;
-    
+    const { projectId, filePath } = req.body;
+
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        
-        const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="cat ${filePath}"`);
-        
-        res.json({ success: true, content: stdout });
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+        const fullPath = path.join(repoPath, filePath);
+
+        console.log('📖 Reading file:', fullPath);
+
+        // Check if file exists
+        try {
+            await fs.access(fullPath);
+        } catch {
+            return res.status(404).json({ success: false, error: 'File not found' });
+        }
+
+        const content = await fs.readFile(fullPath, 'utf8');
+
+        res.json({ success: true, content });
     } catch (error) {
         console.error('Read file error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// Modify file in workstation
-app.post('/workstation/modify-file', async (req, res) => {
-    const { workstationId, filePath, content } = req.body;
-    
+// Write/modify file in cloned repository
+app.post('/workstation/write-file', async (req, res) => {
+    const { projectId, filePath, content } = req.body;
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+        const fullPath = path.join(repoPath, filePath);
+
+        console.log('✍️  Writing file:', fullPath);
+
+        // Create directory if it doesn't exist
+        const dir = path.dirname(fullPath);
+        await fs.mkdir(dir, { recursive: true });
+
+        await fs.writeFile(fullPath, content, 'utf8');
+
+        res.json({ success: true, message: 'File written successfully' });
+    } catch (error) {
+        console.error('Write file error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// List files in directory
+app.post('/workstation/list-directory', async (req, res) => {
+    const { projectId, directory = '.' } = req.body;
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+        const fullPath = path.join(repoPath, directory);
+
+        console.log('📁 Listing directory:', fullPath);
+
+        const entries = await fs.readdir(fullPath, { withFileTypes: true });
+        const files = entries.map(entry => ({
+            name: entry.name,
+            type: entry.isDirectory() ? 'directory' : 'file',
+            path: path.join(directory, entry.name)
+        }));
+
+        res.json({ success: true, files });
+    } catch (error) {
+        console.error('List directory error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search in files
+app.post('/workstation/search-files', async (req, res) => {
+    const { projectId, pattern } = req.body;
+
     try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
         const execAsync = promisify(exec);
-        
-        // Escape content for shell
-        const escapedContent = content.replace(/'/g, "'\\''");
-        
-        await execAsync(`gcloud workstations ssh ${workstationId} --command="echo '${escapedContent}' > ${filePath}"`);
-        
-        res.json({ success: true, message: 'File modified successfully' });
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('🔍 Searching for:', pattern, 'in', repoPath);
+
+        // Use grep to search
+        const { stdout } = await execAsync(`cd "${repoPath}" && grep -r -n "${pattern}" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.json" . || true`);
+
+        const results = stdout.split('\n').filter(line => line.trim()).map(line => {
+            const [file, ...rest] = line.split(':');
+            return { file, match: rest.join(':') };
+        });
+
+        res.json({ success: true, results });
     } catch (error) {
-        console.error('Modify file error:', error);
+        console.error('Search files error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

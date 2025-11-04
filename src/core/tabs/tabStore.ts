@@ -21,6 +21,9 @@ interface TabStore {
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
   addTerminalItem: (tabId: string, item: any) => void;
+  clearTerminalItems: (tabId: string) => void;
+  removeTerminalItemsByType: (tabId: string, type: string) => void;
+  updateTerminalItemsByType: (tabId: string, oldType: string, updates: any) => void;
 }
 
 export const useTabStore = create<TabStore>((set) => ({
@@ -81,5 +84,43 @@ export const useTabStore = create<TabStore>((set) => ({
         ),
       };
     });
+  },
+
+  clearTerminalItems: (tabId) => {
+    console.log('🔵 Clearing terminal items for tab:', tabId);
+    set((state) => ({
+      tabs: state.tabs.map(t =>
+        t.id === tabId
+          ? { ...t, terminalItems: [] }
+          : t
+      ),
+    }));
+  },
+
+  removeTerminalItemsByType: (tabId, type) => {
+    console.log('🔵 Removing terminal items of type:', type, 'from tab:', tabId);
+    set((state) => ({
+      tabs: state.tabs.map(t =>
+        t.id === tabId
+          ? { ...t, terminalItems: (t.terminalItems || []).filter(item => item.type !== type) }
+          : t
+      ),
+    }));
+  },
+
+  updateTerminalItemsByType: (tabId, oldType, updates) => {
+    console.log('🔵 Updating terminal items of type:', oldType, 'in tab:', tabId);
+    set((state) => ({
+      tabs: state.tabs.map(t =>
+        t.id === tabId
+          ? {
+              ...t,
+              terminalItems: (t.terminalItems || []).map(item =>
+                item.type === oldType ? { ...item, ...updates } : item
+              )
+            }
+          : t
+      ),
+    }));
   },
 }));

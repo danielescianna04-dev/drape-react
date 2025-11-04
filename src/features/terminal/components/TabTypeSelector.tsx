@@ -2,9 +2,10 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { AppColors } from '../../../shared/theme/colors';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 export type TabType = 'chat' | 'terminal' | 'github' | 'browser' | 'file' | 'preview';
 
@@ -89,77 +90,55 @@ export const TabTypeSelector = ({ visible, onClose, onSelectType }: Props) => {
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
+      animationType="slide"
       onRequestClose={onClose}
     >
-      <TouchableOpacity
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={onClose}
-      >
+      <BlurView intensity={40} style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+
         <View style={styles.modalContainer}>
           <TouchableOpacity activeOpacity={1}>
-            <LinearGradient
-              colors={['#1a1a1a', '#0a0a0a']}
-              style={styles.modalGradient}
-            >
-              {/* Header */}
-              <View style={styles.modalHeader}>
-                <View style={styles.modalHeaderLeft}>
-                  <LinearGradient
-                    colors={['rgba(139, 124, 246, 0.2)', 'rgba(139, 124, 246, 0.05)']}
-                    style={styles.iconCircle}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <Ionicons name="add-circle" size={24} color={AppColors.primary} />
-                  </LinearGradient>
-                  <View>
-                    <Text style={styles.modalTitle}>Nuova Scheda</Text>
-                    <Text style={styles.modalSubtitle}>Scegli il tipo di scheda da aprire</Text>
-                  </View>
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.title}>Nuova Scheda</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <View style={styles.closeButtonCircle}>
+                  <Ionicons name="close" size={18} color="#8E8E93" />
                 </View>
-                <TouchableOpacity onPress={onClose} style={styles.closeButton} activeOpacity={0.7}>
-                  <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.7)" />
-                </TouchableOpacity>
-              </View>
+              </TouchableOpacity>
+            </View>
 
-              {/* Tab Types Grid */}
-              <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.tabTypesGrid}
-                showsVerticalScrollIndicator={false}
-              >
-                {tabTypes.map((tabType) => (
-                  <TouchableOpacity
-                    key={tabType.type}
-                    style={styles.tabTypeCard}
-                    onPress={() => handleSelect(tabType.type)}
-                    activeOpacity={0.8}
+            {/* Tab Types Grid */}
+            <View style={styles.gridContainer}>
+              {tabTypes.map((tabType) => (
+                <TouchableOpacity
+                  key={tabType.type}
+                  style={styles.card}
+                  onPress={() => handleSelect(tabType.type)}
+                  activeOpacity={0.6}
+                >
+                  <LinearGradient
+                    colors={[tabType.gradient[0], tabType.gradient[1]]}
+                    style={styles.cardGradient}
                   >
-                    <LinearGradient
-                      colors={tabType.gradient}
-                      style={styles.tabTypeCardGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <View style={styles.tabTypeIconContainer}>
-                        <Ionicons name={tabType.icon} size={32} color={getIconColor(tabType.type)} />
-                      </View>
-                      <Text style={styles.tabTypeTitle}>{tabType.title}</Text>
-                      <Text style={styles.tabTypeDescription}>{tabType.description}</Text>
-
-                      <View style={styles.tabTypeArrow}>
-                        <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.4)" />
-                      </View>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </LinearGradient>
+                    <View style={styles.iconContainer}>
+                      <Ionicons name={tabType.icon} size={32} color={getIconColor(tabType.type)} />
+                    </View>
+                    <Text style={styles.cardTitle}>{tabType.title}</Text>
+                    <Text style={styles.cardDescription} numberOfLines={2}>
+                      {tabType.description}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))}
+            </View>
           </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </BlurView>
     </Modal>
   );
 };
@@ -167,129 +146,92 @@ export const TabTypeSelector = ({ visible, onClose, onSelectType }: Props) => {
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContainer: {
-    width: width > 600 ? 600 : '100%',
-    maxHeight: '85%',
+    width: width > 600 ? '85%' : '90%',
+    maxWidth: 500,
+    backgroundColor: 'rgba(28, 28, 30, 0.98)',
     borderRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowRadius: 30,
+    elevation: 20,
   },
-  modalGradient: {
-    width: '100%',
-  },
-  modalHeader: {
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingTop: 24,
+    paddingBottom: 20,
   },
-  modalHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    flex: 1,
-  },
-  iconCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
-  },
-  modalTitle: {
+  title: {
     fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 4,
     letterSpacing: -0.5,
   },
-  modalSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontWeight: '500',
-  },
   closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    padding: 4,
+  },
+  closeButtonCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(142, 142, 147, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  scrollView: {
-    maxHeight: 500,
-  },
-  tabTypesGrid: {
+  gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 20,
-    gap: 14,
+    padding: 16,
+    paddingTop: 0,
+    gap: 12,
+    paddingBottom: 24,
   },
-  tabTypeCard: {
-    width: width > 600 ? '47%' : '46%',
+  card: {
+    width: (width > 600 ? 500 * 0.85 : width * 0.9 - 32 - 12) / 2 - 6,
+    aspectRatio: 1,
     borderRadius: 16,
     overflow: 'hidden',
   },
-  tabTypeCardGradient: {
+  cardGradient: {
+    flex: 1,
     padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-    minHeight: 170,
-    position: 'relative',
-  },
-  tabTypeIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
-  tabTypeTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+  iconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#FFFFFF',
-    marginBottom: 6,
+    marginBottom: 4,
+    textAlign: 'center',
     letterSpacing: -0.3,
   },
-  tabTypeDescription: {
-    fontSize: 13,
+  cardDescription: {
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.6)',
-    lineHeight: 19,
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  tabTypeArrow: {
-    position: 'absolute',
-    bottom: 18,
-    right: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    textAlign: 'center',
+    lineHeight: 14,
+    fontWeight: '400',
   },
 });
