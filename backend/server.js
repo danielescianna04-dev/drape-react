@@ -280,9 +280,18 @@ Linee guida per le risposte:
             systemMessage += '2. write_file(path, content) - Scrivi o sovrascrivi un file\n';
             systemMessage += '3. list_files(directory) - Elenca i file in una directory\n';
             systemMessage += '4. search_in_files(pattern) - Cerca un pattern nei file del progetto\n\n';
-            systemMessage += 'Quando hai bisogno di leggere o modificare file, usa questi strumenti specificando chiaramente quale vuoi usare.\n';
-            systemMessage += 'Esempio: "Leggo il file src/App.tsx usando read_file(src/App.tsx)"\n';
-            systemMessage += 'Dopo aver modificato un file, spiega sempre cosa hai cambiato.';
+            systemMessage += 'IMPORTANTE - Come usare gli strumenti:\n';
+            systemMessage += '1. PRIMA annuncia cosa stai per fare (es: "Leggo il file deploy_now.md")\n';
+            systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri (es: "read_file(deploy_now.md)")\n';
+            systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato e cosa puoi fare\n';
+            systemMessage += '4. NON mostrare mai il contenuto completo del file nella tua risposta, il sistema lo mostrerà automaticamente\n';
+            systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
+            systemMessage += 'Esempio corretto:\n';
+            systemMessage += 'Utente: "Leggi il file deploy_now.md"\n';
+            systemMessage += 'Tu: "Leggo il file deploy_now.md"\n';
+            systemMessage += 'Tu: read_file(deploy_now.md)\n';
+            systemMessage += '[Il sistema esegue il tool]\n';
+            systemMessage += 'Tu: "Il file contiene le istruzioni per il deploy del progetto. Posso aiutarti a eseguire il deploy o preferisci che ti spieghi i passaggi?"';
         }
 
         // Build messages array for Groq
@@ -742,6 +751,15 @@ app.post('/workstation/write-file', async (req, res) => {
 
         console.log('✍️  Writing file:', fullPath);
 
+        // Unescape special characters (\n, \t, etc.) from AI response
+        let unescapedContent = content
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\r/g, '\r')
+            .replace(/\\"/g, '"')
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, '\\');
+
         // Read original content if file exists (for diff)
         let originalContent = '';
         let diffInfo = null;
@@ -750,7 +768,7 @@ app.post('/workstation/write-file', async (req, res) => {
 
             // Generate simple diff with context
             const oldLines = originalContent.split('\n');
-            const newLines = content.split('\n');
+            const newLines = unescapedContent.split('\n');
 
             // Find all differences and collect them
             let diffLines = [];
@@ -764,12 +782,12 @@ app.post('/workstation/write-file', async (req, res) => {
 
                 if (oldLine !== newLine) {
                     // If this change is far from the last one, add separator
-                    if (i - lastDiffIndex > 7 && diffLines.length > 0) {
+                    if (i - lastDiffIndex > 11 && diffLines.length > 0) {
                         diffLines.push('...');
                     }
 
-                    // Show 3 lines of context before (if not already shown)
-                    const contextStart = Math.max(0, i - 3);
+                    // Show 5 lines of context before (if not already shown)
+                    const contextStart = Math.max(0, i - 5);
                     const contextEnd = i;
 
                     for (let j = contextStart; j < contextEnd; j++) {
@@ -792,9 +810,9 @@ app.post('/workstation/write-file', async (req, res) => {
                         addedCount++;
                     }
 
-                    // Show 3 lines of context after
+                    // Show 5 lines of context after
                     const afterStart = i + 1;
-                    const afterEnd = Math.min(i + 4, Math.max(oldLines.length, newLines.length));
+                    const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
 
                     for (let j = afterStart; j < afterEnd; j++) {
                         const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
@@ -810,11 +828,11 @@ app.post('/workstation/write-file', async (req, res) => {
                 }
             }
 
-            // Limit to 20 lines for preview
-            if (diffLines.length > 20) {
-                diffLines = diffLines.slice(0, 20);
+            // Limit to 30 lines for preview (show more context)
+            if (diffLines.length > 30) {
+                diffLines = diffLines.slice(0, 30);
                 diffLines.push('...');
-                diffLines.push(`(${diffLines.length - 20} more lines)`);
+                diffLines.push(`(${diffLines.length - 30} more lines)`);
             }
 
             diffInfo = {
@@ -824,7 +842,7 @@ app.post('/workstation/write-file', async (req, res) => {
             };
         } catch (readError) {
             // File doesn't exist, it's a new file - show first 10 lines
-            const newLines = content.split('\n');
+            const newLines = unescapedContent.split('\n');
             const preview = newLines.slice(0, 10).map(line => `+ ${line}`).join('\n');
             diffInfo = {
                 added: newLines.length,
@@ -837,7 +855,7 @@ app.post('/workstation/write-file', async (req, res) => {
         const dir = path.dirname(fullPath);
         await fs.mkdir(dir, { recursive: true });
 
-        await fs.writeFile(fullPath, content, 'utf8');
+        await fs.writeFile(fullPath, unescapedContent, 'utf8');
 
         res.json({
             success: true,

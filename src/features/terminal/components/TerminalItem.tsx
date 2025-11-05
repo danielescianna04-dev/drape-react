@@ -65,6 +65,20 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
 
   const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/i);
 
+  // Check if this is a user message (COMMAND that is not a terminal command)
+  const isUserMessage = item.type === ItemType.COMMAND && !isTerminalCommand;
+
+  // Determine dot color based on item type and success
+  let dotColor = '#6E7681'; // Default gray
+  if (item.type === ItemType.COMMAND && isTerminalCommand && outputItem) {
+    // Only check for actual errors (starting with "Error:" or "ERROR:")
+    const hasError = (outputItem.content || '').match(/^Error:/i) ||
+                     (outputItem.content || '').match(/^ERROR:/i);
+    dotColor = hasError ? '#F85149' : '#3FB950'; // Red for error, green for success
+  } else if (item.type === ItemType.ERROR) {
+    dotColor = '#F85149'; // Red for errors
+  }
+
   return (
     <Animated.View
       style={[
@@ -75,12 +89,54 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
         },
       ]}
     >
+      {/* Thread line and dot on the left - only for AI messages and bash commands */}
+      {!isUserMessage && (
+        <View style={styles.threadContainer}>
+          <View style={[styles.threadDot, { backgroundColor: dotColor }]} />
+          {isNextItemOutput && <View style={styles.threadLine} />}
+        </View>
+      )}
+
+      {/* Main content */}
+      <View style={[styles.contentContainer, isUserMessage && styles.userMessageContainer]}>
       {item.type === ItemType.COMMAND && (
         isTerminalCommand && outputItem ? (
           // Terminal command with output - show as card with title
-          <View style={styles.bashCard}>
-            <View style={styles.bashHeader}>
-              <Text style={styles.bashTitle}>Bash</Text>
+          (() => {
+            const hasError = (outputItem.content || '').toLowerCase().includes('error') ||
+                             (outputItem.content || '').startsWith('Error:');
+
+            // Check if this is a read file command (cat)
+            const isCatCommand = (item.content || '').trim().startsWith('cat ');
+
+            if (isCatCommand) {
+              // Extract file path and line count from output
+              // Output format: "Reading: filename\n140 lines\n\ncontent..."
+              const outputText = outputItem.content || '';
+              const lines = outputText.split('\n');
+
+              // Extract filename from first line "Reading: filename"
+              const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
+              const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
+
+              // Extract line count from second line "140 lines"
+              const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
+              const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
+
+              // Show inline format: READ filename (X lines)
+              return (
+                <View style={styles.readFileInline}>
+                  <Text style={styles.readFileLabel}>READ</Text>
+                  <Text style={styles.readFileName}>{fileName}</Text>
+                  <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
+                </View>
+              );
+            }
+
+            return (
+              <View style={[styles.bashCard, hasError && styles.bashCardError]}>
+                <View style={styles.bashHeader}>
+                  <Text style={styles.bashTitle}>Bash</Text>
               <TouchableOpacity
                 onPress={() => setIsModalVisible(true)}
                 style={styles.expandButton}
@@ -130,7 +186,9 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
                 </ScrollView>
               </View>
             </Modal>
-          </View>
+              </View>
+            );
+          })()
         ) : isTerminalCommand ? (
           <View style={styles.terminalCommand}>
             <Text style={styles.terminalPrompt}>$ </Text>
@@ -179,14 +237,19 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
                       // Skip empty lines at the beginning
                       if (line.trim() === '' && index === 0) return null;
 
+                      // Calculate line number (starting from 1)
+                      const lineNumber = index + 1;
+
                       return (
                         <View
                           key={index}
                           style={[
+                            styles.diffLine,
                             isAddedLine && styles.addedLine,
                             isRemovedLine && styles.removedLine,
                           ]}
                         >
+                          <Text style={styles.lineNumber}>{lineNumber}</Text>
                           <Text
                             style={[
                               styles.terminalOutputLine,
@@ -258,16 +321,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
           // Regular terminal output
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
-          <View style={styles.assistantMessageRow}>
-            <View style={styles.dotContainer}>
-              <TouchableOpacity style={styles.actionButton}>
-                <Text style={styles.actionDot}>●</Text>
-              </TouchableOpacity>
-              {isNextItemOutput && <View style={styles.connectingLine} />}
-            </View>
-            <View style={styles.assistantMessageContent}>
-              <Text style={styles.assistantMessage}>{item.content || ''}</Text>
-            </View>
+          <View style={styles.assistantMessageContent}>
+            <Text style={styles.assistantMessage}>{item.content || ''}</Text>
           </View>
         )
       )}
@@ -317,14 +372,64 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
           </View>
         </View>
       )}
+      </View>
     </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flexDirection: 'row',
     marginBottom: 16,
     marginTop: 8, // Add space above each message card
+  },
+  threadContainer: {
+    width: 32,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  threadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#6E7681',
+    marginTop: 8,
+    zIndex: 2,
+  },
+  threadLine: {
+    position: 'absolute',
+    top: 18,
+    bottom: -16,
+    width: 2,
+    backgroundColor: 'rgba(110, 118, 129, 0.3)',
+    zIndex: 1,
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  userMessageContainer: {
+    marginLeft: 0, // No thread container for user messages
+  },
+  readFileInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  readFileLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#8B949E',
+    letterSpacing: 0.5,
+  },
+  readFileName: {
+    fontSize: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  readFileInfo: {
+    fontSize: 12,
+    color: '#6E7681',
   },
   // Terminal styles
   terminalCommand: {
@@ -356,6 +461,7 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: '#C9D1D9',
     lineHeight: 20,
+    flex: 1,
   },
   addedLine: {
     color: '#3FB950',
@@ -399,6 +505,19 @@ const styles = StyleSheet.create({
   editContent: {
     padding: 12,
   },
+  diffLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  lineNumber: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#6E7681',
+    minWidth: 40,
+    textAlign: 'right',
+    paddingRight: 12,
+    userSelect: 'none',
+  },
   editExpandButton: {
     position: 'absolute',
     top: 8,
@@ -421,6 +540,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     overflow: 'hidden',
     marginBottom: 12,
+  },
+  bashCardError: {
+    backgroundColor: 'rgba(40, 20, 20, 0.95)',
+    borderColor: 'rgba(248, 81, 73, 0.3)',
   },
   bashHeader: {
     flexDirection: 'row',
@@ -550,30 +673,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 8,
     marginBottom: 4,
-  },
-  dotContainer: {
-    position: 'relative',
-    alignItems: 'center',
-  },
-  actionButton: {
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 2,
-    zIndex: 2,
-  },
-  actionDot: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  connectingLine: {
-    position: 'absolute',
-    top: 22,
-    width: 1.5,
-    height: 26,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    zIndex: 1,
   },
   assistantMessageContent: {
     flex: 1,

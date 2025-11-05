@@ -28,12 +28,7 @@ export class ToolService {
     // Remove search_in_files calls
     cleaned = cleaned.replace(/search_in_files\s*\([^)]+\)/g, '');
 
-    // Remove "Il contenuto del file è:" and similar phrases
-    cleaned = cleaned.replace(/Il contenuto del file è:\s*/gi, '');
-    cleaned = cleaned.replace(/Ecco il contenuto:\s*/gi, '');
-    cleaned = cleaned.replace(/Il file contiene:\s*/gi, '');
-
-    // Remove markdown code blocks (```markdown ... ```)
+    // Remove markdown code blocks (```markdown ... ```) ONLY if they contain file content
     cleaned = cleaned.replace(/```[a-z]*\s*[\s\S]*?```/g, '');
 
     // Clean up any extra whitespace or "usando" phrases
