@@ -85,6 +85,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const [conversationHistory, setConversationHistory] = useState<string[]>([]);
   const isProcessingToolsRef = useRef(false); // Prevent duplicate tool processing
   const scrollViewRef = useRef<ScrollView>(null);
+  const [scrollPaddingBottom, setScrollPaddingBottom] = useState(300);
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
   const borderAnim = useSharedValue(0);
@@ -139,6 +140,25 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [itemsCount]);
 
+  // Scroll to end when keyboard opens to show last messages
+  useEffect(() => {
+    const keyboardDidShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardDidShow' : 'keyboardDidShow',
+      () => {
+        if (hasChatStarted && terminalItems.length > 0) {
+          // Delay scroll slightly to ensure layout has updated
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+        }
+      }
+    );
+
+    return () => {
+      keyboardDidShow.remove();
+    };
+  }, [hasChatStarted, terminalItems.length]);
+
   // Keyboard listeners - move input box up when keyboard opens
   useEffect(() => {
     const keyboardWillShow = Keyboard.addListener(
@@ -149,6 +169,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           duration: 250,
           easing: Easing.out(Easing.cubic),
         });
+        // Update scroll padding to prevent messages going under widget
+        // Need extra space for keyboard + widget height (~180px) + margin
+        const extraPadding = e.endCoordinates.height - insets.bottom + 200;
+        setScrollPaddingBottom(300 + extraPadding);
+
+        // Force scroll to end after padding update
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 150);
       }
     );
 
@@ -158,6 +187,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         // Set to 0 immediately so widget jumps directly to final position
         // Widget stays in place while keyboard slides down underneath
         keyboardHeight.value = 0;
+        // Reset scroll padding
+        setScrollPaddingBottom(300);
       }
     );
 
@@ -165,7 +196,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
-  }, []);
+  }, [insets.bottom]);
 
   // Sync hasChatStartedAnim with actual state (for tab switching)
   useEffect(() => {
@@ -684,7 +715,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <ScrollView
           ref={scrollViewRef}
           style={[styles.output, isCardMode && styles.outputCardMode]}
-          contentContainerStyle={styles.outputContent}
+          contentContainerStyle={[styles.outputContent, { paddingBottom: scrollPaddingBottom }]}
           showsVerticalScrollIndicator={false}
         >
         {terminalItems.length === 0 ? (
@@ -967,7 +998,7 @@ const styles = StyleSheet.create({
   },  outputContent: {
     padding: 20,
     paddingTop: 20, // Reduced since output already has paddingTop:80
-    paddingBottom: 300, // Space for input box at bottom
+    // paddingBottom managed dynamically via state
   },
   loadingContainer: {
     marginBottom: 4,
