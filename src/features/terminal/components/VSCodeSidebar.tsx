@@ -41,23 +41,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     setActivePanel(prev => prev === panel ? null : panel);
   }, []);
 
-  // Handle terminal icon click - create/switch to terminal tab
+  // Handle terminal icon click - always create new terminal tab
   const handleTerminalClick = useCallback(() => {
-    // Look for existing terminal tab
-    const terminalTab = tabs.find(t => t.type === 'terminal');
-
-    if (terminalTab) {
-      // Switch to existing terminal tab
-      setActiveTab(terminalTab.id);
-    } else {
-      // Create new terminal tab
-      addTab({
-        id: `terminal-${Date.now()}`,
-        type: 'terminal',
-        title: 'Terminal',
-      });
-    }
-  }, [tabs, addTab, setActiveTab]);
+    // Always create a new terminal tab (allow multiple terminals)
+    const terminalCount = tabs.filter(t => t.type === 'terminal').length;
+    addTab({
+      id: `terminal-${Date.now()}`,
+      type: 'terminal',
+      title: terminalCount === 0 ? 'Terminal' : `Terminal ${terminalCount + 1}`,
+    });
+  }, [tabs, addTab]);
 
   const openVerticalPanel = useCallback(() => {
     // First set mounted and start black background fade in
