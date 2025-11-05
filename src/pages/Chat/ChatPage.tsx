@@ -19,7 +19,6 @@ import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
-import { TerminalView } from '../../features/terminal/components/TerminalView';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
 import { BrowserView } from '../../features/terminal/components/views/BrowserView';
 import { PreviewView } from '../../features/terminal/components/views/PreviewView';
@@ -738,8 +737,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           userId={'anonymous'}
           onClose={() => {}}
         />
-      ) : currentTab?.type === 'terminal' ? (
-        <TerminalView tabId={currentTab.id} />
       ) : currentTab?.type === 'github' ? (
         <GitHubView tab={currentTab} />
       ) : currentTab?.type === 'browser' ? (

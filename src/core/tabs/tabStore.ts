@@ -29,12 +29,13 @@ interface TabStore {
 export const useTabStore = create<TabStore>((set) => ({
   tabs: [
     {
-      id: 'terminal-main',
-      type: 'terminal',
-      title: 'Terminal',
+      id: 'chat-main',
+      type: 'chat',
+      title: 'Chat',
+      data: { chatId: 'main' }
     }
   ],
-  activeTabId: 'terminal-main',
+  activeTabId: 'chat-main',
   
   addTab: (tab) => set((state) => {
     // Check if tab already exists
