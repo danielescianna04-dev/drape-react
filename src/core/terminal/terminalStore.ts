@@ -67,6 +67,10 @@ interface TerminalState {
   setCurrentChat: (session: ChatSession | null) => void;
   setCurrentChatTitle: (title: string | null) => void;
   setSearchQuery: (query: string) => void;
+  addChat: (chat: ChatSession) => void;
+  updateChat: (chatId: string, updates: Partial<ChatSession>) => void;
+  deleteChat: (chatId: string) => void;
+  updateChatLastUsed: (chatId: string) => void;
   setGitHubConnected: (connected: boolean) => void;
   setGitHubUser: (user: GitHubUser | null) => void;
   setGitHubRepositories: (repos: GitHubRepository[]) => void;
@@ -146,6 +150,36 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setCurrentChat: (session) => set({ currentChatSession: session }),
   setCurrentChatTitle: (title) => set({ currentChatTitle: title }),
   setSearchQuery: (query) => set({ searchQuery: query }),
+
+  // Chat management
+  addChat: (chat) =>
+    set((state) => ({
+      chatHistory: [chat, ...state.chatHistory],
+      currentChatSession: chat,
+    })),
+
+  updateChat: (chatId, updates) =>
+    set((state) => ({
+      chatHistory: state.chatHistory.map((chat) =>
+        chat.id === chatId ? { ...chat, ...updates } : chat
+      ),
+      currentChatSession: state.currentChatSession?.id === chatId
+        ? { ...state.currentChatSession, ...updates }
+        : state.currentChatSession,
+    })),
+
+  deleteChat: (chatId) =>
+    set((state) => ({
+      chatHistory: state.chatHistory.filter((chat) => chat.id !== chatId),
+      currentChatSession: state.currentChatSession?.id === chatId ? null : state.currentChatSession,
+    })),
+
+  updateChatLastUsed: (chatId) =>
+    set((state) => ({
+      chatHistory: state.chatHistory.map((chat) =>
+        chat.id === chatId ? { ...chat, lastUsed: new Date() } : chat
+      ),
+    })),
   setGitHubConnected: (connected) => set({ isGitHubConnected: connected }),
   setGitHubUser: (user) => set({ gitHubUser: user }),
   setGitHubRepositories: (repos) => set({ gitHubRepositories: repos }),

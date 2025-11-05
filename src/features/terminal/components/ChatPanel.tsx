@@ -12,8 +12,11 @@ interface Props {
 
 export const ChatPanel = ({ onClose }: Props) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const { chatHistory, chatFolders, setCurrentChat } = useTerminalStore();
-  const { addTab } = useTabStore();
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState('');
+  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat } = useTerminalStore();
+  const { addTab, tabs, removeTab, updateTab } = useTabStore();
 
   const filteredChats = chatHistory.filter((chat) =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -60,6 +63,39 @@ export const ChatPanel = ({ onClose }: Props) => {
     if (hours > 0) return `${hours}h fa`;
     if (minutes > 0) return `${minutes}m fa`;
     return 'ora';
+  };
+
+  const handleMenuToggle = (chatId: string) => {
+    setOpenMenuId(openMenuId === chatId ? null : chatId);
+  };
+
+  const handleRename = (chat: any) => {
+    setRenamingChatId(chat.id);
+    setRenamingValue(chat.title);
+    setOpenMenuId(null);
+  };
+
+  const handleRenameSubmit = (chatId: string) => {
+    if (renamingValue.trim()) {
+      updateChat(chatId, { title: renamingValue.trim() });
+      // Update tab title if tab exists
+      const chatTab = tabs.find(t => t.data?.chatId === chatId);
+      if (chatTab) {
+        updateTab(chatTab.id, { title: renamingValue.trim() });
+      }
+    }
+    setRenamingChatId(null);
+    setRenamingValue('');
+  };
+
+  const handleDelete = (chatId: string) => {
+    deleteChat(chatId);
+    // Close any open tabs for this chat
+    const chatTab = tabs.find(t => t.data?.chatId === chatId);
+    if (chatTab) {
+      removeTab(chatTab.id);
+    }
+    setOpenMenuId(null);
   };
 
   return (
@@ -127,44 +163,100 @@ export const ChatPanel = ({ onClose }: Props) => {
         ) : (
           <View style={styles.chatList}>
             {filteredChats.map((chat) => (
-              <TouchableOpacity
-                key={chat.id}
-                style={styles.chatItem}
-                onPress={() => handleSelectChat(chat)}
-                activeOpacity={0.7}
-              >
-                <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.02)']}
-                  style={styles.chatItemGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <View style={styles.chatItemContent}>
-                    <View style={styles.chatIconCircle}>
-                      <LinearGradient
-                        colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
-                        style={styles.chatIconGradient}
-                      >
-                        <Ionicons name="chatbubble" size={14} color="rgba(255, 255, 255, 0.8)" />
-                      </LinearGradient>
-                    </View>
-
-                    <View style={styles.chatInfo}>
-                      <Text style={styles.chatTitle} numberOfLines={1}>
-                        {chat.title}
-                      </Text>
-                      <View style={styles.chatMeta}>
-                        <Ionicons name="time-outline" size={12} color="rgba(255, 255, 255, 0.4)" />
-                        <Text style={styles.chatDate}>{getTimeAgo(chat.lastUsed)}</Text>
-                        <Text style={styles.chatSeparator}>•</Text>
-                        <Text style={styles.chatMessages}>{chat.messages.length} messaggi</Text>
-                      </View>
-                    </View>
-
-                    <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.25)" />
+              <View key={chat.id} style={styles.chatItemWrapper}>
+                {renamingChatId === chat.id ? (
+                  // Rename mode
+                  <View style={styles.renameContainer}>
+                    <TextInput
+                      style={styles.renameInput}
+                      value={renamingValue}
+                      onChangeText={setRenamingValue}
+                      onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                      autoFocus
+                      placeholder="Nome conversazione"
+                      placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                    />
+                    <TouchableOpacity
+                      onPress={() => handleRenameSubmit(chat.id)}
+                      style={styles.renameButton}
+                    >
+                      <Ionicons name="checkmark" size={20} color={AppColors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setRenamingChatId(null)}
+                      style={styles.renameButton}
+                    >
+                      <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
+                    </TouchableOpacity>
                   </View>
-                </LinearGradient>
-              </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.chatItem}
+                    onPress={() => handleSelectChat(chat)}
+                    activeOpacity={0.7}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.02)']}
+                      style={styles.chatItemGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <View style={styles.chatItemContent}>
+                        <View style={styles.chatIconCircle}>
+                          <LinearGradient
+                            colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
+                            style={styles.chatIconGradient}
+                          >
+                            <Ionicons name="chatbubble" size={14} color="rgba(255, 255, 255, 0.8)" />
+                          </LinearGradient>
+                        </View>
+
+                        <View style={styles.chatInfo}>
+                          <Text style={styles.chatTitle} numberOfLines={1}>
+                            {chat.title}
+                          </Text>
+                          {chat.description && (
+                            <Text style={styles.chatDescription} numberOfLines={1}>
+                              {chat.description}
+                            </Text>
+                          )}
+                          <View style={styles.chatMeta}>
+                            <Ionicons name="time-outline" size={12} color="rgba(255, 255, 255, 0.4)" />
+                            <Text style={styles.chatDate}>{getTimeAgo(chat.lastUsed)}</Text>
+                          </View>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => handleMenuToggle(chat.id)}
+                          style={styles.menuButton}
+                        >
+                          <Ionicons name="ellipsis-vertical" size={16} color="rgba(255, 255, 255, 0.5)" />
+                        </TouchableOpacity>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
+
+                {/* Dropdown menu */}
+                {openMenuId === chat.id && (
+                  <View style={styles.dropdown}>
+                    <TouchableOpacity
+                      style={styles.dropdownItem}
+                      onPress={() => handleRename(chat)}
+                    >
+                      <Ionicons name="pencil" size={16} color="rgba(255, 255, 255, 0.8)" />
+                      <Text style={styles.dropdownText}>Rinomina</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.dropdownItem, styles.dropdownItemDanger]}
+                      onPress={() => handleDelete(chat.id)}
+                    >
+                      <Ionicons name="trash" size={16} color="#FF6B6B" />
+                      <Text style={[styles.dropdownText, styles.dropdownTextDanger]}>Elimina</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             ))}
           </View>
         )}
@@ -329,5 +421,74 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+  chatItemWrapper: {
+    position: 'relative',
+  },
+  chatDescription: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: 4,
+  },
+  menuButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
+  dropdown: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    zIndex: 1000,
+    minWidth: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  dropdownItemDanger: {
+    borderBottomWidth: 0,
+  },
+  dropdownText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  dropdownTextDanger: {
+    color: '#FF6B6B',
+  },
+  renameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  renameInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    paddingVertical: 6,
+  },
+  renameButton: {
+    padding: 6,
+    marginLeft: 8,
   },
 });
