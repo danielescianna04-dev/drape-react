@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   threadLine: {
     position: 'absolute',
     top: 18,
-    bottom: -16,
+    bottom: -40,
     width: 2,
     backgroundColor: 'rgba(110, 118, 129, 0.3)',
     zIndex: 1,
