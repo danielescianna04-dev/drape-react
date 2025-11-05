@@ -146,7 +146,116 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
       )}
 
       {item.type === ItemType.OUTPUT && (
-        isTerminalCommand ? (
+        // Check if this is a file edit output (standalone, without COMMAND)
+        (item.content || '').startsWith('Edit ') ? (
+          (() => {
+            const lines = (item.content || '').split('\n');
+            const editHeader = lines[0]; // "Edit file.txt"
+            const editSubheader = lines[1]; // "└─ Added X lines"
+            const codeLines = lines.slice(2); // Skip empty line and get code
+
+            return (
+              <View>
+                {/* Header and stats outside the card */}
+                <Text style={styles.editFileHeader}>{editHeader}</Text>
+                {editSubheader && (
+                  <Text style={styles.editFileStats}>{editSubheader}</Text>
+                )}
+
+                {/* Card with code only, no header */}
+                <View style={styles.editCard}>
+                  <TouchableOpacity
+                    onPress={() => setIsModalVisible(true)}
+                    style={styles.editExpandButton}
+                  >
+                    <Text style={styles.editExpandText}>Click to expand</Text>
+                  </TouchableOpacity>
+                  <View style={styles.editContent}>
+                    {codeLines.map((line, index) => {
+                      const isAddedLine = line.startsWith('+ ');
+                      const isRemovedLine = line.startsWith('- ');
+                      const isContextLine = line.startsWith('  ');
+
+                      // Skip empty lines at the beginning
+                      if (line.trim() === '' && index === 0) return null;
+
+                      return (
+                        <View
+                          key={index}
+                          style={[
+                            isAddedLine && styles.addedLine,
+                            isRemovedLine && styles.removedLine,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.terminalOutputLine,
+                              isAddedLine && { color: '#3FB950' },
+                              isRemovedLine && { color: '#F85149' },
+                              isContextLine && { color: '#8B949E' },
+                            ]}
+                          >
+                            {line}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+            {/* Full screen modal for file edit */}
+            <Modal
+              visible={isModalVisible}
+              animationType="slide"
+              transparent={false}
+              onRequestClose={() => setIsModalVisible(false)}
+            >
+              <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>File Edit</Text>
+                  <TouchableOpacity
+                    onPress={() => setIsModalVisible(false)}
+                    style={styles.closeButton}
+                  >
+                    <Ionicons name="close" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.modalContent}>
+                  <View style={styles.modalSection}>
+                    {(item.content || '').split('\n').map((line, index) => {
+                      const isAddedLine = line.startsWith('+ ');
+                      const isEditHeader = line.startsWith('Edit ');
+                      const isEditSubheader = line.startsWith('└─');
+
+                      return (
+                        <View
+                          key={index}
+                          style={[
+                            isAddedLine && styles.addedLine,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.modalOutput,
+                              isEditHeader && styles.editHeader,
+                              isEditSubheader && styles.editSubheader,
+                              isAddedLine && { color: '#3FB950' },
+                            ]}
+                          >
+                            {line}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
+              </View>
+            </Modal>
+              </View>
+            );
+          })()
+        ) : isTerminalCommand ? (
+          // Regular terminal output
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
           <View style={styles.assistantMessageRow}>
@@ -241,6 +350,68 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 20,
     marginBottom: 12,
+  },
+  terminalOutputLine: {
+    fontSize: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#C9D1D9',
+    lineHeight: 20,
+  },
+  addedLine: {
+    color: '#3FB950',
+    backgroundColor: 'rgba(63, 185, 80, 0.1)',
+    paddingLeft: 4,
+  },
+  removedLine: {
+    color: '#F85149',
+    backgroundColor: 'rgba(248, 81, 73, 0.1)',
+    paddingLeft: 4,
+  },
+  editHeader: {
+    color: '#58A6FF',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  editSubheader: {
+    color: '#8B949E',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  editFileHeader: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#58A6FF',
+    marginBottom: 4,
+  },
+  editFileStats: {
+    fontSize: 12,
+    color: '#8B949E',
+    marginBottom: 8,
+  },
+  editCard: {
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  editContent: {
+    padding: 12,
+  },
+  editExpandButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  editExpandText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   // Bash card styles (terminal command + output grouped)
   bashCard: {

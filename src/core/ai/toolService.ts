@@ -11,6 +11,7 @@ export class ToolService {
   /**
    * Remove tool call syntax from AI response text
    * Cleans up the response by removing read_file(...), write_file(...), etc.
+   * Also removes descriptions about file content and markdown blocks
    */
   static removeToolCallsFromText(text: string): string {
     let cleaned = text;
@@ -26,6 +27,14 @@ export class ToolService {
 
     // Remove search_in_files calls
     cleaned = cleaned.replace(/search_in_files\s*\([^)]+\)/g, '');
+
+    // Remove "Il contenuto del file è:" and similar phrases
+    cleaned = cleaned.replace(/Il contenuto del file è:\s*/gi, '');
+    cleaned = cleaned.replace(/Ecco il contenuto:\s*/gi, '');
+    cleaned = cleaned.replace(/Il file contiene:\s*/gi, '');
+
+    // Remove markdown code blocks (```markdown ... ```)
+    cleaned = cleaned.replace(/```[a-z]*\s*[\s\S]*?```/g, '');
 
     // Clean up any extra whitespace or "usando" phrases
     cleaned = cleaned.replace(/\s*usando\s*/gi, ' ');
@@ -120,7 +129,7 @@ export class ToolService {
   }
 
   /**
-   * Read file content
+   * Read file content - Returns output in command format
    */
   private static async readFile(
     projectId: string,
@@ -132,14 +141,15 @@ export class ToolService {
     );
 
     if (response.data.success) {
-      return `File content of ${filePath}:\n\`\`\`\n${response.data.content}\n\`\`\``;
+      const lines = response.data.content.split('\n').length;
+      return `Reading: ${filePath}\n${lines} lines\n\n${response.data.content}`;
     } else {
-      return `Error reading file: ${response.data.error}`;
+      return `Error: ${response.data.error}`;
     }
   }
 
   /**
-   * Write file content
+   * Write file content - Returns output in command format with file preview
    */
   private static async writeFile(
     projectId: string,
@@ -152,14 +162,26 @@ export class ToolService {
     );
 
     if (response.data.success) {
-      return `✓ File ${filePath} scritto con successo`;
+      const diffInfo = response.data.diffInfo;
+
+      if (diffInfo) {
+        // Use diff from backend (includes context lines)
+        return `Edit ${filePath}\n└─ Added ${diffInfo.added} lines\n\n${diffInfo.diff}`;
+      } else {
+        // Fallback if no diffInfo
+        const lines = content.split('\n');
+        const totalLines = lines.length;
+        const preview = lines.slice(0, 10).map((line, i) => `+ ${line}`).join('\n');
+        const hasMore = totalLines > 10;
+        return `Edit ${filePath}\n└─ Added ${totalLines} lines\n\n${preview}${hasMore ? `\n\n... ${totalLines - 10} more lines` : ''}`;
+      }
     } else {
-      return `Error writing file: ${response.data.error}`;
+      return `Error: ${response.data.error}`;
     }
   }
 
   /**
-   * List files in directory
+   * List files in directory - Returns output in command format
    */
   private static async listFiles(
     projectId: string,
@@ -172,16 +194,16 @@ export class ToolService {
 
     if (response.data.success) {
       const fileList = response.data.files
-        .map((f: any) => `  ${f.type === 'directory' ? '📁' : '📄'} ${f.name}`)
+        .map((f: any) => `${f.type === 'directory' ? 'd' : '-'}  ${f.name}`)
         .join('\n');
-      return `Files in ${directory}:\n${fileList}`;
+      return `Listing: ${directory}\n${response.data.files.length} items\n\n${fileList}`;
     } else {
-      return `Error listing files: ${response.data.error}`;
+      return `Error: ${response.data.error}`;
     }
   }
 
   /**
-   * Search in files
+   * Search in files - Returns output in command format
    */
   private static async searchInFiles(
     projectId: string,
@@ -195,15 +217,15 @@ export class ToolService {
     if (response.data.success) {
       const results = response.data.results;
       if (results.length === 0) {
-        return `No results found for "${pattern}"`;
+        return `Searching: "${pattern}"\n0 matches found`;
       }
       const resultList = results
         .slice(0, 10) // Limit to 10 results
         .map((r: any) => `${r.file}: ${r.match}`)
         .join('\n');
-      return `Search results for "${pattern}":\n${resultList}`;
+      return `Searching: "${pattern}"\n${results.length} matches found\n\n${resultList}`;
     } else {
-      return `Error searching: ${response.data.error}`;
+      return `Error: ${response.data.error}`;
     }
   }
 

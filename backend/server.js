@@ -742,13 +742,108 @@ app.post('/workstation/write-file', async (req, res) => {
 
         console.log('✍️  Writing file:', fullPath);
 
+        // Read original content if file exists (for diff)
+        let originalContent = '';
+        let diffInfo = null;
+        try {
+            originalContent = await fs.readFile(fullPath, 'utf8');
+
+            // Generate simple diff with context
+            const oldLines = originalContent.split('\n');
+            const newLines = content.split('\n');
+
+            // Find all differences and collect them
+            let diffLines = [];
+            let addedCount = 0;
+            let removedCount = 0;
+            let lastDiffIndex = -10; // Track last change to group nearby changes
+
+            for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+                const oldLine = oldLines[i];
+                const newLine = newLines[i];
+
+                if (oldLine !== newLine) {
+                    // If this change is far from the last one, add separator
+                    if (i - lastDiffIndex > 7 && diffLines.length > 0) {
+                        diffLines.push('...');
+                    }
+
+                    // Show 3 lines of context before (if not already shown)
+                    const contextStart = Math.max(0, i - 3);
+                    const contextEnd = i;
+
+                    for (let j = contextStart; j < contextEnd; j++) {
+                        // Only add if not already in diffLines
+                        const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+                        if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
+                            diffLines.push(`  ${contextLine}`);
+                        }
+                    }
+
+                    // Show removed line (if exists)
+                    if (oldLine !== undefined && newLine !== oldLine) {
+                        diffLines.push(`- ${oldLine}`);
+                        removedCount++;
+                    }
+
+                    // Show added line (if exists)
+                    if (newLine !== undefined && newLine !== oldLine) {
+                        diffLines.push(`+ ${newLine}`);
+                        addedCount++;
+                    }
+
+                    // Show 3 lines of context after
+                    const afterStart = i + 1;
+                    const afterEnd = Math.min(i + 4, Math.max(oldLines.length, newLines.length));
+
+                    for (let j = afterStart; j < afterEnd; j++) {
+                        const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+                        if (oldLines[j] === newLines[j]) {
+                            diffLines.push(`  ${contextLine}`);
+                        } else {
+                            // More changes ahead, don't add context yet
+                            break;
+                        }
+                    }
+
+                    lastDiffIndex = i;
+                }
+            }
+
+            // Limit to 20 lines for preview
+            if (diffLines.length > 20) {
+                diffLines = diffLines.slice(0, 20);
+                diffLines.push('...');
+                diffLines.push(`(${diffLines.length - 20} more lines)`);
+            }
+
+            diffInfo = {
+                added: addedCount,
+                removed: removedCount,
+                diff: diffLines.join('\n')
+            };
+        } catch (readError) {
+            // File doesn't exist, it's a new file - show first 10 lines
+            const newLines = content.split('\n');
+            const preview = newLines.slice(0, 10).map(line => `+ ${line}`).join('\n');
+            diffInfo = {
+                added: newLines.length,
+                removed: 0,
+                diff: preview + (newLines.length > 10 ? `\n...\n(${newLines.length - 10} more lines)` : '')
+            };
+        }
+
         // Create directory if it doesn't exist
         const dir = path.dirname(fullPath);
         await fs.mkdir(dir, { recursive: true });
 
         await fs.writeFile(fullPath, content, 'utf8');
 
-        res.json({ success: true, message: 'File written successfully' });
+        res.json({
+            success: true,
+            message: 'File written successfully',
+            diffInfo: diffInfo
+        });
     } catch (error) {
         console.error('Write file error:', error);
         res.status(500).json({ success: false, error: error.message });

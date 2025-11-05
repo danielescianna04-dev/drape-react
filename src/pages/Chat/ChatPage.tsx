@@ -622,20 +622,53 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               )
             }));
 
-            // Execute each tool call in separate terminal items
+            // Execute each tool call in separate terminal items (as bash commands)
             for (const toolCall of toolCalls) {
-              // Show what we're executing
+              // For write_file, only show output (no command)
+              if (toolCall.tool === 'write_file') {
+                // Execute the tool
+                const result = await ToolService.executeTool(projectId, toolCall);
+
+                // Show only the output (formatted edit)
+                addTerminalItem({
+                  id: (Date.now() + Math.random()).toString(),
+                  content: result,
+                  type: TerminalItemType.OUTPUT,
+                  timestamp: new Date(),
+                });
+
+                await new Promise(resolve => setTimeout(resolve, 100));
+                continue;
+              }
+
+              // Format command based on tool type (for other tools)
+              let commandText = '';
+              switch (toolCall.tool) {
+                case 'read_file':
+                  commandText = `cat ${toolCall.args.filePath}`;
+                  break;
+                case 'list_files':
+                  commandText = `ls ${toolCall.args.directory || '.'}`;
+                  break;
+                case 'search_in_files':
+                  commandText = `grep -r "${toolCall.args.pattern}" .`;
+                  break;
+                default:
+                  commandText = toolCall.tool;
+              }
+
+              // Add as bash command
               addTerminalItem({
                 id: (Date.now() + Math.random()).toString(),
-                content: `🔧 ${toolCall.tool}(${Object.values(toolCall.args).join(', ')})`,
-                type: TerminalItemType.SYSTEM,
+                content: commandText,
+                type: TerminalItemType.COMMAND,
                 timestamp: new Date(),
               });
 
               // Small delay for visual separation
               await new Promise(resolve => setTimeout(resolve, 100));
 
-              // Execute the tool and show result
+              // Execute the tool and show result as output
               const result = await ToolService.executeTool(projectId, toolCall);
 
               addTerminalItem({
