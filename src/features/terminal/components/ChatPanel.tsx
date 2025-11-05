@@ -63,24 +63,27 @@ export const ChatPanel = ({ onClose }: Props) => {
   };
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#0a0a0a', '#000000']}
-        style={StyleSheet.absoluteFill}
+    <>
+      {/* Backdrop - Click to close */}
+      <TouchableOpacity
+        style={styles.backdrop}
+        activeOpacity={1}
+        onPress={onClose}
       />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Ionicons name="chatbubbles" size={24} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Conversazioni</Text>
-        </View>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <View style={styles.closeButtonBg}>
-            <Ionicons name="close" size={22} color="#FFFFFF" />
+      <View style={styles.container}>
+        <LinearGradient
+          colors={['#0a0a0a', '#000000']}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Ionicons name="chatbubbles" size={24} color={AppColors.primary} />
+            <Text style={styles.headerTitle}>Conversazioni</Text>
           </View>
-        </TouchableOpacity>
-      </View>
+        </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -182,10 +185,20 @@ export const ChatPanel = ({ onClose }: Props) => {
         )}
       </ScrollView>
     </View>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 1001,
+  },
   container: {
     position: 'absolute',
     left: 50,
@@ -213,20 +226,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchContainer: {
     paddingHorizontal: 20,

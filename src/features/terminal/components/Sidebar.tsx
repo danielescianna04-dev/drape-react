@@ -187,6 +187,13 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   return (
     <>
+      {/* Backdrop - Click to close */}
+      <TouchableOpacity
+        style={styles.backdrop}
+        activeOpacity={1}
+        onPress={handleClose}
+      />
+
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
       <LinearGradient
         colors={['#0a0a0a', '#000000']}
@@ -194,11 +201,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Drape</Text>
-        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-          <View style={styles.closeButtonBg}>
-            <Ionicons name="close" size={22} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.searchContainer}>
@@ -680,7 +682,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: 'transparent',
     zIndex: 999,
-  },  container: {
+  },
+  container: {
     position: 'absolute',
     left: 50,
     top: 0,
@@ -706,17 +709,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-  closeButton: {
-    padding: 2,
-  },
-  closeButtonBg: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchContainer: {
     paddingHorizontal: 8,
