@@ -210,7 +210,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Cerca progetti..."
+            placeholder="Cerca file..."
             placeholderTextColor="rgba(255, 255, 255, 0.4)"
           />
           {searchQuery.length > 0 && (
@@ -246,95 +246,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             />
           </View>
         ) : (
-          <>
-            {projectFolders.length === 0 && workstations.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-                <Text style={styles.emptyText}>Nessun progetto</Text>
-              </View>
-            ) : (
-              <>
-                {workstations
-                  .filter((w) => !w.folderId)
-                  .map((ws) => (
-                    <TouchableOpacity 
-                      key={ws.id} 
-                      style={styles.projectItem}
-                      onPress={() => handleOpenWorkstation(ws)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.projectItemContent}>
-                        <View style={styles.projectHeader}>
-                          <View style={styles.projectIconContainer}>
-                            <Ionicons name="document-text" size={14} color={AppColors.primary} />
-                          </View>
-                          <View style={styles.projectInfo}>
-                            <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
-                            <Text style={styles.projectLanguage}>{ws.language || 'Unknown'}</Text>
-                          </View>
-                          <TouchableOpacity 
-                            onPress={(e) => handleDeleteWorkstation(ws.id, e)} 
-                            style={styles.deleteButton}
-                            activeOpacity={0.6}
-                          >
-                            <Ionicons name="close" size={14} color="rgba(255, 255, 255, 0.4)" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-              </>
-            )}
-
-            {showImportModal && (
-              <Modal
-                visible={true}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowImportModal(false)}
-              >
-                <View style={styles.modalOverlay}>
-                  <View style={styles.modalContent}>
-                    <View style={styles.modalHeader}>
-                      <Ionicons name="cloud-download-outline" size={28} color="#58A6FF" />
-                      <SafeText style={styles.modalTitle}>Importa da GitHub</SafeText>
-                    </View>
-                    
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="https://github.com/user/repo"
-                      placeholderTextColor="rgba(255,255,255,0.4)"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={(text) => setSearchQuery(text)}
-                      returnKeyType="done"
-                    />
-                    
-                    <View style={styles.modalButtons}>
-                      <TouchableOpacity 
-                        style={styles.modalCancelButton}
-                        onPress={() => setShowImportModal(false)}
-                      >
-                        <SafeText style={styles.modalCancelText}>Annulla</SafeText>
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity 
-                        style={styles.modalSubmitButton}
-                        onPress={async () => {
-                          const url = searchQuery.trim();
-                          if (url) {
-                            await handleImportRepo(url);
-                          }
-                        }}
-                      >
-                        <SafeText style={styles.modalSubmitText}>Importa</SafeText>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              </Modal>
-            )}
-          </>
+          <View style={styles.emptyState}>
+            <Ionicons name="folder-open-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+            <Text style={styles.emptyText}>Nessun progetto aperto</Text>
+            <Text style={styles.emptySubtext}>Apri un progetto dalla Home per vedere i file</Text>
+          </View>
         )}
       </ScrollView>
     </Animated.View>
@@ -890,6 +806,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
     color: 'rgba(255, 255, 255, 0.5)',
+  },
+  emptySubtext: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+    color: 'rgba(255, 255, 255, 0.3)',
   },
   connectButton: {
     marginTop: 24,

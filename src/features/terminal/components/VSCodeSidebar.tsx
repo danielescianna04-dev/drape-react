@@ -11,10 +11,9 @@ import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
 import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
-import { TerminalPanel } from './TerminalPanel';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 
-type PanelType = 'files' | 'chat' | 'terminal' | 'multitasking' | 'vertical' | 'settings' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -27,7 +26,7 @@ interface Props {
 export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
-  const { tabs, activeTabId, setActiveTab } = useTabStore();
+  const { tabs, activeTabId, setActiveTab, addTab } = useTabStore();
 
   // Shared value to communicate with VerticalCardSwitcher
   const trackpadTranslation = useSharedValue(0);
@@ -41,6 +40,24 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const togglePanel = useCallback((panel: PanelType) => {
     setActivePanel(prev => prev === panel ? null : panel);
   }, []);
+
+  // Handle terminal icon click - create/switch to terminal tab
+  const handleTerminalClick = useCallback(() => {
+    // Look for existing terminal tab
+    const terminalTab = tabs.find(t => t.type === 'terminal');
+
+    if (terminalTab) {
+      // Switch to existing terminal tab
+      setActiveTab(terminalTab.id);
+    } else {
+      // Create new terminal tab
+      addTab({
+        id: `terminal-${Date.now()}`,
+        type: 'terminal',
+        title: 'Terminal',
+      });
+    }
+  }, [tabs, addTab, setActiveTab]);
 
   const openVerticalPanel = useCallback(() => {
     // First set mounted and start black background fade in
@@ -263,11 +280,11 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <Ionicons name="chatbubbles" size={24} color={activePanel === 'chat' ? AppColors.primary : '#888'} />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.iconButton, activePanel === 'terminal' && styles.iconButtonActive]}
-          onPress={() => togglePanel('terminal')}
+        <TouchableOpacity
+          style={[styles.iconButton, tabs.some(t => t.type === 'terminal' && t.id === activeTabId) && styles.iconButtonActive]}
+          onPress={handleTerminalClick}
         >
-          <Ionicons name="terminal" size={24} color={activePanel === 'terminal' ? AppColors.primary : '#888'} />
+          <Ionicons name="terminal" size={24} color={tabs.some(t => t.type === 'terminal' && t.id === activeTabId) ? AppColors.primary : '#888'} />
         </TouchableOpacity>
 
         <View style={styles.spacer} />
@@ -310,10 +327,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       {activePanel === 'chat' && (
         <ChatPanel onClose={() => setActivePanel(null)} />
-      )}
-
-      {activePanel === 'terminal' && (
-        <TerminalPanel onClose={() => setActivePanel(null)} />
       )}
 
       {activePanel === 'settings' && (

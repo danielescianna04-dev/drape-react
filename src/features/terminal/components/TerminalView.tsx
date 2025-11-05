@@ -1,44 +1,49 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 
 interface Props {
-  onClose: () => void;
+  tabId: string;
 }
 
-export const TerminalPanel = ({ onClose }: Props) => {
+/**
+ * TerminalView - Terminal display for tabs
+ * Shows AI command history and allows manual command execution
+ */
+export const TerminalView = ({ tabId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
-  const { isLoading, currentWorkstation } = useTerminalStore();
-  const { tabs, activeTabId, addTerminalItem } = useTabStore();
+  const { currentWorkstation } = useTerminalStore();
+  const { tabs, addTerminalItem } = useTabStore();
   const [command, setCommand] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
 
-  // Get terminal items from the current active tab
-  const currentTab = tabs.find(t => t.id === activeTabId);
+  // Get terminal items from this specific tab
+  const currentTab = tabs.find(t => t.id === tabId);
   const terminalItems = currentTab?.terminalItems || [];
 
   // Auto-scroll to bottom when new items are added
   useEffect(() => {
     if (scrollViewRef.current && terminalItems.length > 0) {
-      scrollViewRef.current.scrollToEnd({ animated: true });
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
     }
   }, [terminalItems]);
 
   // Execute command
   const executeCommand = async () => {
-    if (!command.trim() || !currentTab) return;
+    if (!command.trim()) return;
 
     const cmd = command.trim();
     setCommand('');
     setIsExecuting(true);
 
     // Add command to terminal
-    addTerminalItem(currentTab.id, {
+    addTerminalItem(tabId, {
       id: Date.now().toString(),
       content: cmd,
       type: TerminalItemType.COMMAND,
@@ -59,7 +64,7 @@ export const TerminalPanel = ({ onClose }: Props) => {
       const result = await response.json();
 
       // Add output
-      addTerminalItem(currentTab.id, {
+      addTerminalItem(tabId, {
         id: (Date.now() + 1).toString(),
         content: result.output || result.error || 'Comando eseguito',
         type: result.success ? TerminalItemType.OUTPUT : TerminalItemType.ERROR,
@@ -67,7 +72,7 @@ export const TerminalPanel = ({ onClose }: Props) => {
         exitCode: result.exitCode,
       });
     } catch (error) {
-      addTerminalItem(currentTab.id, {
+      addTerminalItem(tabId, {
         id: (Date.now() + 1).toString(),
         content: `Errore: ${error instanceof Error ? error.message : 'Unknown error'}`,
         type: TerminalItemType.ERROR,
@@ -119,46 +124,27 @@ export const TerminalPanel = ({ onClose }: Props) => {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#0a0a0a', '#000000']}
-        style={StyleSheet.absoluteFill}
-      />
-
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Ionicons name="terminal" size={24} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Terminale</Text>
+          <Ionicons name="terminal" size={20} color={AppColors.primary} />
+          <Text style={styles.headerTitle}>Terminal</Text>
         </View>
-        <View style={styles.headerActions}>
-          {terminalItems.length > 0 && currentTab && (
+        <View style={styles.headerRight}>
+          <Text style={styles.itemCount}>{terminalItems.length} comandi</Text>
+          {terminalItems.length > 0 && (
             <TouchableOpacity
-              onPress={() => useTabStore.getState().clearTerminalItems(currentTab.id)}
+              onPress={() => useTabStore.getState().clearTerminalItems(tabId)}
               style={styles.clearButton}
               activeOpacity={0.7}
             >
-              <Ionicons name="trash-outline" size={18} color="rgba(255, 255, 255, 0.6)" />
+              <Ionicons name="trash-outline" size={16} color="rgba(255, 255, 255, 0.5)" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <View style={styles.closeButtonBg}>
-              <Ionicons name="close" size={22} color="#FFFFFF" />
-            </View>
-          </TouchableOpacity>
         </View>
       </View>
 
-      {/* Terminal Status */}
-      <View style={styles.statusBar}>
-        <View style={styles.statusIndicator}>
-          <View style={[styles.statusDot, isLoading && styles.statusDotActive]} />
-          <Text style={styles.statusText}>
-            {isLoading ? 'In esecuzione...' : 'Pronto'}
-          </Text>
-        </View>
-        <Text style={styles.itemCount}>{terminalItems.length} elementi</Text>
-      </View>
-
+      {/* Terminal Output */}
       <ScrollView
         ref={scrollViewRef}
         style={styles.content}
@@ -167,10 +153,10 @@ export const TerminalPanel = ({ onClose }: Props) => {
       >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+            <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.2)" />
             <Text style={styles.emptyText}>Terminale vuoto</Text>
             <Text style={styles.emptySubtext}>
-              I comandi eseguiti e il loro output appariranno qui
+              I comandi AI e manuali appariranno qui
             </Text>
           </View>
         ) : (
@@ -263,88 +249,33 @@ export const TerminalPanel = ({ onClose }: Props) => {
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    left: 50,
-    top: 0,
-    bottom: 0,
-    width: 400,
-    zIndex: 1002,
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  headerActions: {
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  clearButton: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statusBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  statusIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  statusDotActive: {
-    backgroundColor: AppColors.primary,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.6)',
   },
   itemCount: {
     fontSize: 11,
@@ -352,6 +283,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.4)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  clearButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   content: {
     flex: 1,
@@ -362,18 +301,18 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
+    paddingVertical: 80,
   },
   emptyText: {
     fontSize: 16,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255, 255, 255, 0.5)',
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: 'rgba(255, 255, 255, 0.3)',
     textAlign: 'center',
     paddingHorizontal: 40,
     lineHeight: 18,

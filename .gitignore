@@ -42,3 +42,6 @@ backend/service-account-key.json
 
 # Cloned repositories (temporary workspace files)
 backend/cloned_repos/
+
+# Windows reserved names
+nul
