@@ -56,9 +56,41 @@ export const AllProjectsScreen = ({ onClose }: Props) => {
       createdAt: new Date(),
       files: [],
       githubUrl: repoUrl,
+      repositoryUrl: repoUrl,
       folderId: null,
     };
     addWorkstation(newWorkstation);
+  };
+
+  const handleOpenProject = async (ws: any) => {
+    setWorkstation(ws);
+
+    // Auto-clone repository if it has a GitHub URL and hasn't been cloned yet
+    const repoUrl = ws.githubUrl || ws.repositoryUrl;
+    if (repoUrl && !ws.isCloned) {
+      try {
+        console.log('🔄 Auto-cloning repository:', repoUrl);
+
+        const response = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/terminal/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            command: `git clone ${repoUrl}`,
+            workstationId: ws.id
+          })
+        });
+
+        const result = await response.json();
+        console.log('✅ Repository cloned:', result);
+
+        // Mark workstation as cloned
+        // Note: You might want to update the workstation in the store with isCloned: true
+      } catch (error) {
+        console.error('❌ Failed to clone repository:', error);
+      }
+    }
+
+    onClose();
   };
 
   const handleCreateFolder = (name: string) => {
@@ -177,7 +209,7 @@ export const AllProjectsScreen = ({ onClose }: Props) => {
                     key={ws.id}
                     project={ws}
                     index={idx}
-                    onPress={() => setWorkstation(ws)}
+                    onPress={() => handleOpenProject(ws)}
                     onDelete={() => removeWorkstation(ws.id)}
                     onDragEnd={moveProjectToFolder}
                     onReorder={reorderWorkstations}
@@ -198,7 +230,7 @@ export const AllProjectsScreen = ({ onClose }: Props) => {
                 key={ws.id}
                 project={ws}
                 index={idx}
-                onPress={() => setWorkstation(ws)}
+                onPress={() => handleOpenProject(ws)}
                 onDelete={() => removeWorkstation(ws.id)}
                 onDragEnd={moveProjectToFolder}
                 onReorder={reorderWorkstations}
