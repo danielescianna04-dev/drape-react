@@ -19,6 +19,7 @@ export interface TerminalItem {
 export interface ChatSession {
   id: string;
   title: string;
+  description?: string; // Preview of first message
   createdAt: Date;
   lastUsed: Date;
   messages: TerminalItem[];

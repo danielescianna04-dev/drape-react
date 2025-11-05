@@ -83,6 +83,9 @@ export const ChatPanel = ({ onClose }: Props) => {
             <Ionicons name="chatbubbles" size={24} color={AppColors.primary} />
             <Text style={styles.headerTitle}>Conversazioni</Text>
           </View>
+          <TouchableOpacity onPress={handleNewChat} style={styles.newChatIconButton}>
+            <Ionicons name="add" size={24} color={AppColors.primary} />
+          </TouchableOpacity>
         </View>
 
       {/* Search Bar */}
@@ -109,24 +112,6 @@ export const ChatPanel = ({ onClose }: Props) => {
         </View>
       </View>
 
-      {/* New Chat Button */}
-      <View style={styles.newChatContainer}>
-        <TouchableOpacity
-          style={styles.newChatButton}
-          onPress={handleNewChat}
-          activeOpacity={0.7}
-        >
-          <LinearGradient
-            colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.08)']}
-            style={styles.newChatGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Ionicons name="add-circle" size={20} color={AppColors.primary} />
-            <Text style={styles.newChatText}>Nuova Conversazione</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {filteredChats.length === 0 ? (
@@ -252,29 +237,13 @@ const styles = StyleSheet.create({
   clearSearchButton: {
     padding: 4,
   },
-  newChatContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  newChatButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  newChatGradient: {
-    flexDirection: 'row',
+  newChatIconButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 12,
-  },
-  newChatText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: AppColors.primary,
+    borderRadius: 18,
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
   },
   content: {
     flex: 1,
