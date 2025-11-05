@@ -288,10 +288,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.iconButton, tabs.some(t => t.type === 'terminal' && t.id === activeTabId) && styles.iconButtonActive]}
+          style={styles.iconButton}
           onPress={handleTerminalClick}
         >
-          <Ionicons name="terminal" size={24} color={tabs.some(t => t.type === 'terminal' && t.id === activeTabId) ? AppColors.primary : '#888'} />
+          <Ionicons name="terminal" size={24} color="#888" />
         </TouchableOpacity>
 
         <View style={styles.spacer} />

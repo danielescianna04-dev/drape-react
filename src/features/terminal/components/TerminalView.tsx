@@ -1,20 +1,26 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
+import axios from 'axios';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
 interface Props {
   sourceTabId: string; // The tab whose commands we're displaying
 }
 
 /**
- * TerminalView - Shows AI command history from a specific tab
+ * TerminalView - Interactive terminal showing AI command history and allowing direct command execution
  */
 export const TerminalView = ({ sourceTabId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
-  const { tabs } = useTabStore();
+  const [input, setInput] = useState('');
+  const [isExecuting, setIsExecuting] = useState(false);
+  const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
+  const { currentWorkstation } = useTerminalStore();
 
   // Get terminal items from the source tab
   const sourceTab = tabs.find(t => t.id === sourceTabId);
@@ -28,6 +34,52 @@ export const TerminalView = ({ sourceTabId }: Props) => {
       }, 100);
     }
   }, [terminalItems]);
+
+  const handleCommand = async () => {
+    if (!input.trim() || isExecuting) return;
+
+    const command = input.trim();
+    setInput('');
+    setIsExecuting(true);
+
+    // Add command to terminal
+    addTerminalItemToTab(sourceTabId, {
+      id: Date.now().toString(),
+      content: command,
+      type: TerminalItemType.COMMAND,
+      timestamp: new Date(),
+    });
+
+    try {
+      const response = await axios.post(
+        `${process.env.EXPO_PUBLIC_API_URL}/terminal/execute`,
+        {
+          command: command,
+          workstationId: currentWorkstation?.id
+        }
+      );
+
+      // Add output to terminal
+      addTerminalItemToTab(sourceTabId, {
+        id: (Date.now() + 1).toString(),
+        content: response.data.output || '',
+        type: response.data.error ? TerminalItemType.ERROR : TerminalItemType.OUTPUT,
+        timestamp: new Date(),
+        exitCode: response.data.exitCode,
+      });
+    } catch (error: any) {
+      // Add error to terminal
+      addTerminalItemToTab(sourceTabId, {
+        id: (Date.now() + 1).toString(),
+        content: error.response?.data?.error || error.message || 'Unknown error',
+        type: TerminalItemType.ERROR,
+        timestamp: new Date(),
+        errorDetails: error.response?.data?.details,
+      });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
 
   const getItemColor = (type: TerminalItemType) => {
     switch (type) {
@@ -69,15 +121,41 @@ export const TerminalView = ({ sourceTabId }: Props) => {
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Ionicons name="terminal" size={20} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Comandi AI - {sourceTab?.title || 'Unknown Tab'}</Text>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={100}
+    >
+      {/* Header with gradient */}
+      <LinearGradient
+        colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.05)', 'transparent']}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.terminalIcon}>
+              <LinearGradient
+                colors={['rgba(139, 124, 246, 0.3)', 'rgba(139, 124, 246, 0.1)']}
+                style={styles.terminalIconGradient}
+              >
+                <Ionicons name="terminal" size={20} color={AppColors.primary} />
+              </LinearGradient>
+            </View>
+            <View>
+              <Text style={styles.headerTitle}>Terminal</Text>
+              <Text style={styles.headerSubtitle}>{sourceTab?.title || 'Unknown Tab'}</Text>
+            </View>
+          </View>
+          <View style={styles.headerRight}>
+            <View style={styles.statusBadge}>
+              <View style={[styles.statusDot, isExecuting && styles.statusDotActive]} />
+              <Text style={styles.statusText}>
+                {isExecuting ? 'Running' : 'Ready'}
+              </Text>
+            </View>
+          </View>
         </View>
-        <Text style={styles.itemCount}>{terminalItems.length} comandi</Text>
-      </View>
+      </LinearGradient>
 
       {/* Terminal Output */}
       <ScrollView
@@ -143,7 +221,51 @@ export const TerminalView = ({ sourceTabId }: Props) => {
           </View>
         )}
       </ScrollView>
-    </View>
+
+      {/* Interactive Terminal Input */}
+      <View style={styles.inputContainer}>
+        <LinearGradient
+          colors={['transparent', 'rgba(0, 0, 0, 0.3)']}
+          style={styles.inputGradient}
+        >
+          <View style={styles.inputWrapper}>
+            <View style={styles.promptIndicator}>
+              <Ionicons name="chevron-forward" size={16} color={AppColors.primary} />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={handleCommand}
+              placeholder="Inserisci comando..."
+              placeholderTextColor="rgba(255, 255, 255, 0.3)"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isExecuting}
+            />
+            <TouchableOpacity
+              onPress={handleCommand}
+              disabled={!input.trim() || isExecuting}
+              style={[styles.sendButton, (!input.trim() || isExecuting) && styles.sendButtonDisabled]}
+            >
+              <LinearGradient
+                colors={input.trim() && !isExecuting
+                  ? ['rgba(139, 124, 246, 0.8)', 'rgba(107, 93, 214, 0.8)']
+                  : ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']
+                }
+                style={styles.sendButtonGradient}
+              >
+                {isExecuting ? (
+                  <Ionicons name="hourglass-outline" size={18} color="rgba(255, 255, 255, 0.6)" />
+                ) : (
+                  <Ionicons name="send" size={18} color={input.trim() ? '#FFFFFF' : 'rgba(255, 255, 255, 0.4)'} />
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </LinearGradient>
+      </View>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -152,32 +274,75 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
+  headerGradient: {
+    paddingBottom: 12,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingBottom: 0,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
     flex: 1,
+  },
+  terminalIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  terminalIconGradient: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#FFFFFF',
-    flex: 1,
   },
-  itemCount: {
+  headerSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginTop: 2,
+  },
+  headerRight: {
+    alignItems: 'flex-end',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(46, 213, 115, 0.6)',
+  },
+  statusDotActive: {
+    backgroundColor: AppColors.primary,
+  },
+  statusText: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: 'rgba(255, 255, 255, 0.6)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -281,5 +446,58 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFA500',
     fontFamily: 'monospace',
+  },
+  inputContainer: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  inputGradient: {
+    paddingTop: 8,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  promptIndicator: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+  },
+  input: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: 'monospace',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  sendButtonDisabled: {
+    opacity: 0.6,
+  },
+  sendButtonGradient: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
 });
