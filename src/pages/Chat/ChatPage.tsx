@@ -144,25 +144,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const keyboardWillShow = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
-        // Only move up if chat has started (input is at bottom)
-        if (hasChatStarted) {
-          keyboardHeight.value = withSpring(e.endCoordinates.height, {
-            damping: 25,
-            stiffness: 300,
-            mass: 0.5,
-          });
-        }
+        // Always move up when keyboard opens, regardless of chat state
+        keyboardHeight.value = withTiming(e.endCoordinates.height, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
       }
     );
 
     const keyboardWillHide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
-        keyboardHeight.value = withSpring(0, {
-          damping: 25,
-          stiffness: 300,
-          mass: 0.5,
-        });
+        // Set to 0 immediately so widget jumps directly to final position
+        // Widget stays in place while keyboard slides down underneath
+        keyboardHeight.value = 0;
       }
     );
 
@@ -170,7 +165,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
-  }, [hasChatStarted]);
+  }, []);
 
   // Sync hasChatStartedAnim with actual state (for tab switching)
   useEffect(() => {
@@ -262,17 +257,32 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const animProgress = inputPositionAnim.value;
 
     // Anima da top:410 (centro) verso posizione più bassa (ma non troppo)
-    // Usiamo un translateY smooth che sposta verso il basso
     const baseTranslateY = interpolate(
       animProgress,
       [0, 1],
-      [0, 280], // Sposta 280px verso il basso (un po' più in alto rispetto a prima)
+      [0, 280], // Sposta 280px verso il basso quando chat si avvia
       Extrapolate.CLAMP
     );
 
-    // When keyboard is open, move up by 80% of keyboard height
-    const keyboardOffset = keyboardHeight.value * 0.8;
-    const translateY = baseTranslateY - keyboardOffset;
+    // Always maintain 8px distance from keyboard
+    let translateY = baseTranslateY;
+
+    if (keyboardHeight.value > 0) {
+      // Calculate keyboard offset maintaining 8px distance
+      const fullKeyboardOffset = keyboardHeight.value - insets.bottom + 8;
+
+      // Interpolate keyboard offset smoothly based on widget position
+      // When centered (animProgress=0): offset reduced by 280
+      // When at bottom (animProgress=1): full offset
+      const keyboardOffset = interpolate(
+        animProgress,
+        [0, 1],
+        [Math.max(0, fullKeyboardOffset - 280), fullKeyboardOffset],
+        Extrapolate.CLAMP
+      );
+
+      translateY = baseTranslateY - keyboardOffset;
+    }
 
     return {
       top: 410,
