@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     left: 50,
     top: 0,
     bottom: 0,
-    width: 350,
+    width: 300,
     zIndex: 1002,
   },
   header: {
