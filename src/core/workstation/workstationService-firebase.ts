@@ -144,11 +144,22 @@ export const workstationService = {
       });
     } catch (error: any) {
       console.error('Error getting workstation files:', error);
-      // If it's a 403 (private repo), throw the error with the message
+
+      // Handle specific error cases with better messages
       if (error.response?.status === 403) {
         throw new Error(error.response?.data?.error || 'Repository is private or not found');
       }
-      return [];
+
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        throw new Error('Request timeout - server is taking too long to respond');
+      }
+
+      if (error.message === 'Network Error' || !error.response) {
+        throw new Error('Cannot connect to server - check your network connection');
+      }
+
+      // Propagate all other errors instead of silently returning empty array
+      throw new Error(error.response?.data?.error || error.message || 'Failed to get repository files');
     }
   },
 

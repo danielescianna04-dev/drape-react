@@ -111,28 +111,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
-  // Save and load input when tab ACTUALLY changes (not on every render)
+  // Custom input handler that saves to ref immediately (no extra re-renders)
+  const handleInputChange = useCallback((text: string) => {
+    setInput(text);
+    // Save to ref immediately - this won't trigger re-renders
+    if (currentTab?.id) {
+      tabInputsRef.current[currentTab.id] = text;
+    }
+  }, [currentTab?.id]);
+
+  // Load input when tab changes (ONLY depends on tab ID)
   useEffect(() => {
     if (!currentTab?.id) return;
 
     // Only act if tab has actually changed
     if (previousTabIdRef.current !== currentTab.id) {
-      // Save input from previous tab
-      if (previousTabIdRef.current) {
-        tabInputsRef.current[previousTabIdRef.current] = input;
-      }
-
       // Load input for new tab
       const savedInput = tabInputsRef.current[currentTab.id] || '';
       setInput(savedInput);
 
       // Update previous tab reference
       previousTabIdRef.current = currentTab.id;
-    } else {
-      // Same tab - just save the current input
-      tabInputsRef.current[currentTab.id] = input;
     }
-  }, [currentTab?.id, input]);
+  }, [currentTab?.id]); // ONLY depend on tab ID - NOT on input!
 
   const {
     hasInteracted,
@@ -890,6 +891,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           style={[styles.output, isCardMode && styles.outputCardMode]}
           contentContainerStyle={[styles.outputContent, { paddingBottom: scrollPaddingBottom }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
@@ -944,10 +946,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         isCardMode && styles.inputWrapperCardMode,
         inputWrapperAnimatedStyle
       ]}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={styles.inputContainer}
-          >
         <LinearGradient
           colors={['rgba(28, 28, 30, 0.98)', 'rgba(28, 28, 30, 0.92)']}
           style={styles.inputGradient}
@@ -1013,7 +1011,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             <TextInput
               style={styles.input}
               value={input}
-              onChangeText={setInput}
+              onChangeText={handleInputChange}
               placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
               placeholderTextColor="#6E7681"
               multiline
@@ -1038,7 +1036,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
           </View>
         </LinearGradient>
-      </KeyboardAvoidingView>
       </Animated.View>
         </>
       )}

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, ScrollView, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
@@ -45,10 +45,16 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   // Don't render if fully hidden
   if (isCardMode && visibilityAnim._value === 0) return null;
 
+  const handleTabPress = (tabId: string) => {
+    // Chiudi la tastiera immediatamente prima di cambiare tab
+    Keyboard.dismiss();
+    setActiveTab(tabId);
+  };
+
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();
     if (tabs.length === 1) return;
-    
+
     Animated.timing(scaleAnims[id], {
       toValue: 0,
       duration: 200,
@@ -150,6 +156,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
         showsHorizontalScrollIndicator={false}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="always"
       >
         {tabs.map(tab => {
           const isActive = tab.id === activeTabId;
@@ -165,7 +172,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
             >
               <TouchableOpacity
                 style={[styles.tab, isActive && styles.tabActive]}
-                onPress={() => setActiveTab(tab.id)}
+                onPress={() => handleTabPress(tab.id)}
                 activeOpacity={0.7}
               >
                 <Ionicons 
