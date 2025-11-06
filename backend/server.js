@@ -250,9 +250,15 @@ app.post('/github/exchange-code', async (req, res) => {
   }
 });
 
-// AI Chat endpoint - Using Groq for fast and free streaming with tool calling
+// Import Gemini SDK
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// AI Chat endpoint - Using Gemini 2.0 Flash with native tool calling
 app.post('/ai/chat', async (req, res) => {
-    const { prompt, conversationHistory = [], model = 'llama-3.3-70b-versatile', workstationId, context, projectId, repositoryUrl } = req.body;
+    const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
+    // Force Gemini model (ignore model from frontend)
+    const model = 'gemini-2.0-flash-exp';
 
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
@@ -285,27 +291,45 @@ Linee guida per le risposte:
             systemMessage += '   → Esempio: edit_file(app.js, "const x = 1", "const x = 2")\n';
             systemMessage += '   → ✅ Veloce, preciso, diff automatico\n';
             systemMessage += '   → ✅ Non devi riscrivere tutto il file!\n';
-            systemMessage += '   → ⚠️ La stringa oldString DEVE esistere esattamente nel file\n\n';
+            systemMessage += '   → ⚠️ La stringa oldString DEVE esistere esattamente nel file\n';
+            systemMessage += '   → ⚠️ FUNZIONA SOLO SU FILE ESISTENTI - verifica con read_file() prima!\n';
+            systemMessage += '   → 🚫 Se read_file() fallisce → USA write_file() invece\n\n';
 
             systemMessage += '3. write_file(path, content)\n';
             systemMessage += '   → Crea NUOVI file o riscrive completamente file esistenti\n';
             systemMessage += '   → ⚠️ SOVRASCRIVE tutto il contenuto!\n';
             systemMessage += '   → Usa solo per: file nuovi, refactoring completo\n';
+            systemMessage += '   → ✅ Se un file NON esiste ancora, USA QUESTO!\n';
             systemMessage += '   → Esempio: write_file(new.js, "console.log(\'hello\')")\n\n';
 
-            systemMessage += '4. list_files(directory) - Elenca file in una directory\n';
-            systemMessage += '5. search_in_files(pattern) - Cerca pattern nei file\n\n';
+            systemMessage += '4. list_files(directory)\n';
+            systemMessage += '   → Elenca file in una directory\n';
+            systemMessage += '   → Esempio: list_files(.)\n\n';
+
+            systemMessage += '5. search_in_files(pattern)\n';
+            systemMessage += '   → Cerca pattern nei file del progetto\n';
+            systemMessage += '   → Esempio: search_in_files(home)\n\n';
+
+            systemMessage += '6. execute_command(command)\n';
+            systemMessage += '   → Esegui comando bash nel progetto\n';
+            systemMessage += '   → Esempio: execute_command(npm install)\n\n';
 
             systemMessage += '💡 QUANDO USARE OGNI TOOL:\n';
-            systemMessage += '• Aggiungere/modificare righe → edit_file() ⭐\n';
-            systemMessage += '• Cambiare una funzione → edit_file() ⭐\n';
-            systemMessage += '• Creare file nuovo → write_file()\n';
+            systemMessage += '• File ESISTE e vuoi modificarlo → edit_file() ⭐\n';
+            systemMessage += '• File NON ESISTE ancora → write_file() ✅\n';
+            systemMessage += '• Aggiungere/modificare righe → edit_file() ⭐ (solo se file esiste!)\n';
+            systemMessage += '• Cambiare una funzione → edit_file() ⭐ (solo se file esiste!)\n';
+            systemMessage += '• Creare file nuovo → write_file() ✅\n';
             systemMessage += '• Refactoring completo → write_file()\n\n';
-            systemMessage += 'IMPORTANTE - Come usare gli strumenti:\n';
+            systemMessage += '⚠️ IMPORTANTE - Come usare gli strumenti:\n';
             systemMessage += '1. PRIMA annuncia cosa stai per fare (es: "Leggo il file deploy_now.md")\n';
-            systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri (es: "read_file(deploy_now.md)")\n';
-            systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato e cosa puoi fare\n';
-            systemMessage += '4. NON mostrare mai il contenuto completo del file nella tua risposta, il sistema lo mostrerà automaticamente\n';
+            systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri\n';
+            systemMessage += '   → Esempio CORRETTO: search_in_files(home)\n';
+            systemMessage += '   → ❌ NON usare markdown: ```bash\\nsearch_in_files(home)\\n```\n';
+            systemMessage += '   → ❌ NON usare comandi shell diretti come: grep -r "home" .\n';
+            systemMessage += '   → ✅ USA SOLO: search_in_files(home)\n';
+            systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato\n';
+            systemMessage += '4. NON mostrare mai il contenuto completo del file, il sistema lo mostrerà\n';
             systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
             systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
             systemMessage += '📖 ESEMPI DI UTILIZZO:\n';
@@ -335,83 +359,54 @@ Linee guida per le risposte:
 
             systemMessage += '⚠️ REGOLE CRITICHE per edit_file():\n';
             systemMessage += '1. SEMPRE chiama read_file() PRIMA di edit_file()\n';
-            systemMessage += '2. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
-            systemMessage += '3. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
-            systemMessage += '4. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
+            systemMessage += '2. Se read_file() FALLISCE (file non esiste) → USA write_file() invece!\n';
+            systemMessage += '3. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
+            systemMessage += '4. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
+            systemMessage += '5. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
             systemMessage += '🎯 WORKFLOW CORRETTO:\n';
             systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
         }
 
-        // Build messages array for Groq
-        const messages = [
-            { role: 'system', content: systemMessage },
-            ...conversationHistory.map((msg, i) => ({
-                role: i % 2 === 0 ? 'user' : 'assistant',
-                content: msg
-            })),
-            { role: 'user', content: prompt }
-        ];
+        // Initialize Gemini model with streaming (no function calling)
+        const geminiModel = genAI.getGenerativeModel({
+            model: model,
+            systemInstruction: systemMessage
+        });
+
+        // Build conversation history for Gemini
+        const history = conversationHistory.map((msg, i) => ({
+            role: i % 2 === 0 ? 'user' : 'model',
+            parts: [{ text: msg }]
+        }));
 
         // Set headers for SSE streaming
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Stream response from Groq
-        const response = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',
-            {
-                model: model,
-                messages: messages,
+        // Start chat session with history
+        const chat = geminiModel.startChat({
+            history: history,
+            generationConfig: {
                 temperature: 0.7,
-                max_tokens: 2048,
-                stream: true
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
-                responseType: 'stream'
-            }
-        );
-
-        // Forward stream to client
-        response.data.on('data', (chunk) => {
-            const lines = chunk.toString().split('\n').filter(line => line.trim());
-
-            for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                    const data = line.substring(6).trim();
-                    if (data === '[DONE]') {
-                        res.write('data: [DONE]\n\n');
-                        continue;
-                    }
-
-                    try {
-                        const jsonData = JSON.parse(data);
-                        const text = jsonData.choices?.[0]?.delta?.content;
-
-                        if (text) {
-                            res.write(`data: ${JSON.stringify({ text })}\n\n`);
-                        }
-                    } catch (e) {
-                        // Skip invalid JSON
-                    }
-                }
+                maxOutputTokens: 8192,
             }
         });
 
-        response.data.on('end', () => {
-            res.write('data: [DONE]\n\n');
-            res.end();
-        });
+        // Send message and stream response (without function calling for now)
+        const result = await chat.sendMessageStream(prompt);
 
-        response.data.on('error', (error) => {
-            console.error('Stream error:', error);
-            res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-            res.end();
-        });
+        // Stream the response
+        for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            if (chunkText) {
+                res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+            }
+        }
+
+        // Send done signal
+        res.write('data: [DONE]\n\n');
+        res.end();
 
     } catch (error) {
         console.error('AI Chat error:', error.response?.data || error.message);
@@ -768,16 +763,43 @@ app.post('/workstation/read-file', async (req, res) => {
 
         console.log('📖 Reading file:', fullPath);
 
-        // Check if file exists
+        // Check if file exists, try with common extensions if not found
+        let actualFilePath = fullPath;
+        let fileFound = false;
+
         try {
             await fs.access(fullPath);
+            fileFound = true;
         } catch {
+            // Try common extensions
+            const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
+
+            for (const ext of commonExtensions) {
+                const pathWithExt = fullPath + ext;
+                try {
+                    await fs.access(pathWithExt);
+                    actualFilePath = pathWithExt;
+                    fileFound = true;
+                    console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
+                    break;
+                } catch (e) {
+                    // Continue to next extension
+                }
+            }
+        }
+
+        if (!fileFound) {
             return res.status(404).json({ success: false, error: 'File not found' });
         }
 
-        const content = await fs.readFile(fullPath, 'utf8');
+        const content = await fs.readFile(actualFilePath, 'utf8');
 
-        res.json({ success: true, content });
+        // Return both content and the actual file path found
+        res.json({
+            success: true,
+            content,
+            actualFilePath: path.basename(actualFilePath) // Return only filename, not full path
+        });
     } catch (error) {
         console.error('Read file error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -946,29 +968,80 @@ app.post('/workstation/edit-file', async (req, res) => {
 
         // Read current file content
         let originalContent;
+        let actualFilePath = fullPath;
+
         try {
             originalContent = await fs.readFile(fullPath, 'utf8');
         } catch (readError) {
-            return res.status(404).json({
-                success: false,
-                error: 'File not found. Use write_file() to create new files.',
-                filePath: filePath
-            });
+            // If file not found, try common extensions
+            const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
+            let found = false;
+
+            for (const ext of commonExtensions) {
+                const pathWithExt = fullPath + ext;
+                try {
+                    originalContent = await fs.readFile(pathWithExt, 'utf8');
+                    actualFilePath = pathWithExt;
+                    found = true;
+                    console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
+                    break;
+                } catch (e) {
+                    // Continue to next extension
+                }
+            }
+
+            if (!found) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'File not found. Use write_file() to create new files.',
+                    filePath: filePath
+                });
+            }
         }
 
         // Check if old string exists in file
+        let stringToReplace = unescapedOld;
+        let fuzzyMatchUsed = false;
+
         if (!originalContent.includes(unescapedOld)) {
-            return res.status(400).json({
-                success: false,
-                error: 'String not found in file',
-                suggestion: 'Read the file first with read_file() to see the exact content',
-                searchedFor: unescapedOld.substring(0, 200),
-                filePreview: originalContent.substring(0, 500)
-            });
+            // Try fuzzy matching - normalize whitespace and case
+            const normalize = (str) => str.toLowerCase().replace(/\s+/g, ' ').trim();
+            const normalizedSearch = normalize(unescapedOld);
+
+            // Split file into lines and find similar content
+            const lines = originalContent.split('\n');
+            let bestMatch = null;
+            let bestMatchScore = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                const lineContent = lines.slice(i, Math.min(i + 10, lines.length)).join('\n');
+                const normalizedLine = normalize(lineContent);
+
+                // Calculate similarity (simple approach - check if normalized versions match)
+                if (normalizedLine.includes(normalizedSearch)) {
+                    bestMatch = lineContent.substring(0, unescapedOld.length + 50);
+                    bestMatchScore = 1;
+                    break;
+                }
+            }
+
+            if (bestMatch && bestMatchScore > 0.8) {
+                console.log('✨ Using fuzzy match instead of exact match');
+                stringToReplace = bestMatch.substring(0, unescapedOld.length);
+                fuzzyMatchUsed = true;
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    error: 'String not found in file',
+                    suggestion: 'Read the file first with read_file() to see the exact content',
+                    searchedFor: unescapedOld.substring(0, 200),
+                    filePreview: originalContent.substring(0, 500)
+                });
+            }
         }
 
         // Replace old string with new string
-        const newContent = originalContent.replace(unescapedOld, unescapedNew);
+        const newContent = originalContent.replace(stringToReplace, unescapedNew);
 
         // Generate diff
         const oldLines = originalContent.split('\n');
@@ -1037,7 +1110,7 @@ app.post('/workstation/edit-file', async (req, res) => {
         };
 
         // Write the modified content
-        await fs.writeFile(fullPath, newContent, 'utf8');
+        await fs.writeFile(actualFilePath, newContent, 'utf8');
 
         console.log('✅ File edited successfully');
         console.log(`📊 Changes: +${addedCount} -${removedCount}`);
@@ -1110,6 +1183,267 @@ app.post('/workstation/search-files', async (req, res) => {
     } catch (error) {
         console.error('Search files error:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Execute bash command in repository
+app.post('/workstation/execute-command', async (req, res) => {
+    const { projectId, command } = req.body;
+
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('💻 Executing command:', command);
+        console.log('📂 In directory:', repoPath);
+
+        // Security: validate that repoPath exists
+        const fs = require('fs').promises;
+        try {
+            await fs.access(repoPath);
+        } catch {
+            return res.status(404).json({
+                success: false,
+                error: 'Project directory not found'
+            });
+        }
+
+        // Execute command with timeout (30 seconds)
+        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${command}`, {
+            timeout: 30000,
+            maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+        });
+
+        const output = stdout.trim();
+        const errorOutput = stderr.trim();
+
+        console.log('✅ Command executed successfully');
+        if (output) console.log('📤 Output:', output.substring(0, 200));
+        if (errorOutput) console.log('⚠️ Stderr:', errorOutput.substring(0, 200));
+
+        res.json({
+            success: true,
+            stdout: output,
+            stderr: errorOutput,
+            exitCode: 0
+        });
+    } catch (error) {
+        console.error('Command execution error:', error);
+
+        // Extract stdout/stderr from error if available
+        const stdout = error.stdout ? error.stdout.toString().trim() : '';
+        const stderr = error.stderr ? error.stderr.toString().trim() : '';
+        const exitCode = error.code || 1;
+
+        res.json({
+            success: false,
+            stdout: stdout,
+            stderr: stderr || error.message,
+            exitCode: exitCode
+        });
+    }
+});
+
+// Edit multiple files atomically
+app.post('/workstation/edit-multiple-files', async (req, res) => {
+    const { projectId, edits } = req.body;
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('📝 Editing multiple files:', edits.length, 'files');
+
+        const results = [];
+        const backups = [];
+
+        // Prima fase: backup di tutti i file
+        for (const edit of edits) {
+            const fullPath = path.join(repoPath, edit.filePath);
+            try {
+                const originalContent = await fs.readFile(fullPath, 'utf8');
+                backups.push({ filePath: edit.filePath, content: originalContent });
+            } catch (error) {
+                // File non esiste, nessun backup necessario
+                backups.push({ filePath: edit.filePath, content: null });
+            }
+        }
+
+        // Seconda fase: applica tutte le modifiche
+        try {
+            for (let i = 0; i < edits.length; i++) {
+                const edit = edits[i];
+                const fullPath = path.join(repoPath, edit.filePath);
+
+                if (edit.type === 'write') {
+                    await fs.writeFile(fullPath, edit.content, 'utf8');
+                    results.push({
+                        filePath: edit.filePath,
+                        success: true,
+                        type: 'write',
+                        lines: edit.content.split('\n').length
+                    });
+                } else if (edit.type === 'edit') {
+                    const originalContent = backups[i].content;
+                    if (!originalContent) {
+                        throw new Error(`File ${edit.filePath} not found for edit`);
+                    }
+                    const newContent = originalContent.replace(edit.oldString, edit.newString);
+                    await fs.writeFile(fullPath, newContent, 'utf8');
+                    results.push({
+                        filePath: edit.filePath,
+                        success: true,
+                        type: 'edit'
+                    });
+                }
+            }
+
+            console.log(`✅ Successfully edited ${results.length} files`);
+
+            res.json({
+                success: true,
+                results: results,
+                totalFiles: edits.length
+            });
+        } catch (error) {
+            // Rollback: ripristina tutti i file dal backup
+            console.error('❌ Error during multi-file edit, rolling back:', error.message);
+            for (const backup of backups) {
+                if (backup.content !== null) {
+                    const fullPath = path.join(repoPath, backup.filePath);
+                    await fs.writeFile(fullPath, backup.content, 'utf8');
+                }
+            }
+            throw error;
+        }
+    } catch (error) {
+        console.error('Multi-file edit error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            rolledBack: true
+        });
+    }
+});
+
+// Read multiple files at once - for whole file context
+app.post('/workstation/read-multiple-files', async (req, res) => {
+    const { projectId, filePaths } = req.body;
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('📚 Reading multiple files:', filePaths);
+
+        const results = [];
+
+        for (const filePath of filePaths) {
+            const fullPath = path.join(repoPath, filePath);
+
+            try {
+                const content = await fs.readFile(fullPath, 'utf8');
+                results.push({
+                    filePath: filePath,
+                    success: true,
+                    content: content,
+                    lines: content.split('\n').length
+                });
+            } catch (error) {
+                results.push({
+                    filePath: filePath,
+                    success: false,
+                    error: error.message
+                });
+            }
+        }
+
+        const successCount = results.filter(r => r.success).length;
+        console.log(`✅ Read ${successCount}/${filePaths.length} files successfully`);
+
+        res.json({
+            success: true,
+            results: results,
+            totalFiles: filePaths.length,
+            successCount: successCount
+        });
+    } catch (error) {
+        console.error('Read multiple files error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Git command execution with formatted output
+app.post('/workstation/git-command', async (req, res) => {
+    const { projectId, gitCommand } = req.body;
+
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('🔧 Executing git command:', gitCommand);
+        console.log('📂 In directory:', repoPath);
+
+        // Security: validate that repoPath exists
+        const fs = require('fs').promises;
+        try {
+            await fs.access(repoPath);
+        } catch {
+            return res.status(404).json({
+                success: false,
+                error: 'Project directory not found'
+            });
+        }
+
+        // Execute git command
+        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && git ${gitCommand}`, {
+            timeout: 30000,
+            maxBuffer: 1024 * 1024 * 10
+        });
+
+        const output = stdout.trim();
+        const errorOutput = stderr.trim();
+
+        console.log('✅ Git command executed successfully');
+        if (output) console.log('📤 Output:', output.substring(0, 200));
+
+        res.json({
+            success: true,
+            stdout: output,
+            stderr: errorOutput,
+            exitCode: 0
+        });
+    } catch (error) {
+        console.error('Git command error:', error);
+
+        const stdout = error.stdout ? error.stdout.toString().trim() : '';
+        const stderr = error.stderr ? error.stderr.toString().trim() : '';
+        const exitCode = error.code || 1;
+
+        res.json({
+            success: false,
+            stdout: stdout,
+            stderr: stderr || error.message,
+            exitCode: exitCode
+        });
     }
 });
 

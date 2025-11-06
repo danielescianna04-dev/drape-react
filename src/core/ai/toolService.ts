@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export interface ToolCall {
-  tool: 'read_file' | 'write_file' | 'edit_file' | 'list_files' | 'search_in_files';
+  tool: 'read_file' | 'write_file' | 'edit_file' | 'list_files' | 'search_in_files' | 'execute_command' | 'git_command' | 'read_multiple_files' | 'edit_multiple_files';
   args: Record<string, any>;
 }
 
@@ -30,6 +30,18 @@ export class ToolService {
 
     // Remove search_in_files calls
     cleaned = cleaned.replace(/search_in_files\s*\([^)]+\)/g, '');
+
+    // Remove execute_command calls
+    cleaned = cleaned.replace(/execute_command\s*\([^)]+\)/g, '');
+
+    // Remove git_command calls
+    cleaned = cleaned.replace(/git_command\s*\([^)]+\)/g, '');
+
+    // Remove read_multiple_files calls
+    cleaned = cleaned.replace(/read_multiple_files\s*\(\s*\[[^\]]+\]\s*\)/g, '');
+
+    // Remove edit_multiple_files calls
+    cleaned = cleaned.replace(/edit_multiple_files\s*\(\s*\[[\s\S]*?\]\s*\)/g, '');
 
     // Remove markdown code blocks (```markdown ... ```) ONLY if they contain file content
     cleaned = cleaned.replace(/```[a-z]*\s*[\s\S]*?```/g, '');
@@ -102,6 +114,64 @@ export class ToolService {
       });
     }
 
+    // Pattern per execute_command(command)
+    const executeMatches = text.matchAll(/execute_command\s*\(\s*([^)]+)\s*\)/g);
+    for (const match of executeMatches) {
+      const command = match[1].replace(/^['"]|['"]$/g, '').trim();
+      toolCalls.push({
+        tool: 'execute_command',
+        args: { command }
+      });
+    }
+
+    // Pattern per comandi bash nei code blocks - convertili in tool calls
+    // Rileva grep -r "pattern" e convertilo in search_in_files
+    const grepMatches = text.matchAll(/```(?:bash)?\s*\n\s*grep\s+-r\s+["']([^"']+)["']\s+\.\s*\n```/g);
+    for (const match of grepMatches) {
+      const pattern = match[1].trim();
+      toolCalls.push({
+        tool: 'search_in_files',
+        args: { pattern }
+      });
+    }
+
+    // Pattern per git_command(gitCommand)
+    const gitMatches = text.matchAll(/git_command\s*\(\s*([^)]+)\s*\)/g);
+    for (const match of gitMatches) {
+      const gitCommand = match[1].replace(/^['"]|['"]$/g, '').trim();
+      toolCalls.push({
+        tool: 'git_command',
+        args: { gitCommand }
+      });
+    }
+
+    // Pattern per read_multiple_files([file1, file2, ...])
+    const readMultipleMatches = text.matchAll(/read_multiple_files\s*\(\s*\[([^\]]+)\]\s*\)/g);
+    for (const match of readMultipleMatches) {
+      const filesStr = match[1];
+      const filePaths = filesStr.split(',').map(f => f.replace(/['"]/g, '').trim());
+      toolCalls.push({
+        tool: 'read_multiple_files',
+        args: { filePaths }
+      });
+    }
+
+    // Pattern per edit_multiple_files([{type: 'write', filePath: '...', content: '...'}, ...])
+    const editMultipleMatches = text.matchAll(/edit_multiple_files\s*\(\s*\[([\s\S]*?)\]\s*\)/g);
+    for (const match of editMultipleMatches) {
+      const editsStr = match[1];
+      try {
+        // Parse the JSON array of edits
+        const edits = JSON.parse(`[${editsStr}]`);
+        toolCalls.push({
+          tool: 'edit_multiple_files',
+          args: { edits }
+        });
+      } catch (error) {
+        console.error('Failed to parse edit_multiple_files:', error);
+      }
+    }
+
     return toolCalls;
   }
 
@@ -138,6 +208,18 @@ export class ToolService {
         case 'search_in_files':
           return await this.searchInFiles(projectId, toolCall.args.pattern);
 
+        case 'execute_command':
+          return await this.executeCommand(projectId, toolCall.args.command);
+
+        case 'git_command':
+          return await this.gitCommand(projectId, toolCall.args.gitCommand);
+
+        case 'read_multiple_files':
+          return await this.readMultipleFiles(projectId, toolCall.args.filePaths);
+
+        case 'edit_multiple_files':
+          return await this.editMultipleFiles(projectId, toolCall.args.edits);
+
         default:
           return `Error: Unknown tool ${toolCall.tool}`;
       }
@@ -160,7 +242,8 @@ export class ToolService {
 
     if (response.data.success) {
       const lines = response.data.content.split('\n').length;
-      return `Reading: ${filePath}\n${lines} lines\n\n${response.data.content}`;
+      const actualFile = response.data.actualFilePath || filePath;
+      return `Reading: ${actualFile}\n${lines} lines\n\n${response.data.content}`;
     } else {
       return `Error: ${response.data.error}`;
     }
@@ -184,14 +267,14 @@ export class ToolService {
 
       if (diffInfo) {
         // Use diff from backend (includes context lines)
-        return `Edit ${filePath}\n└─ Added ${diffInfo.added} lines\n\n${diffInfo.diff}`;
+        return `Write ${filePath}\n└─ Added ${diffInfo.added} lines\n\n${diffInfo.diff}`;
       } else {
         // Fallback if no diffInfo
         const lines = content.split('\n');
         const totalLines = lines.length;
         const preview = lines.slice(0, 10).map((line, i) => `+ ${line}`).join('\n');
         const hasMore = totalLines > 10;
-        return `Edit ${filePath}\n└─ Added ${totalLines} lines\n\n${preview}${hasMore ? `\n\n... ${totalLines - 10} more lines` : ''}`;
+        return `Write ${filePath}\n└─ Added ${totalLines} lines\n\n${preview}${hasMore ? `\n\n... ${totalLines - 10} more lines` : ''}`;
       }
     } else {
       return `Error: ${response.data.error}`;
@@ -271,6 +354,122 @@ export class ToolService {
       return `Searching: "${pattern}"\n${results.length} matches found\n\n${resultList}`;
     } else {
       return `Error: ${response.data.error}`;
+    }
+  }
+
+  /**
+   * Execute bash command in repository - Returns output in command format
+   */
+  private static async executeCommand(
+    projectId: string,
+    command: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/execute-command`,
+      { projectId, command }
+    );
+
+    if (response.data.success) {
+      const stdout = response.data.stdout || '';
+      const stderr = response.data.stderr || '';
+
+      let output = `$ ${command}\n`;
+      if (stdout) output += stdout;
+      if (stderr) output += `\n${stderr}`;
+
+      return output.trim();
+    } else {
+      const stderr = response.data.stderr || response.data.error || 'Command failed';
+      return `$ ${command}\nError: ${stderr}`;
+    }
+  }
+
+  /**
+   * Execute git command in repository - Returns formatted output
+   */
+  private static async gitCommand(
+    projectId: string,
+    gitCommand: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/git-command`,
+      { projectId, gitCommand }
+    );
+
+    if (response.data.success) {
+      const stdout = response.data.stdout || '';
+      const stderr = response.data.stderr || '';
+
+      let output = `git ${gitCommand}\n`;
+      if (stdout) output += stdout;
+      if (stderr) output += `\n${stderr}`;
+
+      return output.trim();
+    } else {
+      const stderr = response.data.stderr || response.data.error || 'Git command failed';
+      return `git ${gitCommand}\nError: ${stderr}`;
+    }
+  }
+
+  /**
+   * Read multiple files at once - Returns formatted output with all files
+   */
+  private static async readMultipleFiles(
+    projectId: string,
+    filePaths: string[]
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/read-multiple-files`,
+      { projectId, filePaths }
+    );
+
+    if (response.data.success) {
+      const results = response.data.results;
+      let output = `Reading ${results.length} files...\n\n`;
+
+      for (const result of results) {
+        if (result.success) {
+          output += `=== ${result.filePath} (${result.lines} lines) ===\n${result.content}\n\n`;
+        } else {
+          output += `=== ${result.filePath} ===\nError: ${result.error}\n\n`;
+        }
+      }
+
+      return output.trim();
+    } else {
+      return `Error reading files: ${response.data.error}`;
+    }
+  }
+
+  /**
+   * Edit multiple files atomically - Returns formatted output
+   */
+  private static async editMultipleFiles(
+    projectId: string,
+    edits: Array<{type: 'write' | 'edit', filePath: string, content?: string, oldString?: string, newString?: string}>
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/edit-multiple-files`,
+      { projectId, edits }
+    );
+
+    if (response.data.success) {
+      const results = response.data.results;
+      let output = `Editing ${results.length} files atomically...\n\n`;
+
+      for (const result of results) {
+        if (result.success) {
+          if (result.type === 'write') {
+            output += `Write ${result.filePath}\n└─ Added ${result.lines} lines\n\n`;
+          } else if (result.type === 'edit') {
+            output += `Edit ${result.filePath}\n└─ File updated successfully\n\n`;
+          }
+        }
+      }
+
+      return output.trim();
+    } else {
+      return `Error: ${response.data.error}${response.data.rolledBack ? ' (changes rolled back)' : ''}`;
     }
   }
 

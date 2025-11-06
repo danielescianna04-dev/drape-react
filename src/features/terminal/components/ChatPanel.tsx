@@ -54,6 +54,17 @@ export const ChatPanel = ({ onClose }: Props) => {
 
   const handleNewChat = () => {
     const chatId = Date.now().toString();
+    const newChat = {
+      id: chatId,
+      title: 'Nuova Conversazione',
+      createdAt: new Date(),
+      lastUsed: new Date(),
+      messages: [],
+      aiModel: 'gemini-2.0-flash-exp',
+    };
+
+    // Save chat to chatHistory immediately
+    useTerminalStore.getState().addChat(newChat);
 
     // Don't save chat to chatHistory yet - it will be saved when the first message is sent
     // Just create a new tab
