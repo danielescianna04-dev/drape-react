@@ -97,6 +97,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Store input for each tab separately
   const tabInputsRef = useRef<Record<string, string>>({});
+  const previousTabIdRef = useRef<string | undefined>();
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
@@ -110,19 +111,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
-  // Load input for current tab when switching
+  // Save and load input when tab ACTUALLY changes (not on every render)
   useEffect(() => {
     if (!currentTab?.id) return;
-    const savedInput = tabInputsRef.current[currentTab.id] || '';
-    setInput(savedInput);
-  }, [currentTab?.id]);
 
-  // Save input whenever it changes
-  useEffect(() => {
-    if (currentTab?.id) {
+    // Only act if tab has actually changed
+    if (previousTabIdRef.current !== currentTab.id) {
+      // Save input from previous tab
+      if (previousTabIdRef.current) {
+        tabInputsRef.current[previousTabIdRef.current] = input;
+      }
+
+      // Load input for new tab
+      const savedInput = tabInputsRef.current[currentTab.id] || '';
+      setInput(savedInput);
+
+      // Update previous tab reference
+      previousTabIdRef.current = currentTab.id;
+    } else {
+      // Same tab - just save the current input
       tabInputsRef.current[currentTab.id] = input;
     }
-  }, [input, currentTab?.id]);
+  }, [currentTab?.id, input]);
 
   const {
     hasInteracted,
