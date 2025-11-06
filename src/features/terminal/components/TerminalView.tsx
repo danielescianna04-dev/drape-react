@@ -10,13 +10,14 @@ import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
-  sourceTabId: string; // The tab whose commands we're displaying
+  terminalTabId: string; // The terminal tab itself (where to write new commands)
+  sourceTabId: string; // The tab whose commands we're displaying (read-only)
 }
 
 /**
  * TerminalView - Interactive terminal showing AI command history and allowing direct command execution
  */
-export const TerminalView = ({ sourceTabId }: Props) => {
+export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
@@ -70,8 +71,8 @@ export const TerminalView = ({ sourceTabId }: Props) => {
     setInput('');
     setIsExecuting(true);
 
-    // Add command to terminal
-    addTerminalItemToTab(sourceTabId, {
+    // Add command to terminal (write to terminalTabId, not sourceTabId)
+    addTerminalItemToTab(terminalTabId, {
       id: Date.now().toString(),
       content: command,
       type: TerminalItemType.COMMAND,
@@ -87,8 +88,8 @@ export const TerminalView = ({ sourceTabId }: Props) => {
         }
       );
 
-      // Add output to terminal
-      addTerminalItemToTab(sourceTabId, {
+      // Add output to terminal (write to terminalTabId, not sourceTabId)
+      addTerminalItemToTab(terminalTabId, {
         id: (Date.now() + 1).toString(),
         content: response.data.output || '',
         type: response.data.error ? TerminalItemType.ERROR : TerminalItemType.OUTPUT,
@@ -96,8 +97,8 @@ export const TerminalView = ({ sourceTabId }: Props) => {
         exitCode: response.data.exitCode,
       });
     } catch (error: any) {
-      // Add error to terminal
-      addTerminalItemToTab(sourceTabId, {
+      // Add error to terminal (write to terminalTabId, not sourceTabId)
+      addTerminalItemToTab(terminalTabId, {
         id: (Date.now() + 1).toString(),
         content: error.response?.data?.error || error.message || 'Unknown error',
         type: TerminalItemType.ERROR,

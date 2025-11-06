@@ -799,7 +799,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           onClose={() => {}}
         />
       ) : currentTab?.type === 'terminal' ? (
-        <TerminalView sourceTabId={currentTab.data?.sourceTabId || currentTab.id} />
+        <TerminalView
+          terminalTabId={currentTab.id}
+          sourceTabId={currentTab.data?.sourceTabId || currentTab.id}
+        />
       ) : currentTab?.type === 'github' ? (
         <GitHubView tab={currentTab} />
       ) : currentTab?.type === 'browser' ? (
