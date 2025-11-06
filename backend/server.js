@@ -275,30 +275,67 @@ Linee guida per le risposte:
             if (context.repositoryUrl) {
                 systemMessage += `\n- Repository: ${context.repositoryUrl}`;
             }
-            systemMessage += '\n\nHai accesso ai seguenti strumenti per interagire con il progetto:\n';
-            systemMessage += '1. read_file(path) - Leggi il contenuto di un file\n';
-            systemMessage += '2. write_file(path, content) - Scrivi o sovrascrivi un file\n';
-            systemMessage += '3. list_files(directory) - Elenca i file in una directory\n';
-            systemMessage += '4. search_in_files(pattern) - Cerca un pattern nei file del progetto\n\n';
+            systemMessage += '\n\n🔧 STRUMENTI DISPONIBILI (come Claude Code):\n\n';
+            systemMessage += '1. read_file(path)\n';
+            systemMessage += '   → Leggi il contenuto di un file\n';
+            systemMessage += '   → Esempio: read_file(src/app.js)\n\n';
+
+            systemMessage += '2. edit_file(path, oldString, newString) ⭐ PREFERISCI QUESTO!\n';
+            systemMessage += '   → Modifica file esistente con search & replace\n';
+            systemMessage += '   → Esempio: edit_file(app.js, "const x = 1", "const x = 2")\n';
+            systemMessage += '   → ✅ Veloce, preciso, diff automatico\n';
+            systemMessage += '   → ✅ Non devi riscrivere tutto il file!\n';
+            systemMessage += '   → ⚠️ La stringa oldString DEVE esistere esattamente nel file\n\n';
+
+            systemMessage += '3. write_file(path, content)\n';
+            systemMessage += '   → Crea NUOVI file o riscrive completamente file esistenti\n';
+            systemMessage += '   → ⚠️ SOVRASCRIVE tutto il contenuto!\n';
+            systemMessage += '   → Usa solo per: file nuovi, refactoring completo\n';
+            systemMessage += '   → Esempio: write_file(new.js, "console.log(\'hello\')")\n\n';
+
+            systemMessage += '4. list_files(directory) - Elenca file in una directory\n';
+            systemMessage += '5. search_in_files(pattern) - Cerca pattern nei file\n\n';
+
+            systemMessage += '💡 QUANDO USARE OGNI TOOL:\n';
+            systemMessage += '• Aggiungere/modificare righe → edit_file() ⭐\n';
+            systemMessage += '• Cambiare una funzione → edit_file() ⭐\n';
+            systemMessage += '• Creare file nuovo → write_file()\n';
+            systemMessage += '• Refactoring completo → write_file()\n\n';
             systemMessage += 'IMPORTANTE - Come usare gli strumenti:\n';
             systemMessage += '1. PRIMA annuncia cosa stai per fare (es: "Leggo il file deploy_now.md")\n';
             systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri (es: "read_file(deploy_now.md)")\n';
             systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato e cosa puoi fare\n';
             systemMessage += '4. NON mostrare mai il contenuto completo del file nella tua risposta, il sistema lo mostrerà automaticamente\n';
             systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
-            systemMessage += 'Esempio READ:\n';
-            systemMessage += 'Utente: "Leggi il file deploy_now.md"\n';
-            systemMessage += 'Tu: "Leggo il file deploy_now.md"\n';
-            systemMessage += 'Tu: read_file(deploy_now.md)\n';
-            systemMessage += 'Tu: "Il file contiene le istruzioni per il deploy del progetto."\n\n';
-            systemMessage += 'Esempio WRITE - IMPORTANTISSIMO:\n';
-            systemMessage += 'Utente: "Aggiungi Leon alla fine del file"\n';
+            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            systemMessage += '📖 ESEMPI DI UTILIZZO:\n';
+            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+            systemMessage += 'Esempio 1: READ\n';
+            systemMessage += 'Utente: "Leggi il file app.js"\n';
+            systemMessage += 'Tu: "Leggo il file app.js"\n';
+            systemMessage += 'Tu: read_file(app.js)\n';
+            systemMessage += 'Tu: "Il file contiene la configurazione principale dell\'app."\n\n';
+
+            systemMessage += 'Esempio 2: EDIT ⭐ (PREFERITO per modifiche)\n';
+            systemMessage += 'Utente: "Aggiungi Leon alla fine del file deploy.txt"\n';
             systemMessage += 'Tu: "Leggo prima il file"\n';
-            systemMessage += 'Tu: read_file(deploy_now.md)\n';
-            systemMessage += 'Tu: "Ora modifico il file aggiungendo Leon"\n';
-            systemMessage += 'Tu: write_file(deploy_now.md, Deploy instructions here\\nLeon)\n';
-            systemMessage += 'Tu: "Ho aggiunto Leon alla fine del file"\n';
-            systemMessage += 'NOTA: write_file() deve ricevere il CONTENUTO COMPLETO del file, non il nome di un comando!';
+            systemMessage += 'Tu: read_file(deploy.txt)\n';
+            systemMessage += '[Sistema mostra: "Deploy instructions"]\n';
+            systemMessage += 'Tu: "Ora aggiungo Leon alla fine"\n';
+            systemMessage += 'Tu: edit_file(deploy.txt, Deploy instructions, Deploy instructions\\nLeon)\n';
+            systemMessage += 'Tu: "✅ Ho aggiunto Leon alla fine del file"\n\n';
+
+            systemMessage += 'Esempio 3: WRITE (solo per file nuovi)\n';
+            systemMessage += 'Utente: "Crea un file config.json"\n';
+            systemMessage += 'Tu: "Creo il file config.json"\n';
+            systemMessage += 'Tu: write_file(config.json, {\\"version\\": \\"1.0\\"})\n';
+            systemMessage += 'Tu: "✅ File creato"\n\n';
+
+            systemMessage += '⚠️ IMPORTANTE:\n';
+            systemMessage += '• USA edit_file() quando modifichi file esistenti\n';
+            systemMessage += '• USA write_file() SOLO per file nuovi o refactoring completi\n';
+            systemMessage += '• SEMPRE leggi il file prima di modificarlo (per sapere cosa contiene)\n';
         }
 
         // Build messages array for Groq
@@ -871,6 +908,143 @@ app.post('/workstation/write-file', async (req, res) => {
         });
     } catch (error) {
         console.error('Write file error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Edit file using search & replace (like Claude Code)
+app.post('/workstation/edit-file', async (req, res) => {
+    const { projectId, filePath, oldString, newString } = req.body;
+
+    try {
+        const fs = require('fs').promises;
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+        const fullPath = path.join(repoPath, filePath);
+
+        console.log('✏️  Editing file:', fullPath);
+        console.log('🔍 Searching for:', oldString.substring(0, 100) + (oldString.length > 100 ? '...' : ''));
+
+        // Unescape special characters in both strings
+        const unescapeString = (str) => str
+            .replace(/\\n/g, '\n')
+            .replace(/\\t/g, '\t')
+            .replace(/\\r/g, '\r')
+            .replace(/\\"/g, '"')
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, '\\');
+
+        const unescapedOld = unescapeString(oldString);
+        const unescapedNew = unescapeString(newString);
+
+        // Read current file content
+        let originalContent;
+        try {
+            originalContent = await fs.readFile(fullPath, 'utf8');
+        } catch (readError) {
+            return res.status(404).json({
+                success: false,
+                error: 'File not found. Use write_file() to create new files.',
+                filePath: filePath
+            });
+        }
+
+        // Check if old string exists in file
+        if (!originalContent.includes(unescapedOld)) {
+            return res.status(400).json({
+                success: false,
+                error: 'String not found in file',
+                suggestion: 'Read the file first with read_file() to see the exact content',
+                searchedFor: unescapedOld.substring(0, 200),
+                filePreview: originalContent.substring(0, 500)
+            });
+        }
+
+        // Replace old string with new string
+        const newContent = originalContent.replace(unescapedOld, unescapedNew);
+
+        // Generate diff
+        const oldLines = originalContent.split('\n');
+        const newLines = newContent.split('\n');
+
+        let diffLines = [];
+        let addedCount = 0;
+        let removedCount = 0;
+        let lastDiffIndex = -10;
+
+        for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+            const oldLine = oldLines[i];
+            const newLine = newLines[i];
+
+            if (oldLine !== newLine) {
+                if (i - lastDiffIndex > 11 && diffLines.length > 0) {
+                    diffLines.push('...');
+                }
+
+                const contextStart = Math.max(0, i - 5);
+                const contextEnd = i;
+
+                for (let j = contextStart; j < contextEnd; j++) {
+                    const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+                    if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
+                        diffLines.push(`  ${contextLine}`);
+                    }
+                }
+
+                if (oldLine !== undefined && newLine !== oldLine) {
+                    diffLines.push(`- ${oldLine}`);
+                    removedCount++;
+                }
+
+                if (newLine !== undefined && newLine !== oldLine) {
+                    diffLines.push(`+ ${newLine}`);
+                    addedCount++;
+                }
+
+                const afterStart = i + 1;
+                const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
+
+                for (let j = afterStart; j < afterEnd; j++) {
+                    const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+                    if (oldLines[j] === newLines[j]) {
+                        diffLines.push(`  ${contextLine}`);
+                    } else {
+                        break;
+                    }
+                }
+
+                lastDiffIndex = i;
+            }
+        }
+
+        if (diffLines.length > 30) {
+            diffLines = diffLines.slice(0, 30);
+            diffLines.push('...');
+            diffLines.push(`(${diffLines.length - 30} more lines)`);
+        }
+
+        const diffInfo = {
+            added: addedCount,
+            removed: removedCount,
+            diff: diffLines.join('\n')
+        };
+
+        // Write the modified content
+        await fs.writeFile(fullPath, newContent, 'utf8');
+
+        console.log('✅ File edited successfully');
+        console.log(`📊 Changes: +${addedCount} -${removedCount}`);
+
+        res.json({
+            success: true,
+            message: 'File edited successfully',
+            diffInfo: diffInfo
+        });
+    } catch (error) {
+        console.error('Edit file error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
