@@ -46,7 +46,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     });
   }, []);
 
-  // Handle terminal icon click - open/create terminal tab showing commands from current tab
+  // Handle terminal icon click - open/create AI terminal tab showing commands from current chat tab
   const handleTerminalClick = useCallback(() => {
     // Close any open panel first
     setActivePanel(null);
@@ -54,21 +54,23 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     // Get the currently active tab (the one we're working on)
     const currentTab = tabs.find(t => t.id === activeTabId);
 
-    // Look for existing terminal tab
-    const terminalTab = tabs.find(t => t.type === 'terminal');
+    // Look for existing AI terminal tab (has specific ID 'terminal-ai')
+    // This is different from manual terminals created by the user
+    const aiTerminalTab = tabs.find(t => t.id === 'terminal-ai');
 
-    if (terminalTab) {
-      // Update terminal tab to show current tab's commands and switch to it
+    if (aiTerminalTab) {
+      // AI terminal already exists - update it to show current tab's commands and switch to it
       addTab({
-        ...terminalTab,
+        ...aiTerminalTab,
         data: { sourceTabId: activeTabId }, // Track which tab's commands to show
       });
+      setActiveTab('terminal-ai');
     } else {
-      // Create new terminal tab showing commands from current tab
+      // Create new AI terminal tab showing commands from current tab
       addTab({
-        id: `terminal-${Date.now()}`,
+        id: 'terminal-ai', // Fixed ID for AI terminal
         type: 'terminal',
-        title: 'Terminal',
+        title: 'Terminal AI',
         data: { sourceTabId: activeTabId }, // Track which tab's commands to show
       });
     }
