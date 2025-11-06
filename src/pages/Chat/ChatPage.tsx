@@ -429,8 +429,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     const userMessage = input.trim();
 
-    // Auto-save chat on first message
-    const isFirstMessage = !currentTab?.terminalItems || currentTab.terminalItems.length === 0;
+    // Auto-save chat on first message - check if this is the first USER message (not system messages)
+    const userMessages = currentTab?.terminalItems?.filter(item =>
+      item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.COMMAND
+    ) || [];
+    const isFirstMessage = userMessages.length === 0;
+
     if (isFirstMessage && currentTab?.type === 'chat' && currentTab.data?.chatId) {
       const chatId = currentTab.data.chatId;
       const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
