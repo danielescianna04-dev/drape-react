@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Keyboard, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -150,7 +150,11 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+    >
       {/* Header with gradient */}
       <LinearGradient
         colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.05)', 'transparent']}
@@ -283,7 +287,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       </ScrollView>
 
       {/* Interactive Terminal Input */}
-      <View style={[styles.inputContainer, { marginBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom : 0 }]}>
+      <View style={styles.inputContainer}>
         <LinearGradient
           colors={['transparent', 'rgba(0, 0, 0, 0.3)']}
           style={styles.inputGradient}
@@ -325,7 +329,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
           </View>
         </LinearGradient>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
