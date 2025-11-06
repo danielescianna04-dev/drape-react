@@ -107,6 +107,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
+  // Reset input when switching tabs to prevent input appearing in all chats
+  useEffect(() => {
+    setInput('');
+  }, [currentTab?.id]);
+
   const {
     hasInteracted,
     setGitHubUser,

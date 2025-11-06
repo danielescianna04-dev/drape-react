@@ -42,7 +42,11 @@ export const useTabStore = create<TabStore>((set) => ({
     // Check if tab already exists
     const exists = state.tabs.find(t => t.id === tab.id);
     if (exists) {
-      return { activeTabId: tab.id };
+      // Tab exists - update it with new data and set as active
+      return {
+        tabs: state.tabs.map(t => t.id === tab.id ? { ...t, ...tab } : t),
+        activeTabId: tab.id
+      };
     }
     return {
       tabs: [...state.tabs, tab],
