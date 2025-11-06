@@ -283,7 +283,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       </ScrollView>
 
       {/* Interactive Terminal Input */}
-      <View style={styles.inputContainer}>
+      <View style={[styles.inputContainer, { marginBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom : 0 }]}>
         <LinearGradient
           colors={['transparent', 'rgba(0, 0, 0, 0.3)']}
           style={styles.inputGradient}

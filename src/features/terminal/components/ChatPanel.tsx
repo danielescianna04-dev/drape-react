@@ -16,7 +16,7 @@ export const ChatPanel = ({ onClose }: Props) => {
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat } = useTerminalStore();
-  const { addTab, tabs, removeTab, updateTab } = useTabStore();
+  const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
 
   const filteredChats = chatHistory.filter((chat) =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -24,12 +24,22 @@ export const ChatPanel = ({ onClose }: Props) => {
 
   const handleSelectChat = (chat: any) => {
     setCurrentChat(chat);
-    addTab({
-      id: `chat-${chat.id}`,
-      type: 'chat',
-      title: chat.title || 'Chat',
-      data: { chatId: chat.id }
-    });
+
+    // Check if a tab with this chatId already exists
+    const existingTab = tabs.find(t => t.type === 'chat' && t.data?.chatId === chat.id);
+
+    if (existingTab) {
+      // Tab already exists, just activate it
+      setActiveTab(existingTab.id);
+    } else {
+      // Create new tab
+      addTab({
+        id: `chat-${chat.id}`,
+        type: 'chat',
+        title: chat.title || 'Chat',
+        data: { chatId: chat.id }
+      });
+    }
     onClose();
   };
 
