@@ -321,10 +321,11 @@ Linee guida per le risposte:
             systemMessage += 'Utente: "Aggiungi Leon alla fine del file deploy.txt"\n';
             systemMessage += 'Tu: "Leggo prima il file"\n';
             systemMessage += 'Tu: read_file(deploy.txt)\n';
-            systemMessage += '[Sistema mostra: "Deploy instructions"]\n';
-            systemMessage += 'Tu: "Ora aggiungo Leon alla fine"\n';
-            systemMessage += 'Tu: edit_file(deploy.txt, Deploy instructions, Deploy instructions\\nLeon)\n';
-            systemMessage += 'Tu: "✅ Ho aggiunto Leon alla fine del file"\n\n';
+            systemMessage += '[Sistema mostra in READ format il contenuto: "Il file contiene istruzioni"]\n';
+            systemMessage += 'Tu: "Ora aggiungo Leon alla fine usando edit_file"\n';
+            systemMessage += 'Tu: edit_file(deploy.txt, Il file contiene istruzioni, Il file contiene istruzioni\\nLeon)\n';
+            systemMessage += '       ↑↑↑ COPIA ESATTAMENTE IL TESTO CHE HAI LETTO (non riassumere!)\n';
+            systemMessage += 'Tu: "✅ Aggiunto Leon"\n\n';
 
             systemMessage += 'Esempio 3: WRITE (solo per file nuovi)\n';
             systemMessage += 'Utente: "Crea un file config.json"\n';
@@ -332,10 +333,13 @@ Linee guida per le risposte:
             systemMessage += 'Tu: write_file(config.json, {\\"version\\": \\"1.0\\"})\n';
             systemMessage += 'Tu: "✅ File creato"\n\n';
 
-            systemMessage += '⚠️ IMPORTANTE:\n';
-            systemMessage += '• USA edit_file() quando modifichi file esistenti\n';
-            systemMessage += '• USA write_file() SOLO per file nuovi o refactoring completi\n';
-            systemMessage += '• SEMPRE leggi il file prima di modificarlo (per sapere cosa contiene)\n';
+            systemMessage += '⚠️ REGOLE CRITICHE per edit_file():\n';
+            systemMessage += '1. SEMPRE chiama read_file() PRIMA di edit_file()\n';
+            systemMessage += '2. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
+            systemMessage += '3. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
+            systemMessage += '4. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
+            systemMessage += '🎯 WORKFLOW CORRETTO:\n';
+            systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
         }
 
         // Build messages array for Groq
