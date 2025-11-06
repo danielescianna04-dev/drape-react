@@ -34,20 +34,24 @@ export const ChatPanel = ({ onClose }: Props) => {
   };
 
   const handleNewChat = () => {
+    const chatId = Date.now().toString();
     const newChat = {
-      id: Date.now().toString(),
+      id: chatId,
       title: 'Nuova Conversazione',
       createdAt: new Date(),
       lastUsed: new Date(),
       messages: [],
-      aiModel: 'gpt-4',
+      aiModel: 'llama-3.1-8b-instant',
     };
 
+    // Save chat to chatHistory immediately
+    useTerminalStore.getState().addChat(newChat);
+
     addTab({
-      id: `chat-${newChat.id}`,
+      id: `chat-${chatId}`,
       type: 'chat',
       title: newChat.title,
-      data: { chatId: newChat.id }
+      data: { chatId: chatId }
     });
     onClose();
   };

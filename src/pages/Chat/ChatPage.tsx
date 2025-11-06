@@ -431,34 +431,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Auto-save chat on first message
     const isFirstMessage = !currentTab?.terminalItems || currentTab.terminalItems.length === 0;
-    if (isFirstMessage && currentTab?.type === 'chat') {
-      // Generate title from first message (first 50 chars or until punctuation)
-      let title = userMessage.slice(0, 50);
-      const punctuationIndex = title.search(/[.!?]/);
-      if (punctuationIndex > 10) {
-        title = title.slice(0, punctuationIndex);
+    if (isFirstMessage && currentTab?.type === 'chat' && currentTab.data?.chatId) {
+      const chatId = currentTab.data.chatId;
+      const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+
+      if (existingChat) {
+        // Chat already exists, just update title and description from first message
+        let title = userMessage.slice(0, 50);
+        const punctuationIndex = title.search(/[.!?]/);
+        if (punctuationIndex > 10) {
+          title = title.slice(0, punctuationIndex);
+        }
+        if (userMessage.length > 50) title += '...';
+
+        useTerminalStore.getState().updateChat(chatId, {
+          title: title,
+          description: userMessage.slice(0, 100),
+          lastUsed: new Date(),
+        });
+
+        // Update tab title to match chat title
+        updateTab(currentTab.id, { title: title });
       }
-      if (userMessage.length > 50) title += '...';
-
-      // Create new chat session
-      const chatId = currentTab.data?.chatId || currentTab.id;
-      const newChat = {
-        id: chatId,
-        title: title,
-        description: userMessage.slice(0, 100), // First 100 chars as description
-        createdAt: new Date(),
-        lastUsed: new Date(),
-        messages: [],
-        aiModel: selectedModel,
-        repositoryId: currentWorkstation?.id,
-        repositoryName: currentWorkstation?.name,
-      };
-
-      // Save to chat history
-      useTerminalStore.getState().addChat(newChat);
-
-      // Update tab title to match chat title
-      updateTab(currentTab.id, { title: title });
     } else if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
       // Update lastUsed for existing chat
       useTerminalStore.getState().updateChatLastUsed(currentTab.data.chatId);
