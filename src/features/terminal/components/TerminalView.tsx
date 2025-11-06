@@ -332,6 +332,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
+    paddingLeft: 50, // Spazio per la sidebar laterale
   },
   headerGradient: {
     paddingBottom: 12,
