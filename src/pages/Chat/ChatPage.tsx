@@ -702,8 +702,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             // Execute each tool call in separate terminal items (as bash commands)
             for (const toolCall of toolCalls) {
-              // For write_file, only show output (no command)
-              if (toolCall.tool === 'write_file') {
+              // For write_file and edit_file, only show output (no command)
+              if (toolCall.tool === 'write_file' || toolCall.tool === 'edit_file') {
                 // Execute the tool
                 const result = await ToolService.executeTool(projectId, toolCall);
 
