@@ -639,10 +639,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             isProcessingToolsRef.current = true;
             console.log('🔧 Processing', toolCalls.length, 'tool calls');
 
-            // Clean the AI message by removing tool call syntax
-            const cleanedContent = ToolService.removeToolCallsFromText(streamedContent);
+            // Split content into before and after tool calls
+            const firstToolCallMatch = streamedContent.match(/(read_file|write_file|list_files|search_in_files)\s*\(/);
+            const toolCallIndex = firstToolCallMatch ? streamedContent.indexOf(firstToolCallMatch[0]) : -1;
 
-            // Update the AI message to remove tool call syntax
+            let beforeToolCall = streamedContent;
+            let afterToolCall = '';
+
+            if (toolCallIndex !== -1) {
+              beforeToolCall = streamedContent.substring(0, toolCallIndex).trim();
+              // Find where tool call ends and extract text after it
+              const afterToolCallStart = streamedContent.substring(toolCallIndex);
+              const toolCallEnd = afterToolCallStart.indexOf('\n');
+              if (toolCallEnd !== -1) {
+                afterToolCall = afterToolCallStart.substring(toolCallEnd + 1).trim();
+              }
+            }
+
+            // Clean the AI message by removing tool call syntax (keep only before part)
+            const cleanedContent = ToolService.removeToolCallsFromText(beforeToolCall);
+
+            // Update the AI message to show only the part before tool call
             useTabStore.setState((state) => ({
               tabs: state.tabs.map(t =>
                 t.id === currentTab?.id
@@ -718,8 +735,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               await new Promise(resolve => setTimeout(resolve, 100));
             }
 
+            // Add the text that came after the tool call (AI's response after tool execution)
+            if (afterToolCall) {
+              const cleanedAfterToolCall = ToolService.removeToolCallsFromText(afterToolCall);
+              if (cleanedAfterToolCall.trim()) {
+                addTerminalItem({
+                  id: (Date.now() + Math.random()).toString(),
+                  content: cleanedAfterToolCall,
+                  type: TerminalItemType.OUTPUT,
+                  timestamp: new Date(),
+                });
+              }
+            }
+
             // Update streamedContent for conversation history
-            streamedContent = cleanedContent;
+            // Include both before and after tool call text, but not the tool output
+            streamedContent = cleanedContent + (afterToolCall ? '\n' + ToolService.removeToolCallsFromText(afterToolCall) : '');
 
             // Reset flag after processing
             isProcessingToolsRef.current = false;
@@ -809,8 +840,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   return acc;
                 }
 
-                // Check if next item is an OUTPUT for this COMMAND
+                // Check if next item exists and is not a user message
                 const nextItem = filteredArray[index + 1];
+                const isNextItemAI = nextItem && !(nextItem.type === TerminalItemType.COMMAND && !isCommand(nextItem.content || ''));
                 const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
                 const outputItem =
                   item.type === TerminalItemType.COMMAND &&
@@ -823,7 +855,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   <TerminalItemComponent
                     key={index}
                     item={item}
-                    isNextItemOutput={isNextItemOutput}
+                    isNextItemOutput={isNextItemAI}
                     outputItem={outputItem}
                   />
                 );

@@ -252,7 +252,7 @@ app.post('/github/exchange-code', async (req, res) => {
 
 // AI Chat endpoint - Using Groq for fast and free streaming with tool calling
 app.post('/ai/chat', async (req, res) => {
-    const { prompt, conversationHistory = [], model = 'llama-3.1-8b-instant', workstationId, context, projectId, repositoryUrl } = req.body;
+    const { prompt, conversationHistory = [], model = 'llama-3.3-70b-versatile', workstationId, context, projectId, repositoryUrl } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
@@ -286,12 +286,19 @@ Linee guida per le risposte:
             systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato e cosa puoi fare\n';
             systemMessage += '4. NON mostrare mai il contenuto completo del file nella tua risposta, il sistema lo mostrerà automaticamente\n';
             systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
-            systemMessage += 'Esempio corretto:\n';
+            systemMessage += 'Esempio READ:\n';
             systemMessage += 'Utente: "Leggi il file deploy_now.md"\n';
             systemMessage += 'Tu: "Leggo il file deploy_now.md"\n';
             systemMessage += 'Tu: read_file(deploy_now.md)\n';
-            systemMessage += '[Il sistema esegue il tool]\n';
-            systemMessage += 'Tu: "Il file contiene le istruzioni per il deploy del progetto. Posso aiutarti a eseguire il deploy o preferisci che ti spieghi i passaggi?"';
+            systemMessage += 'Tu: "Il file contiene le istruzioni per il deploy del progetto."\n\n';
+            systemMessage += 'Esempio WRITE - IMPORTANTISSIMO:\n';
+            systemMessage += 'Utente: "Aggiungi Leon alla fine del file"\n';
+            systemMessage += 'Tu: "Leggo prima il file"\n';
+            systemMessage += 'Tu: read_file(deploy_now.md)\n';
+            systemMessage += 'Tu: "Ora modifico il file aggiungendo Leon"\n';
+            systemMessage += 'Tu: write_file(deploy_now.md, Deploy instructions here\\nLeon)\n';
+            systemMessage += 'Tu: "Ho aggiunto Leon alla fine del file"\n';
+            systemMessage += 'NOTA: write_file() deve ricevere il CONTENUTO COMPLETO del file, non il nome di un comando!';
         }
 
         // Build messages array for Groq
