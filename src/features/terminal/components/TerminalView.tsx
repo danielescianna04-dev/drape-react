@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -28,6 +28,10 @@ export const TerminalView = ({ sourceTabId }: Props) => {
   // Get terminal items from the source tab
   const sourceTab = tabs.find(t => t.id === sourceTabId);
   const terminalItems = sourceTab?.terminalItems || [];
+
+  // Check if this is an AI command history terminal (opened from sidebar)
+  // The sourceTabId will be different from the terminal tab's own ID if it's showing another tab's commands
+  const isAICommandHistory = sourceTab && sourceTab.id !== sourceTabId && sourceTab.type !== 'terminal';
 
   // Keyboard listeners
   useEffect(() => {
@@ -145,11 +149,7 @@ export const TerminalView = ({ sourceTabId }: Props) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={100}
-    >
+    <View style={styles.container}>
       {/* Header with gradient */}
       <LinearGradient
         colors={['rgba(139, 124, 246, 0.15)', 'rgba(139, 124, 246, 0.05)', 'transparent']}
@@ -197,9 +197,14 @@ export const TerminalView = ({ sourceTabId }: Props) => {
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.2)" />
-            <Text style={styles.emptyText}>Nessun comando eseguito</Text>
+            <Text style={styles.emptyText}>
+              {isAICommandHistory ? 'Nessun comando eseguito' : 'Terminal Interattivo'}
+            </Text>
             <Text style={styles.emptySubtext}>
-              I comandi eseguiti dall'AI appariranno qui
+              {isAICommandHistory
+                ? 'I comandi eseguiti dall\'AI appariranno qui'
+                : 'Inizia a digitare comandi per interagire con il terminale'
+              }
             </Text>
           </View>
         ) : (
@@ -319,7 +324,7 @@ export const TerminalView = ({ sourceTabId }: Props) => {
           </View>
         </LinearGradient>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
