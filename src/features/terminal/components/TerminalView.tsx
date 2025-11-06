@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -7,6 +7,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   sourceTabId: string; // The tab whose commands we're displaying
@@ -19,21 +20,44 @@ export const TerminalView = ({ sourceTabId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
   const { currentWorkstation } = useTerminalStore();
+  const insets = useSafeAreaInsets();
 
   // Get terminal items from the source tab
   const sourceTab = tabs.find(t => t.id === sourceTabId);
   const terminalItems = sourceTab?.terminalItems || [];
 
-  // Auto-scroll to bottom when new items are added
+  // Keyboard listeners
   useEffect(() => {
-    if (scrollViewRef.current && terminalItems.length > 0) {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
+
+  // Auto-scroll to bottom when new items are added or keyboard opens
+  useEffect(() => {
+    if (scrollViewRef.current && (terminalItems.length > 0 || keyboardHeight > 0)) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [terminalItems]);
+  }, [terminalItems, keyboardHeight]);
 
   const handleCommand = async () => {
     if (!input.trim() || isExecuting) return;
@@ -143,7 +167,9 @@ export const TerminalView = ({ sourceTabId }: Props) => {
             </View>
             <View>
               <Text style={styles.headerTitle}>Terminal</Text>
-              <Text style={styles.headerSubtitle}>{sourceTab?.title || 'Unknown Tab'}</Text>
+              <Text style={styles.headerSubtitle}>
+                {currentWorkstation?.name || 'No workspace'}
+              </Text>
             </View>
           </View>
           <View style={styles.headerRight}>
@@ -161,8 +187,12 @@ export const TerminalView = ({ sourceTabId }: Props) => {
       <ScrollView
         ref={scrollViewRef}
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom + 80 : 80 }
+        ]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
@@ -175,47 +205,71 @@ export const TerminalView = ({ sourceTabId }: Props) => {
         ) : (
           <View style={styles.terminalList}>
             {terminalItems.map((item, index) => (
-              <View key={item.id || index} style={styles.terminalItem}>
-                <View style={styles.terminalItemHeader}>
-                  <View style={styles.terminalItemLeft}>
-                    <Ionicons
-                      name={getItemIcon(item.type)}
-                      size={14}
-                      color={getItemColor(item.type)}
-                    />
-                    <Text style={[styles.terminalItemType, { color: getItemColor(item.type) }]}>
-                      {item.type.toUpperCase()}
+              <View key={item.id || index} style={styles.terminalItemWrapper}>
+                <LinearGradient
+                  colors={
+                    item.type === TerminalItemType.ERROR
+                      ? ['rgba(255, 107, 107, 0.08)', 'rgba(255, 107, 107, 0.03)']
+                      : item.type === TerminalItemType.COMMAND
+                      ? ['rgba(139, 124, 246, 0.08)', 'rgba(139, 124, 246, 0.03)']
+                      : ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.02)']
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.terminalItem}
+                >
+                  <View style={styles.terminalItemHeader}>
+                    <View style={styles.terminalItemLeft}>
+                      <View style={[
+                        styles.iconCircle,
+                        {
+                          backgroundColor: item.type === TerminalItemType.ERROR
+                            ? 'rgba(255, 107, 107, 0.15)'
+                            : item.type === TerminalItemType.COMMAND
+                            ? 'rgba(139, 124, 246, 0.15)'
+                            : 'rgba(255, 255, 255, 0.08)'
+                        }
+                      ]}>
+                        <Ionicons
+                          name={getItemIcon(item.type)}
+                          size={12}
+                          color={getItemColor(item.type)}
+                        />
+                      </View>
+                      <Text style={[styles.terminalItemType, { color: getItemColor(item.type) }]}>
+                        {item.type.toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={styles.terminalItemTime}>
+                      {formatTimestamp(item.timestamp)}
                     </Text>
                   </View>
-                  <Text style={styles.terminalItemTime}>
-                    {formatTimestamp(item.timestamp)}
-                  </Text>
-                </View>
 
-                <View style={styles.terminalItemContent}>
-                  <Text
-                    style={[
-                      styles.terminalItemText,
-                      { color: getItemColor(item.type) }
-                    ]}
-                    selectable
-                  >
-                    {item.content}
-                  </Text>
+                  <View style={styles.terminalItemContent}>
+                    <Text
+                      style={[
+                        styles.terminalItemText,
+                        { color: getItemColor(item.type) }
+                      ]}
+                      selectable
+                    >
+                      {item.content}
+                    </Text>
 
-                  {item.errorDetails && (
-                    <View style={styles.errorDetails}>
-                      <Ionicons name="information-circle-outline" size={14} color="#FF6B6B" />
-                      <Text style={styles.errorDetailsText}>{item.errorDetails}</Text>
-                    </View>
-                  )}
+                    {item.errorDetails && (
+                      <View style={styles.errorDetails}>
+                        <Ionicons name="information-circle-outline" size={14} color="#FF6B6B" />
+                        <Text style={styles.errorDetailsText}>{item.errorDetails}</Text>
+                      </View>
+                    )}
 
-                  {item.exitCode !== undefined && item.exitCode !== 0 && (
-                    <View style={styles.exitCode}>
-                      <Text style={styles.exitCodeText}>Exit Code: {item.exitCode}</Text>
-                    </View>
-                  )}
-                </View>
+                    {item.exitCode !== undefined && item.exitCode !== 0 && (
+                      <View style={styles.exitCode}>
+                        <Text style={styles.exitCodeText}>Exit Code: {item.exitCode}</Text>
+                      </View>
+                    )}
+                  </View>
+                </LinearGradient>
               </View>
             ))}
           </View>
@@ -374,12 +428,24 @@ const styles = StyleSheet.create({
   terminalList: {
     gap: 12,
   },
-  terminalItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+  terminalItemWrapper: {
+    borderRadius: 12,
     overflow: 'hidden',
+  },
+  terminalItem: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
+  },
+  iconCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   terminalItemHeader: {
     flexDirection: 'row',

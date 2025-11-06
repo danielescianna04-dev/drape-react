@@ -38,11 +38,19 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const verticalPanelOpacity = useSharedValue(0);
 
   const togglePanel = useCallback((panel: PanelType) => {
-    setActivePanel(prev => prev === panel ? null : panel);
+    setActivePanel(prev => {
+      // If clicking the same panel, close it
+      if (prev === panel) return null;
+      // Otherwise, open the new panel (automatically closes the old one)
+      return panel;
+    });
   }, []);
 
   // Handle terminal icon click - open/create terminal tab showing commands from current tab
   const handleTerminalClick = useCallback(() => {
+    // Close any open panel first
+    setActivePanel(null);
+
     // Get the currently active tab (the one we're working on)
     const currentTab = tabs.find(t => t.id === activeTabId);
 
