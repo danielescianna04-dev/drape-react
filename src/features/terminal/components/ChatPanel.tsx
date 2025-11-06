@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,12 +15,20 @@ export const ChatPanel = ({ onClose }: Props) => {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
-  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat } = useTerminalStore();
+  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats, currentWorkstation } = useTerminalStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
 
-  const filteredChats = chatHistory.filter((chat) =>
-    chat.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Load chats from AsyncStorage on mount
+  useEffect(() => {
+    loadChats();
+  }, []);
+
+  // Filter chats by current workspace and search query
+  const filteredChats = chatHistory.filter((chat) => {
+    const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesWorkspace = !currentWorkstation || chat.repositoryId === currentWorkstation.id;
+    return matchesSearch && matchesWorkspace;
+  });
 
   const handleSelectChat = (chat: any) => {
     setCurrentChat(chat);
@@ -52,6 +60,8 @@ export const ChatPanel = ({ onClose }: Props) => {
       lastUsed: new Date(),
       messages: [],
       aiModel: 'llama-3.1-8b-instant',
+      repositoryId: currentWorkstation?.id,
+      repositoryName: currentWorkstation?.name,
     };
 
     // Save chat to chatHistory immediately
