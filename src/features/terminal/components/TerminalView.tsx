@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,31 +23,49 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
   const { currentWorkstation } = useTerminalStore();
 
-  // Get terminal items from the source tab
-  const sourceTab = tabs.find(t => t.id === sourceTabId);
-  const allTerminalItems = sourceTab?.terminalItems || [];
+  // Get terminal items based on sourceTabId
+  const allTerminalItems = useMemo(() => {
+    if (sourceTabId === 'all') {
+      // Show commands from ALL chat tabs, sorted by timestamp
+      const allItems: any[] = [];
+      tabs.forEach(tab => {
+        if (tab.type === 'chat' && tab.terminalItems) {
+          allItems.push(...tab.terminalItems);
+        }
+      });
+      // Sort by timestamp to show chronological order
+      return allItems.sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+    } else {
+      // Show commands from specific tab
+      const sourceTab = tabs.find(t => t.id === sourceTabId);
+      return sourceTab?.terminalItems || [];
+    }
+  }, [sourceTabId, tabs]);
 
   // Filter out USER_MESSAGE items and their OUTPUT responses - only show real terminal commands
-  const terminalItems = allTerminalItems.filter((item, index) => {
-    // Skip USER_MESSAGE items
-    if (item.type === TerminalItemType.USER_MESSAGE) {
-      return false;
-    }
-
-    // Skip OUTPUT items that follow a USER_MESSAGE (AI responses)
-    if (item.type === TerminalItemType.OUTPUT && index > 0) {
-      const prevItem = allTerminalItems[index - 1];
-      if (prevItem.type === TerminalItemType.USER_MESSAGE) {
+  const terminalItems = useMemo(() => {
+    return allTerminalItems.filter((item, index) => {
+      // Skip USER_MESSAGE items
+      if (item.type === TerminalItemType.USER_MESSAGE) {
         return false;
       }
-    }
 
-    return true;
-  });
+      // Skip OUTPUT items that follow a USER_MESSAGE (AI responses)
+      if (item.type === TerminalItemType.OUTPUT && index > 0) {
+        const prevItem = allTerminalItems[index - 1];
+        if (prevItem.type === TerminalItemType.USER_MESSAGE) {
+          return false;
+        }
+      }
 
-  // Check if this is an AI command history terminal (opened from sidebar)
-  // The sourceTabId will be different from the terminal tab's own ID if it's showing another tab's commands
-  const isAICommandHistory = sourceTab && sourceTab.id !== sourceTabId && sourceTab.type !== 'terminal';
+      return true;
+    });
+  }, [allTerminalItems]);
+
+  // Check if this is an AI command history terminal (showing all commands or from another tab)
+  const isAICommandHistory = sourceTabId === 'all' || sourceTabId !== terminalTabId;
 
   // Auto-scroll to bottom when new items are added
   useEffect(() => {

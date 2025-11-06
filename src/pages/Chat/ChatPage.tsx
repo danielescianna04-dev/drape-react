@@ -95,6 +95,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const keyboardHeight = useSharedValue(0); // Track keyboard height
   const insets = useSafeAreaInsets();
 
+  // Store input for each tab separately
+  const tabInputsRef = useRef<Record<string, string>>({});
+
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
   // Memoize currentTab to prevent infinite re-renders
@@ -107,10 +110,19 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
-  // Reset input when switching tabs to prevent input appearing in all chats
+  // Load input for current tab when switching
   useEffect(() => {
-    setInput('');
+    if (!currentTab?.id) return;
+    const savedInput = tabInputsRef.current[currentTab.id] || '';
+    setInput(savedInput);
   }, [currentTab?.id]);
+
+  // Save input whenever it changes
+  useEffect(() => {
+    if (currentTab?.id) {
+      tabInputsRef.current[currentTab.id] = input;
+    }
+  }, [input, currentTab?.id]);
 
   const {
     hasInteracted,
