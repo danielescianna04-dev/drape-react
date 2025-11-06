@@ -490,7 +490,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setInput('');
 
     const messageType = shouldExecuteCommand ? TerminalItemType.COMMAND : TerminalItemType.USER_MESSAGE;
-    console.log('Adding terminal item:', { type: messageType, content: userMessage.substring(0, 30), shouldExecuteCommand });
 
     addTerminalItem({
       id: Date.now().toString(),
@@ -785,6 +784,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       });
     } finally {
       setLoading(false);
+
+      // Save messages to chat after completing the send
+      if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
+        const chatId = currentTab.data.chatId;
+        const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+
+        if (existingChat) {
+          // Update chat with latest messages from terminalItems
+          const updatedMessages = currentTab.terminalItems || [];
+          useTerminalStore.getState().updateChat(chatId, {
+            messages: updatedMessages,
+            lastUsed: new Date(),
+          });
+        }
+      }
     }
   };
 

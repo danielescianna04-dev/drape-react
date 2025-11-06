@@ -28,10 +28,9 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const allTerminalItems = sourceTab?.terminalItems || [];
 
   // Filter out USER_MESSAGE items - only show real terminal commands
-  const terminalItems = allTerminalItems.filter(item => {
-    console.log('Terminal item type:', item.type, 'Content:', item.content?.substring(0, 30));
-    return item.type !== TerminalItemType.USER_MESSAGE;
-  });
+  const terminalItems = allTerminalItems.filter(item =>
+    item.type !== TerminalItemType.USER_MESSAGE
+  );
 
   // Check if this is an AI command history terminal (opened from sidebar)
   // The sourceTabId will be different from the terminal tab's own ID if it's showing another tab's commands

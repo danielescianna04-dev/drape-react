@@ -40,12 +40,13 @@ export const ChatPanel = ({ onClose }: Props) => {
       // Tab already exists, just activate it
       setActiveTab(existingTab.id);
     } else {
-      // Create new tab
+      // Create new tab with existing messages
       addTab({
         id: `chat-${chat.id}`,
         type: 'chat',
         title: chat.title || 'Chat',
-        data: { chatId: chat.id }
+        data: { chatId: chat.id },
+        terminalItems: chat.messages || [] // Load previous messages
       });
     }
     onClose();
