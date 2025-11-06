@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 export interface ToolCall {
-  tool: 'read_file' | 'write_file' | 'list_files' | 'search_in_files';
+  tool: 'read_file' | 'write_file' | 'edit_file' | 'list_files' | 'search_in_files';
   args: Record<string, any>;
 }
 
@@ -21,6 +21,9 @@ export class ToolService {
 
     // Remove write_file calls (more complex with potential multi-line content)
     cleaned = cleaned.replace(/write_file\s*\([^)]+\)/g, '');
+
+    // Remove edit_file calls
+    cleaned = cleaned.replace(/edit_file\s*\([^)]+\)/g, '');
 
     // Remove list_files calls
     cleaned = cleaned.replace(/list_files\s*\([^)]*\)/g, '');
@@ -67,6 +70,18 @@ export class ToolService {
       });
     }
 
+    // Pattern per edit_file(path, oldString, newString)
+    const editFileMatches = text.matchAll(/edit_file\s*\(\s*([^,]+)\s*,\s*(.+?)\s*,\s*(.+?)\s*\)/gs);
+    for (const match of editFileMatches) {
+      const path = match[1].replace(/['"]/g, '').trim();
+      const oldString = match[2].trim();
+      const newString = match[3].trim();
+      toolCalls.push({
+        tool: 'edit_file',
+        args: { filePath: path, oldString, newString }
+      });
+    }
+
     // Pattern per list_files(directory)
     const listFilesMatches = text.matchAll(/list_files\s*\(\s*([^)]*)\s*\)/g);
     for (const match of listFilesMatches) {
@@ -107,6 +122,14 @@ export class ToolService {
             projectId,
             toolCall.args.filePath,
             toolCall.args.content
+          );
+
+        case 'edit_file':
+          return await this.editFile(
+            projectId,
+            toolCall.args.filePath,
+            toolCall.args.oldString,
+            toolCall.args.newString
           );
 
         case 'list_files':
@@ -169,6 +192,33 @@ export class ToolService {
         const preview = lines.slice(0, 10).map((line, i) => `+ ${line}`).join('\n');
         const hasMore = totalLines > 10;
         return `Edit ${filePath}\n└─ Added ${totalLines} lines\n\n${preview}${hasMore ? `\n\n... ${totalLines - 10} more lines` : ''}`;
+      }
+    } else {
+      return `Error: ${response.data.error}`;
+    }
+  }
+
+  /**
+   * Edit file using search & replace (like Claude Code)
+   */
+  private static async editFile(
+    projectId: string,
+    filePath: string,
+    oldString: string,
+    newString: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/edit-file`,
+      { projectId, filePath, oldString, newString }
+    );
+
+    if (response.data.success) {
+      const diffInfo = response.data.diffInfo;
+
+      if (diffInfo) {
+        return `Edit ${filePath}\n└─ +${diffInfo.added} -${diffInfo.removed} lines\n\n${diffInfo.diff}`;
+      } else {
+        return `Edit ${filePath}\n└─ File updated successfully`;
       }
     } else {
       return `Error: ${response.data.error}`;
