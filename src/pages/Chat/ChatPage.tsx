@@ -87,6 +87,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isProcessingToolsRef = useRef(false); // Prevent duplicate tool processing
   const scrollViewRef = useRef<ScrollView>(null);
   const [scrollPaddingBottom, setScrollPaddingBottom] = useState(300);
+  const widgetHeight = useSharedValue(90); // Track widget height (default ~90px: 40 topControls + 50 mainInputRow)
   const scaleAnim = useSharedValue(1);
   const inputPositionAnim = useSharedValue(0);
   const borderAnim = useSharedValue(0);
@@ -129,6 +130,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Load input for new tab
       const savedInput = tabInputsRef.current[currentTab.id] || '';
       setInput(savedInput);
+
+      // Reset scroll padding when switching tabs to prevent content displacement
+      // The keyboard listener will re-apply padding if keyboard is still open
+      setScrollPaddingBottom(300);
+
+      // Scroll to bottom of new tab after a brief delay
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false });
+      }, 100);
 
       // Update previous tab reference
       previousTabIdRef.current = currentTab.id;
@@ -199,8 +209,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           easing: Easing.out(Easing.cubic),
         });
         // Update scroll padding to prevent messages going under widget
-        // Need extra space for keyboard + widget height (~180px) + margin
-        const extraPadding = e.endCoordinates.height - insets.bottom + 200;
+        // Reduced padding to prevent content going too high
+        const extraPadding = e.endCoordinates.height - insets.bottom + 80;
         setScrollPaddingBottom(300 + extraPadding);
 
         // Force scroll to end after padding update
@@ -324,6 +334,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       Extrapolate.CLAMP
     );
 
+    // Calcola l'offset extra per compensare la crescita del widget
+    // widgetHeight inizia a 90px, quando cresce (es. 150px), compensiamo con 60px in più
+    const heightDiff = Math.max(0, widgetHeight.value - 90);
+
     // Always maintain 8px distance from keyboard
     let translateY = baseTranslateY;
 
@@ -341,7 +355,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         Extrapolate.CLAMP
       );
 
-      translateY = baseTranslateY - keyboardOffset;
+      // Sottrai anche l'offset della crescita del widget per mantenere la distanza dalla tastiera
+      translateY = baseTranslateY - keyboardOffset - heightDiff;
+    } else {
+      // Anche senza tastiera, compensa la crescita per evitare che vada troppo in basso
+      translateY = baseTranslateY - heightDiff;
     }
 
     return {
@@ -949,6 +967,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <LinearGradient
           colors={['rgba(28, 28, 30, 0.98)', 'rgba(28, 28, 30, 0.92)']}
           style={styles.inputGradient}
+          onLayout={(e) => {
+            // Aggiorna l'altezza del widget quando cambia
+            const newHeight = e.nativeEvent.layout.height;
+            widgetHeight.value = withTiming(newHeight, { duration: 100 });
+          }}
         >
           {/* Top Controls */}
           <View style={styles.topControls}>
@@ -1207,6 +1230,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(139, 124, 246, 0.15)',
     elevation: 8,
+    justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
+    maxHeight: 250, // Limite massimo dell'intero widget
   },
   topControls: {
     height: 40,
@@ -1291,8 +1316,9 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    maxHeight: 120,
+    maxHeight: 150, // Altezza massima del campo di input
     lineHeight: 20,
+    textAlignVertical: 'top', // Allinea il testo in alto nel campo
   },
 });
 export default ChatPage;
