@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Keyboard, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -7,7 +7,6 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   terminalTabId: string; // The terminal tab itself (where to write new commands)
@@ -21,48 +20,31 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
   const { currentWorkstation } = useTerminalStore();
-  const insets = useSafeAreaInsets();
 
   // Get terminal items from the source tab
   const sourceTab = tabs.find(t => t.id === sourceTabId);
-  const terminalItems = sourceTab?.terminalItems || [];
+  const allTerminalItems = sourceTab?.terminalItems || [];
+
+  // Filter out USER_MESSAGE items - only show real terminal commands
+  const terminalItems = allTerminalItems.filter(item => {
+    console.log('Terminal item type:', item.type, 'Content:', item.content?.substring(0, 30));
+    return item.type !== TerminalItemType.USER_MESSAGE;
+  });
 
   // Check if this is an AI command history terminal (opened from sidebar)
   // The sourceTabId will be different from the terminal tab's own ID if it's showing another tab's commands
   const isAICommandHistory = sourceTab && sourceTab.id !== sourceTabId && sourceTab.type !== 'terminal';
 
-  // Keyboard listeners
+  // Auto-scroll to bottom when new items are added
   useEffect(() => {
-    const keyboardWillShow = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setKeyboardHeight(e.endCoordinates.height);
-      }
-    );
-    const keyboardWillHide = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setKeyboardHeight(0);
-      }
-    );
-
-    return () => {
-      keyboardWillShow.remove();
-      keyboardWillHide.remove();
-    };
-  }, []);
-
-  // Auto-scroll to bottom when new items are added or keyboard opens
-  useEffect(() => {
-    if (scrollViewRef.current && (terminalItems.length > 0 || keyboardHeight > 0)) {
+    if (scrollViewRef.current && terminalItems.length > 0) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [terminalItems, keyboardHeight]);
+  }, [terminalItems]);
 
   const handleCommand = async () => {
     if (!input.trim() || isExecuting) return;
@@ -152,8 +134,8 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={0}
     >
       {/* Header with gradient */}
       <LinearGradient
@@ -192,10 +174,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       <ScrollView
         ref={scrollViewRef}
         style={styles.content}
-        contentContainerStyle={[
-          styles.contentContainer,
-          { paddingBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom + 80 : 80 }
-        ]}
+        contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -416,6 +395,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
+    paddingBottom: 100,
   },
   emptyState: {
     alignItems: 'center',

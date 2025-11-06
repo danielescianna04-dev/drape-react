@@ -4,6 +4,7 @@ export enum TerminalItemType {
   ERROR = 'error',
   SYSTEM = 'system',
   LOADING = 'loading',
+  USER_MESSAGE = 'user_message', // User message in chat (not a terminal command)
 }
 
 export interface TerminalItem {

@@ -435,20 +435,39 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       const chatId = currentTab.data.chatId;
       const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
 
+      // Generate title from first message
+      let title = userMessage.slice(0, 50);
+      const punctuationIndex = title.search(/[.!?]/);
+      if (punctuationIndex > 10) {
+        title = title.slice(0, punctuationIndex);
+      }
+      if (userMessage.length > 50) title += '...';
+
       if (existingChat) {
         // Chat already exists, just update title and description from first message
-        let title = userMessage.slice(0, 50);
-        const punctuationIndex = title.search(/[.!?]/);
-        if (punctuationIndex > 10) {
-          title = title.slice(0, punctuationIndex);
-        }
-        if (userMessage.length > 50) title += '...';
-
         useTerminalStore.getState().updateChat(chatId, {
           title: title,
           description: userMessage.slice(0, 100),
           lastUsed: new Date(),
         });
+
+        // Update tab title to match chat title
+        updateTab(currentTab.id, { title: title });
+      } else {
+        // Chat doesn't exist yet, create it now
+        const newChat = {
+          id: chatId,
+          title: title,
+          description: userMessage.slice(0, 100),
+          createdAt: new Date(),
+          lastUsed: new Date(),
+          messages: [],
+          aiModel: 'llama-3.1-8b-instant',
+          repositoryId: currentWorkstation?.id,
+          repositoryName: currentWorkstation?.name,
+        };
+
+        useTerminalStore.getState().addChat(newChat);
 
         // Update tab title to match chat title
         updateTab(currentTab.id, { title: title });
@@ -470,10 +489,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     
     setInput('');
 
+    const messageType = shouldExecuteCommand ? TerminalItemType.COMMAND : TerminalItemType.USER_MESSAGE;
+    console.log('Adding terminal item:', { type: messageType, content: userMessage.substring(0, 30), shouldExecuteCommand });
+
     addTerminalItem({
       id: Date.now().toString(),
       content: userMessage,
-      type: TerminalItemType.COMMAND,
+      type: messageType,
       timestamp: new Date(),
     });
 

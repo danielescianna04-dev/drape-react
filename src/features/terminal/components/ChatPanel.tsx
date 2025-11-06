@@ -53,24 +53,13 @@ export const ChatPanel = ({ onClose }: Props) => {
 
   const handleNewChat = () => {
     const chatId = Date.now().toString();
-    const newChat = {
-      id: chatId,
-      title: 'Nuova Conversazione',
-      createdAt: new Date(),
-      lastUsed: new Date(),
-      messages: [],
-      aiModel: 'llama-3.1-8b-instant',
-      repositoryId: currentWorkstation?.id,
-      repositoryName: currentWorkstation?.name,
-    };
 
-    // Save chat to chatHistory immediately
-    useTerminalStore.getState().addChat(newChat);
-
+    // Don't save chat to chatHistory yet - it will be saved when the first message is sent
+    // Just create a new tab
     addTab({
       id: `chat-${chatId}`,
       type: 'chat',
-      title: newChat.title,
+      title: 'Nuova Conversazione',
       data: { chatId: chatId }
     });
     onClose();

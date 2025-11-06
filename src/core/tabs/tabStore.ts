@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useTerminalStore } from '../terminal/terminalStore';
 
 export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview';
 
@@ -50,15 +51,26 @@ export const useTabStore = create<TabStore>((set) => ({
   }),
   
   removeTab: (id) => set((state) => {
+    const tabToRemove = state.tabs.find(t => t.id === id);
+
+    // If removing a chat tab with no messages, delete it from chatHistory
+    if (tabToRemove?.type === 'chat' && tabToRemove.data?.chatId) {
+      const hasMessages = tabToRemove.terminalItems && tabToRemove.terminalItems.length > 0;
+      if (!hasMessages) {
+        // Delete empty chat from terminalStore
+        useTerminalStore.getState().deleteChat(tabToRemove.data.chatId);
+      }
+    }
+
     const newTabs = state.tabs.filter(t => t.id !== id);
     let newActiveId = state.activeTabId;
-    
+
     // If removing active tab, switch to another
     if (state.activeTabId === id && newTabs.length > 0) {
       const index = state.tabs.findIndex(t => t.id === id);
       newActiveId = newTabs[Math.max(0, index - 1)]?.id || newTabs[0]?.id;
     }
-    
+
     return {
       tabs: newTabs,
       activeTabId: newTabs.length > 0 ? newActiveId : null,

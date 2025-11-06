@@ -54,6 +54,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
     switch (item.type) {
       case ItemType.COMMAND:
         return AppColors.primary;
+      case ItemType.USER_MESSAGE:
+        return colors.bodyText;
       case ItemType.ERROR:
         return AppColors.error;
       case ItemType.SYSTEM:
@@ -65,8 +67,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
 
   const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/i);
 
-  // Check if this is a user message (COMMAND that is not a terminal command)
-  const isUserMessage = item.type === ItemType.COMMAND && !isTerminalCommand;
+  // Check if this is a user message
+  const isUserMessage = item.type === ItemType.USER_MESSAGE;
 
   // Determine dot color based on item type and success
   let dotColor = '#6E7681'; // Default gray
@@ -201,6 +203,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
             </View>
           </View>
         )
+      )}
+
+      {item.type === ItemType.USER_MESSAGE && (
+        <View style={styles.userMessageBlock}>
+          <View style={styles.userMessageCard}>
+            <Text style={styles.userMessage}>{item.content || ''}</Text>
+          </View>
+        </View>
       )}
 
       {item.type === ItemType.OUTPUT && (
