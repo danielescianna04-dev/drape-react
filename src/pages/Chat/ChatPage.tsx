@@ -467,6 +467,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           repositoryName: currentWorkstation?.name,
         };
 
+        console.log('✨ Creating new chat:', { chatId, title });
         useTerminalStore.getState().addChat(newChat);
 
         // Update tab title to match chat title
@@ -791,12 +792,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
 
         if (existingChat) {
-          // Update chat with latest messages from terminalItems
-          const updatedMessages = currentTab.terminalItems || [];
+          // Get fresh tab state from store to ensure we have latest messages
+          const freshTab = useTabStore.getState().tabs.find(t => t.id === currentTab.id);
+          const updatedMessages = freshTab?.terminalItems || [];
+
+          console.log('💾 Saving chat messages:', { chatId, messageCount: updatedMessages.length });
+
           useTerminalStore.getState().updateChat(chatId, {
             messages: updatedMessages,
             lastUsed: new Date(),
           });
+        } else {
+          console.log('⚠️ Chat not found in chatHistory:', chatId);
         }
       }
     }

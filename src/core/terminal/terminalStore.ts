@@ -41,9 +41,11 @@ const loadChatsFromStorage = async (): Promise<ChatSession[]> => {
 
 const saveChatsToStorage = async (chats: ChatSession[]) => {
   try {
+    console.log('💿 Saving chats to AsyncStorage:', chats.length, 'chats');
     await AsyncStorage.setItem(STORAGE_KEYS.CHAT_HISTORY, JSON.stringify(chats));
+    console.log('✅ Chats saved successfully');
   } catch (error) {
-    console.error('Error saving chats to storage:', error);
+    console.error('❌ Error saving chats to storage:', error);
   }
 };
 
