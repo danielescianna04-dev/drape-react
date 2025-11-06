@@ -32,8 +32,8 @@ export const useTabStore = create<TabStore>((set) => ({
     {
       id: 'chat-main',
       type: 'chat',
-      title: 'Chat',
-      data: { chatId: 'main' }
+      title: 'Nuova Conversazione',
+      data: { chatId: Date.now().toString() }
     }
   ],
   activeTabId: 'chat-main',

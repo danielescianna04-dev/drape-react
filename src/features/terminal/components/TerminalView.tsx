@@ -27,10 +27,23 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const sourceTab = tabs.find(t => t.id === sourceTabId);
   const allTerminalItems = sourceTab?.terminalItems || [];
 
-  // Filter out USER_MESSAGE items - only show real terminal commands
-  const terminalItems = allTerminalItems.filter(item =>
-    item.type !== TerminalItemType.USER_MESSAGE
-  );
+  // Filter out USER_MESSAGE items and their OUTPUT responses - only show real terminal commands
+  const terminalItems = allTerminalItems.filter((item, index) => {
+    // Skip USER_MESSAGE items
+    if (item.type === TerminalItemType.USER_MESSAGE) {
+      return false;
+    }
+
+    // Skip OUTPUT items that follow a USER_MESSAGE (AI responses)
+    if (item.type === TerminalItemType.OUTPUT && index > 0) {
+      const prevItem = allTerminalItems[index - 1];
+      if (prevItem.type === TerminalItemType.USER_MESSAGE) {
+        return false;
+      }
+    }
+
+    return true;
+  });
 
   // Check if this is an AI command history terminal (opened from sidebar)
   // The sourceTabId will be different from the terminal tab's own ID if it's showing another tab's commands
