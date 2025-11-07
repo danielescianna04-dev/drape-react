@@ -635,6 +635,20 @@ Linee guida per le risposte:
                         },
                         required: ['pattern']
                     }
+                },
+                {
+                    name: 'search_in_files',
+                    description: 'Cerca un pattern di testo all\'interno dei file del progetto (come grep)',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            pattern: {
+                                type: 'STRING',
+                                description: 'Il pattern di testo da cercare nei file (es: "Service", "API", "auth")'
+                            }
+                        },
+                        required: ['pattern']
+                    }
                 }
             ]
         }];
@@ -728,6 +742,21 @@ Linee guida per le risposte:
                             return `Error: ${globRes.data.error}`;
                         }
 
+                    case 'search_in_files':
+                        const searchRes = await axios.post(`http://localhost:${PORT}/workstation/search-files`, {
+                            projectId: projectId,
+                            pattern: args.pattern
+                        });
+                        if (searchRes.data.success) {
+                            const results = searchRes.data.results || [];
+                            const matchCount = results.length;
+                            const resultList = results.slice(0, 20).map(r => `${r.file}:${r.line}: ${r.content}`).join('\n');
+                            const truncated = matchCount > 20 ? `\n... (showing first 20 of ${matchCount} matches)` : '';
+                            return `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
+                        } else {
+                            return `Error: ${searchRes.data.error}`;
+                        }
+
                     default:
                         return `Error: Unknown function ${name}`;
                 }
@@ -752,8 +781,8 @@ Linee guida per le risposte:
                     for (const functionCall of functionCalls) {
                         console.log('🔧 Function call:', functionCall.name, functionCall.args);
 
-                        // Stream function call to frontend (EXCEPT for glob_files - we want to show only the result)
-                        if (functionCall.name !== 'glob_files') {
+                        // Stream function call to frontend (EXCEPT for glob_files and search_in_files - we want to show only the result)
+                        if (functionCall.name !== 'glob_files' && functionCall.name !== 'search_in_files') {
                             res.write(`data: ${JSON.stringify({
                                 functionCall: {
                                     name: functionCall.name,
