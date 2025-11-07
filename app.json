@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-
+    "scheme": "drape",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -33,6 +33,9 @@
         "projectId": "ec6c855f-5325-47b4-8d13-982ba9a83a1c"
       }
     },
-    "owner": "drape01"
+    "owner": "drape01",
+    "plugins": [
+      "expo-web-browser"
+    ]
   }
 }

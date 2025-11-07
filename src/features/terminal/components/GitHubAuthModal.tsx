@@ -1,9 +1,13 @@
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
 import React, { useState, useEffect } from 'react';
-import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator } from 'react-native';
+import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import axios from 'axios';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -77,18 +81,81 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
     };
   }, [step, deviceFlow, onAuthenticated]);
 
+  const handleWebBrowserAuth = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('🌐 Starting GitHub Web Browser OAuth...');
+
+      const redirectUri = AuthSession.makeRedirectUri({
+        scheme: 'drape',
+        path: 'auth/callback'
+      });
+
+      console.log('Redirect URI:', redirectUri);
+
+      const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,user`;
+
+      console.log('Opening browser with URL:', authUrl);
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      console.log('Browser result:', result);
+
+      if (result.type === 'success' && result.url) {
+        const url = new URL(result.url);
+        const code = url.searchParams.get('code');
+
+        if (code) {
+          console.log('✅ Got authorization code, exchanging for token...');
+
+          const response = await axios.post(`${API_BASE_URL}/github/exchange-code`, {
+            code,
+            redirect_uri: redirectUri,
+          });
+
+          if (response.data.access_token) {
+            console.log('✅ Token received successfully');
+            onAuthenticated(response.data.access_token);
+          } else {
+            throw new Error('No access token in response');
+          }
+        } else {
+          throw new Error('No code in callback URL');
+        }
+      } else if (result.type === 'cancel') {
+        setError('Authentication cancelled');
+      }
+    } catch (err: any) {
+      console.error('❌ Web Browser OAuth error:', err);
+      setError(`Authentication failed: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleStartDeviceFlow = async () => {
     setIsLoading(true);
     setError(null);
     try {
+      console.log('🔐 Starting GitHub device flow...');
+      console.log('API URL:', API_BASE_URL);
+      console.log('Client ID:', process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID);
+
       const response = await axios.post(`${API_BASE_URL}/github/device-flow`, {
         client_id: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID,
         scope: 'repo,user',
       });
+
+      console.log('✅ Device flow started:', response.data);
       setDeviceFlow(response.data);
       setStep('device-flow');
-    } catch (err) {
-      setError('Failed to start GitHub authentication. Please check your connection.');
+    } catch (err: any) {
+      console.error('❌ Device flow error:', err);
+      console.error('Response:', err.response?.data);
+
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start GitHub authentication';
+      setError(`Failed to start GitHub authentication: ${errorMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +177,11 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
     <>
       <Text style={styles.title}>Authentication Required</Text>
       <Text style={styles.subtitle}>This repository is private. Choose an authentication method.</Text>
-      <TouchableOpacity style={styles.optionButton} onPress={handleStartDeviceFlow}>
+      <TouchableOpacity
+        style={styles.optionButton}
+        onPress={handleWebBrowserAuth}
+        disabled={isLoading}
+      >
         <Ionicons name="logo-github" size={24} color="#FFFFFF" />
         <Text style={styles.optionButtonText}>Authenticate with GitHub</Text>
         {isLoading && <ActivityIndicator color="#FFFFFF" />}

@@ -179,6 +179,15 @@ app.listen(PORT, () => {
 // GitHub OAuth Device Flow - Start
 app.post('/github/device-flow', async (req, res) => {
   try {
+    console.log('🔐 GitHub Device Flow - Start');
+    console.log('Client ID:', GITHUB_CLIENT_ID);
+    console.log('Scope:', req.body.scope);
+
+    if (!GITHUB_CLIENT_ID) {
+      console.error('❌ GITHUB_CLIENT_ID is not set in environment variables');
+      return res.status(500).json({ error: 'GitHub Client ID not configured on server' });
+    }
+
     const response = await axios.post(
       'https://github.com/login/device/code',
       new URLSearchParams({
@@ -192,10 +201,15 @@ app.post('/github/device-flow', async (req, res) => {
         },
       }
     );
+
+    console.log('✅ Device flow response:', response.data);
     res.json(response.data);
   } catch (error) {
-    console.error('Device flow error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Device flow error:', error.response?.data || error.message);
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data
+    });
   }
 });
 
@@ -227,7 +241,17 @@ app.post('/github/poll-device', async (req, res) => {
 app.post('/github/exchange-code', async (req, res) => {
   try {
     const { code, redirect_uri } = req.body;
-    
+
+    console.log('🔄 Exchanging GitHub code for token');
+    console.log('Code:', code?.substring(0, 10) + '...');
+    console.log('Redirect URI:', redirect_uri);
+    console.log('Client ID:', GITHUB_CLIENT_ID);
+
+    if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+      console.error('❌ Missing GitHub credentials');
+      return res.status(500).json({ error: 'GitHub credentials not configured' });
+    }
+
     const response = await axios.post(
       'https://github.com/login/oauth/access_token',
       {
@@ -242,11 +266,15 @@ app.post('/github/exchange-code', async (req, res) => {
         },
       }
     );
-    
+
+    console.log('✅ Token exchange successful');
     res.json(response.data);
   } catch (error) {
-    console.error('Exchange code error:', error.message);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Exchange code error:', error.response?.data || error.message);
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data
+    });
   }
 });
 
@@ -257,8 +285,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // AI Chat endpoint - Using Gemini 2.0 Flash with native tool calling
 app.post('/ai/chat', async (req, res) => {
     const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
-    // Force Gemini model (ignore model from frontend)
-    const model = 'gemini-2.0-flash-exp';
+    // Use Gemini 2.5 Flash (latest and most powerful version)
+    const model = 'gemini-2.5-flash';
 
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
@@ -281,6 +309,125 @@ Linee guida per le risposte:
             if (context.repositoryUrl) {
                 systemMessage += `\n- Repository: ${context.repositoryUrl}`;
             }
+
+            systemMessage += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            systemMessage += '🔍 ESPLORAZIONE AUTONOMA DEL CODEBASE (Claude Code Style)\n';
+            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+            systemMessage += '🚨🚨🚨 REGOLA FONDAMENTALE - LEGGI ATTENTAMENTE! 🚨🚨🚨\n\n';
+            systemMessage += '❌ VIETATO rispondere a domande esplorative senza aver letto ALMENO 10 FILE!\n';
+            systemMessage += '❌ VIETATO basarti solo su package.json e glob!\n';
+            systemMessage += '❌ VIETATO fermarti dopo i primi 3 tool calls!\n\n';
+            systemMessage += '✅ OBBLIGO: Per domande come "Cosa fa questa applicazione?", DEVI:\n';
+            systemMessage += '   1. Leggere package.json ✓\n';
+            systemMessage += '   2. Fare glob per trovare file ✓\n';
+            systemMessage += '   3. Leggere App.tsx (OBBLIGATORIO!)\n';
+            systemMessage += '   4. Cercare e leggere ALMENO 3-5 file Service\n';
+            systemMessage += '   5. Leggere backend/server.js se esiste\n';
+            systemMessage += '   6. Leggere almeno 3 componenti principali\n';
+            systemMessage += '   7. Esplorare le feature più importanti\n';
+            systemMessage += '   → MINIMO 10 FILE LETTI prima di rispondere!\n\n';
+            systemMessage += '⚠️ Se non leggi abbastanza file, la tua risposta sarà INCOMPLETA e SUPERFICIALE!\n\n';
+
+            systemMessage += '🚨 COMPORTAMENTO OBBLIGATORIO - SHOW, DON\'T TELL (Claude Code Style):\n';
+            systemMessage += 'Puoi dire UNA breve frase di conferma (max 10 parole), poi USA I TOOL SUBITO!\n';
+            systemMessage += 'NON dire MAI cosa farai nel dettaglio. NON elencare i passi. AGISCI!\n\n';
+            systemMessage += '❌ ESEMPIO SBAGLIATO (troppo descrittivo):\n';
+            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+            systemMessage += 'Tu: "Analizzerò il codebase per capire cosa fa l\'applicazione.\n';
+            systemMessage += '     Inizierò leggendo il file package.json per avere una panoramica generale,\n';
+            systemMessage += '     poi cercherò i file TypeScript, poi leggerò App.tsx..."\n';
+            systemMessage += '👆 VIETATO! Troppo lungo!\n\n';
+            systemMessage += '✅ ESEMPIO CORRETTO (Claude Code Style):\n';
+            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+            systemMessage += 'Tu: "Esplorerò il codebase."\n';
+            systemMessage += 'Tu: [Chiama read_file(package.json)]\n';
+            systemMessage += '[Sistema mostra contenuto]\n';
+            systemMessage += 'Tu: [Chiama glob_files(**/*.ts)]\n';
+            systemMessage += '[Sistema mostra file]\n';
+            systemMessage += 'Tu: [Chiama read_file(App.tsx)]\n';
+            systemMessage += '[Sistema mostra App.tsx]\n';
+            systemMessage += '... continua ad esplorare senza annunci ...\n';
+            systemMessage += 'Tu: "Basandomi sull\'analisi, questa applicazione è..."\n\n';
+            systemMessage += '🎯 REGOLA D\'ORO: Brief confirmation → Action → Synthesis\n';
+            systemMessage += '1. Conferma brevissima (es. "Esplorerò il codebase.")\n';
+            systemMessage += '2. USA I TOOL ripetutamente senza annunci\n';
+            systemMessage += '3. Sintetizza i risultati alla fine\n\n';
+
+            systemMessage += '📋 DOMANDE ESPLORATIVE (richiedono esplorazione automatica):\n';
+            systemMessage += '• "Cosa fa questa applicazione?"\n';
+            systemMessage += '• "Come funziona il sistema di autenticazione?"\n';
+            systemMessage += '• "Quali API sono disponibili?"\n';
+            systemMessage += '• "Qual è l\'architettura del progetto?"\n';
+            systemMessage += '• "Dove viene gestito X?"\n';
+            systemMessage += '• "Come è strutturato il codice?"\n';
+            systemMessage += '• Qualsiasi domanda che richiede comprensione del codebase\n\n';
+
+            systemMessage += '🎯 PROCESSO DI ESPLORAZIONE (esegui SEMPRE questi step):\n\n';
+
+            systemMessage += '1️⃣ STEP 1 - Esplora la struttura base (USA I TOOL SUBITO!):\n';
+            systemMessage += '   a) Leggi package.json per capire dipendenze e nome progetto\n';
+            systemMessage += '      → read_file(package.json)\n';
+            systemMessage += '   b) Trova tutti i file TypeScript/JavaScript:\n';
+            systemMessage += '      → glob_files(**/*.ts)\n';
+            systemMessage += '      → glob_files(**/*.tsx)\n';
+            systemMessage += '      → glob_files(**/*.js)\n\n';
+
+            systemMessage += '2️⃣ STEP 2 - Analizza entry points e servizi core (APPROFONDISCI!):\n';
+            systemMessage += '   a) Leggi il file principale (App.tsx, index.ts, main.ts, ecc.)\n';
+            systemMessage += '      → read_file(App.tsx) o read_file(src/index.ts)\n';
+            systemMessage += '   b) Cerca e leggi servizi importanti:\n';
+            systemMessage += '      → search_in_files(Service) per trovare servizi\n';
+            systemMessage += '      → read_file() sui file di servizio trovati (leggi ALMENO 3-5 servizi!)\n';
+            systemMessage += '   c) Se esiste un backend, leggilo:\n';
+            systemMessage += '      → glob_files(backend/**/*.js)\n';
+            systemMessage += '      → read_file(backend/server.js) o simile\n';
+            systemMessage += '   d) Esplora componenti e features importanti:\n';
+            systemMessage += '      → list_files(src/features) per vedere le feature disponibili\n';
+            systemMessage += '      → read_file() sui componenti principali di ogni feature\n';
+            systemMessage += '   e) Cerca pattern e funzionalità chiave:\n';
+            systemMessage += '      → search_in_files(API) per trovare chiamate API\n';
+            systemMessage += '      → search_in_files(auth) per trovare autenticazione\n';
+            systemMessage += '      → search_in_files(database) per trovare database logic\n\n';
+
+            systemMessage += '3️⃣ STEP 3 - Analizza configurazioni:\n';
+            systemMessage += '   → read_file(src/config/config.ts) se esiste\n';
+            systemMessage += '   → search_in_files(apiUrl) per trovare configurazioni\n\n';
+
+            systemMessage += '4️⃣ STEP 4 - Aggrega e sintetizza:\n';
+            systemMessage += '   Dopo aver raccolto i dati, fornisci una risposta strutturata basata\n';
+            systemMessage += '   ESCLUSIVAMENTE su ciò che hai trovato nel codice reale.\n\n';
+
+            systemMessage += '💡 ESEMPIO COMPLETO di risposta a "Cosa fa questa applicazione?":\n\n';
+            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+            systemMessage += 'Tu: [chiama read_file(package.json) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra package.json]\n';
+            systemMessage += 'Tu: [chiama glob_files(**/*.ts) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra elenco file]\n';
+            systemMessage += 'Tu: [chiama read_file(App.tsx) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra App.tsx]\n';
+            systemMessage += 'Tu: [chiama search_in_files(Service) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra file con "Service"]\n';
+            systemMessage += 'Tu: [chiama read_file(src/core/ai/aiService.ts) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra aiService.ts]\n';
+            systemMessage += 'Tu: [chiama read_file(backend/server.js) IMMEDIATAMENTE]\n';
+            systemMessage += '[Sistema mostra server.js]\n';
+            systemMessage += 'Tu: "Basandomi sull\'analisi del codice, questa applicazione è un IDE mobile\n';
+            systemMessage += '     AI-powered che permette di... [descrizione completa basata sui file letti]"\n\n';
+            systemMessage += '⚡ NOTA CRITICA: Nell\'esempio sopra, NON c\'è MAI un messaggio tipo "Analizzerò...",\n';
+            systemMessage += '"Leggerò...", ecc. I tool vengono chiamati IMMEDIATAMENTE senza preavviso!\n\n';
+
+            systemMessage += '❌ ERRORI DA EVITARE:\n';
+            systemMessage += '• NON rispondere senza prima esplorare il codice\n';
+            systemMessage += '• NON basarti solo sul nome del progetto o su supposizioni\n';
+            systemMessage += '• NON limitarti a leggere 1-2 file - esplora in modo completo\n';
+            systemMessage += '• NON dire "non ho accesso al codice" - HAI gli strumenti!\n\n';
+
+            systemMessage += '✅ QUANDO PUOI RISPONDERE DIRETTAMENTE (senza esplorazione):\n';
+            systemMessage += '• Domande teoriche di programmazione ("Come funziona async/await?")\n';
+            systemMessage += '• Richieste di creazione di nuovo codice senza contesto esistente\n';
+            systemMessage += '• Conversazione generale non legata al codebase\n\n';
+
             systemMessage += '\n\n🔧 STRUMENTI DISPONIBILI (come Claude Code):\n\n';
             systemMessage += '1. read_file(path)\n';
             systemMessage += '   → Leggi il contenuto di un file\n';
@@ -335,13 +482,25 @@ Linee guida per le risposte:
             systemMessage += '📖 ESEMPI DI UTILIZZO:\n';
             systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
 
-            systemMessage += 'Esempio 1: READ\n';
-            systemMessage += 'Utente: "Leggi il file app.js"\n';
-            systemMessage += 'Tu: "Leggo il file app.js"\n';
-            systemMessage += 'Tu: read_file(app.js)\n';
-            systemMessage += 'Tu: "Il file contiene la configurazione principale dell\'app."\n\n';
+            systemMessage += 'Esempio 1: GLOB + READ ⭐ (quando non conosci il path esatto)\n';
+            systemMessage += 'Utente: "Leggi il file deploy.txt"\n';
+            systemMessage += 'Tu: "Cerco prima il file"\n';
+            systemMessage += 'Tu: glob_files(**/deploy.txt)\n';
+            systemMessage += '[Sistema mostra: Found 1 file(s): deploy.txt]\n';
+            systemMessage += 'Tu: "Ora leggo"\n';
+            systemMessage += 'Tu: read_file(deploy.txt)\n';
+            systemMessage += 'Tu: "Il file contiene le istruzioni"\n\n';
 
-            systemMessage += 'Esempio 2: EDIT ⭐ (PREFERITO per modifiche)\n';
+            systemMessage += 'Esempio 2: READ diretto (solo se conosci GIÀ il path completo)\n';
+            systemMessage += 'Utente: "Leggi src/app.js"\n';
+            systemMessage += 'Tu: read_file(src/app.js)\n\n';
+
+            systemMessage += 'Esempio 3: GLOB per trovare file TypeScript\n';
+            systemMessage += 'Utente: "Mostrami tutti i file TypeScript"\n';
+            systemMessage += 'Tu: glob_files(**/*.ts)\n';
+            systemMessage += '[Sistema mostra: Found 15 file(s)]\n\n';
+
+            systemMessage += 'Esempio 4: EDIT ⭐ (PREFERITO per modifiche)\n';
             systemMessage += 'Utente: "Aggiungi Leon alla fine del file deploy.txt"\n';
             systemMessage += 'Tu: "Leggo prima il file"\n';
             systemMessage += 'Tu: read_file(deploy.txt)\n';
@@ -357,7 +516,13 @@ Linee guida per le risposte:
             systemMessage += 'Tu: write_file(config.json, {\\"version\\": \\"1.0\\"})\n';
             systemMessage += 'Tu: "✅ File creato"\n\n';
 
-            systemMessage += '⚠️ REGOLE CRITICHE per edit_file():\n';
+            systemMessage += '⚠️ REGOLE CRITICHE:\n\n';
+            systemMessage += '📍 GLOB (quando NON conosci il path):\n';
+            systemMessage += '1. Se l\'utente chiede "leggi deploy.txt" → USA glob_files(**/deploy.txt) PRIMA\n';
+            systemMessage += '2. Se l\'utente chiede "trova tutti i file .ts" → USA glob_files(**/*.ts)\n';
+            systemMessage += '3. Dopo glob, usa il path trovato per read_file()\n\n';
+
+            systemMessage += '✏️ EDIT (per modificare file):\n';
             systemMessage += '1. SEMPRE chiama read_file() PRIMA di edit_file()\n';
             systemMessage += '2. Se read_file() FALLISCE (file non esiste) → USA write_file() invece!\n';
             systemMessage += '3. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
@@ -367,10 +532,104 @@ Linee guida per le risposte:
             systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
         }
 
-        // Initialize Gemini model with streaming (no function calling)
+        // Define function declarations for Gemini native function calling
+        const tools = [{
+            functionDeclarations: [
+                {
+                    name: 'read_file',
+                    description: 'Leggi il contenuto di un file nel progetto',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            filePath: {
+                                type: 'STRING',
+                                description: 'Il path del file da leggere'
+                            }
+                        },
+                        required: ['filePath']
+                    }
+                },
+                {
+                    name: 'write_file',
+                    description: 'Crea un nuovo file o sovrascrive completamente un file esistente',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            filePath: {
+                                type: 'STRING',
+                                description: 'Il path del file da creare/sovrascrivere'
+                            },
+                            content: {
+                                type: 'STRING',
+                                description: 'Il contenuto completo del file'
+                            }
+                        },
+                        required: ['filePath', 'content']
+                    }
+                },
+                {
+                    name: 'edit_file',
+                    description: 'Modifica un file esistente con search & replace. Il file DEVE esistere.',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            filePath: {
+                                type: 'STRING',
+                                description: 'Il path del file da modificare'
+                            },
+                            oldString: {
+                                type: 'STRING',
+                                description: 'Il testo esatto da cercare e sostituire'
+                            },
+                            newString: {
+                                type: 'STRING',
+                                description: 'Il nuovo testo con cui sostituire oldString'
+                            }
+                        },
+                        required: ['filePath', 'oldString', 'newString']
+                    }
+                },
+                {
+                    name: 'list_files',
+                    description: 'Elenca i file in una directory',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            directory: {
+                                type: 'STRING',
+                                description: 'La directory da elencare (es: "." per root)'
+                            }
+                        },
+                        required: ['directory']
+                    }
+                },
+                {
+                    name: 'glob_files',
+                    description: 'Cerca file usando pattern glob (es: "**/*.ts" per tutti i file TypeScript, "**/deploy*" per file che iniziano con deploy)',
+                    parameters: {
+                        type: 'OBJECT',
+                        properties: {
+                            pattern: {
+                                type: 'STRING',
+                                description: 'Il pattern glob da cercare (es: "**/*.ts", "**/*.js", "**/package.json")'
+                            }
+                        },
+                        required: ['pattern']
+                    }
+                }
+            ]
+        }];
+
+        // Initialize Gemini model WITH native function calling
         const geminiModel = genAI.getGenerativeModel({
             model: model,
-            systemInstruction: systemMessage
+            systemInstruction: systemMessage,
+            tools: tools,
+            toolConfig: {
+                functionCallingConfig: {
+                    mode: 'AUTO' // Enable automatic tool calling
+                }
+            }
         });
 
         // Build conversation history for Gemini
@@ -393,14 +652,128 @@ Linee guida per le risposte:
             }
         });
 
-        // Send message and stream response (without function calling for now)
-        const result = await chat.sendMessageStream(prompt);
+        // Helper function to execute tool calls
+        async function executeTool(functionCall) {
+            const { name, args } = functionCall;
+            const axios = require('axios');
 
-        // Stream the response
-        for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            if (chunkText) {
-                res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+            try {
+                switch (name) {
+                    case 'read_file':
+                        const readRes = await axios.post(`http://localhost:${PORT}/workstation/read-file`, {
+                            projectId: projectId,
+                            filePath: args.filePath
+                        });
+                        return readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
+
+                    case 'write_file':
+                        const writeRes = await axios.post(`http://localhost:${PORT}/workstation/write-file`, {
+                            projectId: projectId,
+                            filePath: args.filePath,
+                            content: args.content
+                        });
+                        return writeRes.data.success ? `File ${args.filePath} scritto con successo` : `Error: ${writeRes.data.error}`;
+
+                    case 'edit_file':
+                        const editRes = await axios.post(`http://localhost:${PORT}/workstation/edit-file`, {
+                            projectId: projectId,
+                            filePath: args.filePath,
+                            oldString: args.oldString,
+                            newString: args.newString
+                        });
+                        if (editRes.data.success) {
+                            // Return the diff if available, otherwise return success message
+                            return editRes.data.diffInfo?.diff || `File ${args.filePath} modificato con successo`;
+                        } else {
+                            return `Error: ${editRes.data.error}`;
+                        }
+
+                    case 'list_files':
+                        const listRes = await axios.post(`http://localhost:${PORT}/workstation/list-directory`, {
+                            projectId: projectId,
+                            directory: args.directory
+                        });
+                        return listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
+
+                    case 'glob_files':
+                        const globRes = await axios.post(`http://localhost:${PORT}/workstation/glob-files`, {
+                            projectId: projectId,
+                            pattern: args.pattern
+                        });
+                        if (globRes.data.success) {
+                            const files = globRes.data.files || [];
+                            const fileCount = files.length;
+                            const fileList = files.join('\n');
+                            return `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
+                        } else {
+                            return `Error: ${globRes.data.error}`;
+                        }
+
+                    default:
+                        return `Error: Unknown function ${name}`;
+                }
+            } catch (error) {
+                return `Error executing ${name}: ${error.message}`;
+            }
+        }
+
+        // Send message with function calling support
+        let result = await chat.sendMessageStream(prompt);
+
+        // Stream the response and handle function calls in a loop
+        let continueLoop = true;
+        while (continueLoop) {
+            continueLoop = false; // Reset flag
+
+            for await (const chunk of result.stream) {
+                const functionCalls = chunk.functionCalls();
+
+                if (functionCalls && functionCalls.length > 0) {
+                    // Execute each function call
+                    for (const functionCall of functionCalls) {
+                        console.log('🔧 Function call:', functionCall.name, functionCall.args);
+
+                        // Stream function call to frontend (EXCEPT for glob_files - we want to show only the result)
+                        if (functionCall.name !== 'glob_files') {
+                            res.write(`data: ${JSON.stringify({
+                                functionCall: {
+                                    name: functionCall.name,
+                                    args: functionCall.args
+                                }
+                            })}\n\n`);
+                        }
+
+                        // Execute the function
+                        const functionResult = await executeTool(functionCall);
+                        console.log('✅ Function result:', functionResult);
+
+                        // Stream the formatted tool result to frontend
+                        res.write(`data: ${JSON.stringify({
+                            toolResult: {
+                                name: functionCall.name,
+                                args: functionCall.args,
+                                result: functionResult
+                            }
+                        })}\n\n`);
+
+                        // Send function result back to Gemini to continue generation
+                        result = await chat.sendMessageStream([{
+                            functionResponse: {
+                                name: functionCall.name,
+                                response: { result: functionResult }
+                            }
+                        }]);
+
+                        // Continue the loop to process the new response
+                        continueLoop = true;
+                    }
+                } else {
+                    // Regular text chunk - stream to frontend
+                    const chunkText = chunk.text();
+                    if (chunkText) {
+                        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+                    }
+                }
             }
         }
 
@@ -618,13 +991,48 @@ app.post('/workstation/create', async (req, res) => {
         }
       } catch (error) {
         console.error('⚠️ Error fetching GitHub files:', error.message);
-        
-        // If 404 and no token provided, it's likely a private repo
+
+        // Check if it's an authentication issue
         if (error.response?.status === 404 && !githubToken) {
-          console.log('🔒 Private repository detected, authentication required');
+          // For public repos, GitHub API returns 200
+          // A 404 without auth means: repo doesn't exist OR it's private
+          // Let's check if the repo exists by trying to access it via web
+          const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+          if (repoMatch) {
+            const [, owner, repo] = repoMatch;
+            try {
+              // Check repo existence via GitHub API (this endpoint works without auth for public repos)
+              await axios.head(`https://github.com/${owner}/${repo}`, {
+                maxRedirects: 0,
+                validateStatus: (status) => status === 200 || status === 404
+              });
+              // If we get here, repo exists but API returned 404 = it's private
+              console.log('🔒 Private repository detected, authentication required');
+              return res.status(401).json({
+                error: 'Authentication required',
+                message: 'This repository is private and requires authentication',
+                requiresAuth: true
+              });
+            } catch (checkError) {
+              // Repo doesn't exist at all
+              console.log('❌ Repository not found');
+              return res.status(404).json({
+                error: 'Repository not found',
+                message: 'This repository does not exist on GitHub',
+                requiresAuth: false
+              });
+            }
+          }
+        }
+
+        // If 401/403, it's definitely an auth issue (even with token provided)
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          console.log('🔒 Authentication failed or insufficient permissions');
           return res.status(401).json({
             error: 'Authentication required',
-            message: 'This repository is private or does not exist',
+            message: githubToken
+              ? 'The provided token does not have access to this repository'
+              : 'This repository requires authentication',
             requiresAuth: true
           });
         }
@@ -1155,6 +1563,36 @@ app.post('/workstation/list-directory', async (req, res) => {
     }
 });
 
+// Glob files - search for files using glob patterns
+app.post('/workstation/glob-files', async (req, res) => {
+    const { projectId, pattern } = req.body;
+
+    try {
+        const { glob } = require('glob');
+        const path = require('path');
+
+        // Remove ws- prefix if present
+        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+        console.log('🔍 Glob search for pattern:', pattern, 'in', repoPath);
+
+        // Use glob to find matching files
+        const files = await glob(pattern, {
+            cwd: repoPath,
+            ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**'],
+            nodir: true // Only return files, not directories
+        });
+
+        console.log(`Found ${files.length} files matching pattern: ${pattern}`);
+
+        res.json({ success: true, files });
+    } catch (error) {
+        console.error('Glob search error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Search in files
 app.post('/workstation/search-files', async (req, res) => {
     const { projectId, pattern } = req.body;
@@ -1481,7 +1919,8 @@ async function cloneAndReadRepository(repositoryUrl, projectId) {
         }
     }
 
-    // Read files from the cloned repository
+    // Read files from the cloned repository (RECURSIVE)
+    // NOTE: Only returns files, not directories. Directories are implicit in the file paths.
     async function readDirectory(dirPath, basePath = '') {
         const files = [];
         try {
@@ -1494,11 +1933,19 @@ async function cloneAndReadRepository(repositoryUrl, projectId) {
                 const fullPath = path.join(dirPath, entry.name);
                 const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
 
-                files.push({
-                    name: entry.name,
-                    type: entry.isDirectory() ? 'directory' : 'file',
-                    path: relativePath
-                });
+                if (entry.isDirectory()) {
+                    // DON'T add the directory itself, just recurse into it
+                    // The directory structure is implicit in the file paths
+                    const subFiles = await readDirectory(fullPath, relativePath);
+                    files.push(...subFiles);
+                } else {
+                    // Only add files
+                    files.push({
+                        name: entry.name,
+                        type: 'file',
+                        path: relativePath
+                    });
+                }
             }
         } catch (err) {
             console.error('Error reading directory:', err);

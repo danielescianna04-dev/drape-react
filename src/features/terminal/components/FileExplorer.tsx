@@ -5,6 +5,13 @@ import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
 
+interface FileTreeNode {
+  name: string;
+  path: string;
+  type: 'file' | 'folder';
+  children?: FileTreeNode[];
+}
+
 interface Props {
   projectId: string;
   repositoryUrl?: string;
@@ -27,6 +34,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
       setLoading(true);
       setError(null);
       const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl);
+      console.log('📂 Files received from backend:', fileList.length);
+      console.log('📂 First 10 files:', fileList.slice(0, 10));
       setFiles(fileList);
       // Success/error messages are handled by App.tsx, not here
     } catch (err: any) {
@@ -54,22 +63,59 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
     return iconMap[ext || ''] || { icon: 'document-outline', color: '#888888' };
   };
 
-  const organizeFiles = () => {
-    const tree: { [key: string]: string[] } = {};
-    
-    files.forEach(file => {
-      const parts = file.split('/');
-      if (parts.length === 1) {
-        if (!tree['_root']) tree['_root'] = [];
-        tree['_root'].push(file);
-      } else {
-        const folder = parts[0];
-        if (!tree[folder]) tree[folder] = [];
-        tree[folder].push(file);
-      }
+  const buildFileTree = (): FileTreeNode[] => {
+    const root: FileTreeNode[] = [];
+    const folderMap = new Map<string, FileTreeNode>();
+
+    files.forEach(filePath => {
+      const parts = filePath.split('/');
+      let currentLevel = root;
+      let currentPath = '';
+
+      parts.forEach((part, index) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        const isFile = index === parts.length - 1;
+
+        // Check if this node already exists at current level
+        let node = currentLevel.find(n => n.name === part);
+
+        if (!node) {
+          node = {
+            name: part,
+            path: currentPath,
+            type: isFile ? 'file' : 'folder',
+            children: isFile ? undefined : []
+          };
+          currentLevel.push(node);
+
+          if (!isFile) {
+            folderMap.set(currentPath, node);
+          }
+        }
+
+        // Move to next level if it's a folder
+        if (!isFile && node.children) {
+          currentLevel = node.children;
+        }
+      });
     });
-    
-    return tree;
+
+    // Sort: folders first, then files; alphabetically within each group
+    const sortNodes = (nodes: FileTreeNode[]): FileTreeNode[] => {
+      return nodes.sort((a, b) => {
+        if (a.type === b.type) {
+          return a.name.localeCompare(b.name);
+        }
+        return a.type === 'folder' ? -1 : 1;
+      }).map(node => {
+        if (node.children) {
+          node.children = sortNodes(node.children);
+        }
+        return node;
+      });
+    };
+
+    return sortNodes(root);
   };
 
   const toggleFolder = (folder: string) => {
@@ -106,78 +152,60 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
     );
   }
 
-  const fileTree = organizeFiles();
-  const folders = Object.keys(fileTree).filter(k => k !== '_root').sort();
-  const rootFiles = fileTree['_root'] || [];
+  const fileTree = buildFileTree();
+
+  const renderNode = (node: FileTreeNode, depth: number = 0): React.ReactNode => {
+    if (node.type === 'file') {
+      const { icon, color } = getFileIcon(node.name);
+      return (
+        <TouchableOpacity
+          key={node.path}
+          style={[styles.fileItem, { paddingLeft: 20 + depth * 16 }]}
+          onPress={() => onFileSelect(node.path)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
+          <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
+        </TouchableOpacity>
+      );
+    }
+
+    // Folder
+    const isExpanded = expandedFolders.has(node.path);
+    return (
+      <View key={node.path}>
+        <TouchableOpacity
+          style={[styles.folderItem, { paddingLeft: 8 + depth * 16 }]}
+          onPress={() => toggleFolder(node.path)}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name={isExpanded ? 'chevron-down' : 'chevron-forward'}
+            size={14}
+            color="rgba(255, 255, 255, 0.6)"
+            style={styles.chevron}
+          />
+          <Ionicons
+            name={isExpanded ? 'folder-open' : 'folder'}
+            size={16}
+            color={isExpanded ? '#8B5CF6' : 'rgba(255, 255, 255, 0.6)'}
+            style={styles.folderIcon}
+          />
+          <Text style={styles.folderName}>{node.name}</Text>
+        </TouchableOpacity>
+
+        {isExpanded && node.children && (
+          <View>
+            {node.children.map(child => renderNode(child, depth + 1))}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Root files */}
-      {rootFiles.map((file, index) => {
-        const { icon, color } = getFileIcon(file);
-        return (
-          <TouchableOpacity
-            key={`root-${index}`}
-            style={styles.fileItem}
-            onPress={() => onFileSelect(file)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
-            <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-          </TouchableOpacity>
-        );
-      })}
-
-      {/* Folders */}
-      {folders.map((folder) => {
-        const isExpanded = expandedFolders.has(folder);
-        const folderFiles = fileTree[folder];
-        
-        return (
-          <View key={folder}>
-            <TouchableOpacity
-              style={styles.folderItem}
-              onPress={() => toggleFolder(folder)}
-              activeOpacity={0.8}
-            >
-              <Ionicons 
-                name={isExpanded ? 'chevron-down' : 'chevron-forward'} 
-                size={14} 
-                color="rgba(255, 255, 255, 0.6)" 
-                style={styles.chevron}
-              />
-              <Ionicons 
-                name={isExpanded ? 'folder-open' : 'folder'} 
-                size={16} 
-                color={isExpanded ? '#8B5CF6' : 'rgba(255, 255, 255, 0.6)'} 
-                style={styles.folderIcon}
-              />
-              <Text style={styles.folderName}>{folder}</Text>
-            </TouchableOpacity>
-            
-            {isExpanded && (
-              <View>
-                {folderFiles.map((file, index) => {
-                  const { icon, color } = getFileIcon(file);
-                  const fileName = file.split('/').pop() || file;
-                  
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      style={styles.nestedFileItem}
-                      onPress={() => onFileSelect(file)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name={icon as any} size={16} color={color} style={styles.nestedFileIcon} />
-                      <Text style={styles.nestedFileName} numberOfLines={1}>{fileName}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        );
-      })}
+      {fileTree.map(node => renderNode(node, 0))}
     </ScrollView>
   );
 };
@@ -205,7 +233,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 4,
     paddingHorizontal: 8,
-    paddingLeft: 20,
   },
   fileIcon: {
     marginRight: 6,
@@ -213,6 +240,7 @@ const styles = StyleSheet.create({
   fileName: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.9)',
+    flex: 1,
   },
   folderItem: {
     flexDirection: 'row',
@@ -230,19 +258,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '500',
-  },
-  nestedFileItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    paddingLeft: 36,
-  },
-  nestedFileIcon: {
-    marginRight: 6,
-  },
-  nestedFileName: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
+    flex: 1,
   },
 });

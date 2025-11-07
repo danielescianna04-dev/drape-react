@@ -128,7 +128,10 @@ export const workstationService = {
       const url = repositoryUrl
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${workstationId}/files`;
-      const response = await axios.get(url);
+      // No timeout - repository cloning can take a long time for large repos
+      const response = await axios.get(url, {
+        timeout: 0 // No timeout
+      });
       const files = response.data.files || [];
 
       // Convert file objects to path strings for compatibility
