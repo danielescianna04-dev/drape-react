@@ -834,10 +834,23 @@ Linee guida per le risposte:
 
         const errorMessage = error.response?.data?.error?.message || error.message;
 
-        res.status(500).json({
-            success: false,
-            error: errorMessage
-        });
+        // Check if headers have already been sent (streaming started)
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: errorMessage
+            });
+        } else {
+            // Headers already sent, stream error message instead
+            try {
+                res.write(`data: ${JSON.stringify({ text: `\n\n❌ Error: ${errorMessage}` })}\n\n`);
+                res.write('data: [DONE]\n\n');
+                res.end();
+            } catch (streamError) {
+                console.error('Error sending error message to stream:', streamError);
+                // Connection might be already closed, ignore
+            }
+        }
     }
 });
 
