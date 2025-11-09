@@ -1,13 +1,13 @@
 // Google Cloud Run configuration
 const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app';
-const LOCAL_URL = 'http://192.168.0.229:3001';
+const LOCAL_URL = 'http://192.168.1.11:3000';
 
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production';
 
 export const config = {
   // Backend URLs
   apiUrl: process.env.EXPO_PUBLIC_API_URL || (isProduction ? PRODUCTION_URL : LOCAL_URL),
-  wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_URL.replace('https://', 'wss://') : 'ws://192.168.0.229:3001'),
+  wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_URL.replace('https://', 'wss://') : 'ws://192.168.1.11:3000'),
   
   // Endpoints
   endpoints: {
@@ -43,7 +43,7 @@ export const config = {
   settings: {
     enableLogging: !isProduction,
     enableDebugMode: !isProduction,
-    apiTimeout: isProduction ? 30000 : 10000,
+    apiTimeout: isProduction ? 30000 : 60000, // Increased to 60s for cloning operations
     retryAttempts: isProduction ? 3 : 1,
     maxConcurrentConnections: isProduction ? 5 : 1,
   },

@@ -6,6 +6,22 @@ const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const admin = require('firebase-admin');
 
+// Import Claude Code-style helpers
+const {
+    isDuplicateRequest,
+    summarizeMessages,
+    createSystemBlocks,
+    handleAPIError,
+    trackRequest,
+    getTelemetry,
+    getCachedToolResult,
+    setCachedToolResult,
+    pruneMessages,
+    getAdaptiveContextSize,
+    trackUserCost,
+    getUserCostStats
+} = require('./claude-helpers');
+
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
@@ -43,10 +59,32 @@ app.use(express.json());
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
+  res.json({
+    status: 'healthy',
     project: PROJECT_ID,
-    timestamp: new Date().toISOString() 
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Telemetry/Analytics endpoint (like Claude Code)
+app.get('/stats', (req, res) => {
+  const stats = getTelemetry();
+  res.json({
+    ...stats,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// User Cost Stats endpoint (OPTIMIZATION 12: Cost Budgeting)
+app.get('/user-costs/:userId', (req, res) => {
+  const { userId } = req.params;
+  const userStats = getUserCostStats(userId);
+  res.json({
+    userId,
+    totalCost: `$${userStats.total.toFixed(4)}`,
+    requests: userStats.requests,
+    averageCostPerRequest: userStats.requests > 0 ? `$${(userStats.total / userStats.requests).toFixed(4)}` : '$0.0000',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -278,18 +316,29 @@ app.post('/github/exchange-code', async (req, res) => {
   }
 });
 
-// Import Gemini SDK
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Import Claude SDK
+const Anthropic = require('@anthropic-ai/sdk');
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY,
+});
 
-// AI Chat endpoint - Using Gemini 2.0 Flash with native tool calling
+// AI Chat endpoint - Using Claude 3.5 Sonnet with native tool calling
 app.post('/ai/chat', async (req, res) => {
     const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
-    // Use Gemini 2.5 Flash (latest and most powerful version)
-    const model = 'gemini-2.5-flash';
+    // Use Claude Sonnet 4.0 (latest model)
+    // Note: Model IDs available depend on API tier
+    const model = 'claude-sonnet-4-20250514';
 
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    // 🚀 OPTIMIZATION 5: Request deduplication (like Claude Code)
+    // Prevent duplicate requests within 2 seconds
+    const sessionId = workstationId || projectId || 'default';
+    if (isDuplicateRequest(sessionId, prompt)) {
+        console.log('⚠️ Duplicate request detected - ignoring');
+        return res.status(429).json({ error: 'Duplicate request - please wait' });
     }
 
     try {
@@ -559,153 +608,169 @@ Linee guida per le risposte:
             systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
         }
 
-        // Define function declarations for Gemini native function calling
-        const tools = [{
-            functionDeclarations: [
-                {
-                    name: 'read_file',
-                    description: 'Leggi il contenuto di un file nel progetto',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            filePath: {
-                                type: 'STRING',
-                                description: 'Il path del file da leggere'
-                            }
-                        },
-                        required: ['filePath']
-                    }
-                },
-                {
-                    name: 'write_file',
-                    description: 'Crea un nuovo file o sovrascrive completamente un file esistente',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            filePath: {
-                                type: 'STRING',
-                                description: 'Il path del file da creare/sovrascrivere'
-                            },
-                            content: {
-                                type: 'STRING',
-                                description: 'Il contenuto completo del file'
-                            }
-                        },
-                        required: ['filePath', 'content']
-                    }
-                },
-                {
-                    name: 'edit_file',
-                    description: 'Modifica un file esistente con search & replace. Il file DEVE esistere.',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            filePath: {
-                                type: 'STRING',
-                                description: 'Il path del file da modificare'
-                            },
-                            oldString: {
-                                type: 'STRING',
-                                description: 'Il testo esatto da cercare e sostituire'
-                            },
-                            newString: {
-                                type: 'STRING',
-                                description: 'Il nuovo testo con cui sostituire oldString'
-                            }
-                        },
-                        required: ['filePath', 'oldString', 'newString']
-                    }
-                },
-                {
-                    name: 'list_files',
-                    description: 'Elenca i file in una directory',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            directory: {
-                                type: 'STRING',
-                                description: 'La directory da elencare (es: "." per root)'
-                            }
-                        },
-                        required: ['directory']
-                    }
-                },
-                {
-                    name: 'glob_files',
-                    description: 'Cerca file usando pattern glob (es: "**/*.ts" per tutti i file TypeScript, "**/deploy*" per file che iniziano con deploy)',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            pattern: {
-                                type: 'STRING',
-                                description: 'Il pattern glob da cercare (es: "**/*.ts", "**/*.js", "**/package.json")'
-                            }
-                        },
-                        required: ['pattern']
-                    }
-                },
-                {
-                    name: 'search_in_files',
-                    description: 'Cerca un pattern di testo all\'interno dei file del progetto (come grep)',
-                    parameters: {
-                        type: 'OBJECT',
-                        properties: {
-                            pattern: {
-                                type: 'STRING',
-                                description: 'Il pattern di testo da cercare nei file (es: "Service", "API", "auth")'
-                            }
-                        },
-                        required: ['pattern']
-                    }
+        // Define tools for Claude native function calling (converted from Gemini format)
+        const tools = [
+            {
+                name: 'read_file',
+                description: 'Leggi il contenuto di un file nel progetto',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        filePath: {
+                            type: 'string',
+                            description: 'Il path del file da leggere'
+                        }
+                    },
+                    required: ['filePath']
                 }
-            ]
-        }];
-
-        // Initialize Gemini model WITH native function calling
-        const geminiModel = genAI.getGenerativeModel({
-            model: model,
-            systemInstruction: systemMessage,
-            tools: tools,
-            toolConfig: {
-                functionCallingConfig: {
-                    mode: 'AUTO' // Enable automatic tool calling
+            },
+            {
+                name: 'write_file',
+                description: 'Crea un nuovo file o sovrascrive completamente un file esistente',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        filePath: {
+                            type: 'string',
+                            description: 'Il path del file da creare/sovrascrivere'
+                        },
+                        content: {
+                            type: 'string',
+                            description: 'Il contenuto completo del file'
+                        }
+                    },
+                    required: ['filePath', 'content']
+                }
+            },
+            {
+                name: 'edit_file',
+                description: 'Modifica un file esistente con search & replace. Il file DEVE esistere.',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        filePath: {
+                            type: 'string',
+                            description: 'Il path del file da modificare'
+                        },
+                        oldString: {
+                            type: 'string',
+                            description: 'Il testo esatto da cercare e sostituire'
+                        },
+                        newString: {
+                            type: 'string',
+                            description: 'Il nuovo testo con cui sostituire oldString'
+                        }
+                    },
+                    required: ['filePath', 'oldString', 'newString']
+                }
+            },
+            {
+                name: 'list_files',
+                description: 'Elenca i file in una directory',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        directory: {
+                            type: 'string',
+                            description: 'La directory da elencare (es: "." per root)'
+                        }
+                    },
+                    required: ['directory']
+                }
+            },
+            {
+                name: 'glob_files',
+                description: 'Cerca file usando pattern glob (es: "**/*.ts" per tutti i file TypeScript, "**/deploy*" per file che iniziano con deploy)',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        pattern: {
+                            type: 'string',
+                            description: 'Il pattern glob da cercare (es: "**/*.ts", "**/*.js", "**/package.json")'
+                        }
+                    },
+                    required: ['pattern']
+                }
+            },
+            {
+                name: 'search_in_files',
+                description: 'Cerca un pattern di testo all\'interno dei file del progetto (come grep)',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        pattern: {
+                            type: 'string',
+                            description: 'Il pattern di testo da cercare nei file (es: "Service", "API", "auth")'
+                        }
+                    },
+                    required: ['pattern']
                 }
             }
-        });
+        ];
 
-        // Build conversation history for Gemini
-        const history = conversationHistory.map((msg, i) => ({
-            role: i % 2 === 0 ? 'user' : 'model',
-            parts: [{ text: msg }]
-        }));
+        // Build conversation history for Claude (convert from simple string array to Claude format)
+        // 🚀 OPTIMIZATION 1: Limit context window + Message Summarization (like Claude Code does)
+        // 🚀 OPTIMIZATION 10 & 11: Adaptive Context + Smart Pruning (like Claude Code)
+        const MAX_HISTORY_MESSAGES = 20;
+
+        // Adaptive context size based on prompt type
+        const adaptiveMaxMessages = getAdaptiveContextSize(prompt, conversationHistory);
+
+        const limitedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+
+        const messages = [];
+
+        // Convert history to message objects
+        const historyMessages = [];
+        for (let i = 0; i < limitedHistory.length; i++) {
+            historyMessages.push({
+                role: i % 2 === 0 ? 'user' : 'assistant',
+                content: limitedHistory[i]
+            });
+        }
+
+        // Apply smart pruning with relevance scoring (better than summarization)
+        const optimizedMessages = pruneMessages(historyMessages, prompt, adaptiveMaxMessages);
+        messages.push(...optimizedMessages);
+
+        // Add current user message
+        messages.push({
+            role: 'user',
+            content: prompt
+        });
 
         // Set headers for SSE streaming
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
 
-        // Start chat session with history
-        const chat = geminiModel.startChat({
-            history: history,
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-            }
-        });
-
-        // Helper function to execute tool calls
-        async function executeTool(functionCall) {
-            const { name, args } = functionCall;
+        // Helper function to execute tool calls (compatible with both Gemini and Claude)
+        async function executeTool(name, args) {
             const axios = require('axios');
 
+            // 🚀 OPTIMIZATION 9: Tool Result Caching (like Claude Code)
+            // Check cache first for read-only operations
+            if (['read_file', 'list_files', 'glob_files', 'search_in_files'].includes(name)) {
+                const cachedResult = getCachedToolResult(name, args);
+                if (cachedResult) {
+                    return cachedResult;
+                }
+            }
+
             try {
+                let result;
                 switch (name) {
                     case 'read_file':
                         const readRes = await axios.post(`http://localhost:${PORT}/workstation/read-file`, {
                             projectId: projectId,
                             filePath: args.filePath
                         });
-                        return readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
+                        result = readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
+                        // Cache the result
+                        if (readRes.data.success) {
+                            setCachedToolResult(name, args, result);
+                        }
+                        return result;
 
                     case 'write_file':
                         const writeRes = await axios.post(`http://localhost:${PORT}/workstation/write-file`, {
@@ -734,7 +799,11 @@ Linee guida per le risposte:
                             projectId: projectId,
                             directory: args.directory
                         });
-                        return listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
+                        result = listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
+                        if (listRes.data.success) {
+                            setCachedToolResult(name, args, result);
+                        }
+                        return result;
 
                     case 'glob_files':
                         const globRes = await axios.post(`http://localhost:${PORT}/workstation/glob-files`, {
@@ -745,7 +814,9 @@ Linee guida per le risposte:
                             const files = globRes.data.files || [];
                             const fileCount = files.length;
                             const fileList = files.join('\n');
-                            return `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
+                            result = `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
+                            setCachedToolResult(name, args, result);
+                            return result;
                         } else {
                             return `Error: ${globRes.data.error}`;
                         }
@@ -760,7 +831,9 @@ Linee guida per le risposte:
                             const matchCount = results.length;
                             const resultList = results.slice(0, 20).map(r => `${r.file}:${r.line}: ${r.content}`).join('\n');
                             const truncated = matchCount > 20 ? `\n... (showing first 20 of ${matchCount} matches)` : '';
-                            return `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
+                            result = `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
+                            setCachedToolResult(name, args, result);
+                            return result;
                         } else {
                             return `Error: ${searchRes.data.error}`;
                         }
@@ -773,62 +846,211 @@ Linee guida per le risposte:
             }
         }
 
-        // Send message with function calling support
-        let result = await chat.sendMessageStream(prompt);
+        // Create Claude streaming session with tool support
+        let currentMessages = [...messages];
 
-        // Stream the response and handle function calls in a loop
+        // Main streaming loop to handle tool calls
         let continueLoop = true;
+        let retryCount = 0;
+        const MAX_RETRIES = 3;
+
         while (continueLoop) {
-            continueLoop = false; // Reset flag
+            continueLoop = false;
 
-            for await (const chunk of result.stream) {
-                const functionCalls = chunk.functionCalls();
+            try {
+                // 🚀 OPTIMIZATION 2 & 4: Prompt Caching with graceful fallback (like Claude Code)
+                // Try caching first, fallback to simple string if not supported
+                let systemBlocks;
+                let usedCache = false;
 
-                if (functionCalls && functionCalls.length > 0) {
-                    // Execute each function call
-                    for (const functionCall of functionCalls) {
-                        console.log('🔧 Function call:', functionCall.name, functionCall.args);
+                try {
+                    systemBlocks = createSystemBlocks(systemMessage, true); // Try with caching
+                    usedCache = true;
+                } catch (cacheError) {
+                    console.log('⚠️ Prompt caching not supported, using fallback');
+                    systemBlocks = createSystemBlocks(systemMessage, false); // Fallback to string
+                }
 
-                        // Stream function call to frontend (EXCEPT for glob_files and search_in_files - we want to show only the result)
-                        if (functionCall.name !== 'glob_files' && functionCall.name !== 'search_in_files') {
-                            res.write(`data: ${JSON.stringify({
-                                functionCall: {
-                                    name: functionCall.name,
-                                    args: functionCall.args
-                                }
-                            })}\n\n`);
-                        }
+                // Start Claude streaming
+                const stream = anthropic.messages.stream({
+                    model: model,
+                    max_tokens: 8192,
+                    system: systemBlocks,
+                    messages: currentMessages,
+                    tools: tools,
+                    temperature: 0.7
+                });
 
-                        // Execute the function
-                        const functionResult = await executeTool(functionCall);
-                        console.log('✅ Function result:', functionResult);
+            // Track tool calls detected during streaming (for UI only)
+            const toolCallsForUI = [];
 
-                        // Stream the formatted tool result to frontend
+            // Handle streaming events
+            for await (const event of stream) {
+                // Text delta - stream to client
+                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                    res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
+                }
+
+                // Tool use started - send to frontend for UI (but don't execute yet!)
+                if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+                    const toolUse = event.content_block;
+                    console.log('🔧 Tool call detected (streaming):', toolUse.name, '- params empty:', JSON.stringify(toolUse.input));
+
+                    // Stream function call to frontend for UI (EXCEPT for glob_files and search_in_files)
+                    // NOTE: At this point, toolUse.input is still empty {}!
+                    if (toolUse.name !== 'glob_files' && toolUse.name !== 'search_in_files') {
                         res.write(`data: ${JSON.stringify({
-                            toolResult: {
-                                name: functionCall.name,
-                                args: functionCall.args,
-                                result: functionResult
+                            functionCall: {
+                                name: toolUse.name,
+                                args: toolUse.input // This will be empty {} during streaming
                             }
                         })}\n\n`);
-
-                        // Send function result back to Gemini to continue generation
-                        result = await chat.sendMessageStream([{
-                            functionResponse: {
-                                name: functionCall.name,
-                                response: { result: functionResult }
-                            }
-                        }]);
-
-                        // Continue the loop to process the new response
-                        continueLoop = true;
                     }
+
+                    // Store tool ID for tracking (DO NOT execute yet!)
+                    toolCallsForUI.push({
+                        id: toolUse.id,
+                        name: toolUse.name
+                    });
+                }
+            }
+
+            // After streaming completes, get the final message with complete tool parameters
+            const finalMessage = await stream.finalMessage();
+
+            // 📊 Log token usage and cache hits + Track telemetry (like Claude Code)
+            const usage = finalMessage.usage;
+            const toolUseBlocks = finalMessage.content.filter(block => block.type === 'tool_use');
+
+            if (usage) {
+                const cacheHit = usage.cache_read_input_tokens || 0;
+                const cacheSavings = (cacheHit * 0.00003).toFixed(4); // $0.03 per 1M tokens
+                console.log(`📊 Token usage: Input=${usage.input_tokens}, Cache=${cacheHit} (saved $${cacheSavings}), Output=${usage.output_tokens}`);
+
+                // Track in telemetry
+                trackRequest({
+                    tokens: {
+                        input: usage.input_tokens || 0,
+                        output: usage.output_tokens || 0,
+                        cached: cacheHit
+                    },
+                    tools: toolUseBlocks.map(t => t.name)
+                });
+
+                // 🚀 OPTIMIZATION 12: Cost Budgeting & Alerts (like Claude Code)
+                const userCostData = trackUserCost(userId, {
+                    input: usage.input_tokens || 0,
+                    output: usage.output_tokens || 0,
+                    cached: cacheHit
+                });
+                console.log(`💰 User ${userId} total cost: $${userCostData.total.toFixed(4)} over ${userCostData.requests} requests`);
+            }
+
+            // Now execute tools with complete parameters from finalMessage
+            const toolsUsed = [];
+
+            if (toolUseBlocks.length > 0) {
+                console.log(`✅ Streaming complete. Executing ${toolUseBlocks.length} tool(s) with complete parameters...`);
+
+                for (const toolUse of toolUseBlocks) {
+                    console.log('🔧 Executing tool:', toolUse.name, 'with params:', JSON.stringify(toolUse.input));
+
+                    // NOW execute the tool with complete parameters!
+                    const toolResult = await executeTool(toolUse.name, toolUse.input);
+                    console.log('✅ Tool result:', toolResult.substring(0, 200));
+
+                    // Stream the formatted tool result to frontend
+                    res.write(`data: ${JSON.stringify({
+                        toolResult: {
+                            name: toolUse.name,
+                            args: toolUse.input,
+                            result: toolResult
+                        }
+                    })}\n\n`);
+
+                    // Store tool use for next iteration
+                    toolsUsed.push({
+                        id: toolUse.id,
+                        name: toolUse.name,
+                        input: toolUse.input,
+                        result: toolResult
+                    });
+                }
+            }
+
+            // If tools were used, continue the conversation with tool results
+            if (toolsUsed.length > 0) {
+
+                // Build the assistant's message with tool uses
+                const assistantMessage = {
+                    role: 'assistant',
+                    content: finalMessage.content
+                };
+
+                // Build user message with tool results
+                const toolResultsMessage = {
+                    role: 'user',
+                    content: toolsUsed.map(tool => ({
+                        type: 'tool_result',
+                        tool_use_id: tool.id,
+                        content: tool.result
+                    }))
+                };
+
+                // Add to messages and continue loop
+                currentMessages.push(assistantMessage);
+                currentMessages.push(toolResultsMessage);
+                continueLoop = true;
+
+                // Reset retry count after successful tool execution
+                retryCount = 0;
+            } else {
+                // No tools used - reset retry count
+                retryCount = 0;
+            }
+
+            // 🚀 OPTIMIZATION 3 & 6: Granular error handling with retry (like Claude Code)
+            } catch (streamError) {
+                // Classify error type with granular error handler
+                const errorInfo = handleAPIError(streamError);
+
+                console.log(`❌ ${errorInfo.type} error:`, errorInfo.technicalDetails);
+
+                // Track error in telemetry
+                trackRequest({ error: errorInfo });
+
+                // Retry logic for retryable errors
+                if (errorInfo.shouldRetry && retryCount < MAX_RETRIES) {
+                    retryCount++;
+                    // Exponential backoff: 2s, 4s, 8s
+                    const waitTime = Math.pow(2, retryCount) * 1000;
+
+                    console.log(`⏳ ${errorInfo.type} - Retry ${retryCount}/${MAX_RETRIES} in ${waitTime/1000}s...`);
+
+                    // Send user-friendly error message to frontend
+                    res.write(`data: ${JSON.stringify({
+                        text: `\n${errorInfo.userMessage}\nRiprovo (${retryCount}/${MAX_RETRIES}) tra ${waitTime/1000}s...\n`
+                    })}\n\n`);
+
+                    // Wait before retrying
+                    await new Promise(resolve => setTimeout(resolve, waitTime));
+
+                    // Retry - continue the loop
+                    continueLoop = true;
+                    continue;
                 } else {
-                    // Regular text chunk - stream to frontend
-                    const chunkText = chunk.text();
-                    if (chunkText) {
-                        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+                    // Not retryable or max retries exceeded
+                    if (retryCount >= MAX_RETRIES) {
+                        console.log(`❌ Max retries (${MAX_RETRIES}) exceeded`);
+                        res.write(`data: ${JSON.stringify({
+                            text: `\n❌ Tentativi esauriti dopo ${MAX_RETRIES} retry. ${errorInfo.userMessage}\n`
+                        })}\n\n`);
+                    } else {
+                        res.write(`data: ${JSON.stringify({
+                            text: `\n${errorInfo.userMessage}\n`
+                        })}\n\n`);
                     }
+                    throw streamError;
                 }
             }
         }

@@ -128,10 +128,14 @@ export const workstationService = {
       const url = repositoryUrl
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${workstationId}/files`;
-      // No timeout - repository cloning can take a long time for large repos
-      const response = await axios.get(url, {
-        timeout: 0 // No timeout
+
+      // Create a custom axios instance with extended timeout for cloning operations
+      // We can't use timeout: 0 because axios doesn't handle it properly
+      const axiosLongTimeout = axios.create({
+        timeout: 600000 // 10 minutes for large repository clones
       });
+
+      const response = await axiosLongTimeout.get(url);
       const files = response.data.files || [];
 
       // Convert file objects to path strings for compatibility
