@@ -234,10 +234,14 @@ function getTelemetry() {
 /**
  * OPTIMIZATION 9: Tool Result Caching (like Claude Code)
  * Caches tool results to avoid re-reading same files
+ *
+ * OPTIMIZATION 14: More Aggressive Caching
+ * Increased TTL from 5 minutes to 30 minutes for better performance
+ * Increased cache size from 50 to 200 entries
  */
 const toolResultCache = new Map();
-const TOOL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (same as prompt cache)
-const MAX_CACHE_SIZE = 50; // Max cached results
+const TOOL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes (increased from 5)
+const MAX_CACHE_SIZE = 200; // Max cached results (increased from 50)
 
 function getCachedToolResult(toolName, input) {
     const key = `${toolName}:${JSON.stringify(input)}`;
