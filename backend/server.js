@@ -2380,6 +2380,96 @@ app.get('/workstation/:projectId/files', async (req, res) => {
 });
 
 /**
+ * Get file content from cloned repository
+ */
+app.get('/workstation/:projectId/file-content', async (req, res) => {
+    const { projectId } = req.params;
+    const { filePath, repositoryUrl } = req.query;
+
+    try {
+        console.log('📄 Getting file content:', filePath);
+
+        if (!filePath) {
+            return res.status(400).json({ success: false, error: 'File path is required' });
+        }
+
+        // Ensure repository is cloned
+        const reposDir = path.join(__dirname, 'cloned_repos');
+        const repoPath = path.join(reposDir, projectId);
+
+        // Check if repo exists, clone if not
+        try {
+            await fs.access(repoPath);
+        } catch {
+            if (repositoryUrl) {
+                console.log('📦 Repository not found, cloning first...');
+                await cloneAndReadRepository(repositoryUrl, projectId);
+            } else {
+                return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
+            }
+        }
+
+        // Read file content
+        const fullFilePath = path.join(repoPath, filePath);
+        const content = await fs.readFile(fullFilePath, 'utf-8');
+
+        console.log(`✅ File content loaded: ${filePath} (${content.length} bytes)`);
+        res.json({ success: true, content, filePath });
+
+    } catch (error) {
+        console.error('❌ Error reading file:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Save file content to cloned repository
+ */
+app.post('/workstation/:projectId/file-content', async (req, res) => {
+    const { projectId } = req.params;
+    const { filePath, content, repositoryUrl } = req.body;
+
+    try {
+        console.log('💾 Saving file:', filePath);
+
+        if (!filePath || content === undefined) {
+            return res.status(400).json({ success: false, error: 'File path and content are required' });
+        }
+
+        const reposDir = path.join(__dirname, 'cloned_repos');
+        const repoPath = path.join(reposDir, projectId);
+
+        // Check if repo exists
+        try {
+            await fs.access(repoPath);
+        } catch {
+            if (repositoryUrl) {
+                console.log('📦 Repository not found, cloning first...');
+                await cloneAndReadRepository(repositoryUrl, projectId);
+            } else {
+                return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
+            }
+        }
+
+        // Write file content
+        const fullFilePath = path.join(repoPath, filePath);
+
+        // Ensure directory exists
+        const dir = path.dirname(fullFilePath);
+        await fs.mkdir(dir, { recursive: true });
+
+        await fs.writeFile(fullFilePath, content, 'utf-8');
+
+        console.log(`✅ File saved: ${filePath} (${content.length} bytes)`);
+        res.json({ success: true, filePath, size: content.length });
+
+    } catch (error) {
+        console.error('❌ Error saving file:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * OPTIMIZATION 16: WebSocket Helper Function
  * Streams messages to WebSocket client (replaces SSE res.write)
  */

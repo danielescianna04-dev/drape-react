@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { FileViewer } from './FileViewer';
 
 interface FileTreeNode {
   name: string;
@@ -23,6 +24,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [showFileViewer, setShowFileViewer] = useState(false);
   const { addTerminalItem } = useTabStore();
 
   useEffect(() => {
@@ -161,7 +164,11 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
         <TouchableOpacity
           key={node.path}
           style={[styles.fileItem, { paddingLeft: 20 + depth * 16 }]}
-          onPress={() => onFileSelect(node.path)}
+          onPress={() => {
+            setSelectedFile(node.path);
+            setShowFileViewer(true);
+            onFileSelect(node.path); // Keep for backward compatibility
+          }}
           activeOpacity={0.8}
         >
           <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
@@ -204,9 +211,25 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
   };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {fileTree.map(node => renderNode(node, 0))}
-    </ScrollView>
+    <>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {fileTree.map(node => renderNode(node, 0))}
+      </ScrollView>
+
+      {selectedFile && (
+        <FileViewer
+          visible={showFileViewer}
+          filePath={selectedFile}
+          projectId={projectId}
+          repositoryUrl={repositoryUrl}
+          userId="anonymous" // TODO: Get from auth
+          onClose={() => {
+            setShowFileViewer(false);
+            setSelectedFile(null);
+          }}
+        />
+      )}
+    </>
   );
 };
 

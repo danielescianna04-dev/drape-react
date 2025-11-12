@@ -198,11 +198,40 @@ export const workstationService = {
         command,
         workstationId
       });
-      
+
       return response.data;
     } catch (error) {
       console.error('Error executing command:', error);
       throw error;
+    }
+  },
+
+  // Leggi contenuto file
+  async getFileContent(projectId: string, filePath: string, repositoryUrl?: string): Promise<string> {
+    try {
+      const url = repositoryUrl
+        ? `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
+        : `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}`;
+
+      const response = await axios.get(url);
+      return response.data.content;
+    } catch (error: any) {
+      console.error('Error getting file content:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to load file');
+    }
+  },
+
+  // Salva contenuto file
+  async saveFileContent(projectId: string, filePath: string, content: string, repositoryUrl?: string): Promise<void> {
+    try {
+      await axios.post(`${API_BASE_URL}/workstation/${projectId}/file-content`, {
+        filePath,
+        content,
+        repositoryUrl
+      });
+    } catch (error: any) {
+      console.error('Error saving file content:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to save file');
     }
   },
 
