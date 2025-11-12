@@ -74,18 +74,27 @@ export const workstationService = {
   async getUserProjects(userId: string): Promise<UserProject[]> {
     try {
       const q = query(
-        collection(db, COLLECTION), 
+        collection(db, COLLECTION),
         where('userId', '==', userId)
         // orderBy('lastAccessed', 'desc') // TODO: Uncomment after creating index
       );
-      
+
       const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => ({
+      const projects = querySnapshot.docs.map(doc => ({
         ...doc.data(),
         id: doc.id,
         createdAt: doc.data().createdAt?.toDate() || new Date(),
         lastAccessed: doc.data().lastAccessed?.toDate() || new Date(),
       })) as UserProject[];
+
+      console.log('📦 Projects loaded from Firebase:', projects.map(p => ({
+        name: p.name,
+        type: p.type,
+        hasRepositoryUrl: !!p.repositoryUrl,
+        repositoryUrl: p.repositoryUrl
+      })));
+
+      return projects;
     } catch (error) {
       console.error('Error getting user projects:', error);
       return [];
@@ -129,13 +138,20 @@ export const workstationService = {
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${workstationId}/files`;
 
+      console.log('🌐 Making request to:', url);
+      console.log('🌐 API_BASE_URL:', API_BASE_URL);
+      console.log('🌐 workstationId:', workstationId);
+      console.log('🌐 repositoryUrl:', repositoryUrl);
+
       // Create a custom axios instance with extended timeout for cloning operations
       // We can't use timeout: 0 because axios doesn't handle it properly
       const axiosLongTimeout = axios.create({
         timeout: 600000 // 10 minutes for large repository clones
       });
 
+      console.log('🌐 About to make GET request...');
       const response = await axiosLongTimeout.get(url);
+      console.log('🌐 Response received:', response.status);
       const files = response.data.files || [];
 
       // Convert file objects to path strings for compatibility

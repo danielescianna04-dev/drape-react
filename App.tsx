@@ -210,6 +210,8 @@ export default function App() {
               }}
               onOpenProject={async (workstation) => {
                 console.log('Opening project:', workstation.name);
+                console.log('🔍 workstation.githubUrl:', workstation.githubUrl);
+                console.log('🔍 workstation.id:', workstation.id);
 
                 // Set workstation and switch to terminal screen
                 setWorkstation(workstation);
@@ -220,7 +222,10 @@ export default function App() {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
+                  console.log('🔍 Checking: currentTab?', !!currentTab, 'githubUrl?', !!workstation.githubUrl);
+
                   if (currentTab && workstation.githubUrl) {
+                    console.log('✅ Entering clone block');
                     // Clear old messages
                     clearTerminalItems(currentTab.id);
 
