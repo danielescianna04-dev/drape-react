@@ -11,9 +11,10 @@ import { ContentRenderer } from './ContentRenderer';
 import { TabBar } from './TabBar';
 import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
+import { PreviewPanel } from './PreviewPanel';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 
-type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -298,6 +299,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <Ionicons name="terminal" size={24} color="#888" />
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.iconButton, activePanel === 'preview' && styles.iconButtonActive]}
+          onPress={() => togglePanel('preview')}
+        >
+          <Ionicons name="phone-portrait" size={24} color={activePanel === 'preview' ? AppColors.primary : '#888'} />
+        </TouchableOpacity>
+
         <View style={styles.spacer} />
 
         {/* iPhone-like fluid trackpad - swipe to switch tabs */}
@@ -338,6 +346,14 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       {activePanel === 'chat' && (
         <ChatPanel onClose={() => setActivePanel(null)} />
+      )}
+
+      {activePanel === 'preview' && (
+        <PreviewPanel
+          onClose={() => setActivePanel(null)}
+          previewUrl="http://localhost:3001"
+          projectName="Project Preview"
+        />
       )}
 
       {activePanel === 'settings' && (

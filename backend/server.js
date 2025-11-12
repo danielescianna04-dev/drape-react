@@ -1171,33 +1171,55 @@ app.post('/terminal/execute', async (req, res) => {
 
   console.log('Terminal execute:', { command, workstationId, language: req.body.language });
 
-  // Allow simulation mode even without workstationId for testing
-  const simulationMode = !workstationId;
-
   try {
-    if (simulationMode) {
-      console.log('🧪 Running in simulation mode (no workstation)');
-    } else {
-      console.log(`⚡ Executing command on workstation ${workstationId}...`);
-    }
+    console.log(`⚡ Executing command: ${command}`);
 
-    // Execute command on workstation (or simulate if no workstationId)
-    const output = await executeCommandOnWorkstation(command, workstationId || 'simulation');
+    // Execute command (simulated for now, real with workstations in production)
+    const output = await executeCommandOnWorkstation(command, workstationId || 'local');
 
     console.log('✅ Command executed successfully');
 
-    const previewUrl = detectPreviewUrl(output.stdout, command);
+    let previewUrl = detectPreviewUrl(output.stdout, command);
+    let serverReady = false;
+    let healthCheckResult = null;
+
     if (previewUrl) {
       console.log('👁️  Preview URL detected:', previewUrl);
+
+      // For dev server commands, do health check to verify it's actually running
+      const isDevServerCommand = command.includes('start') ||
+                                 command.includes('serve') ||
+                                 command.includes('dev') ||
+                                 command.includes('run');
+
+      if (isDevServerCommand && output.exitCode === 0) {
+        console.log('🔍 Performing health check on server...');
+
+        // Always do health check in production mode
+        healthCheckResult = await healthCheckUrl(previewUrl, 15, 1000);
+        serverReady = healthCheckResult.healthy;
+
+        if (serverReady) {
+          console.log(`✅ Server is verified running and healthy!`);
+
+          // Convert to public URL for production
+          previewUrl = convertToPublicUrl(previewUrl, workstationId || 'local');
+          console.log(`🌐 Public preview URL: ${previewUrl}`);
+        } else {
+          console.log(`⚠️ Server command executed but health check failed`);
+        }
+      }
     }
 
     res.json({
       output: output.stdout,
       error: output.stderr,
       exitCode: output.exitCode,
-      workstationId: workstationId || 'simulation',
+      workstationId: workstationId || 'local',
       command,
-      previewUrl
+      previewUrl,
+      serverReady, // tells client if server is verified running
+      healthCheck: healthCheckResult // health check details
     });
 
   } catch (error) {
@@ -1287,6 +1309,68 @@ async function executeCommandOnWorkstation(command, workstationId) {
   return result;
 }
 
+// Health check a URL con retry logic
+async function healthCheckUrl(url, maxAttempts = 15, delayMs = 1000) {
+  console.log(`🏥 Starting health check for ${url}`);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`   Attempt ${attempt}/${maxAttempts}...`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const response = await axios.get(url, {
+        signal: controller.signal,
+        validateStatus: (status) => status < 500, // Accept 2xx, 3xx, 4xx (server is up)
+        timeout: 3000
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.status < 500) {
+        console.log(`✅ Health check passed! Server is responding (status: ${response.status})`);
+        return { healthy: true, attempts: attempt, status: response.status };
+      }
+    } catch (error) {
+      console.log(`   ⏳ Server not ready yet (${error.message})`);
+    }
+
+    // Wait before next attempt (except on last attempt)
+    if (attempt < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  console.log(`❌ Health check failed after ${maxAttempts} attempts`);
+  return { healthy: false, attempts: maxAttempts };
+}
+
+// Convert localhost URL to publicly accessible URL
+// In production, this would use Cloud Run workstation's public IP or tunnel
+function convertToPublicUrl(localUrl, workstationId) {
+  // For development: keep localhost (works on simulator)
+  if (process.env.NODE_ENV !== 'production') {
+    return localUrl;
+  }
+
+  // In production: replace localhost with workstation's public hostname
+  // Example: http://localhost:3000 -> https://workstation-abc123-3000.run.app
+  try {
+    const url = new URL(localUrl);
+    const port = url.port || '3000';
+
+    // Get workstation public hostname from environment or construct it
+    const publicHost = process.env.WORKSTATION_PUBLIC_HOST ||
+                      `${workstationId}-${port}.${LOCATION}.run.app`;
+
+    return `https://${publicHost}`;
+  } catch (error) {
+    console.error('Error converting URL:', error);
+    return localUrl;
+  }
+}
+
 // Detect preview URL from command output
 function detectPreviewUrl(output, command) {
   // Look for common development server patterns
@@ -1297,14 +1381,14 @@ function detectPreviewUrl(output, command) {
     /http:\/\/0\.0\.0\.0:\d+/,
     /Server running on (https?:\/\/[^\s]+)/
   ];
-  
+
   for (const pattern of urlPatterns) {
     const match = output.match(pattern);
     if (match) {
       return match[1] || match[0];
     }
   }
-  
+
   return null;
 }
 

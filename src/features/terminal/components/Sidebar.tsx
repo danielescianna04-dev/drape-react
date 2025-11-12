@@ -200,7 +200,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Drape</Text>
+        <View style={styles.logoContainer}>
+          <View style={styles.logoIconContainer}>
+            <Ionicons name="cube" size={20} color={AppColors.primary} />
+          </View>
+          <Text style={styles.logoText}>Drape</Text>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -702,8 +707,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 60,
-    paddingHorizontal: 8,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 16,
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  logoIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(139, 124, 246, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   headerTitle: {
     fontSize: 16,

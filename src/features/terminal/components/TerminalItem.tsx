@@ -22,6 +22,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [dotCount, setDotCount] = useState(1);
+  const [loadingDots, setLoadingDots] = useState('.');
 
   // 🔍 LOGGING DETTAGLIATO - Log di ogni item renderizzato
   useEffect(() => {
@@ -126,6 +127,22 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       return () => pulseAnimation.stop();
     } else {
       pulseAnim.setValue(1);
+    }
+  }, [isLoading]);
+
+  // Animated loading dots (cycles through '.', '..', '...')
+  useEffect(() => {
+    if (isLoading) {
+      const interval = setInterval(() => {
+        setLoadingDots(prev => {
+          if (prev === '.') return '..';
+          if (prev === '..') return '...';
+          return '.';
+        });
+      }, 500);
+      return () => clearInterval(interval);
+    } else {
+      setLoadingDots('.');
     }
   }, [isLoading]);
 
@@ -493,7 +510,11 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
           <View style={styles.assistantMessageContent}>
-            <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
+            {isLoading && !item.content ? (
+              <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
+            ) : (
+              <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
+            )}
           </View>
         )
       )}
@@ -864,6 +885,12 @@ const styles = StyleSheet.create({
   },
   assistantMessageContent: {
     flex: 1,
+    marginTop: 3, // Align text baseline with thread dot center
+  },
+  loadingText: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontStyle: 'italic',
   },
   userName: {
     fontSize: 13,
@@ -971,6 +998,8 @@ const markdownStyles = {
     fontSize: 15,
     color: 'rgba(255, 255, 255, 0.85)',
     lineHeight: 22,
+    marginTop: 0, // Remove any default top margin
+    paddingTop: 0, // Remove any default top padding
   },
   heading1: {
     fontSize: 20,
@@ -994,6 +1023,7 @@ const markdownStyles = {
     marginTop: 12,
   },
   paragraph: {
+    marginTop: 0, // Ensure first paragraph aligns with thread dot
     marginBottom: 12,
     lineHeight: 22,
   },
