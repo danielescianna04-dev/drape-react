@@ -5,6 +5,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import Markdown from 'react-native-markdown-display';
 
 const colors = AppColors.dark;
 
@@ -12,14 +13,68 @@ interface Props {
   item: TerminalItemType;
   isNextItemOutput?: boolean;
   outputItem?: TerminalItemType; // For terminal commands, include the output
+  isLoading?: boolean; // For animated loading indicator
 }
 
-export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
+export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = false }: Props) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [dotCount, setDotCount] = useState(1);
 
+  // 🔍 LOGGING DETTAGLIATO - Log di ogni item renderizzato
+  useEffect(() => {
+    const content = (item.content || '').substring(0, 200); // Primi 200 caratteri
+    const outputContent = outputItem ? (outputItem.content || '').substring(0, 200) : null;
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📊 TERMINAL ITEM RENDERED`);
+    console.log(`🔹 Type: ${item.type}`);
+    console.log(`🔹 Content Preview: "${content}${(item.content || '').length > 200 ? '...' : ''}"`);
+    console.log(`🔹 Content Length: ${(item.content || '').length} chars`);
+    if (outputItem) {
+      console.log(`🔸 Has Output Item: YES`);
+      console.log(`🔸 Output Type: ${outputItem.type}`);
+      console.log(`🔸 Output Preview: "${outputContent}${(outputItem.content || '').length > 200 ? '...' : ''}"`);
+    } else {
+      console.log(`🔸 Has Output Item: NO`);
+    }
+
+    // Log se è un tool specifico
+    const itemContent = item.content || '';
+    if (itemContent.startsWith('Read ')) {
+      console.log(`🛠️  TOOL: READ FILE`);
+      console.log(`   File: ${itemContent.split('\n')[0].replace('Read ', '')}`);
+    } else if (itemContent.startsWith('Write ')) {
+      console.log(`🛠️  TOOL: WRITE FILE`);
+    } else if (itemContent.startsWith('Edit ')) {
+      console.log(`🛠️  TOOL: EDIT FILE`);
+    } else if (itemContent.startsWith('Glob ')) {
+      console.log(`🛠️  TOOL: GLOB FILES`);
+      const lines = itemContent.split('\n');
+      console.log(`   Pattern: ${lines[0].replace('Glob pattern: ', '')}`);
+      console.log(`   Result: ${lines[1]}`);
+    } else if (itemContent.startsWith('Search ')) {
+      console.log(`🛠️  TOOL: SEARCH IN FILES`);
+    } else if (itemContent.startsWith('List files')) {
+      console.log(`🛠️  TOOL: LIST FILES`);
+    } else if (itemContent.startsWith('Execute:')) {
+      console.log(`🛠️  TOOL: EXECUTE COMMAND`);
+    } else if (item.type === 'COMMAND') {
+      console.log(`⌨️  COMMAND DETECTED`);
+    } else if (item.type === 'USER_MESSAGE') {
+      console.log(`👤 USER MESSAGE`);
+    } else if (item.type === 'OUTPUT') {
+      console.log(`📤 OUTPUT MESSAGE`);
+    } else if (item.type === 'ERROR') {
+      console.log(`❌ ERROR MESSAGE`);
+    } else if (item.type === 'LOADING') {
+      console.log(`⏳ LOADING STATE`);
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  }, [item, outputItem]);
 
   // Protezione per content null/undefined
   if (!item || item.content == null) {
@@ -50,6 +105,30 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
     }
   }, [item.type]);
 
+  // Pulse animation for loading thread dot
+  useEffect(() => {
+    if (isLoading) {
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.3,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      pulseAnimation.start();
+      return () => pulseAnimation.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [isLoading]);
+
   const getTextColor = () => {
     switch (item.type) {
       case ItemType.COMMAND:
@@ -79,6 +158,27 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
     dotColor = hasError ? '#F85149' : '#3FB950'; // Red for error, green for success
   } else if (item.type === ItemType.ERROR) {
     dotColor = '#F85149'; // Red for errors
+  } else if (item.type === ItemType.OUTPUT) {
+    // Check if this is a tool result (Read, Write, Edit, etc.)
+    const content = item.content || '';
+    const isToolResult = content.startsWith('Read ') ||
+                        content.startsWith('Write ') ||
+                        content.startsWith('Edit ') ||
+                        content.startsWith('List files') ||
+                        content.startsWith('Search ') ||
+                        content.startsWith('Execute:') ||
+                        content.startsWith('Glob ');
+
+    if (isToolResult) {
+      // Check if it has an error at the BEGINNING of the content (not in the middle)
+      // Only the first 3 lines could contain an actual error message from the tool
+      const firstLines = content.split('\n').slice(0, 3).join('\n');
+      const hasError = firstLines.match(/^Error:/m) ||
+                       firstLines.match(/^ERROR:/m) ||
+                       firstLines.includes('└─ Error:') ||
+                       firstLines.includes('└─ Failed');
+      dotColor = hasError ? '#F85149' : '#3FB950'; // Red for error, green for success
+    }
   }
 
   return (
@@ -94,7 +194,13 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
       {/* Thread line and dot on the left - only for AI messages and bash commands */}
       {!isUserMessage && (
         <View style={styles.threadContainer}>
-          <View style={[styles.threadDot, { backgroundColor: dotColor }]} />
+          <Animated.View
+            style={[
+              styles.threadDot,
+              { backgroundColor: dotColor },
+              isLoading && { opacity: pulseAnim }
+            ]}
+          />
           {isNextItemOutput && <View style={styles.threadLine} />}
         </View>
       )}
@@ -102,14 +208,30 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
       {/* Main content */}
       <View style={[styles.contentContainer, isUserMessage && styles.userMessageContainer]}>
       {item.type === ItemType.COMMAND && (
-        isTerminalCommand && outputItem ? (
-          // Terminal command with output - show as card with title
-          (() => {
-            const hasError = (outputItem.content || '').toLowerCase().includes('error') ||
-                             (outputItem.content || '').startsWith('Error:');
+        (() => {
+          // First check if output is a formatted tool result - if so, hide the COMMAND completely
+          // Note: Glob is NOT included here because we want to show it as OUTPUT
+          const isFormattedToolOutput = outputItem && (
+            (outputItem.content || '').startsWith('Read ') ||
+            (outputItem.content || '').startsWith('Write ') ||
+            (outputItem.content || '').startsWith('Edit ')
+          );
 
-            // Check if this is a read file command (cat)
-            const isCatCommand = (item.content || '').trim().startsWith('cat ');
+          // If it's a formatted tool output, don't render the COMMAND at all
+          if (isFormattedToolOutput) {
+            return null;
+          }
+
+          // Otherwise, render the command normally
+          return isTerminalCommand && outputItem ? (
+            // Terminal command with output - show as card with title
+            (() => {
+              // Only consider it an error if it starts with "Error:" or "ERROR:"
+              const hasError = (outputItem.content || '').match(/^Error:/i) ||
+                               (outputItem.content || '').match(/^ERROR:/i);
+
+              // Check if this is a read file command (cat)
+              const isCatCommand = (item.content || '').trim().startsWith('cat ');
 
             if (isCatCommand) {
               // Extract file path and line count from output
@@ -202,7 +324,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
               <Text style={styles.userMessage}>{item.content || ''}</Text>
             </View>
           </View>
-        )
+        );
+        })()
       )}
 
       {item.type === ItemType.USER_MESSAGE && (
@@ -214,7 +337,45 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
       )}
 
       {item.type === ItemType.OUTPUT && (
-        // Check if this is a file edit output (standalone, without COMMAND)
+        // Check if this is a Read tool result
+        (item.content || '').startsWith('Read ') ? (
+          (() => {
+            const content = item.content || '';
+            const lines = content.split('\n');
+            const fullHeader = lines[0]; // "Read filename.ts"
+            const fileName = fullHeader.replace('Read ', ''); // Extract just the filename
+            const stats = lines[1]; // "└─ X lines"
+            const fileContent = lines.slice(3).join('\n'); // Skip empty line
+
+            return (
+              <View style={styles.readFileInline}>
+                <Text style={styles.readFileLabel}>READ</Text>
+                <Text style={styles.readFileName}>{fileName}</Text>
+              </View>
+            );
+          })()
+        ) : // Check if this is a Glob tool result
+        (item.content || '').startsWith('Glob ') ? (
+          (() => {
+            const content = item.content || '';
+            const lines = content.split('\n');
+            const fullHeader = lines[0]; // "Glob pattern: **/*.ts"
+            const pattern = fullHeader.replace('Glob pattern: ', ''); // Extract pattern
+            const stats = lines[1]; // "└─ Found X file(s)"
+
+            return (
+              <View>
+                <View style={styles.readFileInline}>
+                  <Text style={styles.readFileLabel}>GLOB</Text>
+                  <Text style={styles.readFileName}>pattern: {pattern}</Text>
+                </View>
+                {stats && (
+                  <Text style={styles.globStats}>{stats}</Text>
+                )}
+              </View>
+            );
+          })()
+        ) : // Check if this is a file edit output (standalone, without COMMAND)
         (item.content || '').startsWith('Edit ') ? (
           (() => {
             const lines = (item.content || '').split('\n');
@@ -332,7 +493,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem }: Props) => {
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
           <View style={styles.assistantMessageContent}>
-            <Text style={styles.assistantMessage}>{item.content || ''}</Text>
+            <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
           </View>
         )
       )}
@@ -440,6 +601,23 @@ const styles = StyleSheet.create({
   readFileInfo: {
     fontSize: 12,
     color: '#6E7681',
+  },
+  globStats: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#6E7681',
+    marginLeft: 20,
+    marginTop: 2,
+  },
+  globFileList: {
+    marginTop: 8,
+    marginLeft: 20,
+  },
+  globFile: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 2,
   },
   // Terminal styles
   terminalCommand: {
@@ -786,3 +964,137 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+
+// Markdown styles (Claude Code-inspired)
+const markdownStyles = {
+  body: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.85)',
+    lineHeight: 22,
+  },
+  heading1: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.95)',
+    marginBottom: 12,
+    marginTop: 16,
+  },
+  heading2: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.95)',
+    marginBottom: 10,
+    marginTop: 14,
+  },
+  heading3: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.90)',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  paragraph: {
+    marginBottom: 12,
+    lineHeight: 22,
+  },
+  strong: {
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.95)',
+  },
+  em: {
+    fontStyle: 'italic',
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+  code_inline: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.95)',
+  },
+  code_block: {
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    marginVertical: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  fence: {
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 12,
+    marginVertical: 8,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  bullet_list: {
+    marginBottom: 12,
+  },
+  ordered_list: {
+    marginBottom: 12,
+  },
+  list_item: {
+    flexDirection: 'row',
+    marginBottom: 6,
+  },
+  bullet_list_icon: {
+    width: 20,
+    marginRight: 8,
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  ordered_list_icon: {
+    width: 20,
+    marginRight: 8,
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  blockquote: {
+    borderLeftWidth: 3,
+    borderLeftColor: 'rgba(139, 148, 158, 0.5)',
+    paddingLeft: 12,
+    marginLeft: 0,
+    marginVertical: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    paddingVertical: 8,
+  },
+  hr: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    height: 1,
+    marginVertical: 16,
+  },
+  link: {
+    color: '#58A6FF',
+    textDecorationLine: 'none', // Claude Code doesn't underline links
+    fontWeight: '600',
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 6,
+    marginVertical: 8,
+  },
+  tr: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  th: {
+    padding: 8,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  td: {
+    padding: 8,
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+};

@@ -34,50 +34,6 @@ interface ChatPageProps {
   animatedStyle?: any;
 }
 
-const LoadingIndicator = () => {
-  const rotation = useSharedValue(0);
-
-  React.useEffect(() => {
-    rotation.value = withTiming(360, {
-      duration: 800,
-      easing: Easing.linear,
-    });
-
-    const interval = setInterval(() => {
-      rotation.value = rotation.value + 360;
-      rotation.value = withTiming(rotation.value, {
-        duration: 800,
-        easing: Easing.linear,
-      });
-    }, 800);
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value}deg` }],
-  }));
-
-  return (
-    <View style={styles.loadingContainer}>
-      <Animated.View style={[styles.loadingSpinnerWrapper, animatedStyle]}>
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-          <View
-            key={i}
-            style={[
-              styles.loadingRay,
-              {
-                transform: [{ rotate: `${i * 45}deg` }],
-                opacity: 1 - (i * 0.1),
-              },
-            ]}
-          />
-        ))}
-      </Animated.View>
-    </View>
-  );
-};
-
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
@@ -570,48 +526,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         });
       } else {
         // Chat mode - AI response
-        
-        let enhancedPrompt = userMessage;
-        if (currentWorkstation && /analizza|analyze|spiega|explain|cosa fa/i.test(userMessage)) {
-          addTerminalItem({
-            id: (Date.now() + 0.5).toString(),
-            content: '📂 Caricamento file...', 
-            type: TerminalItemType.SYSTEM,
-            timestamp: new Date(),
-          });
-          
-          try {
-            const filesResponse = await axios.post(
-              `${process.env.EXPO_PUBLIC_API_URL}/workstation/list-files`,
-              { workstationId: currentWorkstation.id }
-            );
-            
-            const files = filesResponse.data.files || [];
-            const mainFiles = files.filter(f => 
-              f.includes('package.json') || f.includes('README') || 
-              f.includes('index') || f.includes('App') || f.includes('main')
-            ).slice(0, 5);
-            
-            const fileContents = await Promise.all(
-              mainFiles.map(async (filePath) => {
-                try {
-                  const content = await axios.post(
-                    `${process.env.EXPO_PUBLIC_API_URL}/workstation/read-file`,
-                    { workstationId: currentWorkstation.id, filePath }
-                  );
-                  return '\n--- ' + filePath + ' ---\n' + content.data.content;
-                } catch { return ''; }
-              })
-            );
-            
-            enhancedPrompt = userMessage + '\n\nFile del progetto:\n' + fileContents.join('\n');
-          } catch (error) {
-            console.error('Error loading files:', error);
-          }
-        }
-        
+
         // Create streaming message placeholder
-        const streamingMessageId = (Date.now() + 2).toString();
+        let streamingMessageId = (Date.now() + 2).toString();
         let streamedContent = '';
 
         addTerminalItem({
@@ -642,7 +559,147 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                 try {
                   const parsed = JSON.parse(data);
-                  if (parsed.text) {
+
+                  // Handle tool results from backend
+                  if (parsed.toolResult) {
+                    const { name, args, result } = parsed.toolResult;
+                    console.log('🎯 Tool result received:', name, args);
+
+                    // Format the result based on tool type (Claude Code style)
+                    let formattedOutput = '';
+
+                    if (name === 'read_file') {
+                      const lines = result.split('\n').length;
+                      const fileName = args.filePath.split('/').pop() || args.filePath;
+                      // Include both header and content
+                      formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+                    } else if (name === 'write_file') {
+                      const fileName = args.filePath.split('/').pop() || args.filePath;
+                      formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
+                    } else if (name === 'edit_file') {
+                      const fileName = args.filePath.split('/').pop() || args.filePath;
+                      formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
+                    } else if (name === 'list_files') {
+                      const fileCount = result.split('\n').filter((line: string) => line.trim()).length;
+                      formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+                    } else if (name === 'search_in_files') {
+                      const matches = result.split('\n').filter((line: string) => line.includes(':')).length;
+                      formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+                    } else if (name === 'execute_command') {
+                      formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${result}`;
+                    } else if (name === 'glob_files') {
+                      // For glob_files, just use the result as-is (it's already formatted from backend)
+                      formattedOutput = result;
+                    } else {
+                      // Generic format for other tools - include result
+                      formattedOutput = `${name}\n└─ Completed\n\n${result}`;
+                    }
+
+                    // Add tool result as a separate terminal item
+                    const toolResultId = `tool-result-${Date.now()}`;
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                              ...t,
+                              terminalItems: [
+                                ...(t.terminalItems || []),
+                                {
+                                  id: toolResultId,
+                                  type: TerminalItemType.OUTPUT,
+                                  content: formattedOutput,
+                                  timestamp: new Date()
+                                }
+                              ]
+                            }
+                          : t
+                      )
+                    }));
+
+                    // IMPORTANT: Create a new streaming message for text after the tool
+                    // This ensures text before and after tool execution are separate messages
+                    streamingMessageId = `stream-after-tool-${Date.now()}`;
+                    streamedContent = '';
+
+                    addTerminalItem({
+                      id: streamingMessageId,
+                      content: '',
+                      type: TerminalItemType.OUTPUT,
+                      timestamp: new Date(),
+                    });
+                  }
+                  // OPTIMIZATION 15: Handle batched tool results (multiple tools executed in parallel)
+                  else if (parsed.toolResultsBatch) {
+                    const { toolResultsBatch, executionTime, count } = parsed;
+                    console.log(`🎯 Batch of ${count} tool results received (executed in ${executionTime})`);
+
+                    // 🚀 OPTIMIZATION: Format ALL tool results FIRST, then add them ALL at once
+                    const formattedToolItems = toolResultsBatch.map((toolResult: any, index: number) => {
+                      const { name, args, result } = toolResult;
+
+                      // Format the result based on tool type (Claude Code style)
+                      let formattedOutput = '';
+
+                      if (name === 'read_file') {
+                        const lines = result.split('\n').length;
+                        const fileName = args.filePath.split('/').pop() || args.filePath;
+                        formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+                      } else if (name === 'write_file') {
+                        const fileName = args.filePath.split('/').pop() || args.filePath;
+                        formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
+                      } else if (name === 'edit_file') {
+                        const fileName = args.filePath.split('/').pop() || args.filePath;
+                        formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
+                      } else if (name === 'list_files') {
+                        const fileCount = result.split('\n').filter((line: string) => line.trim()).length;
+                        formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+                      } else if (name === 'search_in_files') {
+                        const matches = result.split('\n').filter((line: string) => line.includes(':')).length;
+                        formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+                      } else if (name === 'execute_command') {
+                        formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${result}`;
+                      } else if (name === 'glob_files') {
+                        formattedOutput = result;
+                      } else {
+                        formattedOutput = `${name}\n└─ Completed\n\n${result}`;
+                      }
+
+                      return {
+                        id: `tool-result-${Date.now()}-${name}-${index}`,
+                        type: TerminalItemType.OUTPUT,
+                        content: formattedOutput,
+                        timestamp: new Date()
+                      };
+                    });
+
+                    // ⚡ Add ALL tool results in a SINGLE setState call (shows them all at once!)
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                              ...t,
+                              terminalItems: [
+                                ...(t.terminalItems || []),
+                                ...formattedToolItems // Spread all items at once
+                              ]
+                            }
+                          : t
+                      )
+                    }));
+
+                    // IMPORTANT: Create a new streaming message for text after the batched tools
+                    streamingMessageId = `stream-after-batch-${Date.now()}`;
+                    streamedContent = '';
+
+                    addTerminalItem({
+                      id: streamingMessageId,
+                      content: '',
+                      type: TerminalItemType.OUTPUT,
+                      timestamp: new Date(),
+                    });
+                  }
+                  // Handle text responses
+                  else if (parsed.text) {
                     streamedContent += parsed.text;
 
                     // Update the message content in real-time
@@ -679,7 +736,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           xhr.onerror = () => reject(new Error('Network error'));
 
           xhr.send(JSON.stringify({
-            prompt: enhancedPrompt,
+            prompt: userMessage,
             model: selectedModel,
             conversationHistory: conversationHistory,
             workstationId: currentWorkstation?.id,
@@ -933,7 +990,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                 // Check if next item exists and is not a user message
                 const nextItem = filteredArray[index + 1];
-                const isNextItemAI = nextItem && !(nextItem.type === TerminalItemType.COMMAND && !isCommand(nextItem.content || ''));
+                // Show thread line only if CURRENT item is NOT user message AND next item is NOT a user message
+                const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
+                                     nextItem &&
+                                     nextItem.type !== TerminalItemType.USER_MESSAGE;
                 const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
                 const outputItem =
                   item.type === TerminalItemType.COMMAND &&
@@ -955,8 +1015,19 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             })()}
           </>
         )}
-        
-        {isLoading && <LoadingIndicator />}
+
+        {isLoading && (
+          <TerminalItem
+            key="loading-indicator"
+            item={{
+              type: TerminalItemType.OUTPUT,
+              content: 'Caricamento...',
+              timestamp: new Date(),
+            }}
+            outputItem={null}
+            isLoading={true}
+          />
+        )}
       </ScrollView>
 
       <Animated.View style={[
@@ -1193,33 +1264,6 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 20, // Reduced since output already has paddingTop:80
     // paddingBottom managed dynamically via state
-  },
-  loadingContainer: {
-    marginBottom: 4,
-    alignItems: 'flex-start',
-  },
-  loadingLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginBottom: 8,
-  },
-  loadingSpinnerWrapper: {
-    width: 16,
-    height: 16,
-    position: 'relative',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingRay: {
-    position: 'absolute',
-    width: 2,
-    height: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 1,
-    top: 0,
-    left: '50%',
-    marginLeft: -1,
   },
   inputContainer: {
     paddingHorizontal: 16,

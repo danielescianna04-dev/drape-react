@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const http = require('http');
+const WebSocket = require('ws');
 require('dotenv').config();
 const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
@@ -351,7 +353,53 @@ Linee guida per le risposte:
 - Scrivi in italiano standard senza errori
 - Usa terminologia tecnica appropriata
 - Sii chiaro e conciso
-- Quando non sei sicuro di qualcosa, ammettilo onestamente`;
+- Quando non sei sicuro di qualcosa, ammettilo onestamente
+
+📱 FORMATTAZIONE MOBILE-FRIENDLY (OBBLIGATORIO):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Stai rispondendo su un DISPOSITIVO MOBILE con schermo piccolo.
+
+❌ VIETATO usare markdown complesso:
+   • NO ### titoli multipli
+   • NO --- separatori
+   • NO ** grassetto eccessivo
+   • NO liste con - - - troppo indentate
+   • NO box con simboli ASCII
+   • NO formattazione tipo "### ❌ File .env" con emoji grandi
+
+✅ USA SOLO formattazione semplice e leggibile:
+   • Paragrafi brevi (max 3-4 righe)
+   • Liste semplici con emoji: 📂 📄 ✅ ❌ 🔧 💡
+   • Emoji INLINE nel testo, non su righe separate
+   • Spazi bianchi tra sezioni
+   • Testo chiaro senza simboli decorativi
+
+❌ ESEMPIO SBAGLIATO (illeggibile su mobile):
+### ❌ File .env
+Non è presente alcun file '.env' nel progetto (è ignorato dal .gitignore).
+
+### ✅ File .env.example (root del progetto)
+Contiene la configurazione per l'app React Native/Expo:
+- **Backend**: URL API e WebSocket (localhost:3000)
+- **GitHub OAuth**: Client ID per autenticazione
+[...]
+
+✅ ESEMPIO CORRETTO (leggibile su mobile):
+File .env trovati:
+
+❌ .env - Non presente nel progetto (ignorato da .gitignore)
+
+✅ .env.example - Configurazione per l'app React Native/Expo
+   📂 Backend: URL API e WebSocket (localhost:3000)
+   🔑 GitHub OAuth: Client ID per autenticazione
+   ☁️ Google Cloud: Project ID e region
+   🔥 Firebase: Configurazione completa
+
+REGOLE D'ORO:
+1. Un concetto = una riga
+2. Emoji inline per chiarezza
+3. NO formattazione markdown complessa
+4. Testo fluido e scorrevole`;
 
         if (context) {
             systemMessage += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
@@ -366,7 +414,9 @@ Linee guida per le risposte:
             systemMessage += '🚨🚨🚨 REGOLA FONDAMENTALE - LEGGI ATTENTAMENTE! 🚨🚨🚨\n\n';
             systemMessage += '❌ VIETATO rispondere a domande esplorative senza aver letto ALMENO 10 FILE!\n';
             systemMessage += '❌ VIETATO basarti solo su package.json e glob!\n';
-            systemMessage += '❌ VIETATO fermarti dopo i primi 3 tool calls!\n\n';
+            systemMessage += '❌ VIETATO fermarti dopo i primi 3 tool calls!\n';
+            systemMessage += '⚡ OBBLIGO: USA MULTIPLI TOOL CONTEMPORANEAMENTE! Non usare UN tool per volta!\n';
+            systemMessage += '⚡ ESEMPIO: Invece di chiamare read_file 5 volte separate, chiamale tutte insieme!\n\n';
             systemMessage += '✅ OBBLIGO: Per domande come "Cosa fa questa applicazione?", DEVI:\n';
             systemMessage += '   1. Leggere package.json ✓\n';
             systemMessage += '   2. Fare glob per trovare file ✓\n';
@@ -938,12 +988,12 @@ Linee guida per le risposte:
                 });
 
                 // 🚀 OPTIMIZATION 12: Cost Budgeting & Alerts (like Claude Code)
-                const userCostData = trackUserCost(userId, {
+                const userCostData = trackUserCost(sessionId, {
                     input: usage.input_tokens || 0,
                     output: usage.output_tokens || 0,
                     cached: cacheHit
                 });
-                console.log(`💰 User ${userId} total cost: $${userCostData.total.toFixed(4)} over ${userCostData.requests} requests`);
+                console.log(`💰 User ${sessionId} total cost: $${userCostData.total.toFixed(4)} over ${userCostData.requests} requests`);
             }
 
             // Now execute tools with complete parameters from finalMessage
@@ -952,29 +1002,60 @@ Linee guida per le risposte:
             if (toolUseBlocks.length > 0) {
                 console.log(`✅ Streaming complete. Executing ${toolUseBlocks.length} tool(s) with complete parameters...`);
 
-                for (const toolUse of toolUseBlocks) {
+                // 🚀 OPTIMIZATION 13: Parallel Tool Execution (like Claude Code)
+                // Execute all tools in parallel instead of sequentially
+                const startTime = Date.now();
+
+                const toolPromises = toolUseBlocks.map(async (toolUse) => {
                     console.log('🔧 Executing tool:', toolUse.name, 'with params:', JSON.stringify(toolUse.input));
 
-                    // NOW execute the tool with complete parameters!
-                    const toolResult = await executeTool(toolUse.name, toolUse.input);
-                    console.log('✅ Tool result:', toolResult.substring(0, 200));
+                    try {
+                        const toolResult = await executeTool(toolUse.name, toolUse.input);
+                        console.log('✅ Tool result:', toolResult.substring(0, 200));
 
-                    // Stream the formatted tool result to frontend
-                    res.write(`data: ${JSON.stringify({
-                        toolResult: {
+                        return {
+                            success: true,
+                            id: toolUse.id,
                             name: toolUse.name,
-                            args: toolUse.input,
+                            input: toolUse.input,
                             result: toolResult
-                        }
-                    })}\n\n`);
+                        };
+                    } catch (error) {
+                        console.error(`❌ Tool ${toolUse.name} failed:`, error.message);
+                        return {
+                            success: false,
+                            id: toolUse.id,
+                            name: toolUse.name,
+                            input: toolUse.input,
+                            result: `Error executing ${toolUse.name}: ${error.message}`
+                        };
+                    }
+                });
 
-                    // Store tool use for next iteration
-                    toolsUsed.push({
-                        id: toolUse.id,
-                        name: toolUse.name,
-                        input: toolUse.input,
-                        result: toolResult
-                    });
+                // Wait for all tools to complete in parallel
+                const toolResults = await Promise.all(toolPromises);
+                const executionTime = Date.now() - startTime;
+
+                console.log(`⚡ All ${toolResults.length} tools executed in ${executionTime}ms (parallel execution)`);
+
+                // 🚀 OPTIMIZATION 15: Batch Tool Results (reduce SSE overhead)
+                // Send all tool results in a single SSE message instead of multiple
+                const batchedResults = toolResults.map(toolData => ({
+                    name: toolData.name,
+                    args: toolData.input,
+                    result: toolData.result
+                }));
+
+                // Stream all results in a single batch
+                res.write(`data: ${JSON.stringify({
+                    toolResultsBatch: batchedResults,
+                    executionTime: `${executionTime}ms`,
+                    count: batchedResults.length
+                })}\n\n`);
+
+                // Store tool use for next iteration
+                for (const toolData of toolResults) {
+                    toolsUsed.push(toolData);
                 }
             }
 
@@ -2298,10 +2379,70 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+/**
+ * OPTIMIZATION 16: WebSocket Helper Function
+ * Streams messages to WebSocket client (replaces SSE res.write)
+ */
+function wsWrite(ws, data) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+    }
+}
+
+// OPTIMIZATION 16: WebSocket Server (instead of app.listen for HTTP only)
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server, path: '/ws' });
+
+wss.on('connection', (ws) => {
+  console.log('🔌 WebSocket client connected');
+
+  ws.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      console.log('📨 WebSocket message received:', data.type);
+
+      if (data.type === 'chat') {
+        // Handle chat messages via WebSocket
+        const { prompt, conversationHistory, workstationId, context, projectId, repositoryUrl } = data.payload;
+
+        // Create a pseudo-response object that uses WebSocket instead of SSE
+        const wsResponse = {
+            write: (data) => wsWrite(ws, JSON.parse(data.substring(6))), // Remove "data: " prefix
+            end: () => wsWrite(ws, { type: 'done' }),
+            setHeader: () => {}, // No-op for WebSocket
+            status: () => wsResponse,
+            json: (data) => wsWrite(ws, { type: 'error', ...data })
+        };
+
+        // Reuse existing /ai/chat logic by passing our WebSocket pseudo-response
+        const req = { body: { prompt, conversationHistory, workstationId, context, projectId, repositoryUrl } };
+
+        // Call the same handler that /ai/chat uses (we'll extract it to a function)
+        await handleAIChatRequest(req, wsResponse);
+      }
+    } catch (error) {
+      console.error('❌ WebSocket error:', error);
+      wsWrite(ws, { type: 'error', error: error.message });
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('🔌 WebSocket client disconnected');
+  });
+
+  // Send welcome message
+  wsWrite(ws, { type: 'connected', message: 'WebSocket connected successfully' });
+});
+
+// Start server with WebSocket support
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Drape Backend running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
   console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
+  console.log(`🔌 WebSocket endpoint: ws://YOUR_IP:${PORT}/ws`);
   console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
   console.log(`🌍 Location: ${LOCATION}`);
   console.log(`🖥️  Workstation Management: ENABLED`);
