@@ -55,6 +55,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Store input for each tab separately
   const tabInputsRef = useRef<Record<string, string>>({});
   const previousTabIdRef = useRef<string | undefined>();
+  const previousInputRef = useRef<string>(''); // Track previous input to detect only new chars
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
@@ -70,10 +71,38 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Custom input handler that saves to ref immediately (no extra re-renders)
   const handleInputChange = useCallback((text: string) => {
-    setInput(text);
+    const previousText = previousInputRef.current;
+    let correctedText = text;
+
+    // FIX: Invert case only for NEW characters to counteract keyboard's inverted caps lock
+    if (text.length > previousText.length && text.startsWith(previousText)) {
+      // New characters were added at the end
+      const newChars = text.slice(previousText.length);
+      const invertedNewChars = newChars.split('').map(char => {
+        if (/[a-zA-Z]/.test(char)) {
+          return char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase();
+        }
+        return char;
+      }).join('');
+      correctedText = previousText + invertedNewChars;
+    } else if (text.length < previousText.length) {
+      // Characters were deleted - use as is
+      correctedText = text;
+    } else if (text !== previousText) {
+      // Text was modified (e.g., character replaced) - invert the whole thing
+      correctedText = text.split('').map(char => {
+        if (/[a-zA-Z]/.test(char)) {
+          return char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase();
+        }
+        return char;
+      }).join('');
+    }
+
+    previousInputRef.current = correctedText;
+    setInput(correctedText);
     // Save to ref immediately - this won't trigger re-renders
     if (currentTab?.id) {
-      tabInputsRef.current[currentTab.id] = text;
+      tabInputsRef.current[currentTab.id] = correctedText;
     }
   }, [currentTab?.id]);
 
@@ -1002,31 +1031,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     ? nextItem
                     : undefined;
 
+                // Check if this is the last item and we're loading
+                const isLastItem = index === filteredArray.length - 1;
+                const shouldShowLoading = isLastItem && isLoading;
+
                 acc.push(
                   <TerminalItemComponent
                     key={index}
                     item={item}
                     isNextItemOutput={isNextItemAI}
                     outputItem={outputItem}
+                    isLoading={shouldShowLoading}
                   />
                 );
                 return acc;
               }, [] as JSX.Element[]);
             })()}
           </>
-        )}
-
-        {isLoading && (
-          <TerminalItem
-            key="loading-indicator"
-            item={{
-              type: TerminalItemType.OUTPUT,
-              content: 'Caricamento...',
-              timestamp: new Date(),
-            }}
-            outputItem={null}
-            isLoading={true}
-          />
         )}
       </ScrollView>
 
@@ -1112,6 +1133,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               maxLength={1000}
               onSubmitEditing={handleSend}
               keyboardAppearance="dark"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
 
             {/* Send Button */}
@@ -1175,7 +1198,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   inputWrapperCardMode: {
-    left: 0, // Remove sidebar offset in card mode
+    left: 0,
   },
   contextHeader: {
     position: 'absolute',
@@ -1276,6 +1299,7 @@ const styles = StyleSheet.create({
     elevation: 8,
     justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
     maxHeight: 250, // Limite massimo dell'intero widget
+    marginHorizontal: 16, // Margine orizzontale per restringere la card
   },
   topControls: {
     height: 40,

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -11,12 +11,23 @@ interface Props {
 }
 
 export const ChatPanel = ({ onClose }: Props) => {
+  const slideAnim = useRef(new Animated.Value(-300)).current;
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats, currentWorkstation } = useTerminalStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
+
+  // Opening animation
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 65,
+      friction: 11,
+    }).start();
+  }, []);
 
   // Load chats from AsyncStorage on mount
   useEffect(() => {
@@ -49,7 +60,7 @@ export const ChatPanel = ({ onClose }: Props) => {
         terminalItems: chat.messages || [] // Load previous messages
       });
     }
-    onClose();
+    handleClose();
   };
 
   const handleNewChat = () => {
@@ -74,7 +85,7 @@ export const ChatPanel = ({ onClose }: Props) => {
       title: 'Nuova Conversazione',
       data: { chatId: chatId }
     });
-    onClose();
+    handleClose();
   };
 
   const getTimeAgo = (date: Date) => {
@@ -123,16 +134,24 @@ export const ChatPanel = ({ onClose }: Props) => {
     setOpenMenuId(null);
   };
 
+  const handleClose = () => {
+    Animated.timing(slideAnim, {
+      toValue: -300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => onClose());
+  };
+
   return (
     <>
       {/* Backdrop - Click to close */}
       <TouchableOpacity
         style={styles.backdrop}
         activeOpacity={1}
-        onPress={onClose}
+        onPress={handleClose}
       />
 
-      <View style={styles.container}>
+      <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
         <LinearGradient
           colors={['#0a0a0a', '#000000']}
           style={StyleSheet.absoluteFill}
@@ -286,7 +305,7 @@ export const ChatPanel = ({ onClose }: Props) => {
           </View>
         )}
       </ScrollView>
-    </View>
+    </Animated.View>
     </>
   );
 };
@@ -299,7 +318,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: 'transparent',
-    zIndex: 1001,
+    zIndex: 999,
   },
   container: {
     position: 'absolute',
@@ -307,7 +326,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 250,
-    zIndex: 1002,
+    zIndex: 1000,
   },
   header: {
     flexDirection: 'row',
