@@ -1,6 +1,13 @@
 import React, { useEffect, memo, useCallback } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate, useAnimatedReaction, runOnJS } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  interpolate,
+  useAnimatedReaction,
+  runOnJS,
+} from 'react-native-reanimated';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');

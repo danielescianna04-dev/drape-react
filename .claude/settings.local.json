@@ -13,7 +13,14 @@
       "Bash(git push:*)",
       "Bash(git pull:*)",
       "Bash(npm install:*)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(netstat:*)",
+      "Bash(npx expo:*)",
+      "Bash(taskkill:*)",
+      "Bash(.expo/settings.json)",
+      "Bash(cat:*)",
+      "Bash(dir:*)",
+      "Bash(timeout /t 5 /nobreak)"
     ],
     "deny": [],
     "ask": []
