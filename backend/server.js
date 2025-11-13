@@ -1202,9 +1202,14 @@ app.post('/terminal/execute', async (req, res) => {
         if (serverReady) {
           console.log(`✅ Server is verified running and healthy!`);
 
-          // Convert to public URL for production
-          previewUrl = convertToPublicUrl(previewUrl, workstationId || 'local');
-          console.log(`🌐 Public preview URL: ${previewUrl}`);
+          // Don't convert Expo tunnel URLs (they're already public)
+          if (!previewUrl.startsWith('exp://') && !previewUrl.includes('.exp.direct')) {
+            // Convert to public URL for production
+            previewUrl = convertToPublicUrl(previewUrl, workstationId || 'local');
+            console.log(`🌐 Public preview URL: ${previewUrl}`);
+          } else {
+            console.log(`🚇 Using Expo tunnel URL as-is: ${previewUrl}`);
+          }
         } else {
           console.log(`⚠️ Server command executed but health check failed`);
         }
@@ -1432,6 +1437,11 @@ function convertToPublicUrl(localUrl, workstationId) {
 function detectPreviewUrl(output, command) {
   // Look for common development server patterns
   const urlPatterns = [
+    // Expo tunnel URLs (exp:// protocol for React Native)
+    /exp:\/\/[^\s]+/,
+    // Expo web URLs when using --tunnel
+    /https?:\/\/[a-z0-9-]+\.exp\.direct[^\s]*/,
+    // Standard web dev servers
     /Local:\s+(https?:\/\/[^\s]+)/,
     /http:\/\/localhost:\d+/,
     /http:\/\/127\.0\.0\.1:\d+/,
@@ -1442,7 +1452,9 @@ function detectPreviewUrl(output, command) {
   for (const pattern of urlPatterns) {
     const match = output.match(pattern);
     if (match) {
-      return match[1] || match[0];
+      const url = match[1] || match[0];
+      console.log(`🔗 Detected preview URL: ${url}`);
+      return url;
     }
   }
 

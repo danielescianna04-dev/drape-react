@@ -2,9 +2,10 @@ import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where } fr
 import { db } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import axios from 'axios';
+import { config } from '../../config/config';
 
 const COLLECTION = 'user_projects';
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = config.apiUrl;
 
 export interface UserProject {
   id: string;

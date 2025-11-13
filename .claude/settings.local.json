@@ -31,7 +31,8 @@
       "Bash(npx expo start:*)",
       "Bash(gcloud config get-value:*)",
       "Bash(gcloud workstations clusters list:*)",
-      "Bash(git rebase:*)"
+      "Bash(git rebase:*)",
+      "Bash(kill:*)"
     ],
     "deny": [],
     "ask": []

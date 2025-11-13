@@ -232,11 +232,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 </View>
 
                 <Text style={styles.startTitle}>
-                  {projectInfo?.isReactNative ? "Progetto React Native" : "Anteprima non disponibile"}
+                  {projectInfo?.isReactNative ? "Progetto React Native/Expo" : "Anteprima non disponibile"}
                 </Text>
                 <Text style={styles.startSubtitle}>
                   {projectInfo?.isReactNative
-                    ? "Le app React Native/Expo vengono eseguite su porta 3000 (conflitto con backend). Usa Expo Go sul dispositivo."
+                    ? "Avvio del server con tunnel Expo per anteprima web..."
                     : "Il server di sviluppo non è in esecuzione"}
                 </Text>
 
@@ -257,9 +257,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       <>
                         <View style={styles.infoDivider} />
                         <View style={styles.infoRow}>
-                          <Ionicons name="alert-circle-outline" size={18} color="#FFA500" />
-                          <Text style={styles.infoLabel}>Nota</Text>
-                          <Text style={styles.infoValue}>Porta 3000 (conflitto)</Text>
+                          <Ionicons name="globe-outline" size={18} color="#00D9FF" />
+                          <Text style={styles.infoLabel}>Tunnel</Text>
+                          <Text style={styles.infoValue}>Expo Web + Tunnel</Text>
                         </View>
                       </>
                     )}
