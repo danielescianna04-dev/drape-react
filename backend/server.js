@@ -1269,9 +1269,9 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
   if (isDevServerCommand) {
     if (isReactNative) {
-      console.log('📱 React Native/Expo project detected - using default port 3000 (cannot be changed)');
-      console.log('⚠️  Warning: Port 3000 conflicts with backend. Consider using a web project for preview.');
-      // Don't add HOST or PORT for React Native - it doesn't work
+      console.log('📱 React Native/Expo project detected - using port 8081');
+      // For Expo, use EXPO_WEBPACK_PORT to set the port for web mode
+      execCommand = `EXPO_WEBPACK_PORT=8081 ${command}`;
     } else {
       console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
       execCommand = `HOST=0.0.0.0 ${command}`;
@@ -1284,6 +1284,47 @@ async function executeCommandOnWorkstation(command, workstationId) {
     // For dev server commands, we need to run them in background
     // For now, just return success to indicate server is starting
     if (isDevServerCommand) {
+      // Kill any existing processes on the port
+      const port = isReactNative ? 8081 : 3000;
+      try {
+        console.log(`🧹 Cleaning up port ${port}...`);
+        await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+        console.log(`✅ Port ${port} is now free`);
+      } catch (err) {
+        console.log(`⚠️  Error cleaning port: ${err.message}`);
+      }
+
+      // Check if node_modules exists, if not install dependencies
+      const fs = require('fs').promises;
+      const path = require('path');
+      const nodeModulesPath = path.join(repoPath, 'node_modules');
+      let needsInstall = false;
+      try {
+        await fs.access(nodeModulesPath);
+        console.log('✅ node_modules exists');
+      } catch {
+        console.log('📦 node_modules not found, installing dependencies...');
+        needsInstall = true;
+      }
+
+      if (needsInstall) {
+        try {
+          console.log('⏳ Running npm install...');
+          await execAsync('npm install', {
+            cwd: repoPath,
+            timeout: 120000 // 2 minutes for install
+          });
+          console.log('✅ Dependencies installed successfully');
+        } catch (installErr) {
+          console.error('❌ Failed to install dependencies:', installErr.message);
+          return {
+            stdout: '',
+            stderr: `Failed to install dependencies: ${installErr.message}`,
+            exitCode: 1
+          };
+        }
+      }
+
       // Start the dev server in background (non-blocking)
       const { spawn } = require('child_process');
       const serverProcess = spawn('sh', ['-c', execCommand], {
@@ -1296,7 +1337,7 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
       console.log('✅ Dev server started in background');
       return {
-        stdout: `> Starting development server...\n\nLocal:   http://localhost:3000\nNetwork: http://0.0.0.0:3000\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
+        stdout: `> Starting development server...\n\nLocal:   http://localhost:${port}\nNetwork: http://0.0.0.0:${port}\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
         stderr: '',
         exitCode: 0
       };

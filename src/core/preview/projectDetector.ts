@@ -26,8 +26,8 @@ export function detectProjectType(files: string[], packageJson?: any): ProjectIn
       files.includes('app.json')) {
     return {
       type: 'react-native',
-      defaultPort: 3000, // Expo default port (not used with tunnel)
-      startCommand: 'npx expo start --web --tunnel', // Use web + tunnel for browser-compatible preview
+      defaultPort: 8081, // Expo web default port
+      startCommand: 'npx expo start --web --port 8081', // Use web mode for browser preview with custom port
       installCommand: 'npm install',
       description: 'React Native / Expo Application',
       isReactNative: true
