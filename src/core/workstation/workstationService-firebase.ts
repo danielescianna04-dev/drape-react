@@ -235,6 +235,21 @@ export const workstationService = {
     }
   },
 
+  // Cerca nei contenuti dei file
+  async searchInFiles(projectId: string, query: string, repositoryUrl?: string): Promise<{ file: string; line: number; content: string; match: string }[]> {
+    try {
+      const url = repositoryUrl
+        ? `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
+        : `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}`;
+
+      const response = await axios.get(url);
+      return response.data.results || [];
+    } catch (error: any) {
+      console.error('Error searching in files:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to search in files');
+    }
+  },
+
   // Elimina progetto
   async deleteProject(projectId: string): Promise<void> {
     try {

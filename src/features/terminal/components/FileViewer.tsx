@@ -6,13 +6,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Modal,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { AppColors } from '../../../shared/theme/colors';
 
@@ -33,6 +33,7 @@ export const FileViewer = ({
   userId,
   onClose,
 }: Props) => {
+  const insets = useSafeAreaInsets();
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
   const [loading, setLoading] = useState(true);
@@ -85,22 +86,24 @@ export const FileViewer = ({
   };
 
   const handleClose = () => {
+    // Tab is now closed from tab bar, not from here
+    // Just warn about unsaved changes if any
     if (isEdited) {
       Alert.alert(
         'Unsaved Changes',
-        'You have unsaved changes. Do you want to save before closing?',
+        'You have unsaved changes. Close anyway?',
         [
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: onClose,
-          },
           {
             text: 'Cancel',
             style: 'cancel',
           },
           {
-            text: 'Save',
+            text: 'Close',
+            style: 'destructive',
+            onPress: onClose,
+          },
+          {
+            text: 'Save & Close',
             onPress: async () => {
               await handleSave();
               onClose();
@@ -136,18 +139,15 @@ export const FileViewer = ({
     return null;
   }
 
+  // Calculate proper top padding: safe area inset + TabBar minHeight (40px)
+  const topPadding = insets.top + 40;
+
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={handleClose}
-      statusBarTranslucent
+    <KeyboardAvoidingView
+      style={[styles.container, { paddingTop: topPadding }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        {/* Header */}
+      {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -237,8 +237,7 @@ export const FileViewer = ({
             )}
           </View>
         )}
-      </KeyboardAvoidingView>
-    </Modal>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -246,13 +245,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0a',
+    // paddingTop is set dynamically based on safe area insets + TabBar height
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 60,
+    paddingTop: 16,
     paddingBottom: 16,
     backgroundColor: '#1a1a1a',
     borderBottomWidth: 1,

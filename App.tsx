@@ -17,6 +17,7 @@ import { useTerminalStore } from './src/core/terminal/terminalStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
+import { FileViewer } from './src/features/terminal/components/FileViewer';
 
 console.log('🔵 App.tsx loaded');
 
@@ -303,9 +304,26 @@ export default function App() {
             <VSCodeSidebar
               onExit={() => setCurrentScreen('home')}
             >
-              {(tab, isCardMode, cardDimensions) => (
-                <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
-              )}
+              {(tab, isCardMode, cardDimensions) => {
+                // Render different components based on tab type
+                if (tab.type === 'file') {
+                  return (
+                    <FileViewer
+                      visible={true}
+                      filePath={tab.data?.filePath || ''}
+                      projectId={tab.data?.projectId || ''}
+                      repositoryUrl={tab.data?.repositoryUrl}
+                      userId={tab.data?.userId || 'anonymous'}
+                      onClose={() => {}}
+                    />
+                  );
+                }
+
+                // Default to ChatPage for all other types
+                return (
+                  <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
+                );
+              }}
             </VSCodeSidebar>
           </Animated.View>
         )}

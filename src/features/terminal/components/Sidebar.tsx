@@ -34,7 +34,6 @@ interface Props {
 }
 
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
-  const [searchQuery, setSearchQuery] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
@@ -166,7 +165,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       
       addWorkstation(workstation);
       setShowImportModal(false);
-      setSearchQuery('');
     } catch (error: any) {
       console.log('🔴 Import error details:', {
         status: error.response?.status,
@@ -205,29 +203,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             <Ionicons name="cube" size={20} color={AppColors.primary} />
           </View>
           <Text style={styles.logoText}>Drape</Text>
-        </View>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <View style={styles.searchWrapper}>
-          <View style={styles.searchIconContainer}>
-            <Ionicons name="search" size={18} color="rgba(255, 255, 255, 0.6)" />
-          </View>
-          <TextInput
-            style={styles.searchInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Cerca file..."
-            placeholderTextColor="rgba(255, 255, 255, 0.4)"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity 
-              onPress={() => setSearchQuery('')}
-              style={styles.clearSearchButton}
-            >
-              <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.5)" />
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 

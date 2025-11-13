@@ -2471,37 +2471,49 @@ app.get('/workstation/:projectId/file-content', async (req, res) => {
     const { filePath, repositoryUrl } = req.query;
 
     try {
-        console.log('📄 Getting file content:', filePath);
+        console.log('📄 [FILE-CONTENT] Request received:');
+        console.log('   - projectId:', projectId);
+        console.log('   - filePath:', filePath);
+        console.log('   - repositoryUrl:', repositoryUrl);
 
         if (!filePath) {
+            console.log('❌ [FILE-CONTENT] Error: File path is required');
             return res.status(400).json({ success: false, error: 'File path is required' });
         }
 
         // Ensure repository is cloned
         const reposDir = path.join(__dirname, 'cloned_repos');
         const repoPath = path.join(reposDir, projectId);
+        console.log('📂 [FILE-CONTENT] Checking repo path:', repoPath);
 
         // Check if repo exists, clone if not
         try {
             await fs.access(repoPath);
+            console.log('✅ [FILE-CONTENT] Repository directory exists');
         } catch {
+            console.log('⚠️  [FILE-CONTENT] Repository directory not found');
             if (repositoryUrl) {
-                console.log('📦 Repository not found, cloning first...');
+                console.log('📦 [FILE-CONTENT] Attempting to clone repository...');
                 await cloneAndReadRepository(repositoryUrl, projectId);
+                console.log('✅ [FILE-CONTENT] Repository cloned successfully');
             } else {
+                console.log('❌ [FILE-CONTENT] No repositoryUrl provided, returning 404');
                 return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
             }
         }
 
         // Read file content
         const fullFilePath = path.join(repoPath, filePath);
+        console.log('📄 [FILE-CONTENT] Reading file from:', fullFilePath);
+
         const content = await fs.readFile(fullFilePath, 'utf-8');
 
-        console.log(`✅ File content loaded: ${filePath} (${content.length} bytes)`);
+        console.log(`✅ [FILE-CONTENT] File content loaded: ${filePath} (${content.length} bytes)`);
         res.json({ success: true, content, filePath });
 
     } catch (error) {
-        console.error('❌ Error reading file:', error.message);
+        console.error('❌ [FILE-CONTENT] Error:', error.message);
+        console.error('   Stack:', error.stack);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2549,6 +2561,87 @@ app.post('/workstation/:projectId/file-content', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error saving file:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Search in files - grep-like functionality
+app.get('/workstation/:projectId/search', async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const { query, repositoryUrl } = req.query;
+
+        if (!query) {
+            return res.status(400).json({ success: false, error: 'Search query is required' });
+        }
+
+        const reposDir = path.join(__dirname, 'cloned_repos');
+        const repoPath = path.join(reposDir, projectId);
+
+        // Check if repo exists
+        try {
+            await fs.access(repoPath);
+        } catch {
+            if (repositoryUrl) {
+                console.log('📦 Repository not found, cloning first...');
+                await cloneAndReadRepository(repositoryUrl, projectId);
+            } else {
+                return res.status(404).json({ success: false, error: 'Repository not found' });
+            }
+        }
+
+        // Search in files using grep-like approach
+        const results = [];
+        const searchQuery = query.toLowerCase();
+
+        async function searchInDirectory(dir, relativePath = '') {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+                // Skip node_modules, .git, and other common directories
+                if (entry.isDirectory()) {
+                    if (!['node_modules', '.git', 'dist', 'build', '.next', 'coverage'].includes(entry.name)) {
+                        await searchInDirectory(fullPath, relPath);
+                    }
+                } else if (entry.isFile()) {
+                    // Only search in text files (skip binaries, images, etc.)
+                    const ext = path.extname(entry.name).toLowerCase();
+                    const textExtensions = ['.js', '.jsx', '.ts', '.tsx', '.json', '.txt', '.md', '.html', '.css', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h'];
+
+                    if (textExtensions.includes(ext)) {
+                        try {
+                            const content = await fs.readFile(fullPath, 'utf-8');
+                            const lines = content.split('\n');
+
+                            lines.forEach((line, lineNumber) => {
+                                if (line.toLowerCase().includes(searchQuery)) {
+                                    results.push({
+                                        file: relPath,
+                                        line: lineNumber + 1,
+                                        content: line.trim(),
+                                        match: query
+                                    });
+                                }
+                            });
+                        } catch (err) {
+                            // Skip files that can't be read as text
+                            console.log(`⚠️ Skipping ${relPath}: ${err.message}`);
+                        }
+                    }
+                }
+            }
+        }
+
+        await searchInDirectory(repoPath);
+
+        console.log(`🔍 Search completed: "${query}" - ${results.length} matches found`);
+        res.json({ success: true, query, results, count: results.length });
+
+    } catch (error) {
+        console.error('❌ Error searching files:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
