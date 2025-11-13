@@ -6,6 +6,7 @@ import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
 interface Props {
   onClose: () => void;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
+  const { currentWorkstation } = useTerminalStore();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -53,38 +55,50 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   useEffect(() => {
     const detectProject = async () => {
       try {
-        if (!projectPath) {
-          console.log('No project path provided, using default detection');
-          // Default to React for now when no path is provided
+        // Use workstation ID from store to detect project type
+        if (!currentWorkstation?.id) {
+          console.log('No workstation ID, using default detection');
           const info: ProjectInfo = {
-            type: 'react',
+            type: 'unknown',
             defaultPort: 3000,
             startCommand: 'npm start',
             installCommand: 'npm install',
-            description: 'React Application'
+            description: 'Unknown Project Type'
           };
           setProjectInfo(info);
           return;
         }
 
-        // TODO: In production, call backend API to read files and detect project type
-        // For now, use mock detection
-        console.log('Detecting project type for:', projectPath);
+        console.log('Detecting project type for workstation:', currentWorkstation.id);
+
+        // Call backend API to detect project type
+        const response = await fetch(
+          `${config.apiUrl}/workstation/${currentWorkstation.id}/detect-project`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Detection failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('✅ Project type detected:', data.projectInfo);
+        setProjectInfo(data.projectInfo);
+      } catch (error) {
+        console.error('Failed to detect project type:', error);
+        // Fallback to default
         const info: ProjectInfo = {
-          type: 'react',
+          type: 'unknown',
           defaultPort: 3000,
           startCommand: 'npm start',
           installCommand: 'npm install',
-          description: 'React Application'
+          description: 'Unknown Project Type'
         };
         setProjectInfo(info);
-      } catch (error) {
-        console.error('Failed to detect project type:', error);
       }
     };
 
     detectProject();
-  }, [projectPath]);
+  }, [currentWorkstation]);
 
   const checkServerStatus = async () => {
     try {
@@ -116,6 +130,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
     try {
       console.log('Starting server with command:', projectInfo.startCommand);
+      console.log('Current workstation:', currentWorkstation);
+      console.log('Workstation ID to send:', currentWorkstation?.id);
 
       // Call backend API to execute the start command
       const response = await fetch(`${config.apiUrl}${config.endpoints.terminal}`, {
@@ -125,7 +141,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         },
         body: JSON.stringify({
           command: projectInfo.startCommand,
-          workstationId: projectPath, // Use project path as workstation ID
+          workstationId: currentWorkstation?.id, // Use workstation ID from store
         }),
       });
 
@@ -220,11 +236,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             <View style={styles.startScreen}>
               <View style={styles.startContent}>
                 <View style={styles.iconCircle}>
-                  <Ionicons name="rocket" size={48} color={AppColors.primary} />
+                  <Ionicons
+                    name={projectInfo?.isReactNative ? "phone-portrait" : "rocket"}
+                    size={48}
+                    color={projectInfo?.isReactNative ? "#FFA500" : AppColors.primary}
+                  />
                 </View>
 
-                <Text style={styles.startTitle}>Anteprima non disponibile</Text>
-                <Text style={styles.startSubtitle}>Il server di sviluppo non è in esecuzione</Text>
+                <Text style={styles.startTitle}>
+                  {projectInfo?.isReactNative ? "Progetto React Native/Expo" : "Anteprima non disponibile"}
+                </Text>
+                <Text style={styles.startSubtitle}>
+                  {projectInfo?.isReactNative
+                    ? "Avvio del server con tunnel Expo per anteprima web..."
+                    : "Il server di sviluppo non è in esecuzione"}
+                </Text>
 
                 {projectInfo && (
                   <View style={styles.infoCard}>
@@ -239,6 +265,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       <Text style={styles.infoLabel}>Comando</Text>
                       <Text style={styles.infoValueMono}>{projectInfo.startCommand}</Text>
                     </View>
+                    {projectInfo.isReactNative && (
+                      <>
+                        <View style={styles.infoDivider} />
+                        <View style={styles.infoRow}>
+                          <Ionicons name="globe-outline" size={18} color="#00D9FF" />
+                          <Text style={styles.infoLabel}>Tunnel</Text>
+                          <Text style={styles.infoValue}>Expo Web + Tunnel</Text>
+                        </View>
+                      </>
+                    )}
                   </View>
                 )}
 

@@ -32,7 +32,7 @@
       "Bash(gcloud config get-value:*)",
       "Bash(gcloud workstations clusters list:*)",
       "Bash(git rebase:*)",
-      "Bash(timeout /t 3 /nobreak)"
+      "Bash(kill:*)"
     ],
     "deny": [],
     "ask": []

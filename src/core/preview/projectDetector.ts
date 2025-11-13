@@ -9,6 +9,7 @@ export interface ProjectInfo {
   startCommand: string;
   installCommand?: string;
   description: string;
+  isReactNative?: boolean; // Flag to indicate React Native/Expo projects
 }
 
 /**
@@ -17,12 +18,28 @@ export interface ProjectInfo {
  * @param packageJson Parsed package.json content (if exists)
  */
 export function detectProjectType(files: string[], packageJson?: any): ProjectInfo | null {
+  // React Native / Expo (check before React web to avoid false positives)
+  if (packageJson?.dependencies?.['expo'] ||
+      packageJson?.dependencies?.['react-native'] ||
+      packageJson?.devDependencies?.['expo'] ||
+      packageJson?.devDependencies?.['react-native'] ||
+      files.includes('app.json')) {
+    return {
+      type: 'react-native',
+      defaultPort: 8081, // Expo web default port
+      startCommand: 'npx expo start --web --port 8081', // Use web mode for browser preview with custom port
+      installCommand: 'npm install',
+      description: 'React Native / Expo Application',
+      isReactNative: true
+    };
+  }
+
   // React (Create React App)
   if (packageJson?.dependencies?.['react'] && packageJson?.scripts?.start) {
     return {
       type: 'react',
-      defaultPort: 3000,
-      startCommand: 'npm start',
+      defaultPort: 8080,
+      startCommand: 'PORT=8080 npm start',
       installCommand: 'npm install',
       description: 'React Application'
     };
@@ -32,8 +49,8 @@ export function detectProjectType(files: string[], packageJson?: any): ProjectIn
   if (packageJson?.dependencies?.['next']) {
     return {
       type: 'nextjs',
-      defaultPort: 3000,
-      startCommand: 'npm run dev',
+      defaultPort: 8080,
+      startCommand: 'PORT=8080 npm run dev',
       installCommand: 'npm install',
       description: 'Next.js Application'
     };
@@ -375,9 +392,11 @@ export function detectProjectType(files: string[], packageJson?: any): ProjectIn
 
 /**
  * Builds preview URL from IP address and port
+ * Uses the backend server's IP since the dev server runs on the backend
  */
-export function buildPreviewUrl(port: number): string {
-  // Use localhost for dev
-  // In production, this would use the backend server's IP
-  return `http://localhost:${port}`;
+export function buildPreviewUrl(backendUrl: string, port: number): string {
+  // Extract the IP from the backend URL (e.g., "http://192.168.0.133:3000" -> "192.168.0.133")
+  const match = backendUrl.match(/https?:\/\/([^:]+)/);
+  const ip = match ? match[1] : 'localhost';
+  return `http://${ip}:${port}`;
 }
