@@ -55,38 +55,50 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   useEffect(() => {
     const detectProject = async () => {
       try {
-        if (!projectPath) {
-          console.log('No project path provided, using default detection');
-          // Default to React with port 8080 (avoid conflict with backend on 3000)
+        // Use workstation ID from store to detect project type
+        if (!currentWorkstation?.id) {
+          console.log('No workstation ID, using default detection');
           const info: ProjectInfo = {
-            type: 'react',
-            defaultPort: 8080,
-            startCommand: 'PORT=8080 npm start',
+            type: 'unknown',
+            defaultPort: 3000,
+            startCommand: 'npm start',
             installCommand: 'npm install',
-            description: 'React Application'
+            description: 'Unknown Project Type'
           };
           setProjectInfo(info);
           return;
         }
 
-        // TODO: In production, call backend API to read files and detect project type
-        // For now, use mock detection with port 8080
-        console.log('Detecting project type for:', projectPath);
-        const info: ProjectInfo = {
-          type: 'react',
-          defaultPort: 8080,
-          startCommand: 'PORT=8080 npm start',
-          installCommand: 'npm install',
-          description: 'React Application'
-        };
-        setProjectInfo(info);
+        console.log('Detecting project type for workstation:', currentWorkstation.id);
+
+        // Call backend API to detect project type
+        const response = await fetch(
+          `${config.apiUrl}/workstation/${currentWorkstation.id}/detect-project`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Detection failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('✅ Project type detected:', data.projectInfo);
+        setProjectInfo(data.projectInfo);
       } catch (error) {
         console.error('Failed to detect project type:', error);
+        // Fallback to default
+        const info: ProjectInfo = {
+          type: 'unknown',
+          defaultPort: 3000,
+          startCommand: 'npm start',
+          installCommand: 'npm install',
+          description: 'Unknown Project Type'
+        };
+        setProjectInfo(info);
       }
     };
 
     detectProject();
-  }, [projectPath]);
+  }, [currentWorkstation]);
 
   const checkServerStatus = async () => {
     try {

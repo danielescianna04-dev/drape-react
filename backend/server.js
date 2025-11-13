@@ -1595,10 +1595,66 @@ app.post('/workstation/create', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error:', error.response?.data || error.message);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
       details: error.response?.data 
     });
+  }
+});
+
+// Detect project type endpoint
+app.get('/workstation/:workstationId/detect-project', async (req, res) => {
+  const { workstationId } = req.params;
+
+  console.log(`🔍 Detecting project type for workstation: ${workstationId}`);
+
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    // Check if repository exists
+    try {
+      await fs.access(repoPath);
+    } catch {
+      return res.status(404).json({ error: 'Workstation not found' });
+    }
+
+    // Read package.json if it exists
+    let packageJson = null;
+    try {
+      const packageJsonPath = path.join(repoPath, 'package.json');
+      const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
+      packageJson = JSON.parse(packageJsonContent);
+    } catch {
+      console.log('⚠️  No package.json found');
+    }
+
+    // Get list of files in root directory
+    let files = [];
+    try {
+      files = await fs.readdir(repoPath);
+    } catch (error) {
+      console.error('Error reading directory:', error);
+    }
+
+    // Import detection logic
+    const { detectProjectType } = require('./projectDetector');
+    const projectInfo = detectProjectType(files, packageJson);
+
+    console.log('✅ Project detected:', projectInfo);
+
+    res.json({
+      projectInfo: projectInfo || {
+        type: 'unknown',
+        defaultPort: 3000,
+        startCommand: 'npm start',
+        description: 'Unknown Project Type'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error detecting project:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
