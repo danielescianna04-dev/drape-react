@@ -1228,85 +1228,96 @@ app.post('/terminal/execute', async (req, res) => {
   }
 });
 
-// Execute command on workstation (simulated for now)
+// Execute command on workstation (real execution)
 async function executeCommandOnWorkstation(command, workstationId) {
   console.log(`🔧 executeCommandOnWorkstation called:`);
   console.log(`   Command: ${command}`);
   console.log(`   Workstation: ${workstationId}`);
-  
-  // Simulate git clone
-  if (command.includes('git clone')) {
-    console.log('📦 Simulating git clone...');
-    const repoUrl = command.split(' ').find(arg => arg.includes('github.com'));
-    const repoName = repoUrl ? repoUrl.split('/').pop().replace('.git', '') : 'repository';
-    
-    console.log(`   Repository URL: ${repoUrl}`);
-    console.log(`   Repository name: ${repoName}`);
-    
-    const result = {
-      stdout: `Cloning into '${repoName}'...\nremote: Enumerating objects: 100, done.\nremote: Total 100 (delta 0), reused 0 (delta 0)\nReceiving objects: 100% (100/100), done.\nResolving deltas: 100% (50/50), done.\n✅ Repository cloned successfully on workstation ${workstationId}`,
-      stderr: '',
-      exitCode: 0
-    };
-    
-    console.log('✅ Git clone simulation completed');
-    return result;
-  }
-  
-  // Simulate npm/yarn start
-  if (command.includes('npm start') || command.includes('yarn start') || command.includes('npm run dev')) {
-    console.log('🚀 Simulating npm start...');
-    
-    const result = {
-      stdout: `> Starting development server...\n\nLocal:   http://localhost:3000\nNetwork: http://10.0.0.1:3000\n\n✨ Server ready in 2.1s\n🚀 Development server running on workstation ${workstationId}`,
-      stderr: '',
-      exitCode: 0
-    };
-    
-    console.log('✅ npm start simulation completed');
-    return result;
-  }
-  
-  // Simulate Python server
-  if (command.includes('python -m http.server') || command.includes('python3 -m http.server')) {
-    console.log('🐍 Simulating Python server...');
-    const port = command.match(/(\d+)/) ? command.match(/(\d+)/)[1] : '8000';
-    
-    const result = {
-      stdout: `Serving HTTP on 0.0.0.0 port ${port} (http://0.0.0.0:${port}/) ...\n🐍 Python server running on workstation ${workstationId}`,
-      stderr: '',
-      exitCode: 0
-    };
-    
-    console.log('✅ Python server simulation completed');
-    return result;
-  }
-  
-  // Simulate ls command (case-insensitive)
-  const cmdLower = command.trim().toLowerCase();
-  if (cmdLower === 'ls' || cmdLower === 'ls -la') {
-    console.log('📁 Simulating ls command...');
 
-    const result = {
-      stdout: 'total 48\ndrwxr-xr-x  8 user user 4096 Oct 15 12:00 .\ndrwxr-xr-x  3 user user 4096 Oct 15 11:00 ..\n-rw-r--r--  1 user user  123 Oct 15 12:00 .gitignore\n-rw-r--r--  1 user user 1024 Oct 15 12:00 package.json\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 src\ndrwxr-xr-x  2 user user 4096 Oct 15 12:00 public\n-rw-r--r--  1 user user 2048 Oct 15 12:00 README.md',
-      stderr: '',
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  const path = require('path');
+  const fs = require('fs').promises;
+
+  // Get the repository path
+  const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+  // Check if repository exists
+  try {
+    await fs.access(repoPath);
+  } catch {
+    console.log('⚠️  Repository not found, using simulation fallback');
+    return {
+      stdout: `Error: Project directory not found for workstation ${workstationId}`,
+      stderr: 'Repository directory does not exist',
+      exitCode: 1
+    };
+  }
+
+  // Check if this is a React Native/Expo project
+  const isReactNative = await checkIfReactNative(repoPath);
+
+  // Add HOST=0.0.0.0 for dev server commands to allow network access
+  let execCommand = command;
+  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start/.test(command);
+
+  if (isDevServerCommand) {
+    if (isReactNative) {
+      console.log('📱 React Native/Expo project detected - using default port 3000 (cannot be changed)');
+      console.log('⚠️  Warning: Port 3000 conflicts with backend. Consider using a web project for preview.');
+      // Don't add HOST or PORT for React Native - it doesn't work
+    } else {
+      console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
+      execCommand = `HOST=0.0.0.0 ${command}`;
+    }
+  }
+
+  try {
+    console.log(`💻 Executing in ${repoPath}: ${execCommand}`);
+
+    // For dev server commands, we need to run them in background
+    // For now, just return success to indicate server is starting
+    if (isDevServerCommand) {
+      // Start the dev server in background (non-blocking)
+      const { spawn } = require('child_process');
+      const serverProcess = spawn('sh', ['-c', execCommand], {
+        cwd: repoPath,
+        detached: true,
+        stdio: 'ignore'
+      });
+
+      serverProcess.unref(); // Allow parent to exit independently
+
+      console.log('✅ Dev server started in background');
+      return {
+        stdout: `> Starting development server...\n\nLocal:   http://localhost:3000\nNetwork: http://0.0.0.0:3000\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
+        stderr: '',
+        exitCode: 0
+      };
+    }
+
+    // For other commands, execute normally with timeout
+    const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${execCommand}`, {
+      timeout: 30000,
+      maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+    });
+
+    console.log('✅ Command executed successfully');
+    return {
+      stdout: stdout.trim(),
+      stderr: stderr.trim(),
       exitCode: 0
     };
-    
-    console.log('✅ ls command simulation completed');
-    return result;
+
+  } catch (error) {
+    console.error('❌ Command execution error:', error);
+    return {
+      stdout: error.stdout ? error.stdout.toString().trim() : '',
+      stderr: error.stderr ? error.stderr.toString().trim() : error.message,
+      exitCode: error.code || 1
+    };
   }
-  
-  // Default simulation
-  console.log('🔧 Default command simulation...');
-  const result = {
-    stdout: `Command executed: ${command}\nWorkstation: ${workstationId}\nTimestamp: ${new Date().toISOString()}`,
-    stderr: '',
-    exitCode: 0
-  };
-  
-  console.log('✅ Default simulation completed');
-  return result;
 }
 
 // Health check a URL con retry logic
@@ -1346,21 +1357,67 @@ async function healthCheckUrl(url, maxAttempts = 15, delayMs = 1000) {
   return { healthy: false, attempts: maxAttempts };
 }
 
+// Check if a project is React Native/Expo by reading package.json
+async function checkIfReactNative(repoPath) {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    const packageJsonPath = path.join(repoPath, 'package.json');
+
+    const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
+    const packageJson = JSON.parse(packageJsonContent);
+
+    // Check for React Native or Expo dependencies
+    const deps = packageJson.dependencies || {};
+    const devDeps = packageJson.devDependencies || {};
+
+    const isRN = deps['react-native'] || devDeps['react-native'] ||
+                 deps['expo'] || devDeps['expo'];
+
+    if (isRN) {
+      console.log('📱 Detected React Native/Expo project');
+    }
+
+    return !!isRN;
+  } catch (error) {
+    console.log('⚠️  Could not read package.json, assuming not React Native');
+    return false;
+  }
+}
+
 // Convert localhost URL to publicly accessible URL
 // In production, this would use Cloud Run workstation's public IP or tunnel
 function convertToPublicUrl(localUrl, workstationId) {
-  // For development: keep localhost (works on simulator)
-  if (process.env.NODE_ENV !== 'production') {
-    return localUrl;
-  }
-
-  // In production: replace localhost with workstation's public hostname
-  // Example: http://localhost:3000 -> https://workstation-abc123-3000.run.app
   try {
     const url = new URL(localUrl);
     const port = url.port || '3000';
 
-    // Get workstation public hostname from environment or construct it
+    // For development: replace localhost with machine's local IP
+    if (process.env.NODE_ENV !== 'production') {
+      const os = require('os');
+      const networkInterfaces = os.networkInterfaces();
+      let localIp = 'localhost';
+
+      // Find the first non-internal IPv4 address
+      for (const interfaceName in networkInterfaces) {
+        const interfaces = networkInterfaces[interfaceName];
+        if (interfaces) {
+          for (const iface of interfaces) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+              localIp = iface.address;
+              break;
+            }
+          }
+        }
+        if (localIp !== 'localhost') break;
+      }
+
+      console.log(`🌐 Converting ${localUrl} to http://${localIp}:${port}`);
+      return `http://${localIp}:${port}`;
+    }
+
+    // In production: replace localhost with workstation's public hostname
+    // Example: http://localhost:3000 -> https://workstation-abc123-3000.run.app
     const publicHost = process.env.WORKSTATION_PUBLIC_HOST ||
                       `${workstationId}-${port}.${LOCATION}.run.app`;
 
@@ -2108,8 +2165,17 @@ app.post('/workstation/execute-command', async (req, res) => {
             });
         }
 
+        // Add HOST=0.0.0.0 for dev server commands to allow network access
+        let execCommand = command;
+        const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop/.test(command);
+
+        if (isDevServerCommand) {
+            console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
+            execCommand = `HOST=0.0.0.0 ${command}`;
+        }
+
         // Execute command with timeout (30 seconds)
-        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${command}`, {
+        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${execCommand}`, {
             timeout: 30000,
             maxBuffer: 1024 * 1024 * 10 // 10MB buffer
         });

@@ -6,6 +6,7 @@ import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
 interface Props {
   onClose: () => void;
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
+  const { currentWorkstation } = useTerminalStore();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -55,11 +57,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       try {
         if (!projectPath) {
           console.log('No project path provided, using default detection');
-          // Default to React for now when no path is provided
+          // Default to React with port 8080 (avoid conflict with backend on 3000)
           const info: ProjectInfo = {
             type: 'react',
-            defaultPort: 3000,
-            startCommand: 'npm start',
+            defaultPort: 8080,
+            startCommand: 'PORT=8080 npm start',
             installCommand: 'npm install',
             description: 'React Application'
           };
@@ -68,12 +70,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         }
 
         // TODO: In production, call backend API to read files and detect project type
-        // For now, use mock detection
+        // For now, use mock detection with port 8080
         console.log('Detecting project type for:', projectPath);
         const info: ProjectInfo = {
           type: 'react',
-          defaultPort: 3000,
-          startCommand: 'npm start',
+          defaultPort: 8080,
+          startCommand: 'PORT=8080 npm start',
           installCommand: 'npm install',
           description: 'React Application'
         };
@@ -116,6 +118,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
     try {
       console.log('Starting server with command:', projectInfo.startCommand);
+      console.log('Current workstation:', currentWorkstation);
+      console.log('Workstation ID to send:', currentWorkstation?.id);
 
       // Call backend API to execute the start command
       const response = await fetch(`${config.apiUrl}${config.endpoints.terminal}`, {
@@ -125,7 +129,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         },
         body: JSON.stringify({
           command: projectInfo.startCommand,
-          workstationId: projectPath, // Use project path as workstation ID
+          workstationId: currentWorkstation?.id, // Use workstation ID from store
         }),
       });
 
@@ -220,11 +224,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             <View style={styles.startScreen}>
               <View style={styles.startContent}>
                 <View style={styles.iconCircle}>
-                  <Ionicons name="rocket" size={48} color={AppColors.primary} />
+                  <Ionicons
+                    name={projectInfo?.isReactNative ? "phone-portrait" : "rocket"}
+                    size={48}
+                    color={projectInfo?.isReactNative ? "#FFA500" : AppColors.primary}
+                  />
                 </View>
 
-                <Text style={styles.startTitle}>Anteprima non disponibile</Text>
-                <Text style={styles.startSubtitle}>Il server di sviluppo non è in esecuzione</Text>
+                <Text style={styles.startTitle}>
+                  {projectInfo?.isReactNative ? "Progetto React Native" : "Anteprima non disponibile"}
+                </Text>
+                <Text style={styles.startSubtitle}>
+                  {projectInfo?.isReactNative
+                    ? "Le app React Native/Expo vengono eseguite su porta 3000 (conflitto con backend). Usa Expo Go sul dispositivo."
+                    : "Il server di sviluppo non è in esecuzione"}
+                </Text>
 
                 {projectInfo && (
                   <View style={styles.infoCard}>
@@ -239,6 +253,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       <Text style={styles.infoLabel}>Comando</Text>
                       <Text style={styles.infoValueMono}>{projectInfo.startCommand}</Text>
                     </View>
+                    {projectInfo.isReactNative && (
+                      <>
+                        <View style={styles.infoDivider} />
+                        <View style={styles.infoRow}>
+                          <Ionicons name="alert-circle-outline" size={18} color="#FFA500" />
+                          <Text style={styles.infoLabel}>Nota</Text>
+                          <Text style={styles.infoValue}>Porta 3000 (conflitto)</Text>
+                        </View>
+                      </>
+                    )}
                   </View>
                 )}
 
