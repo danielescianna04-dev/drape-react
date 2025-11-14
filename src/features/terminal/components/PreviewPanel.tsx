@@ -712,39 +712,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           {/* Input Box at Bottom */}
           <View style={styles.inputContainer}>
             <View style={styles.inputBorder} />
-
-            {/* Toolbar above input */}
-            {message.trim().length > 0 && (
-              <View style={styles.toolbar}>
-                <Text style={styles.toolbarPrompt}>Ask for quick changes...</Text>
-
-                <View style={styles.toolbarActions}>
-                  <TouchableOpacity style={styles.toolbarButton}>
-                    <Ionicons name="arrow-up-circle-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.toolbarButton}>
-                    <Ionicons name="images-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.toolbarButton}>
-                    <Ionicons name="expand-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.toolbarButton}>
-                    <Ionicons name="link-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.toolbarButton}
-                    onPress={() => setMessage('')}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
             <View style={styles.inputWrapper}>
               {/* Inspect Mode Button */}
               <TouchableOpacity
@@ -991,34 +958,6 @@ const styles = StyleSheet.create({
   inputBorder: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-  },
-  toolbarPrompt: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontWeight: '500',
-  },
-  toolbarActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  toolbarButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   inputWrapper: {
     flexDirection: 'row',
