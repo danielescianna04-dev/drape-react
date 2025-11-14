@@ -21,6 +21,62 @@ import { FileViewer } from './src/features/terminal/components/FileViewer';
 
 console.log('🔵 App.tsx loaded');
 
+// Funzione per calcolare le soluzioni di un'equazione di secondo grado (ax² + bx + c = 0)
+const calculateQuadraticEquation = (a: number, b: number, c: number) => {
+  console.log(`🧮 Calcolo equazione di secondo grado: ${a}x² + ${b}x + ${c} = 0`);
+  
+  if (a === 0) {
+    // Non è un'equazione di secondo grado
+    if (b === 0) {
+      return { error: 'Equazione non valida (a = 0 e b = 0)' };
+    }
+    // Equazione lineare: bx + c = 0 → x = -c/b
+    const x = -c / b;
+    return { 
+      type: 'linear',
+      solution: x,
+      message: `Equazione lineare: x = ${x}`
+    };
+  }
+  
+  // Calcolo del discriminante (Δ = b² - 4ac)
+  const discriminant = b * b - 4 * a * c;
+  console.log(`📊 Discriminante (Δ): ${discriminant}`);
+  
+  if (discriminant > 0) {
+    // Due soluzioni reali distinte
+    const x1 = (-b + Math.sqrt(discriminant)) / (2 * a);
+    const x2 = (-b - Math.sqrt(discriminant)) / (2 * a);
+    return {
+      type: 'two_real_solutions',
+      x1,
+      x2,
+      discriminant,
+      message: `Due soluzioni reali: x₁ = ${x1.toFixed(4)}, x₂ = ${x2.toFixed(4)}`
+    };
+  } else if (discriminant === 0) {
+    // Una soluzione reale (radice doppia)
+    const x = -b / (2 * a);
+    return {
+      type: 'one_real_solution',
+      x,
+      discriminant,
+      message: `Una soluzione reale (radice doppia): x = ${x.toFixed(4)}`
+    };
+  } else {
+    // Soluzioni complesse
+    const realPart = -b / (2 * a);
+    const imaginaryPart = Math.sqrt(-discriminant) / (2 * a);
+    return {
+      type: 'complex_solutions',
+      realPart,
+      imaginaryPart,
+      discriminant,
+      message: `Soluzioni complesse: x₁ = ${realPart.toFixed(4)} + ${imaginaryPart.toFixed(4)}i, x₂ = ${realPart.toFixed(4)} - ${imaginaryPart.toFixed(4)}i`
+    };
+  }
+};
+
 type Screen = 'splash' | 'home' | 'create' | 'terminal';
 
 export default function App() {
@@ -32,6 +88,24 @@ export default function App() {
   
   const { addWorkstation, setWorkstation } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
+
+  // Esempio di utilizzo della funzione di calcolo equazione di secondo grado
+  useEffect(() => {
+    // Test con alcuni esempi
+    console.log('🧮 Test funzione equazione di secondo grado:');
+    
+    // Esempio 1: x² - 5x + 6 = 0 (soluzioni: x₁=3, x₂=2)
+    const result1 = calculateQuadraticEquation(1, -5, 6);
+    console.log('📊 Esempio 1 (x² - 5x + 6 = 0):', result1.message);
+    
+    // Esempio 2: x² - 4x + 4 = 0 (soluzione doppia: x=2)
+    const result2 = calculateQuadraticEquation(1, -4, 4);
+    console.log('📊 Esempio 2 (x² - 4x + 4 = 0):', result2.message);
+    
+    // Esempio 3: x² + x + 1 = 0 (soluzioni complesse)
+    const result3 = calculateQuadraticEquation(1, 1, 1);
+    console.log('📊 Esempio 3 (x² + x + 1 = 0):', result3.message);
+  }, []);
 
   const handleDeepLink = (url: string) => {
     const { path } = Linking.parse(url);
