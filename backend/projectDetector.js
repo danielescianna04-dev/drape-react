@@ -64,8 +64,10 @@ function detectProjectType(files, packageJson) {
     };
   }
 
-  // C# / .NET (check for .csproj or .sln files)
+  // C# / .NET (check for .csproj, .sln, or .cs files)
   const hasCSharpProject = files.some(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+  const hasCSharpFiles = files.some(f => f.endsWith('.cs'));
+
   if (hasCSharpProject) {
     return {
       type: 'csharp',
@@ -74,6 +76,18 @@ function detectProjectType(files, packageJson) {
       installCommand: 'dotnet restore',
       description: 'C# / .NET Application',
       buildCommand: 'dotnet build'
+    };
+  }
+
+  // C# script files without project file
+  if (hasCSharpFiles) {
+    return {
+      type: 'csharp-script',
+      defaultPort: 5000,
+      startCommand: 'dotnet script Program.cs',
+      installCommand: 'dotnet tool install -g dotnet-script',
+      description: 'C# Script',
+      buildCommand: null
     };
   }
 
