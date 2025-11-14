@@ -64,6 +64,29 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // C# / .NET (check for .csproj or .sln files)
+  const hasCSharpProject = files.some(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+  if (hasCSharpProject) {
+    return {
+      type: 'csharp',
+      defaultPort: 5000,
+      startCommand: 'dotnet run',
+      installCommand: 'dotnet restore',
+      description: 'C# / .NET Application',
+      buildCommand: 'dotnet build'
+    };
+  }
+
+  // Static HTML (check at the end - no package.json, but has index.html)
+  if (files.includes('index.html') && !packageJson) {
+    return {
+      type: 'static',
+      defaultPort: 8000,
+      startCommand: 'python3 -m http.server 8000',
+      description: 'Static HTML Site'
+    };
+  }
+
   return null;
 }
 
