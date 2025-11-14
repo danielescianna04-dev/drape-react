@@ -1473,7 +1473,7 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
   // Add HOST=0.0.0.0 for dev server commands to allow network access
   let execCommand = command;
-  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start/.test(command);
+  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start|python3?\s+-m\s+http\.server|php\s+artisan\s+serve|rails\s+server|flask\s+run|uvicorn/.test(command);
 
   if (isDevServerCommand) {
     if (isReactNative) {
@@ -1503,8 +1503,18 @@ async function executeCommandOnWorkstation(command, workstationId) {
     // For dev server commands, we need to run them in background
     // For now, just return success to indicate server is starting
     if (isDevServerCommand) {
-      // Kill any existing processes on the port
-      const port = isReactNative ? 8082 : 3000;  // Use 8082 for React Native to avoid conflict
+      // Extract port from command or use defaults
+      let port = 3000; // default
+      if (isReactNative) {
+        port = 8081;
+      } else {
+        // Try to extract port from command
+        const portMatch = command.match(/(?:--port[=\s]|:)(\d+)|(\d+)$/);
+        if (portMatch) {
+          port = parseInt(portMatch[1] || portMatch[2]);
+        }
+      }
+
       try {
         console.log(`🧹 Cleaning up port ${port}...`);
         const isWindows = process.platform === 'win32';
@@ -2059,7 +2069,28 @@ app.get('/workstation/:workstationId/detect-project', async (req, res) => {
   try {
     const fs = require('fs').promises;
     const path = require('path');
-    const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    // Extract project ID from workstation ID (format: ws-projectid in lowercase)
+    // Convert back to original case by looking for matching folder
+    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    // If workstation ID starts with 'ws-', try to find the project folder
+    if (workstationId.startsWith('ws-')) {
+      const projectIdLower = workstationId.substring(3); // Remove 'ws-' prefix
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+          console.log(`   Mapped ${workstationId} → ${matchingFolder}`);
+        }
+      } catch (err) {
+        console.error('   Error reading cloned_repos:', err);
+      }
+    }
 
     // Check if repository exists
     try {
@@ -2078,10 +2109,33 @@ app.get('/workstation/:workstationId/detect-project', async (req, res) => {
       console.log('⚠️  No package.json found');
     }
 
-    // Get list of files in root directory
+    // Get list of files recursively (needed to detect files in subdirectories)
+    const getAllFiles = async (dirPath, arrayOfFiles = []) => {
+      const files = await fs.readdir(dirPath);
+
+      for (const file of files) {
+        const filePath = path.join(dirPath, file);
+        const stat = await fs.stat(filePath);
+
+        if (stat.isDirectory()) {
+          // Skip .git and node_modules
+          if (file !== '.git' && file !== 'node_modules') {
+            arrayOfFiles = await getAllFiles(filePath, arrayOfFiles);
+          }
+        } else {
+          // Store relative path from repo root
+          const relativePath = path.relative(repoPath, filePath);
+          arrayOfFiles.push(relativePath);
+        }
+      }
+
+      return arrayOfFiles;
+    };
+
     let files = [];
     try {
-      files = await fs.readdir(repoPath);
+      files = await getAllFiles(repoPath);
+      console.log(`   Found ${files.length} files (recursive)`);
     } catch (error) {
       console.error('Error reading directory:', error);
     }

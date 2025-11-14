@@ -74,6 +74,234 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // C# / .NET (check for .csproj, .sln, or .cs files)
+  const csprojFile = files.find(f => f.endsWith('.csproj'));
+  const slnFile = files.find(f => f.endsWith('.sln'));
+  const hasCSharpProject = csprojFile || slnFile;
+  const hasCSharpFiles = files.some(f => f.endsWith('.cs'));
+
+  if (hasCSharpProject) {
+    // Use the .csproj or .sln file path for the project
+    const projectFile = csprojFile || slnFile;
+    const projectPath = projectFile ? `--project "${projectFile}"` : '';
+
+    return {
+      type: 'csharp',
+      defaultPort: 5000,
+      startCommand: `dotnet run ${projectPath}`.trim(),
+      installCommand: `dotnet restore ${projectPath}`.trim(),
+      description: 'C# / .NET Application',
+      buildCommand: `dotnet build ${projectPath}`.trim()
+    };
+  }
+
+  // C# script files without project file
+  if (hasCSharpFiles) {
+    return {
+      type: 'csharp-script',
+      defaultPort: 5000,
+      startCommand: 'dotnet script Program.cs',
+      installCommand: 'dotnet tool install -g dotnet-script',
+      description: 'C# Script',
+      buildCommand: null
+    };
+  }
+
+  // Python (Django, Flask, FastAPI)
+  if (files.includes('manage.py') && files.includes('wsgi.py')) {
+    return {
+      type: 'python-django',
+      defaultPort: 8000,
+      startCommand: 'python manage.py runserver 0.0.0.0:8000',
+      installCommand: 'pip install -r requirements.txt',
+      description: 'Django Application'
+    };
+  }
+
+  if (files.some(f => f.includes('app.py') || f.includes('main.py'))) {
+    // Check for Flask or FastAPI in requirements.txt
+    const hasFlask = files.includes('requirements.txt'); // Simplified check
+    return {
+      type: 'python-web',
+      defaultPort: 5000,
+      startCommand: 'python app.py || python main.py',
+      installCommand: 'pip install -r requirements.txt',
+      description: 'Python Web Application (Flask/FastAPI)'
+    };
+  }
+
+  // Java (Spring Boot)
+  if (files.includes('pom.xml') || files.includes('build.gradle')) {
+    const isMaven = files.includes('pom.xml');
+    return {
+      type: 'java-spring',
+      defaultPort: 8080,
+      startCommand: isMaven ? 'mvn spring-boot:run' : 'gradle bootRun',
+      installCommand: isMaven ? 'mvn install' : 'gradle build',
+      description: 'Java Spring Boot Application'
+    };
+  }
+
+  // Go
+  if (files.includes('go.mod') || files.some(f => f.endsWith('.go'))) {
+    return {
+      type: 'go',
+      defaultPort: 8080,
+      startCommand: 'go run .',
+      installCommand: 'go mod download',
+      description: 'Go Application',
+      buildCommand: 'go build'
+    };
+  }
+
+  // PHP (Laravel, Symfony)
+  if (files.includes('artisan')) {
+    return {
+      type: 'php-laravel',
+      defaultPort: 8000,
+      startCommand: 'php artisan serve --host=0.0.0.0 --port=8000',
+      installCommand: 'composer install',
+      description: 'Laravel Application'
+    };
+  }
+
+  if (files.includes('composer.json')) {
+    return {
+      type: 'php',
+      defaultPort: 8000,
+      startCommand: 'php -S 0.0.0.0:8000',
+      installCommand: 'composer install',
+      description: 'PHP Application'
+    };
+  }
+
+  // Ruby (Rails, Sinatra)
+  if (files.includes('Gemfile') && files.some(f => f.includes('config.ru'))) {
+    return {
+      type: 'ruby-rails',
+      defaultPort: 3000,
+      startCommand: 'rails server -b 0.0.0.0',
+      installCommand: 'bundle install',
+      description: 'Ruby on Rails Application'
+    };
+  }
+
+  if (files.includes('Gemfile')) {
+    return {
+      type: 'ruby',
+      defaultPort: 4567,
+      startCommand: 'ruby app.rb',
+      installCommand: 'bundle install',
+      description: 'Ruby Application (Sinatra)'
+    };
+  }
+
+  // Kotlin (Ktor, Spring Boot)
+  if (files.includes('build.gradle.kts') || files.some(f => f.endsWith('.kt'))) {
+    return {
+      type: 'kotlin',
+      defaultPort: 8080,
+      startCommand: './gradlew run',
+      installCommand: './gradlew build',
+      description: 'Kotlin Application (Ktor/Spring Boot)',
+      buildCommand: './gradlew build'
+    };
+  }
+
+  // Rust (Actix, Rocket, Axum)
+  if (files.includes('Cargo.toml') && files.some(f => f.endsWith('.rs'))) {
+    return {
+      type: 'rust',
+      defaultPort: 8080,
+      startCommand: 'cargo run',
+      installCommand: 'cargo build',
+      description: 'Rust Web Application',
+      buildCommand: 'cargo build --release'
+    };
+  }
+
+  // Swift (Vapor, Kitura)
+  if (files.includes('Package.swift') && files.some(f => f.endsWith('.swift'))) {
+    return {
+      type: 'swift',
+      defaultPort: 8080,
+      startCommand: 'swift run',
+      installCommand: 'swift build',
+      description: 'Swift Web Application (Vapor/Kitura)',
+      buildCommand: 'swift build -c release'
+    };
+  }
+
+  // Elixir (Phoenix)
+  if (files.includes('mix.exs')) {
+    return {
+      type: 'elixir-phoenix',
+      defaultPort: 4000,
+      startCommand: 'mix phx.server',
+      installCommand: 'mix deps.get',
+      description: 'Elixir Phoenix Application',
+      buildCommand: 'mix compile'
+    };
+  }
+
+  // Scala (Play Framework, Akka HTTP)
+  if (files.includes('build.sbt') && files.some(f => f.endsWith('.scala'))) {
+    return {
+      type: 'scala',
+      defaultPort: 9000,
+      startCommand: 'sbt run',
+      installCommand: 'sbt compile',
+      description: 'Scala Application (Play/Akka)',
+      buildCommand: 'sbt compile'
+    };
+  }
+
+  // Dart server-side (Shelf, Aqueduct)
+  if (files.includes('pubspec.yaml') && files.some(f => f.endsWith('.dart')) &&
+      !files.some(f => f.includes('flutter'))) {
+    return {
+      type: 'dart-server',
+      defaultPort: 8080,
+      startCommand: 'dart run',
+      installCommand: 'dart pub get',
+      description: 'Dart Server Application',
+      buildCommand: 'dart compile exe bin/server.dart'
+    };
+  }
+
+  // Deno
+  if (files.includes('deno.json') || files.includes('deno.jsonc') ||
+      files.some(f => f.includes('deno.land'))) {
+    return {
+      type: 'deno',
+      defaultPort: 8080,
+      startCommand: 'deno run --allow-net --allow-read main.ts',
+      installCommand: 'deno cache main.ts',
+      description: 'Deno Application'
+    };
+  }
+
+  // Bun
+  if (files.includes('bun.lockb') || (packageJson?.dependencies?.['bun'] || packageJson?.devDependencies?.['bun'])) {
+    return {
+      type: 'bun',
+      defaultPort: 8080,
+      startCommand: 'bun run start',
+      installCommand: 'bun install',
+      description: 'Bun Application'
+    };
+  }
+
+  // Static HTML (check at the end - no package.json, but has index.html)
+  if (files.includes('index.html') && !packageJson) {
+    return {
+      type: 'static',
+      defaultPort: 8000,
+      startCommand: 'python3 -m http.server 8000',
+      description: 'Static HTML Site'
+    };
+  }
+
   return null;
 }
 
