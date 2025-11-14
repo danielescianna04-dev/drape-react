@@ -221,10 +221,25 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   };
 
   const handleSendMessage = () => {
-    if (message.trim()) {
-      console.log('Message sent:', message);
-      // TODO: Implement message sending logic
+    if (message.trim() || selectedElement) {
+      // Combine selected element with message
+      let fullMessage = message.trim();
+
+      if (selectedElement) {
+        const elementContext = `[Selected Element: ${selectedElement.selector}${selectedElement.text ? ` - "${selectedElement.text}"` : ''}]`;
+        fullMessage = selectedElement && message.trim()
+          ? `${elementContext}\n${message.trim()}`
+          : elementContext;
+      }
+
+      console.log('Message sent:', fullMessage);
+      console.log('Selected element:', selectedElement);
+
+      // TODO: Implement message sending logic with fullMessage
+
+      // Clear both message and selected element after sending
       setMessage('');
+      setSelectedElement(null);
     }
   };
 
@@ -722,7 +737,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               <View style={styles.selectedElementContainer}>
                 <View style={styles.selectedElementChip}>
                   <View style={styles.chipIconContainer}>
-                    <Ionicons name="code-slash" size={16} color={AppColors.primary} />
+                    <Ionicons name="code-slash" size={14} color={AppColors.primary} />
                   </View>
                   <View style={styles.chipContent}>
                     <Text style={styles.chipSelector}>{selectedElement.selector}</Text>
@@ -734,7 +749,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     onPress={() => setSelectedElement(null)}
                     style={styles.chipClose}
                   >
-                    <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.6)" />
+                    <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -998,45 +1013,45 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30, 30, 46, 0.95)',
     borderWidth: 1,
     borderColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingLeft: 10,
-    paddingRight: 8,
-    gap: 10,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingLeft: 8,
+    paddingRight: 6,
+    gap: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   chipIconContainer: {
-    width: 26,
-    height: 26,
-    borderRadius: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 5,
     backgroundColor: 'rgba(139, 124, 246, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   chipContent: {
     flex: 1,
-    gap: 2,
+    gap: 1,
   },
   chipSelector: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     color: AppColors.primary,
     fontFamily: 'monospace',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'rgba(255, 255, 255, 0.5)',
-    lineHeight: 14,
+    lineHeight: 13,
   },
   chipClose: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',

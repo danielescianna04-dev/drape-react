@@ -32,7 +32,10 @@
       "Bash(gcloud config get-value:*)",
       "Bash(gcloud workstations clusters list:*)",
       "Bash(git rebase:*)",
-      "Bash(kill:*)"
+      "Bash(kill:*)",
+      "Bash(node:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
