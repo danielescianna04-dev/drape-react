@@ -32,6 +32,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
+  const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string } | null>(null);
 
   // Opening animation - fade in
   useEffect(() => {
@@ -655,7 +656,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     if (data.type === 'ELEMENT_SELECTED') {
                       console.log('Element selected:', data.element);
 
-                      // Create a user-friendly message for the input with clear visual indicator
+                      // Create element selector string
                       let elementSelector = `<${data.element.tag}>`;
                       if (data.element.id) {
                         elementSelector = `<${data.element.tag}#${data.element.id}>`;
@@ -666,9 +667,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         }
                       }
 
-                      // Auto-fill input with distinctive format showing it's from inspector
-                      const elementText = data.element.text?.trim() ? `\n"${data.element.text.substring(0, 40)}${data.element.text.length > 40 ? '...' : ''}"` : '';
-                      setMessage(`🎯 Selected from preview:\n${elementSelector}${elementText}\n\nWhat would you like to change?`);
+                      // Store selected element as attachment-like object
+                      const elementText = data.element.text?.trim() ? data.element.text.substring(0, 40) + (data.element.text.length > 40 ? '...' : '') : '';
+                      setSelectedElement({
+                        selector: elementSelector,
+                        text: elementText
+                      });
 
                       // Focus input
                       inputRef.current?.focus();
@@ -712,6 +716,30 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           {/* Input Box at Bottom */}
           <View style={styles.inputContainer}>
             <View style={styles.inputBorder} />
+
+            {/* Selected Element Chip */}
+            {selectedElement && (
+              <View style={styles.selectedElementContainer}>
+                <View style={styles.selectedElementChip}>
+                  <View style={styles.chipIconContainer}>
+                    <Ionicons name="code-slash" size={16} color={AppColors.primary} />
+                  </View>
+                  <View style={styles.chipContent}>
+                    <Text style={styles.chipSelector}>{selectedElement.selector}</Text>
+                    {selectedElement.text && (
+                      <Text style={styles.chipText} numberOfLines={1}>{selectedElement.text}</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setSelectedElement(null)}
+                    style={styles.chipClose}
+                  >
+                    <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.6)" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <View style={styles.inputWrapper}>
               {/* Inspect Mode Button */}
               <TouchableOpacity
@@ -958,6 +986,47 @@ const styles = StyleSheet.create({
   inputBorder: {
     height: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  selectedElementContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  selectedElementChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  chipIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipContent: {
+    flex: 1,
+    gap: 2,
+  },
+  chipSelector: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: AppColors.primary,
+    fontFamily: 'monospace',
+  },
+  chipText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  chipClose: {
+    padding: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
