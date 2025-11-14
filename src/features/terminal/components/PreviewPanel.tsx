@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
@@ -7,6 +7,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Props {
   onClose: () => void;
@@ -17,6 +18,7 @@ interface Props {
 
 export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
   const { currentWorkstation } = useTerminalStore();
+  const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -27,6 +29,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(previewUrl); // Track the actual URL to use
   const webViewRef = useRef<WebView>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
+  const [message, setMessage] = useState('');
+  const [isInspectMode, setIsInspectMode] = useState(false);
 
   // Opening animation - fade in
   useEffect(() => {
@@ -214,6 +218,168 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   };
 
+  const handleSendMessage = () => {
+    if (message.trim()) {
+      console.log('Message sent:', message);
+      // TODO: Implement message sending logic
+      setMessage('');
+    }
+  };
+
+  const toggleInspectMode = () => {
+    const newInspectMode = !isInspectMode;
+    setIsInspectMode(newInspectMode);
+
+    if (newInspectMode) {
+      // Enable inspect mode
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          // Remove existing inspector if any
+          if (window.__inspectorEnabled) return;
+          window.__inspectorEnabled = true;
+
+          // Style for overlay
+          const style = document.createElement('style');
+          style.id = '__inspector-style';
+          style.textContent = \`
+            @keyframes inspectorPulse {
+              0%, 100% { box-shadow: 0 0 0 0 rgba(139, 124, 246, 0.7); }
+              50% { box-shadow: 0 0 0 4px rgba(139, 124, 246, 0); }
+            }
+            .__inspector-overlay {
+              position: absolute !important;
+              pointer-events: none !important;
+              border: 2px solid #8B7CF6 !important;
+              background: rgba(139, 124, 246, 0.15) !important;
+              z-index: 999999 !important;
+              transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+              animation: inspectorPulse 2s ease-in-out infinite !important;
+              border-radius: 4px !important;
+            }
+            .__inspector-tooltip {
+              position: absolute !important;
+              background: linear-gradient(135deg, #8B7CF6 0%, #7C5DFA 100%) !important;
+              color: white !important;
+              padding: 8px 12px !important;
+              font-size: 12px !important;
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+              border-radius: 8px !important;
+              top: -42px !important;
+              left: 50% !important;
+              transform: translateX(-50%) !important;
+              white-space: nowrap !important;
+              pointer-events: none !important;
+              z-index: 9999999 !important;
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+              font-weight: 600 !important;
+            }
+            .__inspector-tooltip::after {
+              content: '' !important;
+              position: absolute !important;
+              bottom: -6px !important;
+              left: 50% !important;
+              transform: translateX(-50%) !important;
+              border-left: 6px solid transparent !important;
+              border-right: 6px solid transparent !important;
+              border-top: 6px solid #7C5DFA !important;
+            }
+          \`;
+          document.head.appendChild(style);
+
+          // Create overlay element
+          const overlay = document.createElement('div');
+          overlay.className = '__inspector-overlay';
+          overlay.style.display = 'none';
+          document.body.appendChild(overlay);
+
+          const tooltip = document.createElement('div');
+          tooltip.className = '__inspector-tooltip';
+          overlay.appendChild(tooltip);
+
+          let lastElement = null;
+
+          // Mouse move handler
+          const handleMouseMove = (e) => {
+            const target = e.target;
+            if (target.classList.contains('__inspector-overlay') ||
+                target.classList.contains('__inspector-tooltip')) return;
+
+            const rect = target.getBoundingClientRect();
+            overlay.style.display = 'block';
+            overlay.style.top = (rect.top + window.scrollY) + 'px';
+            overlay.style.left = (rect.left + window.scrollX) + 'px';
+            overlay.style.width = rect.width + 'px';
+            overlay.style.height = rect.height + 'px';
+
+            const tagName = target.tagName.toLowerCase();
+            const classes = target.className ? (typeof target.className === 'string' ? target.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2).join(' ') : '') : '';
+            const id = target.id || '';
+
+            // Format tooltip text nicely
+            let tooltipText = '<' + tagName + '>';
+            if (id) tooltipText = '<' + tagName + '#' + id + '>';
+            else if (classes) tooltipText = '<' + tagName + '.' + classes.split(' ').join('.') + '>';
+
+            tooltip.textContent = tooltipText;
+
+            lastElement = target;
+          };
+
+          // Click handler
+          const handleClick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (lastElement) {
+              const tagName = lastElement.tagName.toLowerCase();
+              const className = lastElement.className || '';
+              const id = lastElement.id || '';
+              const text = lastElement.textContent?.substring(0, 50) || '';
+
+              window.ReactNativeWebView?.postMessage(JSON.stringify({
+                type: 'ELEMENT_SELECTED',
+                element: {
+                  tag: tagName,
+                  className: className,
+                  id: id,
+                  text: text,
+                  innerHTML: lastElement.innerHTML?.substring(0, 200)
+                }
+              }));
+            }
+            return false;
+          };
+
+          // Attach listeners
+          document.addEventListener('mousemove', handleMouseMove, true);
+          document.addEventListener('click', handleClick, true);
+
+          // Store cleanup function
+          window.__inspectorCleanup = () => {
+            document.removeEventListener('mousemove', handleMouseMove, true);
+            document.removeEventListener('click', handleClick, true);
+            overlay.remove();
+            style.remove();
+            window.__inspectorEnabled = false;
+            delete window.__inspectorCleanup;
+          };
+
+          console.log('Inspect mode enabled');
+        })();
+        true;
+      `);
+    } else {
+      // Disable inspect mode
+      webViewRef.current?.injectJavaScript(`
+        if (window.__inspectorCleanup) {
+          window.__inspectorCleanup();
+          console.log('Inspect mode disabled');
+        }
+        true;
+      `);
+    }
+  };
+
   return (
     <>
       {/* Backdrop - Click to close */}
@@ -229,8 +395,54 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           style={StyleSheet.absoluteFill}
         />
 
-        {/* WebView Preview or Start Screen */}
-        <View style={styles.webViewContainer}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={insets.top}
+        >
+          {/* Header */}
+          <View style={[styles.header, { paddingTop: insets.top }]}>
+            <View style={styles.headerContent}>
+              <View style={styles.headerLeft}>
+                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+
+                <View style={styles.titleContainer}>
+                  <Text style={styles.headerTitle}>Preview</Text>
+                  <View style={[
+                    styles.statusDot,
+                    { backgroundColor: serverStatus === 'running' ? '#00D084' : serverStatus === 'checking' ? '#FFA500' : '#FF4444' }
+                  ]} />
+                </View>
+              </View>
+
+              <View style={styles.headerRight}>
+                <TouchableOpacity
+                  onPress={handleGoBack}
+                  disabled={!canGoBack}
+                  style={[styles.iconButton, !canGoBack && styles.iconButtonDisabled]}
+                >
+                  <Ionicons name="arrow-back" size={20} color={canGoBack ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"} />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleGoForward}
+                  disabled={!canGoForward}
+                  style={[styles.iconButton, !canGoForward && styles.iconButtonDisabled]}
+                >
+                  <Ionicons name="arrow-forward" size={20} color={canGoForward ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"} />
+                </TouchableOpacity>
+
+                <TouchableOpacity onPress={handleRefresh} style={styles.iconButton}>
+                  <Ionicons name="refresh" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          {/* WebView Preview or Start Screen */}
+          <View style={styles.webViewContainer}>
           {serverStatus === 'stopped' ? (
             // Server not running - show start screen
             <View style={styles.startScreen}>
@@ -321,25 +533,202 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 ref={webViewRef}
                 source={{ uri: currentPreviewUrl }}
                 style={styles.webView}
-                onLoadStart={() => setIsLoading(true)}
-                onLoadEnd={() => setIsLoading(false)}
+                onLoadStart={(syntheticEvent) => {
+                  const { nativeEvent } = syntheticEvent;
+                  console.log('🔵 WebView load start:', nativeEvent.url);
+                  setIsLoading(true);
+                }}
+                onLoadEnd={(syntheticEvent) => {
+                  const { nativeEvent } = syntheticEvent;
+                  console.log('✅ WebView load end:', nativeEvent.url);
+
+                  // Inject error listener and check content
+                  setTimeout(() => {
+                    webViewRef.current?.injectJavaScript(`
+                      // Capture all errors
+                      window.addEventListener('error', (e) => {
+                        window.ReactNativeWebView?.postMessage(JSON.stringify({
+                          type: 'JS_ERROR',
+                          message: e.message,
+                          filename: e.filename,
+                          lineno: e.lineno,
+                          colno: e.colno
+                        }));
+                      });
+
+                      // Capture console errors
+                      const originalError = console.error;
+                      console.error = function(...args) {
+                        originalError.apply(console, args);
+                        window.ReactNativeWebView?.postMessage(JSON.stringify({
+                          type: 'CONSOLE_ERROR',
+                          args: args.map(a => String(a))
+                        }));
+                      };
+
+                      try {
+                        const rootElement = document.getElementById('root');
+                        const hasContent = rootElement && rootElement.children.length > 0;
+                        const bodyBgColor = window.getComputedStyle(document.body).backgroundColor;
+
+                        // Check if bundle script is loaded
+                        const scripts = Array.from(document.scripts).map(s => s.src);
+                        const hasBundle = scripts.some(src => src.includes('bundle'));
+
+                        window.ReactNativeWebView?.postMessage(JSON.stringify({
+                          type: 'PAGE_INFO',
+                          hasContent: hasContent,
+                          rootChildren: rootElement ? rootElement.children.length : 0,
+                          backgroundColor: bodyBgColor,
+                          readyState: document.readyState,
+                          scripts: scripts,
+                          hasBundle: hasBundle
+                        }));
+                      } catch (e) {
+                        console.error('Page info error:', e);
+                      }
+                      true;
+                    `);
+                  }, 2000);
+
+                  setIsLoading(false);
+                }}
+                onLoadProgress={({ nativeEvent }) => {
+                  console.log('⏳ WebView progress:', nativeEvent.progress);
+                }}
                 onNavigationStateChange={(navState) => {
+                  console.log('🧭 Navigation state:', navState.url, navState.loading);
                   setCanGoBack(navState.canGoBack);
                   setCanGoForward(navState.canGoForward);
+                }}
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+
+                    if (data.type === 'PAGE_INFO') {
+                      console.log('📄 Page info:', data);
+                      console.log(`   Has content: ${data.hasContent}`);
+                      console.log(`   Root children: ${data.rootChildren}`);
+                      console.log(`   Background: ${data.backgroundColor}`);
+                      console.log(`   Ready state: ${data.readyState}`);
+                      console.log(`   Has bundle: ${data.hasBundle}`);
+                      console.log(`   Scripts:`, data.scripts);
+                    }
+
+                    if (data.type === 'JS_ERROR') {
+                      console.error('🔴 JavaScript Error in WebView:');
+                      console.error(`   Message: ${data.message}`);
+                      console.error(`   File: ${data.filename}:${data.lineno}:${data.colno}`);
+                    }
+
+                    if (data.type === 'CONSOLE_ERROR') {
+                      console.error('🟠 Console Error in WebView:', data.args);
+                    }
+
+                    if (data.type === 'ELEMENT_SELECTED') {
+                      console.log('Element selected:', data.element);
+
+                      // Create a user-friendly message for the input
+                      let elementSelector = `<${data.element.tag}>`;
+                      if (data.element.id) {
+                        elementSelector = `<${data.element.tag}#${data.element.id}>`;
+                      } else if (data.element.className) {
+                        const classes = data.element.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                        if (classes.length > 0) {
+                          elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                        }
+                      }
+
+                      // Auto-fill input with Lovable-style prompt
+                      const elementText = data.element.text?.trim() ? ` - "${data.element.text.substring(0, 30)}${data.element.text.length > 30 ? '...' : ''}"` : '';
+                      setMessage(`Modifica ${elementSelector}${elementText}`);
+
+                      // Focus input
+                      inputRef.current?.focus();
+
+                      // Disable inspect mode after selection
+                      setIsInspectMode(false);
+                      webViewRef.current?.injectJavaScript(`
+                        if (window.__inspectorCleanup) {
+                          window.__inspectorCleanup();
+                        }
+                        true;
+                      `);
+                    }
+                  } catch (error) {
+                    console.error('Error parsing WebView message:', error);
+                  }
+                }}
+                onError={(syntheticEvent) => {
+                  const { nativeEvent } = syntheticEvent;
+                  console.error('❌ WebView error:', nativeEvent);
+                  console.error('   Description:', nativeEvent.description);
+                  console.error('   Code:', nativeEvent.code);
+                  setServerStatus('stopped');
+                }}
+                onHttpError={(syntheticEvent) => {
+                  const { nativeEvent } = syntheticEvent;
+                  console.error('🔴 WebView HTTP error:', nativeEvent.statusCode);
+                  console.error('   URL:', nativeEvent.url);
                 }}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 startInLoadingState={true}
                 scalesPageToFit={true}
                 bounces={false}
-                onError={() => {
-                  console.log('WebView error - server might have stopped');
-                  setServerStatus('stopped');
-                }}
+                mixedContentMode="always"
+                allowsInlineMediaPlayback={true}
+                mediaPlaybackRequiresUserAction={false}
+                originWhitelist={['*']}
               />
             </>
           )}
-        </View>
+          </View>
+
+          {/* Input Box at Bottom */}
+          <View style={styles.inputContainer}>
+            <View style={styles.inputBorder} />
+            <View style={styles.inputWrapper}>
+              {/* Inspect Mode Button */}
+              <TouchableOpacity
+                style={[styles.inspectButton, isInspectMode && styles.inspectButtonActive]}
+                onPress={toggleInspectMode}
+              >
+                <Ionicons
+                  name="scan-outline"
+                  size={22}
+                  color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
+                />
+              </TouchableOpacity>
+
+              <TextInput
+                style={styles.input}
+                value={message}
+                onChangeText={setMessage}
+                placeholder="Scrivi un messaggio..."
+                placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                multiline
+                maxLength={500}
+              />
+              <TouchableOpacity
+                style={[styles.sendButton, !message.trim() && styles.sendButtonDisabled]}
+                onPress={handleSendMessage}
+                disabled={!message.trim()}
+              >
+                <LinearGradient
+                  colors={message.trim() ? [AppColors.primary, '#7C5DFA'] : ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']}
+                  style={styles.sendButtonGradient}
+                >
+                  <Ionicons
+                    name="send"
+                    size={20}
+                    color={message.trim() ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'}
+                  />
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Animated.View>
     </>
   );
@@ -362,6 +751,61 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     zIndex: 1000,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#000000',
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: 44,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconButtonDisabled: {
+    opacity: 0.3,
   },
   webViewContainer: {
     flex: 1,
@@ -480,5 +924,61 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  inputContainer: {
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  inputBorder: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  inspectButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  inspectButtonActive: {
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    borderColor: AppColors.primary,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingTop: 10,
+    fontSize: 15,
+    color: '#FFFFFF',
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  sendButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  sendButtonGradient: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
