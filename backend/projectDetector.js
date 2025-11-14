@@ -186,6 +186,102 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // Kotlin (Ktor, Spring Boot)
+  if (files.includes('build.gradle.kts') || files.some(f => f.endsWith('.kt'))) {
+    return {
+      type: 'kotlin',
+      defaultPort: 8080,
+      startCommand: './gradlew run',
+      installCommand: './gradlew build',
+      description: 'Kotlin Application (Ktor/Spring Boot)',
+      buildCommand: './gradlew build'
+    };
+  }
+
+  // Rust (Actix, Rocket, Axum)
+  if (files.includes('Cargo.toml') && files.some(f => f.endsWith('.rs'))) {
+    return {
+      type: 'rust',
+      defaultPort: 8080,
+      startCommand: 'cargo run',
+      installCommand: 'cargo build',
+      description: 'Rust Web Application',
+      buildCommand: 'cargo build --release'
+    };
+  }
+
+  // Swift (Vapor, Kitura)
+  if (files.includes('Package.swift') && files.some(f => f.endsWith('.swift'))) {
+    return {
+      type: 'swift',
+      defaultPort: 8080,
+      startCommand: 'swift run',
+      installCommand: 'swift build',
+      description: 'Swift Web Application (Vapor/Kitura)',
+      buildCommand: 'swift build -c release'
+    };
+  }
+
+  // Elixir (Phoenix)
+  if (files.includes('mix.exs')) {
+    return {
+      type: 'elixir-phoenix',
+      defaultPort: 4000,
+      startCommand: 'mix phx.server',
+      installCommand: 'mix deps.get',
+      description: 'Elixir Phoenix Application',
+      buildCommand: 'mix compile'
+    };
+  }
+
+  // Scala (Play Framework, Akka HTTP)
+  if (files.includes('build.sbt') && files.some(f => f.endsWith('.scala'))) {
+    return {
+      type: 'scala',
+      defaultPort: 9000,
+      startCommand: 'sbt run',
+      installCommand: 'sbt compile',
+      description: 'Scala Application (Play/Akka)',
+      buildCommand: 'sbt compile'
+    };
+  }
+
+  // Dart server-side (Shelf, Aqueduct)
+  if (files.includes('pubspec.yaml') && files.some(f => f.endsWith('.dart')) &&
+      !files.some(f => f.includes('flutter'))) {
+    return {
+      type: 'dart-server',
+      defaultPort: 8080,
+      startCommand: 'dart run',
+      installCommand: 'dart pub get',
+      description: 'Dart Server Application',
+      buildCommand: 'dart compile exe bin/server.dart'
+    };
+  }
+
+  // Deno
+  if (files.includes('deno.json') || files.includes('deno.jsonc') ||
+      files.some(f => f.includes('deno.land'))) {
+    return {
+      type: 'deno',
+      defaultPort: 8080,
+      startCommand: 'deno run --allow-net --allow-read main.ts',
+      installCommand: 'deno cache main.ts',
+      description: 'Deno Application'
+    };
+  }
+
+  // Bun
+  if (files.includes('bun.lockb') || (packageJson?.dependencies?.['bun'] || packageJson?.devDependencies?.['bun'])) {
+    return {
+      type: 'bun',
+      defaultPort: 8080,
+      startCommand: 'bun run start',
+      installCommand: 'bun install',
+      description: 'Bun Application'
+    };
+  }
+
   // Static HTML (check at the end - no package.json, but has index.html)
   if (files.includes('index.html') && !packageJson) {
     return {
