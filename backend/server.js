@@ -1707,10 +1707,33 @@ app.get('/workstation/:workstationId/detect-project', async (req, res) => {
       console.log('⚠️  No package.json found');
     }
 
-    // Get list of files in root directory
+    // Get list of files recursively (needed to detect files in subdirectories)
+    const getAllFiles = async (dirPath, arrayOfFiles = []) => {
+      const files = await fs.readdir(dirPath);
+
+      for (const file of files) {
+        const filePath = path.join(dirPath, file);
+        const stat = await fs.stat(filePath);
+
+        if (stat.isDirectory()) {
+          // Skip .git and node_modules
+          if (file !== '.git' && file !== 'node_modules') {
+            arrayOfFiles = await getAllFiles(filePath, arrayOfFiles);
+          }
+        } else {
+          // Store relative path from repo root
+          const relativePath = path.relative(repoPath, filePath);
+          arrayOfFiles.push(relativePath);
+        }
+      }
+
+      return arrayOfFiles;
+    };
+
     let files = [];
     try {
-      files = await fs.readdir(repoPath);
+      files = await getAllFiles(repoPath);
+      console.log(`   Found ${files.length} files (recursive)`);
     } catch (error) {
       console.error('Error reading directory:', error);
     }
