@@ -10,13 +10,23 @@ function detectProjectType(files, packageJson) {
       packageJson?.devDependencies?.['expo'] ||
       packageJson?.devDependencies?.['react-native'] ||
       files.includes('app.json')) {
+
+    // Check if project has web support (webpack config or react-native-web)
+    const hasWebSupport = packageJson?.dependencies?.['react-native-web'] ||
+                          packageJson?.devDependencies?.['@expo/webpack-config'] ||
+                          files.includes('webpack.config.js');
+
     return {
       type: 'react-native',
-      defaultPort: 8081,
-      startCommand: 'npx expo start --web --port 8081',
+      defaultPort: 8082,  // Use 8082 to avoid conflict with main app on 8081
+      startCommand: hasWebSupport ? 'npx expo start --web --port 8082' : 'npx expo start --port 8082',
       installCommand: 'npm install',
       description: 'React Native / Expo Application',
-      isReactNative: true
+      isReactNative: true,
+      supportsWebPreview: hasWebSupport,
+      previewNote: hasWebSupport
+        ? 'Web preview available via Expo Web'
+        : 'This is a mobile-only React Native project. Preview requires Expo Go app on your device. Scan the QR code in the terminal.'
     };
   }
 

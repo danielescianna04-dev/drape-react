@@ -1186,6 +1186,29 @@ app.post('/terminal/execute', async (req, res) => {
     if (previewUrl) {
       console.log('👁️  Preview URL detected:', previewUrl);
 
+      // Replace 0.0.0.0 with actual IP BEFORE health check
+      if (previewUrl.includes('0.0.0.0')) {
+        const os = require('os');
+        const networkInterfaces = os.networkInterfaces();
+        let localIp = 'localhost';
+
+        for (const interfaceName in networkInterfaces) {
+          const interfaces = networkInterfaces[interfaceName];
+          if (interfaces) {
+            for (const iface of interfaces) {
+              if (iface.family === 'IPv4' && !iface.internal) {
+                localIp = iface.address;
+                break;
+              }
+            }
+          }
+          if (localIp !== 'localhost') break;
+        }
+
+        previewUrl = previewUrl.replace('0.0.0.0', localIp);
+        console.log(`🔗 Replaced 0.0.0.0 with ${localIp}: ${previewUrl}`);
+      }
+
       // For dev server commands, do health check to verify it's actually running
       const isDevServerCommand = command.includes('start') ||
                                  command.includes('serve') ||
@@ -1195,20 +1218,65 @@ app.post('/terminal/execute', async (req, res) => {
       if (isDevServerCommand && output.exitCode === 0) {
         console.log('🔍 Performing health check on server...');
 
+        // Expo/React Native servers take longer to start, increase attempts and delay
+        const isExpo = command.includes('expo');
+        const maxAttempts = isExpo ? 30 : 15;  // 30 attempts for Expo (30 seconds)
+        const delayMs = isExpo ? 1000 : 1000;   // 1 second between attempts
+
+        console.log(`⏱️  Health check config: ${maxAttempts} attempts, ${delayMs}ms delay ${isExpo ? '(Expo mode)' : ''}`);
+
         // Always do health check in production mode
-        healthCheckResult = await healthCheckUrl(previewUrl, 15, 1000);
+        healthCheckResult = await healthCheckUrl(previewUrl, maxAttempts, delayMs);
         serverReady = healthCheckResult.healthy;
 
         if (serverReady) {
           console.log(`✅ Server is verified running and healthy!`);
 
-          // Don't convert Expo tunnel URLs (they're already public)
-          if (!previewUrl.startsWith('exp://') && !previewUrl.includes('.exp.direct')) {
-            // Convert to public URL for production
-            previewUrl = convertToPublicUrl(previewUrl, workstationId || 'local');
-            console.log(`🌐 Public preview URL: ${previewUrl}`);
+          // For Expo web projects, use the HTML wrapper endpoint
+          if (command && command.includes('expo') && command.includes('--web')) {
+            try {
+              // Extract port from previewUrl
+              const urlMatch = previewUrl.match(/:(\d+)/);
+              if (urlMatch) {
+                const port = urlMatch[1];
+
+                // Get the backend URL (this server)
+                const os = require('os');
+                const networkInterfaces = os.networkInterfaces();
+                let backendIp = 'localhost';
+
+                // Find the first non-internal IPv4 address
+                for (const interfaceName in networkInterfaces) {
+                  const interfaces = networkInterfaces[interfaceName];
+                  if (interfaces) {
+                    for (const iface of interfaces) {
+                      if (iface.family === 'IPv4' && !iface.internal) {
+                        backendIp = iface.address;
+                        break;
+                      }
+                    }
+                  }
+                  if (backendIp !== 'localhost') break;
+                }
+
+                // Point directly to webpack-dev-server (now bound to 0.0.0.0 via .env file)
+                previewUrl = `http://${backendIp}:${port}`;
+                console.log(`📱 Direct Expo Web URL: ${previewUrl}`);
+              } else {
+                console.log(`⚠️  Could not extract port from ${previewUrl}`);
+              }
+            } catch (error) {
+              console.log(`⚠️  Error creating wrapper URL: ${error.message}`);
+            }
           } else {
-            console.log(`🚇 Using Expo tunnel URL as-is: ${previewUrl}`);
+            // Don't convert Expo tunnel URLs (they're already public)
+            if (!previewUrl.startsWith('exp://') && !previewUrl.includes('.exp.direct')) {
+              // Convert to public URL for production
+              previewUrl = convertToPublicUrl(previewUrl, workstationId || 'local');
+              console.log(`🌐 Public preview URL: ${previewUrl}`);
+            } else {
+              console.log(`🚇 Using tunnel URL as-is: ${previewUrl}`);
+            }
           }
         } else {
           console.log(`⚠️ Server command executed but health check failed`);
@@ -1230,6 +1298,146 @@ app.post('/terminal/execute', async (req, res) => {
   } catch (error) {
     console.error('❌ TERMINAL EXECUTE ERROR:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Expo Web Preview Wrapper - Serves HTML that loads Expo bundle
+app.get('/expo-preview/:port', async (req, res) => {
+  try {
+    const { port } = req.params;
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    let localIp = 'localhost';
+
+    // Find the first non-internal IPv4 address
+    for (const interfaceName in networkInterfaces) {
+      const interfaces = networkInterfaces[interfaceName];
+      if (interfaces) {
+        for (const iface of interfaces) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            localIp = iface.address;
+            break;
+          }
+        }
+      }
+      if (localIp !== 'localhost') break;
+    }
+
+    const metroUrl = `http://${localIp}:${port}`;
+
+    // Serve an HTML page that loads the Expo bundle
+    const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Expo Web Preview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body, #root {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #000;
+    }
+    #loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      color: #fff;
+      z-index: 9999;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #loading p {
+      margin-top: 20px;
+      font-size: 14px;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div class="spinner"></div>
+    <p>Caricamento Expo Web...</p>
+  </div>
+  <div id="root"></div>
+
+  <script>
+    // Fetch the manifest first
+    fetch('${metroUrl}')
+      .then(response => response.json())
+      .then(manifest => {
+        if (manifest.launchAsset && manifest.launchAsset.url) {
+          // Extract bundle URL and load it
+          let bundleUrl = manifest.launchAsset.url;
+
+          // Ensure we're using web platform
+          bundleUrl = bundleUrl.replace('platform=ios', 'platform=web')
+                               .replace('platform=android', 'platform=web');
+
+          console.log('Loading Expo bundle:', bundleUrl);
+
+          // Load the bundle script
+          const script = document.createElement('script');
+          script.src = bundleUrl;
+          script.onload = () => {
+            console.log('Expo bundle loaded successfully');
+            const loading = document.getElementById('loading');
+            if (loading) {
+              loading.style.display = 'none';
+            }
+          };
+          script.onerror = (error) => {
+            console.error('Failed to load bundle:', error);
+            document.getElementById('loading').innerHTML =
+              '<p style="color: #ff6b6b;">❌ Errore nel caricamento del bundle</p>';
+          };
+          document.body.appendChild(script);
+        } else {
+          throw new Error('No launchAsset found in manifest');
+        }
+      })
+      .catch(error => {
+        console.error('Failed to load Expo manifest:', error);
+        document.getElementById('loading').innerHTML =
+          '<p style="color: #ff6b6b;">❌ Errore nel caricamento del manifest Expo</p>' +
+          '<p style="font-size: 12px; margin-top: 10px;">Assicurati che il server Expo sia in esecuzione</p>';
+      });
+  </script>
+</body>
+</html>
+    `;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('❌ Expo preview wrapper error:', error);
+    res.status(500).send('Internal Server Error');
   }
 });
 
@@ -1270,11 +1478,22 @@ async function executeCommandOnWorkstation(command, workstationId) {
   if (isDevServerCommand) {
     if (isReactNative) {
       console.log('📱 React Native/Expo project detected - using port 8081');
-      // For Expo, use EXPO_WEBPACK_PORT to set the port for web mode
-      execCommand = `EXPO_WEBPACK_PORT=8081 ${command}`;
+      // For Expo projects, add --host lan flag
+      // Environment variables (HOST, WDS_SOCKET_HOST) are passed via spawn env option
+      if (command.includes('expo')) {
+        execCommand = `${command} --host lan`;
+      } else {
+        execCommand = command;
+      }
     } else {
       console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
-      execCommand = `HOST=0.0.0.0 ${command}`;
+      // On Windows, use cross-env or set command based on OS
+      const isWindows = process.platform === 'win32';
+      if (isWindows) {
+        execCommand = `set HOST=0.0.0.0 && ${command}`;
+      } else {
+        execCommand = `HOST=0.0.0.0 ${command}`;
+      }
     }
   }
 
@@ -1285,22 +1504,127 @@ async function executeCommandOnWorkstation(command, workstationId) {
     // For now, just return success to indicate server is starting
     if (isDevServerCommand) {
       // Kill any existing processes on the port
-      const port = isReactNative ? 8081 : 3000;
+      const port = isReactNative ? 8082 : 3000;  // Use 8082 for React Native to avoid conflict
       try {
         console.log(`🧹 Cleaning up port ${port}...`);
-        await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
-        console.log(`✅ Port ${port} is now free`);
+        const isWindows = process.platform === 'win32';
+        if (isWindows) {
+          // Windows: use netstat and taskkill
+          await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
+            timeout: 5000,
+            shell: 'cmd.exe'
+          });
+        } else {
+          // Unix: use lsof and kill
+          await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+        }
+        console.log(`✅ Port ${port} cleanup attempted`);
       } catch (err) {
         console.log(`⚠️  Error cleaning port: ${err.message}`);
       }
 
-      // Check if node_modules exists, if not install dependencies
-      const fs = require('fs').promises;
+      // Initialize fs and path at the beginning
+      const fs = require('fs');
+      const fsPromises = require('fs').promises;
       const path = require('path');
+
+      // For Expo/React Native projects, create .env file intelligently
+      if (isReactNative) {
+        try {
+          const os = require('os');
+          const networkInterfaces = os.networkInterfaces();
+          let localIp = 'localhost';
+
+          // Get local IP
+          for (const interfaceName in networkInterfaces) {
+            const interfaces = networkInterfaces[interfaceName];
+            if (interfaces) {
+              for (const iface of interfaces) {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                  localIp = iface.address;
+                  break;
+                }
+              }
+            }
+            if (localIp !== 'localhost') break;
+          }
+
+          const envPath = path.join(repoPath, '.env');
+          const envExamplePath = path.join(repoPath, '.env.example');
+
+          // IMPORTANT: Check if .env already exists - don't overwrite user's configuration!
+          if (fs.existsSync(envPath)) {
+            console.log('✅ .env file already exists - preserving user configuration');
+
+            // Only check if it has necessary variables for Expo Web
+            if (command.includes('--web')) {
+              const existingContent = fs.readFileSync(envPath, 'utf8');
+              let needsUpdate = false;
+              let updatedContent = existingContent;
+
+              // Check if HOST and WDS_SOCKET_HOST are present
+              if (!existingContent.includes('HOST=')) {
+                console.log('⚠️  Adding missing HOST=0.0.0.0 to existing .env');
+                updatedContent = `HOST=0.0.0.0\n${updatedContent}`;
+                needsUpdate = true;
+              }
+              if (!existingContent.includes('WDS_SOCKET_HOST=')) {
+                console.log('⚠️  Adding missing WDS_SOCKET_HOST=0.0.0.0 to existing .env');
+                updatedContent = `WDS_SOCKET_HOST=0.0.0.0\n${updatedContent}`;
+                needsUpdate = true;
+              }
+
+              // Only write if we added missing variables
+              if (needsUpdate) {
+                fs.writeFileSync(envPath, updatedContent, 'utf8');
+                console.log('📝 Updated .env with missing webpack-dev-server variables');
+              }
+            }
+          } else {
+            // No .env exists - create it from template or minimal config
+            let envContent = '';
+
+            // Check if .env.example exists
+            if (fs.existsSync(envExamplePath)) {
+              console.log('📄 Found .env.example - using it as template');
+              envContent = fs.readFileSync(envExamplePath, 'utf8');
+
+              // Replace dynamic values (IP addresses)
+              envContent = envContent.replace(/192\.168\.\d+\.\d+/g, localIp);
+              envContent = envContent.replace(/localhost:3000/g, `${localIp}:${PORT}`);
+
+              // Ensure webpack dev server variables are present (for Expo Web)
+              if (command.includes('--web')) {
+                if (!envContent.includes('HOST=')) {
+                  envContent = `HOST=0.0.0.0\n${envContent}`;
+                }
+                if (!envContent.includes('WDS_SOCKET_HOST=')) {
+                  envContent = `WDS_SOCKET_HOST=0.0.0.0\n${envContent}`;
+                }
+              }
+            } else {
+              console.log('⚠️  No .env.example found - creating minimal .env');
+              // Minimal .env for projects without .env.example
+              envContent = `# Auto-generated configuration\n`;
+              if (command.includes('--web')) {
+                envContent += `HOST=0.0.0.0\nWDS_SOCKET_HOST=0.0.0.0\n\n`;
+              }
+              envContent += `# Backend URL\nEXPO_PUBLIC_API_URL=http://${localIp}:${PORT}/\n`;
+            }
+
+            fs.writeFileSync(envPath, envContent, 'utf8');
+            console.log(`📝 Created .env file for ${command.includes('--web') ? 'Expo Web' : 'Expo'} with backend at ${localIp}:${PORT}`);
+          }
+        } catch (error) {
+          console.error('⚠️  Failed to create .env file:', error.message);
+        }
+      }
+
+      // Check if node_modules exists, if not install dependencies
       const nodeModulesPath = path.join(repoPath, 'node_modules');
       let needsInstall = false;
       try {
-        await fs.access(nodeModulesPath);
+        await fsPromises.access(nodeModulesPath);
         console.log('✅ node_modules exists');
       } catch {
         console.log('📦 node_modules not found, installing dependencies...');
@@ -1310,13 +1634,22 @@ async function executeCommandOnWorkstation(command, workstationId) {
       if (needsInstall) {
         try {
           console.log('⏳ Running npm install...');
+          console.log('   This may take several minutes for large projects...');
           await execAsync('npm install', {
             cwd: repoPath,
-            timeout: 120000 // 2 minutes for install
+            timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
+            maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
           });
           console.log('✅ Dependencies installed successfully');
         } catch (installErr) {
           console.error('❌ Failed to install dependencies:', installErr.message);
+          // Log more details about the error
+          if (installErr.killed) {
+            console.error('   Installation was killed (likely timeout)');
+          }
+          if (installErr.code) {
+            console.error('   Exit code:', installErr.code);
+          }
           return {
             stdout: '',
             stderr: `Failed to install dependencies: ${installErr.message}`,
@@ -1327,10 +1660,30 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
       // Start the dev server in background (non-blocking)
       const { spawn } = require('child_process');
-      const serverProcess = spawn('sh', ['-c', execCommand], {
+      const isWindows = process.platform === 'win32';
+      const shell = isWindows ? 'cmd.exe' : 'sh';
+      const shellArg = isWindows ? '/c' : '-c';
+
+      // Prepare environment variables - inherit from parent and add network binding variables
+      const spawnEnv = {
+        ...process.env,
+        HOST: '0.0.0.0',                      // For webpack-dev-server (Expo Web)
+        WDS_SOCKET_HOST: '0.0.0.0',           // For webpack HMR socket
+        EXPO_DEVTOOLS_LISTEN_ADDRESS: '0.0.0.0'  // For Expo Metro (fallback)
+      };
+
+      console.log('🌐 Spawn environment variables set:', {
+        HOST: spawnEnv.HOST,
+        WDS_SOCKET_HOST: spawnEnv.WDS_SOCKET_HOST,
+        EXPO_DEVTOOLS_LISTEN_ADDRESS: spawnEnv.EXPO_DEVTOOLS_LISTEN_ADDRESS
+      });
+      console.log('💻 Final command to execute:', execCommand);
+
+      const serverProcess = spawn(shell, [shellArg, execCommand], {
         cwd: repoPath,
         detached: true,
-        stdio: 'ignore'
+        stdio: 'ignore',
+        env: spawnEnv
       });
 
       serverProcess.unref(); // Allow parent to exit independently
@@ -1438,6 +1791,11 @@ function convertToPublicUrl(localUrl, workstationId) {
     const url = new URL(localUrl);
     const port = url.port || '3000';
 
+    // Preserve the path, search params, and hash from original URL
+    const pathname = url.pathname || '/';
+    const search = url.search || '';
+    const hash = url.hash || '';
+
     // For development: replace localhost with machine's local IP
     if (process.env.NODE_ENV !== 'production') {
       const os = require('os');
@@ -1458,8 +1816,9 @@ function convertToPublicUrl(localUrl, workstationId) {
         if (localIp !== 'localhost') break;
       }
 
-      console.log(`🌐 Converting ${localUrl} to http://${localIp}:${port}`);
-      return `http://${localIp}:${port}`;
+      const fullUrl = `http://${localIp}:${port}${pathname}${search}${hash}`;
+      console.log(`🌐 Converting ${localUrl} to ${fullUrl}`);
+      return fullUrl;
     }
 
     // In production: replace localhost with workstation's public hostname
@@ -1467,7 +1826,7 @@ function convertToPublicUrl(localUrl, workstationId) {
     const publicHost = process.env.WORKSTATION_PUBLIC_HOST ||
                       `${workstationId}-${port}.${LOCATION}.run.app`;
 
-    return `https://${publicHost}`;
+    return `https://${publicHost}${pathname}${search}${hash}`;
   } catch (error) {
     console.error('Error converting URL:', error);
     return localUrl;
@@ -1476,12 +1835,17 @@ function convertToPublicUrl(localUrl, workstationId) {
 
 // Detect preview URL from command output
 function detectPreviewUrl(output, command) {
+  const isExpoWeb = command && command.includes('expo') && command.includes('--web');
+
   // Look for common development server patterns
   const urlPatterns = [
     // Expo tunnel URLs (exp:// protocol for React Native)
     /exp:\/\/[^\s]+/,
     // Expo web URLs when using --tunnel
     /https?:\/\/[a-z0-9-]+\.exp\.direct[^\s]*/,
+    // PRIORITY: Network URL (accessible from mobile/network devices)
+    // Must come BEFORE Local: to prefer network-accessible URLs
+    /Network:\s+(https?:\/\/[^\s]+)/,
     // Standard web dev servers
     /Local:\s+(https?:\/\/[^\s]+)/,
     /http:\/\/localhost:\d+/,
@@ -1493,8 +1857,51 @@ function detectPreviewUrl(output, command) {
   for (const pattern of urlPatterns) {
     const match = output.match(pattern);
     if (match) {
-      const url = match[1] || match[0];
+      let url = match[1] || match[0];
       console.log(`🔗 Detected preview URL: ${url}`);
+
+      // If we found localhost/127.0.0.1/0.0.0.0, replace with actual network IP
+      if (url.includes('localhost') || url.includes('127.0.0.1') || url.includes('0.0.0.0')) {
+        // Try to extract network URL from output if it exists
+        const networkMatch = output.match(/Network:\s+(https?:\/\/[^\s]+)/);
+        if (networkMatch) {
+          const networkUrl = networkMatch[1];
+          console.log(`🔗 Replacing localhost with network URL: ${networkUrl}`);
+          url = networkUrl;
+        } else {
+          // Fallback: manually replace with actual local IP
+          const os = require('os');
+          const networkInterfaces = os.networkInterfaces();
+          let localIp = 'localhost';
+
+          for (const interfaceName in networkInterfaces) {
+            const interfaces = networkInterfaces[interfaceName];
+            if (interfaces) {
+              for (const iface of interfaces) {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                  localIp = iface.address;
+                  break;
+                }
+              }
+            }
+            if (localIp !== 'localhost') break;
+          }
+
+          url = url.replace('localhost', localIp)
+                   .replace('127.0.0.1', localIp)
+                   .replace('0.0.0.0', localIp);
+          console.log(`🔗 Replacing localhost with detected IP: ${url}`);
+        }
+      }
+
+      // For Expo web SDK 54+, Metro serves the manifest at root
+      // The WebView or browser will handle loading the correct bundle
+      if (isExpoWeb) {
+        // Remove any trailing slashes for consistency
+        url = url.replace(/\/$/, '');
+        console.log(`📱 Expo web detected, using Metro manifest URL: ${url}`);
+      }
+
       return url;
     }
   }
@@ -1744,7 +2151,7 @@ app.get('/workstation/:id/status', async (req, res) => {
 // Workstation delete endpoint
 app.delete('/workstation/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     // Simulate workstation deletion
     res.json({
@@ -1757,6 +2164,138 @@ app.delete('/workstation/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Environment Variables / Secrets Management
+// GET /workstation/:id/env-variables - Legge le variabili d'ambiente dal .env del progetto
+app.get('/workstation/:id/env-variables', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Get workstation repository path
+    const repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    const repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    const envPath = path.join(repoPath, '.env');
+    const envExamplePath = path.join(repoPath, '.env.example');
+
+    let variables = [];
+    let hasEnvExample = fs.existsSync(envExamplePath);
+
+    // Se esiste .env, leggilo
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf8');
+      variables = parseEnvFile(envContent);
+    }
+    // Altrimenti, se esiste .env.example, leggilo come template
+    else if (hasEnvExample) {
+      const envExampleContent = fs.readFileSync(envExamplePath, 'utf8');
+      variables = parseEnvFile(envExampleContent);
+    }
+
+    res.json({
+      variables,
+      hasEnvExample
+    });
+  } catch (error) {
+    console.error('Failed to read env variables:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /workstation/:id/env-variables - Salva le variabili d'ambiente nel .env
+app.post('/workstation/:id/env-variables', async (req, res) => {
+  const { id } = req.params;
+  const { variables } = req.body;
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Get workstation repository path
+    const repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    const repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    const envPath = path.join(repoPath, '.env');
+
+    // Converti l'array di variabili in formato .env
+    let envContent = '# Environment Variables\n';
+    envContent += `# Last updated: ${new Date().toISOString()}\n\n`;
+
+    variables.forEach(variable => {
+      if (variable.description) {
+        envContent += `# ${variable.description}\n`;
+      }
+      envContent += `${variable.key}=${variable.value}\n\n`;
+    });
+
+    // Scrivi il file .env
+    fs.writeFileSync(envPath, envContent, 'utf8');
+
+    console.log(`✅ Saved ${variables.length} environment variables to ${envPath}`);
+
+    res.json({
+      success: true,
+      message: `Saved ${variables.length} variables`,
+      path: envPath
+    });
+  } catch (error) {
+    console.error('Failed to save env variables:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper function to parse .env file
+function parseEnvFile(content) {
+  const variables = [];
+  const lines = content.split('\n');
+  let currentDescription = null;
+
+  lines.forEach(line => {
+    const trimmed = line.trim();
+
+    // Skip empty lines
+    if (!trimmed) {
+      currentDescription = null;
+      return;
+    }
+
+    // Check if it's a comment (description)
+    if (trimmed.startsWith('#')) {
+      const comment = trimmed.substring(1).trim();
+      // Skip common header comments
+      if (!comment.toLowerCase().includes('environment') &&
+          !comment.toLowerCase().includes('last updated') &&
+          !comment.toLowerCase().includes('auto-generated')) {
+        currentDescription = comment;
+      }
+      return;
+    }
+
+    // Parse variable (KEY=VALUE)
+    const equalIndex = trimmed.indexOf('=');
+    if (equalIndex > 0) {
+      const key = trimmed.substring(0, equalIndex).trim();
+      const value = trimmed.substring(equalIndex + 1).trim();
+
+      // Determina se è un secret (contiene parole chiave sensibili)
+      const isSecret = /key|secret|password|token|credential|private/i.test(key);
+
+      variables.push({
+        key,
+        value,
+        isSecret,
+        description: currentDescription || undefined
+      });
+
+      currentDescription = null;
+    }
+  });
+
+  return variables;
+}
 
 app.post('/workstation/list-files', async (req, res) => {
     const { workstationId } = req.body;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
@@ -134,6 +134,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       console.log('Workstation ID to send:', currentWorkstation?.id);
 
       // Call backend API to execute the start command
+      // Use longer timeout for Expo start (can take up to 40 seconds with health check)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
+
       const response = await fetch(`${config.apiUrl}${config.endpoints.terminal}`, {
         method: 'POST',
         headers: {
@@ -143,7 +147,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           command: projectInfo.startCommand,
           workstationId: currentWorkstation?.id, // Use workstation ID from store
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`Server responded with status: ${response.status}`);
@@ -247,8 +254,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   {projectInfo?.isReactNative ? "Progetto React Native/Expo" : "Anteprima non disponibile"}
                 </Text>
                 <Text style={styles.startSubtitle}>
-                  {projectInfo?.isReactNative
-                    ? "Avvio del server con tunnel Expo per anteprima web..."
+                  {projectInfo?.isReactNative && !projectInfo?.supportsWebPreview
+                    ? "Progetto mobile-only - anteprima web non disponibile"
+                    : projectInfo?.isReactNative
+                    ? "Avvio del server con supporto web..."
                     : "Il server di sviluppo non è in esecuzione"}
                 </Text>
 
@@ -265,13 +274,23 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       <Text style={styles.infoLabel}>Comando</Text>
                       <Text style={styles.infoValueMono}>{projectInfo.startCommand}</Text>
                     </View>
-                    {projectInfo.isReactNative && (
+                    {projectInfo.isReactNative && !projectInfo.supportsWebPreview && (
+                      <>
+                        <View style={styles.infoDivider} />
+                        <View style={styles.infoRow}>
+                          <Ionicons name="information-circle-outline" size={18} color="#FFA500" />
+                          <Text style={styles.infoLabel}>Preview</Text>
+                          <Text style={styles.infoValue}>Solo tramite Expo Go</Text>
+                        </View>
+                      </>
+                    )}
+                    {projectInfo.isReactNative && projectInfo.supportsWebPreview && (
                       <>
                         <View style={styles.infoDivider} />
                         <View style={styles.infoRow}>
                           <Ionicons name="globe-outline" size={18} color="#00D9FF" />
-                          <Text style={styles.infoLabel}>Tunnel</Text>
-                          <Text style={styles.infoValue}>Expo Web + Tunnel</Text>
+                          <Text style={styles.infoLabel}>Web</Text>
+                          <Text style={styles.infoValue}>Supporto Web Attivo</Text>
                         </View>
                       </>
                     )}
