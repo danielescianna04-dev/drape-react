@@ -337,6 +337,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               const id = lastElement.id || '';
               const text = lastElement.textContent?.substring(0, 50) || '';
 
+              // Remove mousemove listener to freeze the selection
+              document.removeEventListener('mousemove', handleMouseMove, true);
+
+              // Change overlay style to show it's selected (not just hovered)
+              overlay.style.borderColor = '#00D084';
+              overlay.style.background = 'rgba(0, 208, 132, 0.2)';
+              overlay.style.animation = 'none';
+              overlay.style.boxShadow = '0 0 0 3px rgba(0, 208, 132, 0.3)';
+
+              // Update tooltip to show "Selected!"
+              tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
+              tooltip.textContent = '✓ Selected';
+              tooltip.querySelector('::after')?.style.setProperty('border-top-color', '#00B972');
+
+              // Send message to React Native
               window.ReactNativeWebView?.postMessage(JSON.stringify({
                 type: 'ELEMENT_SELECTED',
                 element: {
@@ -347,6 +362,17 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   innerHTML: lastElement.innerHTML?.substring(0, 200)
                 }
               }));
+
+              // Keep selection visible for 2 seconds, then fade out
+              setTimeout(() => {
+                overlay.style.transition = 'opacity 0.5s ease';
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                  if (window.__inspectorCleanup) {
+                    window.__inspectorCleanup();
+                  }
+                }, 500);
+              }, 2000);
             }
             return false;
           };
@@ -647,14 +673,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       // Focus input
                       inputRef.current?.focus();
 
-                      // Disable inspect mode after selection
+                      // Disable inspect mode UI button (but keep overlay visible for 2s as handled by JS)
                       setIsInspectMode(false);
-                      webViewRef.current?.injectJavaScript(`
-                        if (window.__inspectorCleanup) {
-                          window.__inspectorCleanup();
-                        }
-                        true;
-                      `);
+
+                      // Note: Don't call __inspectorCleanup here - let the JS setTimeout handle it
+                      // This keeps the selection visible for 2 seconds before auto-cleanup
                     }
                   } catch (error) {
                     console.error('Error parsing WebView message:', error);
