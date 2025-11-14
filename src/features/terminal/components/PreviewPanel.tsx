@@ -28,6 +28,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(previewUrl); // Track the actual URL to use
   const webViewRef = useRef<WebView>(null);
+  const inputRef = useRef<TextInput>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
@@ -702,6 +703,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               </TouchableOpacity>
 
               <TextInput
+                ref={inputRef}
                 style={styles.input}
                 value={message}
                 onChangeText={setMessage}
