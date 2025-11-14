@@ -655,7 +655,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     if (data.type === 'ELEMENT_SELECTED') {
                       console.log('Element selected:', data.element);
 
-                      // Create a user-friendly message for the input
+                      // Create a user-friendly message for the input with clear visual indicator
                       let elementSelector = `<${data.element.tag}>`;
                       if (data.element.id) {
                         elementSelector = `<${data.element.tag}#${data.element.id}>`;
@@ -666,9 +666,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         }
                       }
 
-                      // Auto-fill input with Lovable-style prompt
-                      const elementText = data.element.text?.trim() ? ` - "${data.element.text.substring(0, 30)}${data.element.text.length > 30 ? '...' : ''}"` : '';
-                      setMessage(`Modifica ${elementSelector}${elementText}`);
+                      // Auto-fill input with distinctive format showing it's from inspector
+                      const elementText = data.element.text?.trim() ? `\n"${data.element.text.substring(0, 40)}${data.element.text.length > 40 ? '...' : ''}"` : '';
+                      setMessage(`🎯 Selected from preview:\n${elementSelector}${elementText}\n\nWhat would you like to change?`);
 
                       // Focus input
                       inputRef.current?.focus();
