@@ -97,6 +97,95 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // Python (Django, Flask, FastAPI)
+  if (files.includes('manage.py') && files.includes('wsgi.py')) {
+    return {
+      type: 'python-django',
+      defaultPort: 8000,
+      startCommand: 'python manage.py runserver 0.0.0.0:8000',
+      installCommand: 'pip install -r requirements.txt',
+      description: 'Django Application'
+    };
+  }
+
+  if (files.some(f => f.includes('app.py') || f.includes('main.py'))) {
+    // Check for Flask or FastAPI in requirements.txt
+    const hasFlask = files.includes('requirements.txt'); // Simplified check
+    return {
+      type: 'python-web',
+      defaultPort: 5000,
+      startCommand: 'python app.py || python main.py',
+      installCommand: 'pip install -r requirements.txt',
+      description: 'Python Web Application (Flask/FastAPI)'
+    };
+  }
+
+  // Java (Spring Boot)
+  if (files.includes('pom.xml') || files.includes('build.gradle')) {
+    const isMaven = files.includes('pom.xml');
+    return {
+      type: 'java-spring',
+      defaultPort: 8080,
+      startCommand: isMaven ? 'mvn spring-boot:run' : 'gradle bootRun',
+      installCommand: isMaven ? 'mvn install' : 'gradle build',
+      description: 'Java Spring Boot Application'
+    };
+  }
+
+  // Go
+  if (files.includes('go.mod') || files.some(f => f.endsWith('.go'))) {
+    return {
+      type: 'go',
+      defaultPort: 8080,
+      startCommand: 'go run .',
+      installCommand: 'go mod download',
+      description: 'Go Application',
+      buildCommand: 'go build'
+    };
+  }
+
+  // PHP (Laravel, Symfony)
+  if (files.includes('artisan')) {
+    return {
+      type: 'php-laravel',
+      defaultPort: 8000,
+      startCommand: 'php artisan serve --host=0.0.0.0 --port=8000',
+      installCommand: 'composer install',
+      description: 'Laravel Application'
+    };
+  }
+
+  if (files.includes('composer.json')) {
+    return {
+      type: 'php',
+      defaultPort: 8000,
+      startCommand: 'php -S 0.0.0.0:8000',
+      installCommand: 'composer install',
+      description: 'PHP Application'
+    };
+  }
+
+  // Ruby (Rails, Sinatra)
+  if (files.includes('Gemfile') && files.some(f => f.includes('config.ru'))) {
+    return {
+      type: 'ruby-rails',
+      defaultPort: 3000,
+      startCommand: 'rails server -b 0.0.0.0',
+      installCommand: 'bundle install',
+      description: 'Ruby on Rails Application'
+    };
+  }
+
+  if (files.includes('Gemfile')) {
+    return {
+      type: 'ruby',
+      defaultPort: 4567,
+      startCommand: 'ruby app.rb',
+      installCommand: 'bundle install',
+      description: 'Ruby Application (Sinatra)'
+    };
+  }
+
   // Static HTML (check at the end - no package.json, but has index.html)
   if (files.includes('index.html') && !packageJson) {
     return {
