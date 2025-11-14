@@ -65,17 +65,23 @@ function detectProjectType(files, packageJson) {
   }
 
   // C# / .NET (check for .csproj, .sln, or .cs files)
-  const hasCSharpProject = files.some(f => f.endsWith('.csproj') || f.endsWith('.sln'));
+  const csprojFile = files.find(f => f.endsWith('.csproj'));
+  const slnFile = files.find(f => f.endsWith('.sln'));
+  const hasCSharpProject = csprojFile || slnFile;
   const hasCSharpFiles = files.some(f => f.endsWith('.cs'));
 
   if (hasCSharpProject) {
+    // Use the .csproj or .sln file path for the project
+    const projectFile = csprojFile || slnFile;
+    const projectPath = projectFile ? `--project "${projectFile}"` : '';
+
     return {
       type: 'csharp',
       defaultPort: 5000,
-      startCommand: 'dotnet run',
-      installCommand: 'dotnet restore',
+      startCommand: `dotnet run ${projectPath}`.trim(),
+      installCommand: `dotnet restore ${projectPath}`.trim(),
       description: 'C# / .NET Application',
-      buildCommand: 'dotnet build'
+      buildCommand: `dotnet build ${projectPath}`.trim()
     };
   }
 
