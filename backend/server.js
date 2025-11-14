@@ -1265,7 +1265,7 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
   // Add HOST=0.0.0.0 for dev server commands to allow network access
   let execCommand = command;
-  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start/.test(command);
+  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start|python3?\s+-m\s+http\.server|php\s+artisan\s+serve|rails\s+server|flask\s+run|uvicorn/.test(command);
 
   if (isDevServerCommand) {
     if (isReactNative) {
@@ -1284,8 +1284,18 @@ async function executeCommandOnWorkstation(command, workstationId) {
     // For dev server commands, we need to run them in background
     // For now, just return success to indicate server is starting
     if (isDevServerCommand) {
-      // Kill any existing processes on the port
-      const port = isReactNative ? 8081 : 3000;
+      // Extract port from command or use defaults
+      let port = 3000; // default
+      if (isReactNative) {
+        port = 8081;
+      } else {
+        // Try to extract port from command
+        const portMatch = command.match(/(?:--port[=\s]|:)(\d+)|(\d+)$/);
+        if (portMatch) {
+          port = parseInt(portMatch[1] || portMatch[2]);
+        }
+      }
+
       try {
         console.log(`🧹 Cleaning up port ${port}...`);
         await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
@@ -1294,35 +1304,40 @@ async function executeCommandOnWorkstation(command, workstationId) {
         console.log(`⚠️  Error cleaning port: ${err.message}`);
       }
 
-      // Check if node_modules exists, if not install dependencies
-      const fs = require('fs').promises;
-      const path = require('path');
-      const nodeModulesPath = path.join(repoPath, 'node_modules');
-      let needsInstall = false;
-      try {
-        await fs.access(nodeModulesPath);
-        console.log('✅ node_modules exists');
-      } catch {
-        console.log('📦 node_modules not found, installing dependencies...');
-        needsInstall = true;
-      }
-
-      if (needsInstall) {
+      // Check if node_modules exists for npm/yarn projects, if not install dependencies
+      const isNpmProject = /npm|yarn|npx/.test(command);
+      if (isNpmProject) {
+        const fs = require('fs').promises;
+        const path = require('path');
+        const nodeModulesPath = path.join(repoPath, 'node_modules');
+        let needsInstall = false;
         try {
-          console.log('⏳ Running npm install...');
-          await execAsync('npm install', {
-            cwd: repoPath,
-            timeout: 120000 // 2 minutes for install
-          });
-          console.log('✅ Dependencies installed successfully');
-        } catch (installErr) {
-          console.error('❌ Failed to install dependencies:', installErr.message);
-          return {
-            stdout: '',
-            stderr: `Failed to install dependencies: ${installErr.message}`,
-            exitCode: 1
-          };
+          await fs.access(nodeModulesPath);
+          console.log('✅ node_modules exists');
+        } catch {
+          console.log('📦 node_modules not found, installing dependencies...');
+          needsInstall = true;
         }
+
+        if (needsInstall) {
+          try {
+            console.log('⏳ Running npm install...');
+            await execAsync('npm install', {
+              cwd: repoPath,
+              timeout: 120000 // 2 minutes for install
+            });
+            console.log('✅ Dependencies installed successfully');
+          } catch (installErr) {
+            console.error('❌ Failed to install dependencies:', installErr.message);
+            return {
+              stdout: '',
+              stderr: `Failed to install dependencies: ${installErr.message}`,
+              exitCode: 1
+            };
+          }
+        }
+      } else {
+        console.log('ℹ️  Non-npm project detected, skipping dependency installation');
       }
 
       // Start the dev server in background (non-blocking)
@@ -1652,7 +1667,28 @@ app.get('/workstation/:workstationId/detect-project', async (req, res) => {
   try {
     const fs = require('fs').promises;
     const path = require('path');
-    const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    // Extract project ID from workstation ID (format: ws-projectid in lowercase)
+    // Convert back to original case by looking for matching folder
+    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    // If workstation ID starts with 'ws-', try to find the project folder
+    if (workstationId.startsWith('ws-')) {
+      const projectIdLower = workstationId.substring(3); // Remove 'ws-' prefix
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+          console.log(`   Mapped ${workstationId} → ${matchingFolder}`);
+        }
+      } catch (err) {
+        console.error('   Error reading cloned_repos:', err);
+      }
+    }
 
     // Check if repository exists
     try {
