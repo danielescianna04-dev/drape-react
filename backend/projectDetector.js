@@ -18,8 +18,8 @@ function detectProjectType(files, packageJson) {
 
     return {
       type: 'react-native',
-      defaultPort: 8082,  // Use 8082 to avoid conflict with main app on 8081
-      startCommand: hasWebSupport ? 'npx expo start --web --port 8082' : 'npx expo start --port 8082',
+      defaultPort: 8085,  // Use 8085 to avoid conflict with main app on 8081
+      startCommand: hasWebSupport ? 'npx expo start --web --port 8085' : 'npx expo start --port 8085',
       installCommand: 'npm install',
       description: 'React Native / Expo Application',
       isReactNative: true,

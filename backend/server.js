@@ -1505,32 +1505,79 @@ async function executeCommandOnWorkstation(command, workstationId) {
     if (isDevServerCommand) {
       // Extract port from command or use defaults
       let port = 3000; // default
-      if (isReactNative) {
-        port = 8081;
-      } else {
-        // Try to extract port from command
-        const portMatch = command.match(/(?:--port[=\s]|:)(\d+)|(\d+)$/);
+
+      // Try to extract port from command with multiple patterns
+      // Pattern 1: --port=8080 or --port 8080 (most frameworks)
+      // Pattern 2: :8080 (some servers like Rails, PHP)
+      // Pattern 3: http.server 8080 (Python simple server)
+      // Pattern 4: PORT=8080 (environment variable style)
+      const portPatterns = [
+        /(?:--port[=\s])(\d+)/,           // --port=8080 or --port 8080
+        /:(\d{4,5})\b/,                   // :8080
+        /http\.server\s+(\d+)/,           // python3 -m http.server 8000
+        /PORT[=\s](\d+)/                  // PORT=8080
+      ];
+
+      let portMatch = null;
+      for (const pattern of portPatterns) {
+        portMatch = command.match(pattern);
         if (portMatch) {
-          port = parseInt(portMatch[1] || portMatch[2]);
+          port = parseInt(portMatch[1]);
+          console.log(`📍 Extracted port from command: ${port}`);
+          break;
         }
       }
 
-      try {
-        console.log(`🧹 Cleaning up port ${port}...`);
-        const isWindows = process.platform === 'win32';
-        if (isWindows) {
-          // Windows: use netstat and taskkill
-          await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
-            timeout: 5000,
-            shell: 'cmd.exe'
-          });
-        } else {
-          // Unix: use lsof and kill
-          await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+      // Fallbacks if no port found
+      if (!portMatch) {
+        if (isReactNative) {
+          port = 8081;
         }
-        console.log(`✅ Port ${port} cleanup attempted`);
-      } catch (err) {
-        console.log(`⚠️  Error cleaning port: ${err.message}`);
+        console.log(`📍 Using default port: ${port}`);
+      }
+
+      // For React Native/Expo projects, clean only the target port (NOT 8081 to avoid killing main app)
+      if (isReactNative && port !== 8081) {
+        try {
+          console.log(`🧹 [React Native] Cleaning target port ${port}...`);
+          const isWindows = process.platform === 'win32';
+          if (isWindows) {
+            await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
+              timeout: 5000,
+              shell: 'cmd.exe'
+            });
+          } else {
+            await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+          }
+          console.log(`✅ Port ${port} cleanup completed`);
+          // Wait a bit for the port to be fully released
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (err) {
+          console.log(`⚠️  Port cleanup error: ${err.message}`);
+        }
+      }
+
+      // CRITICAL: Never clean ports 3000 (backend) or 8081 (main app) to prevent crashes
+      if (port && port !== 3000 && port !== 8081) {
+        try {
+          console.log(`🧹 Cleaning up port ${port}...`);
+          const isWindows = process.platform === 'win32';
+          if (isWindows) {
+            // Windows: use netstat and taskkill
+            await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
+              timeout: 5000,
+              shell: 'cmd.exe'
+            });
+          } else {
+            // Unix: use lsof and kill
+            await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+          }
+          console.log(`✅ Port ${port} cleanup attempted`);
+        } catch (err) {
+          console.log(`⚠️  Error cleaning port: ${err.message}`);
+        }
+      } else {
+        console.log(`🛡️  Skipping port cleanup for protected port ${port} (backend or main app)`);
       }
 
       // Initialize fs and path at the beginning
