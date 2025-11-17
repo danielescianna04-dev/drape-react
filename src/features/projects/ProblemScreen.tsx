@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
+import { ChatInput } from '../../shared/components/ChatInput';
 
 interface ProblemCardData {
   id: string;
@@ -97,36 +98,13 @@ export const ProblemScreen = () => {
       </ScrollView>
 
       {/* Input box at bottom with border */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputBorder} />
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            value={message}
-            onChangeText={setMessage}
-            placeholder="Scrivi un messaggio..."
-            placeholderTextColor="rgba(255, 255, 255, 0.4)"
-            multiline
-            maxLength={500}
-          />
-          <TouchableOpacity
-            style={[styles.sendButton, !message.trim() && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={!message.trim()}
-          >
-            <LinearGradient
-              colors={message.trim() ? [AppColors.primary, '#7C5DFA'] : ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']}
-              style={styles.sendButtonGradient}
-            >
-              <Ionicons
-                name="send"
-                size={20}
-                color={message.trim() ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'}
-              />
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ChatInput
+        value={message}
+        onChangeText={setMessage}
+        onSend={handleSend}
+        placeholder="Scrivi un messaggio..."
+        showTopBar={false}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -188,49 +166,5 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 20,
-  },
-  inputContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#000000',
-  },
-  inputBorder: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    paddingTop: 10,
-    fontSize: 15,
-    color: '#FFFFFF',
-    maxHeight: 100,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sendButton: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-  sendButtonGradient: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

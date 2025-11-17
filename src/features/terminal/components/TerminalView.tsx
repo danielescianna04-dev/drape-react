@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -7,6 +7,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { ChatInput } from '../../../shared/components/ChatInput';
 
 interface Props {
   terminalTabId: string; // The terminal tab itself (where to write new commands)
@@ -223,85 +224,81 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         ) : (
           <View style={styles.terminalList}>
             {terminalItems.map((item, index) => (
-              <View key={item.id || index} style={styles.terminalItemWrapper}>
-                <View style={[
-                  styles.terminalItem,
-                  item.type === TerminalItemType.ERROR && styles.terminalItemError,
-                  item.type === TerminalItemType.COMMAND && styles.terminalItemCommand,
-                ]}>
-                  <LinearGradient
-                    colors={
-                      item.type === TerminalItemType.ERROR
-                        ? ['rgba(255, 107, 107, 0.12)', 'rgba(255, 107, 107, 0.04)']
-                        : item.type === TerminalItemType.COMMAND
-                        ? ['rgba(139, 124, 246, 0.12)', 'rgba(139, 124, 246, 0.04)']
-                        : item.type === TerminalItemType.SYSTEM
-                        ? ['rgba(255, 165, 0, 0.12)', 'rgba(255, 165, 0, 0.04)']
-                        : ['rgba(255, 255, 255, 0.06)', 'rgba(255, 255, 255, 0.02)']
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.terminalItemGradient}
-                  >
-                    <View style={styles.terminalItemHeader}>
-                      <View style={styles.terminalItemLeft}>
-                        <View style={[
-                          styles.iconCircle,
-                          {
-                            backgroundColor: item.type === TerminalItemType.ERROR
-                              ? 'rgba(255, 107, 107, 0.2)'
-                              : item.type === TerminalItemType.COMMAND
-                              ? 'rgba(139, 124, 246, 0.2)'
-                              : item.type === TerminalItemType.SYSTEM
-                              ? 'rgba(255, 165, 0, 0.2)'
-                              : 'rgba(255, 255, 255, 0.1)'
-                          }
-                        ]}>
-                          <Ionicons
-                            name={getItemIcon(item.type)}
-                            size={14}
-                            color={getItemColor(item.type)}
-                          />
-                        </View>
-                        <Text style={[styles.terminalItemType, { color: getItemColor(item.type) }]}>
-                          {item.type.toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={styles.timestampBadge}>
-                        <Ionicons name="time-outline" size={11} color="rgba(255, 255, 255, 0.4)" />
-                        <Text style={styles.terminalItemTime}>
-                          {formatTimestamp(item.timestamp)}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.terminalItemContent}>
-                      <Text
-                        style={[
-                          styles.terminalItemText,
-                          { color: getItemColor(item.type) }
-                        ]}
-                        selectable
-                      >
-                        {item.content}
+              <View key={item.id || index} style={styles.terminalCard}>
+                <LinearGradient
+                  colors={['rgba(30, 30, 46, 0.95)', 'rgba(24, 24, 37, 0.9)']}
+                  style={styles.cardGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  {/* Header */}
+                  <View style={styles.cardHeader}>
+                    <View style={styles.typeIconContainer}>
+                      <Ionicons
+                        name={
+                          item.type === TerminalItemType.COMMAND ? 'terminal' :
+                          item.type === TerminalItemType.ERROR ? 'close-circle' :
+                          item.type === TerminalItemType.SYSTEM ? 'information-circle' : 'checkmark-circle'
+                        }
+                        size={16}
+                        color={
+                          item.type === TerminalItemType.COMMAND ? AppColors.primary :
+                          item.type === TerminalItemType.ERROR ? '#FF6B6B' :
+                          item.type === TerminalItemType.SYSTEM ? '#FFA500' : '#00D084'
+                        }
+                      />
+                      <Text style={[
+                        styles.typeLabel,
+                        item.type === TerminalItemType.COMMAND && styles.typeLabelCommand,
+                        item.type === TerminalItemType.ERROR && styles.typeLabelError,
+                        item.type === TerminalItemType.SYSTEM && styles.typeLabelSystem,
+                        item.type === TerminalItemType.OUTPUT && styles.typeLabelOutput,
+                      ]}>
+                        {item.type === TerminalItemType.COMMAND ? 'COMMAND' :
+                         item.type === TerminalItemType.ERROR ? 'ERROR' :
+                         item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
                       </Text>
-
-                      {item.errorDetails && (
-                        <View style={styles.errorDetails}>
-                          <Ionicons name="information-circle-outline" size={14} color="#FF6B6B" />
-                          <Text style={styles.errorDetailsText}>{item.errorDetails}</Text>
-                        </View>
-                      )}
-
-                      {item.exitCode !== undefined && item.exitCode !== 0 && (
-                        <View style={styles.exitCode}>
-                          <Ionicons name="alert-circle-outline" size={12} color="#FFA500" />
-                          <Text style={styles.exitCodeText}>Exit {item.exitCode}</Text>
-                        </View>
-                      )}
                     </View>
-                  </LinearGradient>
-                </View>
+
+                    {item.timestamp && (
+                      <Text style={styles.timestamp}>
+                        {new Date(item.timestamp).toLocaleTimeString('it-IT', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })}
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Content */}
+                  <View style={styles.cardContent}>
+                    <Text
+                      style={[
+                        styles.contentText,
+                        item.type === TerminalItemType.ERROR && styles.errorText,
+                        item.type === TerminalItemType.SYSTEM && styles.systemText,
+                      ]}
+                      selectable
+                    >
+                      {item.content}
+                    </Text>
+                  </View>
+
+                  {/* Footer for commands with exit code */}
+                  {item.type === TerminalItemType.COMMAND && item.exitCode !== undefined && (
+                    <View style={styles.cardFooter}>
+                      <View style={[
+                        styles.exitCodeBadge,
+                        item.exitCode === 0 ? styles.exitCodeSuccess : styles.exitCodeError
+                      ]}>
+                        <Text style={styles.exitCodeText}>
+                          Exit Code: {item.exitCode}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </LinearGradient>
               </View>
             ))}
           </View>
@@ -309,49 +306,15 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       </ScrollView>
 
       {/* Interactive Terminal Input */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputBorder} />
-        <LinearGradient
-          colors={['rgba(10, 10, 15, 0.98)', 'rgba(10, 10, 15, 0.95)']}
-          style={styles.inputGradient}
-        >
-          <View style={styles.inputWrapper}>
-            <View style={styles.promptIndicator}>
-              <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
-            </View>
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={setInput}
-              onSubmitEditing={handleCommand}
-              placeholder="Inserisci comando..."
-              placeholderTextColor="rgba(255, 255, 255, 0.3)"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!isExecuting}
-            />
-            <TouchableOpacity
-              onPress={handleCommand}
-              disabled={!input.trim() || isExecuting}
-              style={styles.sendButton}
-            >
-              <LinearGradient
-                colors={input.trim() && !isExecuting
-                  ? [AppColors.primary, '#6B5DD6']
-                  : ['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.04)']
-                }
-                style={styles.sendButtonGradient}
-              >
-                {isExecuting ? (
-                  <Ionicons name="hourglass-outline" size={18} color="rgba(255, 255, 255, 0.5)" />
-                ) : (
-                  <Ionicons name="send" size={18} color={input.trim() ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'} />
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-      </View>
+      <ChatInput
+        value={input}
+        onChangeText={setInput}
+        onSend={handleCommand}
+        placeholder="Scrivi un comando..."
+        disabled={isExecuting}
+        isExecuting={isExecuting}
+        showTopBar={false}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -452,7 +415,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 28,
     paddingBottom: 100,
   },
   emptyState: {
@@ -476,6 +440,94 @@ const styles = StyleSheet.create({
   },
   terminalList: {
     gap: 10,
+  },
+  terminalCard: {
+    marginBottom: 10,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  cardGradient: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  typeIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  typeLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  typeLabelCommand: {
+    color: AppColors.primary,
+  },
+  typeLabelError: {
+    color: '#FF6B6B',
+  },
+  typeLabelSystem: {
+    color: '#FFA500',
+  },
+  typeLabelOutput: {
+    color: '#00D084',
+  },
+  timestamp: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontFamily: 'monospace',
+  },
+  cardContent: {
+    padding: 14,
+  },
+  contentText: {
+    fontSize: 13,
+    fontFamily: 'monospace',
+    lineHeight: 20,
+    letterSpacing: 0.2,
+    color: '#FFFFFF',
+  },
+  errorText: {
+    color: '#FF6B6B',
+  },
+  systemText: {
+    color: '#FFA500',
+  },
+  cardFooter: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+  },
+  exitCodeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderWidth: 1,
+  },
+  exitCodeSuccess: {
+    backgroundColor: 'rgba(0, 208, 132, 0.12)',
+    borderColor: 'rgba(0, 208, 132, 0.2)',
+  },
+  exitCodeError: {
+    backgroundColor: 'rgba(255, 107, 107, 0.12)',
+    borderColor: 'rgba(255, 107, 107, 0.2)',
   },
   terminalItemWrapper: {
     borderRadius: 14,
@@ -590,63 +642,5 @@ const styles = StyleSheet.create({
     color: '#FFAB40',
     fontFamily: 'monospace',
     letterSpacing: 0.5,
-  },
-  inputContainer: {
-    position: 'relative',
-  },
-  inputBorder: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  inputGradient: {
-    paddingTop: 12,
-    paddingBottom: 12,
-    paddingHorizontal: 20,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  promptIndicator: {
-    width: 34,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(139, 124, 246, 0.12)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  input: {
-    flex: 1,
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontFamily: 'monospace',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sendButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  sendButtonGradient: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
 });

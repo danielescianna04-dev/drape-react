@@ -8,6 +8,7 @@ import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDet
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChatInput } from '../../../shared/components/ChatInput';
 
 interface Props {
   onClose: () => void;
@@ -749,8 +750,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
           {/* Input Box at Bottom */}
           <View style={styles.inputContainer}>
-            <View style={styles.inputBorder} />
-
             {/* Selected Element Chip */}
             {selectedElement && (
               <View style={styles.selectedElementContainer}>
@@ -774,46 +773,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               </View>
             )}
 
-            <View style={styles.inputWrapper}>
-              {/* Inspect Mode Button */}
-              <TouchableOpacity
-                style={[styles.inspectButton, isInspectMode && styles.inspectButtonActive]}
-                onPress={toggleInspectMode}
-              >
-                <Ionicons
-                  name="scan-outline"
-                  size={22}
-                  color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'}
-                />
-              </TouchableOpacity>
-
-              <TextInput
-                ref={inputRef}
-                style={styles.input}
-                value={message}
-                onChangeText={setMessage}
-                placeholder="Scrivi un messaggio..."
-                placeholderTextColor="rgba(255, 255, 255, 0.4)"
-                multiline
-                maxLength={500}
-              />
-              <TouchableOpacity
-                style={[styles.sendButton, !message.trim() && styles.sendButtonDisabled]}
-                onPress={handleSendMessage}
-                disabled={!message.trim()}
-              >
-                <LinearGradient
-                  colors={message.trim() ? [AppColors.primary, '#7C5DFA'] : ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.05)']}
-                  style={styles.sendButtonGradient}
-                >
-                  <Ionicons
-                    name="send"
-                    size={20}
-                    color={message.trim() ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'}
-                  />
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
+            <ChatInput
+              value={message}
+              onChangeText={setMessage}
+              onSend={handleSendMessage}
+              placeholder="Scrivi un messaggio..."
+              showTopBar={false}
+              leftAccessory={{
+                icon: 'locate-outline',
+                onPress: toggleInspectMode,
+                isActive: isInspectMode,
+              }}
+            />
           </View>
         </KeyboardAvoidingView>
       </Animated.View>
@@ -1072,53 +1043,6 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 10,
-  },
-  inspectButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  inspectButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderColor: AppColors.primary,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    paddingTop: 10,
-    fontSize: 15,
-    color: '#FFFFFF',
-    maxHeight: 100,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sendButton: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-  },
-  sendButtonGradient: {
-    width: 40,
-    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
