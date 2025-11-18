@@ -2017,7 +2017,8 @@ function convertToPublicUrl(localUrl, workstationId) {
     const port = url.port || '3000';
 
     // Preserve the path, search params, and hash from original URL
-    const pathname = url.pathname || '/';
+    // Only include pathname if it's not just '/' to avoid trailing slash
+    const pathname = (url.pathname && url.pathname !== '/') ? url.pathname : '';
     const search = url.search || '';
     const hash = url.hash || '';
 

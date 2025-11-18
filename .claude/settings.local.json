@@ -35,7 +35,8 @@
       "Bash(kill:*)",
       "Bash(node:*)",
       "Bash(npx tsc:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(ping:*)"
     ],
     "deny": [],
     "ask": []

@@ -129,7 +129,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         // Call backend API to detect project type
         const response = await fetch(
-          `${apiUrl}workstation/${currentWorkstation.id}/detect-project`
+          `${apiUrl}/workstation/${currentWorkstation.id}/detect-project`
         );
 
         if (!response.ok) {
