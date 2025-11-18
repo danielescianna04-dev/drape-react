@@ -166,7 +166,10 @@ curl http://IL_TUO_IP:3000/health
 
 ### Problema: Backend crasha quando avvio preview
 
-Questo è stato fixato! Il backend ora protegge automaticamente le porte 3000 (backend) e 8081 (main app).
+Questo è stato fixato! Il backend ora:
+- Protegge automaticamente le porte 3000 (backend) e 8081 (main app) dalla chiusura
+- Avvia TUTTI i server di sviluppo in background (React, Vue, Next.js, Python, PHP, etc.)
+- Non usa più timeout che uccidono i server prima che partano
 
 Se succede ancora:
 ```bash
@@ -199,10 +202,11 @@ taskkill /PID <PID> /F
 1. L'app rileva automaticamente il tipo di progetto (React, Vue, Python, etc.)
 2. Il backend estrae la porta dal comando di start
 3. Il backend pulisce la porta (SOLO se non è 3000 o 8081)
-4. Il backend avvia il server di sviluppo
-5. Il backend fa health check sulla porta
-6. Il backend **rileva automaticamente l'IP locale** e lo usa nel preview URL
-7. L'app mostra il preview nel WebView
+4. Il backend avvia il server di sviluppo **in background** (detached mode)
+5. Il server rimane in esecuzione indefinitamente (non viene più killato da timeout!)
+6. Il backend fa health check sulla porta
+7. Il backend **rileva automaticamente l'IP locale** e lo usa nel preview URL
+8. L'app mostra il preview nel WebView
 
 ## ✅ Checklist Setup Completato
 

@@ -1675,47 +1675,48 @@ async function executeCommandOnWorkstation(command, workstationId) {
         } catch (error) {
           console.error('⚠️  Failed to create .env file:', error.message);
         }
-      }
 
-      // Check if node_modules exists, if not install dependencies
-      const nodeModulesPath = path.join(repoPath, 'node_modules');
-      let needsInstall = false;
-      try {
-        await fsPromises.access(nodeModulesPath);
-        console.log('✅ node_modules exists');
-      } catch {
-        console.log('📦 node_modules not found, installing dependencies...');
-        needsInstall = true;
-      }
-
-      if (needsInstall) {
+        // Check if node_modules exists for React Native projects, if not install dependencies
+        const nodeModulesPath = path.join(repoPath, 'node_modules');
+        let needsInstall = false;
         try {
-          console.log('⏳ Running npm install...');
-          console.log('   This may take several minutes for large projects...');
-          await execAsync('npm install', {
-            cwd: repoPath,
-            timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
-            maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
-          });
-          console.log('✅ Dependencies installed successfully');
-        } catch (installErr) {
-          console.error('❌ Failed to install dependencies:', installErr.message);
-          // Log more details about the error
-          if (installErr.killed) {
-            console.error('   Installation was killed (likely timeout)');
+          await fsPromises.access(nodeModulesPath);
+          console.log('✅ node_modules exists');
+        } catch {
+          console.log('📦 node_modules not found, installing dependencies...');
+          needsInstall = true;
+        }
+
+        if (needsInstall) {
+          try {
+            console.log('⏳ Running npm install...');
+            console.log('   This may take several minutes for large projects...');
+            await execAsync('npm install', {
+              cwd: repoPath,
+              timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
+              maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
+            });
+            console.log('✅ Dependencies installed successfully');
+          } catch (installErr) {
+            console.error('❌ Failed to install dependencies:', installErr.message);
+            // Log more details about the error
+            if (installErr.killed) {
+              console.error('   Installation was killed (likely timeout)');
+            }
+            if (installErr.code) {
+              console.error('   Exit code:', installErr.code);
+            }
+            return {
+              stdout: '',
+              stderr: `Failed to install dependencies: ${installErr.message}`,
+              exitCode: 1
+            };
           }
-          if (installErr.code) {
-            console.error('   Exit code:', installErr.code);
-          }
-          return {
-            stdout: '',
-            stderr: `Failed to install dependencies: ${installErr.message}`,
-            exitCode: 1
-          };
         }
       }
 
-      // Start the dev server in background (non-blocking)
+      // Start ALL dev servers in background (non-blocking) - applies to ALL project types!
+      // This includes: React, Vue, Next.js, Python static servers, PHP, Rails, etc.
       const { spawn } = require('child_process');
       const isWindows = process.platform === 'win32';
       const shell = isWindows ? 'cmd.exe' : 'sh';
