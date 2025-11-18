@@ -5,7 +5,7 @@
   "scripts": {
     "setup": "node setup.js",
     "setup:backend": "node scripts/setup-backend.js",
-    "start": "set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.10 && expo start --lan",
+    "start": "set REACT_NATIVE_PACKAGER_HOSTNAME=192.168.1.18 && expo start --lan",
     "android": "expo start --android --localhost",
     "ios": "expo run:ios",
     "web": "expo start --web",

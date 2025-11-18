@@ -18,6 +18,10 @@ export class AIService {
     this.baseUrl = config.apiUrl;
   }
 
+  setBaseUrl(url: string): void {
+    this.baseUrl = url;
+  }
+
   async sendMessage(messages: AIMessage[], model: string = 'auto'): Promise<AIResponse> {
     try {
       const response = await axios.post(

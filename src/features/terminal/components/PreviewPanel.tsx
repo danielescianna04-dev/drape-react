@@ -9,6 +9,7 @@ import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatInput } from '../../../shared/components/ChatInput';
+import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 
 interface Props {
   onClose: () => void;
@@ -19,12 +20,13 @@ interface Props {
 
 export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
   const { currentWorkstation } = useTerminalStore();
+  const { apiUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  const [serverStatus, setServerStatus] = useState<'checking' | 'running' | 'stopped'>('checking');
+  const [serverStatus, setServerStatus] = useState<'checking' | 'running' | 'stopped'>('stopped');
   const [isStarting, setIsStarting] = useState(false);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [currentPreviewUrl, setCurrentPreviewUrl] = useState(previewUrl); // Track the actual URL to use
@@ -44,19 +46,66 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }).start();
   }, []);
 
-  // Check server status periodically
+  // Update currentPreviewUrl when previewUrl prop changes
   useEffect(() => {
-    checkServerStatus();
+    if (previewUrl && previewUrl !== currentPreviewUrl) {
+      setCurrentPreviewUrl(previewUrl);
+    }
+  }, [previewUrl]);
 
-    // Check every 3 seconds
-    checkInterval.current = setInterval(checkServerStatus, 3000);
+  // Cleanup: Stop server when component unmounts or workstation changes
+  useEffect(() => {
+    return () => {
+      // Extract port from current preview URL
+      const portMatch = currentPreviewUrl.match(/:(\d+)/);
+      if (portMatch && currentWorkstation?.id) {
+        const port = parseInt(portMatch[1]);
+        console.log(`🧹 PreviewPanel unmounting - stopping server on port ${port}`);
+
+        // Call backend to stop the server (don't await, fire and forget)
+        fetch(`${apiUrl}terminal/stop-server`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            workstationId: currentWorkstation.id,
+            port: port
+          }),
+        }).then(() => {
+          console.log(`✅ Server stop request sent for port ${port}`);
+        }).catch((error) => {
+          console.log(`⚠️ Failed to stop server: ${error.message}`);
+        });
+      }
+    };
+  }, [currentWorkstation?.id, currentPreviewUrl, apiUrl]);
+
+  // Check server status periodically (only if server is expected to be running)
+  useEffect(() => {
+    // Only start health checks if:
+    // 1. Server status is 'checking' or 'running' (not 'stopped')
+    // 2. We have a valid preview URL (not localhost:3001 placeholder)
+    if (serverStatus === 'stopped' || currentPreviewUrl.includes('localhost:3001')) {
+      console.log('⏸️ Skipping health checks - server not started yet');
+      return;
+    }
+
+    // Wait 1 second before starting checks to allow URL to be updated from backend response
+    const startTimeout = setTimeout(() => {
+      checkServerStatus();
+
+      // Check every 3 seconds
+      checkInterval.current = setInterval(checkServerStatus, 3000);
+    }, 1000);
 
     return () => {
+      clearTimeout(startTimeout);
       if (checkInterval.current) {
         clearInterval(checkInterval.current);
       }
     };
-  }, [currentPreviewUrl]);
+  }, [currentPreviewUrl, serverStatus]);
 
   // Detect project type on mount
   useEffect(() => {
@@ -80,7 +129,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         // Call backend API to detect project type
         const response = await fetch(
-          `${config.apiUrl}/workstation/${currentWorkstation.id}/detect-project`
+          `${apiUrl}/workstation/${currentWorkstation.id}/detect-project`
         );
 
         if (!response.ok) {
@@ -109,6 +158,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
   const checkServerStatus = async () => {
     try {
+      console.log(`🔍 Checking server status at: ${currentPreviewUrl}`);
+
       // Try to fetch the URL
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -121,12 +172,15 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       clearTimeout(timeoutId);
 
       if (response.ok) {
+        console.log(`✅ Server is running! Status: ${response.status}`);
         setServerStatus('running');
       } else {
-        setServerStatus('stopped');
+        console.log(`⚠️ Server responded but not OK. Status: ${response.status}`);
+        // Don't set to stopped - just keep checking
       }
     } catch (error) {
-      setServerStatus('stopped');
+      console.log(`❌ Server check failed: ${error.message}`);
+      // Don't set to stopped - server might just be loading, keep the WebView visible
     }
   };
 
@@ -145,7 +199,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
 
-      const response = await fetch(`${config.apiUrl}${config.endpoints.terminal}`, {
+      const response = await fetch(`${apiUrl}${config.endpoints.terminal}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -164,12 +218,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       }
 
       const result = await response.json();
-      console.log('Server start result:', result);
+      console.log('📋 Server start result:', JSON.stringify(result, null, 2));
 
       // If there's a preview URL in the response, update our preview URL
       if (result.previewUrl) {
-        console.log('Preview URL detected:', result.previewUrl);
+        console.log('🔗 Preview URL detected:', result.previewUrl);
         setCurrentPreviewUrl(result.previewUrl); // Update the URL to check
+      } else {
+        console.log('⚠️ No preview URL in response');
       }
 
       // NEW: Backend now does health check and tells us if server is ready
@@ -178,16 +234,26 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         console.log('✅ Server is verified running by backend health check!');
         if (result.healthCheck) {
           console.log(`   Health check passed after ${result.healthCheck.attempts} attempts`);
+          console.log(`   URL checked: ${result.healthCheck.url}`);
         }
         setServerStatus('running');
       } else if (result.exitCode === 0) {
         // Fallback: If exitCode is 0 but serverReady is false, start checking
-        console.log('⚠️ Server command executed but not verified ready, checking...');
+        console.log('⚠️ Server command executed but not verified ready');
+        console.log(`   Exit code: ${result.exitCode}`);
+        console.log(`   Preview URL: ${result.previewUrl || 'none'}`);
+        console.log(`   Server ready: ${result.serverReady}`);
+        if (result.healthCheck) {
+          console.log(`   Health check result: ${JSON.stringify(result.healthCheck)}`);
+        }
+        console.log('   Starting local health checks...');
         setServerStatus('checking');
         checkServerStatus();
       } else {
         // Command failed
         console.log('❌ Server command failed');
+        console.log(`   Exit code: ${result.exitCode}`);
+        console.log(`   Error output: ${result.error}`);
         setServerStatus('stopped');
       }
     } catch (error) {

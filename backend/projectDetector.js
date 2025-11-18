@@ -294,10 +294,13 @@ function detectProjectType(files, packageJson) {
 
   // Static HTML (check at the end - no package.json, but has index.html)
   if (files.includes('index.html') && !packageJson) {
+    // Use Node.js static server (works on all platforms, doesn't require Python)
+    const serverPath = require('path').resolve(__dirname, 'static-server.js');
+
     return {
       type: 'static',
       defaultPort: 8000,
-      startCommand: 'python3 -m http.server 8000',
+      startCommand: `node "${serverPath}" 8000 .`,
       description: 'Static HTML Site'
     };
   }
