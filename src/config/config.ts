@@ -1,6 +1,6 @@
 // Google Cloud Run configuration
-const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app/';
-const LOCAL_URL = 'http://192.168.1.18:3000/';
+const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app';
+const LOCAL_URL = 'http://192.168.1.18:3000';
 
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production';
 
