@@ -24,6 +24,9 @@ const {
     getUserCostStats
 } = require('./claude-helpers');
 
+// Import network utilities
+const { getLocalNetworkIP, getAllNetworkIPs } = require('./networkUtils');
+
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 
@@ -64,6 +67,20 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     project: PROJECT_ID,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Network info endpoint - Get current local IP address
+app.get('/network-info', (req, res) => {
+  const localIP = getLocalNetworkIP();
+  const allIPs = getAllNetworkIPs();
+
+  res.json({
+    primaryIP: localIP,
+    allInterfaces: allIPs,
+    backendUrl: `http://${localIP}:${PORT}`,
+    wsUrl: `ws://${localIP}:${PORT}`,
     timestamp: new Date().toISOString()
   });
 });
@@ -1301,6 +1318,97 @@ app.post('/terminal/execute', async (req, res) => {
   }
 });
 
+// Stop/Kill server endpoint - Terminates running servers for a workstation
+app.post('/terminal/stop-server', async (req, res) => {
+  const { workstationId, port } = req.body;
+
+  console.log('🛑 Stop server request:', { workstationId, port });
+
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    // Determine which port to kill
+    let targetPort = port;
+
+    // If no port specified, try to detect from workstation
+    if (!targetPort) {
+      // Try common ports for React/Expo projects
+      targetPort = 8081; // Default Expo port
+      console.log(`⚠️  No port specified, using default: ${targetPort}`);
+    }
+
+    console.log(`🧹 Killing processes on port ${targetPort}...`);
+
+    const currentPid = process.pid; // Get current backend process PID
+    console.log(`📍 Current backend PID: ${currentPid} (will be excluded from cleanup)`);
+
+    const isWindows = process.platform === 'win32';
+    if (isWindows) {
+      // Windows: use netstat + taskkill (faster and more reliable than PowerShell)
+      try {
+        // Get PID using netstat
+        const { stdout } = await execAsync(`netstat -ano | findstr :${targetPort}`, {
+          timeout: 5000
+        });
+
+        if (stdout) {
+          // Parse PIDs from netstat output
+          const lines = stdout.split('\n');
+          const pids = new Set();
+
+          for (const line of lines) {
+            const match = line.match(/LISTENING\s+(\d+)/);
+            if (match) {
+              const pid = parseInt(match[1]);
+              // Don't kill backend itself
+              if (pid !== currentPid) {
+                pids.add(pid);
+              }
+            }
+          }
+
+          // Kill each process
+          for (const pid of pids) {
+            try {
+              await execAsync(`taskkill /F /PID ${pid}`, { timeout: 3000 });
+              console.log(`   Killed process ${pid} on port ${targetPort}`);
+            } catch (err) {
+              // Process might already be dead
+              console.log(`   Process ${pid} already terminated`);
+            }
+          }
+        }
+      } catch (err) {
+        // No processes found on port (this is fine)
+        console.log(`   No processes found on port ${targetPort}`);
+      }
+    } else {
+      // Unix: use lsof and kill, exclude backend PID
+      await execAsync(
+        `lsof -ti:${targetPort} | grep -v ${currentPid} | xargs kill -9 2>/dev/null || true`,
+        { timeout: 10000 }
+      );
+    }
+
+    console.log(`✅ Server stopped successfully on port ${targetPort}`);
+
+    res.json({
+      success: true,
+      message: `Server on port ${targetPort} stopped`,
+      port: targetPort,
+      workstationId
+    });
+  } catch (error) {
+    console.error('❌ STOP SERVER ERROR:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Expo Web Preview Wrapper - Serves HTML that loads Expo bundle
 app.get('/expo-preview/:port', async (req, res) => {
   try {
@@ -1473,7 +1581,14 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
   // Add HOST=0.0.0.0 for dev server commands to allow network access
   let execCommand = command;
-  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start|python3?\s+-m\s+http\.server|php\s+artisan\s+serve|rails\s+server|flask\s+run|uvicorn/.test(command);
+  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start|python3?\s+-m\s+http\.server|node\s+.*static-server\.js|php\s+artisan\s+serve|rails\s+server|flask\s+run|uvicorn/.test(command);
+
+  // Python HTTP server, Node.js static server, and some other commands don't need HOST variable
+  // (they already bind to 0.0.0.0 internally)
+  const needsHostVariable = !command.includes('python') &&
+                           !command.includes('node ') &&
+                           !command.includes('php artisan serve') &&
+                           !command.includes('rails server');
 
   if (isDevServerCommand) {
     if (isReactNative) {
@@ -1485,7 +1600,7 @@ async function executeCommandOnWorkstation(command, workstationId) {
       } else {
         execCommand = command;
       }
-    } else {
+    } else if (needsHostVariable) {
       console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
       // On Windows, use cross-env or set command based on OS
       const isWindows = process.platform === 'win32';
@@ -1494,6 +1609,9 @@ async function executeCommandOnWorkstation(command, workstationId) {
       } else {
         execCommand = `HOST=0.0.0.0 ${command}`;
       }
+    } else {
+      console.log('✅ Command does not need HOST variable (already binds to 0.0.0.0)');
+      execCommand = command;
     }
   }
 
@@ -1505,32 +1623,59 @@ async function executeCommandOnWorkstation(command, workstationId) {
     if (isDevServerCommand) {
       // Extract port from command or use defaults
       let port = 3000; // default
-      if (isReactNative) {
+
+      // ALWAYS try to extract port from command first
+      // Match patterns: --port=8000, --port 8000, :8000, or any number surrounded by spaces (like "script.js 8000 .")
+      const portMatch = command.match(/(?:--port[=\s]|:)(\d+)|\s(\d{4,5})(?:\s|$)/);
+      if (portMatch) {
+        port = parseInt(portMatch[1] || portMatch[2]);
+      } else if (isReactNative) {
+        // Only use default React Native port if not specified in command
         port = 8081;
-      } else {
-        // Try to extract port from command
-        const portMatch = command.match(/(?:--port[=\s]|:)(\d+)|(\d+)$/);
-        if (portMatch) {
-          port = parseInt(portMatch[1] || portMatch[2]);
-        }
       }
 
       try {
-        console.log(`🧹 Cleaning up port ${port}...`);
+        const currentPid = process.pid; // Get current backend process PID
+
         const isWindows = process.platform === 'win32';
         if (isWindows) {
-          // Windows: use netstat and taskkill
-          await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
-            timeout: 5000,
-            shell: 'cmd.exe'
-          });
+          // Windows: use netstat + taskkill (faster and more reliable)
+          try {
+            const { stdout } = await execAsync(`netstat -ano | findstr :${port}`, {
+              timeout: 5000
+            });
+
+            if (stdout) {
+              const lines = stdout.split('\n');
+              const pids = new Set();
+
+              for (const line of lines) {
+                const match = line.match(/LISTENING\s+(\d+)/);
+                if (match) {
+                  const pid = parseInt(match[1]);
+                  if (pid !== currentPid) {
+                    pids.add(pid);
+                  }
+                }
+              }
+
+              for (const pid of pids) {
+                try {
+                  await execAsync(`taskkill /F /PID ${pid}`, { timeout: 3000 });
+                } catch (err) {
+                  // Process already terminated
+                }
+              }
+            }
+          } catch (err) {
+            // No processes on port
+          }
         } else {
-          // Unix: use lsof and kill
-          await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
+          // Unix: use lsof and kill, but exclude current backend PID
+          await execAsync(`lsof -ti:${port} | grep -v ${currentPid} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
         }
-        console.log(`✅ Port ${port} cleanup attempted`);
       } catch (err) {
-        console.log(`⚠️  Error cleaning port: ${err.message}`);
+        console.log(`⚠️  Port cleanup had issues (this is usually fine): ${err.message}`);
       }
 
       // Initialize fs and path at the beginning
@@ -1631,48 +1776,53 @@ async function executeCommandOnWorkstation(command, workstationId) {
       }
 
       // Check if node_modules exists, if not install dependencies
-      const nodeModulesPath = path.join(repoPath, 'node_modules');
-      let needsInstall = false;
-      try {
-        await fsPromises.access(nodeModulesPath);
-        console.log('✅ node_modules exists');
-      } catch {
-        console.log('📦 node_modules not found, installing dependencies...');
-        needsInstall = true;
-      }
+      // ONLY for Node.js/npm-based projects
+      const isNodeProject = command.includes('npm') || command.includes('npx') || command.includes('expo');
 
-      if (needsInstall) {
+      if (isNodeProject) {
+        const nodeModulesPath = path.join(repoPath, 'node_modules');
+        let needsInstall = false;
         try {
-          console.log('⏳ Running npm install...');
-          console.log('   This may take several minutes for large projects...');
-          await execAsync('npm install', {
-            cwd: repoPath,
-            timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
-            maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
-          });
-          console.log('✅ Dependencies installed successfully');
-        } catch (installErr) {
-          console.error('❌ Failed to install dependencies:', installErr.message);
-          // Log more details about the error
-          if (installErr.killed) {
-            console.error('   Installation was killed (likely timeout)');
-          }
-          if (installErr.code) {
-            console.error('   Exit code:', installErr.code);
-          }
-          return {
-            stdout: '',
-            stderr: `Failed to install dependencies: ${installErr.message}`,
-            exitCode: 1
-          };
+          await fsPromises.access(nodeModulesPath);
+          console.log('✅ node_modules exists');
+        } catch {
+          console.log('📦 node_modules not found, installing dependencies...');
+          needsInstall = true;
         }
+
+        if (needsInstall) {
+          try {
+            console.log('⏳ Running npm install...');
+            console.log('   This may take several minutes for large projects...');
+            await execAsync('npm install', {
+              cwd: repoPath,
+              timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
+              maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
+            });
+            console.log('✅ Dependencies installed successfully');
+          } catch (installErr) {
+            console.error('❌ Failed to install dependencies:', installErr.message);
+            // Log more details about the error
+            if (installErr.killed) {
+              console.error('   Installation was killed (likely timeout)');
+            }
+            if (installErr.code) {
+              console.error('   Exit code:', installErr.code);
+            }
+            return {
+              stdout: '',
+              stderr: `Failed to install dependencies: ${installErr.message}`,
+              exitCode: 1
+            };
+          }
+        }
+      } else {
+        console.log('⏭️  Skipping npm install - not a Node.js project');
       }
 
       // Start the dev server in background (non-blocking)
       const { spawn } = require('child_process');
       const isWindows = process.platform === 'win32';
-      const shell = isWindows ? 'cmd.exe' : 'sh';
-      const shellArg = isWindows ? '/c' : '-c';
 
       // Prepare environment variables - inherit from parent and add network binding variables
       const spawnEnv = {
@@ -1689,18 +1839,84 @@ async function executeCommandOnWorkstation(command, workstationId) {
       });
       console.log('💻 Final command to execute:', execCommand);
 
-      const serverProcess = spawn(shell, [shellArg, execCommand], {
-        cwd: repoPath,
-        detached: true,
-        stdio: 'ignore',
-        env: spawnEnv
+      // For direct node commands, spawn node directly without shell
+      // For other commands, use shell
+      let serverProcess;
+      const isDirectNodeCommand = execCommand.trim().startsWith('node ');
+
+      if (isDirectNodeCommand) {
+        // Parse command: "node path/to/script.js arg1 arg2"
+        // Handle quoted arguments properly
+        const args = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 5; i < execCommand.length; i++) { // Start after "node "
+          const char = execCommand[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ' ' && !inQuotes) {
+            if (current) {
+              args.push(current);
+              current = '';
+            }
+          } else {
+            current += char;
+          }
+        }
+        if (current) args.push(current);
+
+        serverProcess = spawn('node', args, {
+          cwd: repoPath,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: spawnEnv,
+          shell: false // Don't use shell for direct node commands
+        });
+      } else {
+        // Use shell for complex commands (npm, npx, etc.)
+        const shell = isWindows ? 'cmd.exe' : 'sh';
+        const shellArg = isWindows ? '/c' : '-c';
+
+        serverProcess = spawn(shell, [shellArg, execCommand], {
+          cwd: repoPath,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: spawnEnv
+        });
+      }
+
+      let capturedOutput = '';
+      let captureTimeout;
+
+      // Capture output for first 15 seconds to detect preview URL
+      serverProcess.stdout.on('data', (data) => {
+        capturedOutput += data.toString();
+        console.log('[Server Output]', data.toString().trim());
       });
 
-      serverProcess.unref(); // Allow parent to exit independently
+      serverProcess.stderr.on('data', (data) => {
+        capturedOutput += data.toString();
+        console.log('[Server Error]', data.toString().trim());
+      });
 
-      console.log('✅ Dev server started in background');
+      // After 15 seconds, stop capturing and unref
+      captureTimeout = setTimeout(() => {
+        serverProcess.stdout.removeAllListeners();
+        serverProcess.stderr.removeAllListeners();
+        serverProcess.unref(); // Allow parent to exit independently
+      }, 15000);
+
+      serverProcess.on('error', (err) => {
+        console.error('❌ Server process error:', err);
+        clearTimeout(captureTimeout);
+      });
+
+      // Wait a bit to capture initial output
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
       return {
-        stdout: `> Starting development server...\n\nLocal:   http://localhost:${port}\nNetwork: http://0.0.0.0:${port}\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
+        stdout: capturedOutput || `> Starting development server...\n\nLocal:   http://localhost:${port}\nNetwork: http://0.0.0.0:${port}\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
         stderr: '',
         exitCode: 0
       };
@@ -1749,7 +1965,6 @@ async function healthCheckUrl(url, maxAttempts = 15, delayMs = 1000) {
       clearTimeout(timeoutId);
 
       if (response.status < 500) {
-        console.log(`✅ Health check passed! Server is responding (status: ${response.status})`);
         return { healthy: true, attempts: attempt, status: response.status };
       }
     } catch (error) {
@@ -1856,6 +2071,8 @@ function detectPreviewUrl(output, command) {
     // PRIORITY: Network URL (accessible from mobile/network devices)
     // Must come BEFORE Local: to prefer network-accessible URLs
     /Network:\s+(https?:\/\/[^\s]+)/,
+    // Static server specific pattern (must come before generic 0.0.0.0 pattern)
+    /Static file server running at (https?:\/\/[^\s]+)/,
     // Standard web dev servers
     /Local:\s+(https?:\/\/[^\s]+)/,
     /http:\/\/localhost:\d+/,
@@ -2070,32 +2287,15 @@ app.get('/workstation/:workstationId/detect-project', async (req, res) => {
     const fs = require('fs').promises;
     const path = require('path');
 
-    // Extract project ID from workstation ID (format: ws-projectid in lowercase)
-    // Convert back to original case by looking for matching folder
-    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
-
-    // If workstation ID starts with 'ws-', try to find the project folder
-    if (workstationId.startsWith('ws-')) {
-      const projectIdLower = workstationId.substring(3); // Remove 'ws-' prefix
-      const clonedReposDir = path.join(__dirname, 'cloned_repos');
-
-      try {
-        const folders = await fs.readdir(clonedReposDir);
-        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
-
-        if (matchingFolder) {
-          repoPath = path.join(clonedReposDir, matchingFolder);
-          console.log(`   Mapped ${workstationId} → ${matchingFolder}`);
-        }
-      } catch (err) {
-        console.error('   Error reading cloned_repos:', err);
-      }
-    }
+    // Get the repository path - same logic as /files endpoint
+    const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
 
     // Check if repository exists
     try {
       await fs.access(repoPath);
+      console.log(`   Repository found at: ${repoPath}`);
     } catch {
+      console.error(`   Repository not found at: ${repoPath}`);
       return res.status(404).json({ error: 'Workstation not found' });
     }
 
@@ -3474,10 +3674,19 @@ wss.on('connection', (ws) => {
 
 // Start server with WebSocket support
 server.listen(PORT, '0.0.0.0', () => {
+  const localIP = getLocalNetworkIP();
+  const allIPs = getAllNetworkIPs();
+
   console.log(`🚀 Drape Backend running on port ${PORT}`);
   console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
-  console.log(`🔌 WebSocket endpoint: ws://YOUR_IP:${PORT}/ws`);
+  console.log(`🌐 Network IP: ${localIP}`);
+  console.log(`📱 Mobile URL: http://${localIP}:${PORT}/`);
+  console.log(`🔌 WebSocket: ws://${localIP}:${PORT}/ws`);
+
+  if (allIPs.length > 1) {
+    console.log(`📡 All interfaces:`, allIPs.map(i => `${i.name} (${i.ip})`).join(', '));
+  }
+
   console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
   console.log(`🌍 Location: ${LOCATION}`);
   console.log(`🖥️  Workstation Management: ENABLED`);
