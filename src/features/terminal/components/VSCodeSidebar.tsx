@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS, interpolate } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS, interpolate, Easing } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
@@ -12,7 +12,9 @@ import { TabBar } from './TabBar';
 import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
+import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
+import { SidebarProvider } from '../context/SidebarContext';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | null;
 
@@ -27,6 +29,7 @@ interface Props {
 export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) => {
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
+  const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const { tabs, activeTabId, setActiveTab, addTab } = useTabStore();
 
   // Shared value to communicate with VerticalCardSwitcher
@@ -37,6 +40,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const trackpadScale = useSharedValue(1);
   const trackpadBrightness = useSharedValue(0);
   const verticalPanelOpacity = useSharedValue(0);
+
+  // Sidebar hide/show animation
+  const sidebarTranslateX = useSharedValue(0);
 
   const togglePanel = useCallback((panel: PanelType) => {
     setActivePanel(prev => {
@@ -274,140 +280,237 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     .minDistance(0)
     .activeOffsetY([-5, 5]);
 
+  // Sidebar hide/show handlers
+  const toggleSidebar = useCallback(() => {
+    const newHiddenState = !isSidebarHidden;
+    setIsSidebarHidden(newHiddenState);
+    sidebarTranslateX.value = withTiming(newHiddenState ? -50 : 0, {
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [isSidebarHidden]);
+
+  // Swipe gesture on sidebar to hide it
+  const sidebarSwipeGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      'worklet';
+      // Only allow swipe left (negative translation)
+      if (event.translationX < 0) {
+        sidebarTranslateX.value = Math.max(event.translationX, -50);
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      // Swipe left to hide - if swiped more than halfway or fast velocity
+      if (event.translationX < -25 || event.velocityX < -500) {
+        sidebarTranslateX.value = withTiming(-50, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
+        runOnJS(setIsSidebarHidden)(true);
+      } else {
+        // Snap back if not swiped enough
+        sidebarTranslateX.value = withTiming(0, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
+      }
+    })
+    .activeOffsetX([-5, 1000]); // Allow left swipe easily, block right swipe
+
+  // Swipe gesture from left edge to show sidebar
+  const edgeSwipeGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      'worklet';
+      // Only allow swipe right (positive translation) up to 0
+      if (event.translationX > 0) {
+        const newValue = Math.min(event.translationX - 50, 0);
+        sidebarTranslateX.value = newValue;
+      }
+    })
+    .onEnd((event) => {
+      'worklet';
+      // Swipe right to show - if swiped more than 25px or fast velocity
+      if (event.translationX > 25 || event.velocityX > 500) {
+        sidebarTranslateX.value = withTiming(0, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
+        runOnJS(setIsSidebarHidden)(false);
+      } else {
+        // Snap back to hidden
+        sidebarTranslateX.value = withTiming(-50, {
+          duration: 250,
+          easing: Easing.out(Easing.cubic),
+        });
+      }
+    })
+    .activeOffsetX([-1000, 5]); // Block left swipe, allow right swipe easily
+
+  const sidebarAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarTranslateX.value }],
+  }));
+
+  // Content expands to fill space when sidebar is hidden
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    marginLeft: 50 + sidebarTranslateX.value, // Goes from 50 to 0
+  }));
 
   return (
-    <>
-      <View style={styles.iconBar}>
-        <TouchableOpacity 
-          style={[styles.iconButton, activePanel === 'files' && styles.iconButtonActive]}
-          onPress={() => togglePanel('files')}
-        >
-          <Ionicons name="folder" size={24} color={activePanel === 'files' ? AppColors.primary : '#888'} />
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.iconButton, activePanel === 'chat' && styles.iconButtonActive]}
-          onPress={() => togglePanel('chat')}
-        >
-          <Ionicons name="chatbubbles" size={24} color={activePanel === 'chat' ? AppColors.primary : '#888'} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={handleTerminalClick}
-        >
-          <Ionicons name="terminal" size={24} color="#888" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.iconButton, activePanel === 'preview' && styles.iconButtonActive]}
-          onPress={() => togglePanel('preview')}
-        >
-          <Ionicons name="phone-portrait" size={24} color={activePanel === 'preview' ? AppColors.primary : '#888'} />
-        </TouchableOpacity>
-
-        <View style={styles.spacer} />
-
-        {/* iPhone-like fluid trackpad - swipe to switch tabs */}
-        <GestureDetector gesture={trackpadPanGesture}>
-          <Animated.View style={[styles.trackpad, trackpadAnimatedStyle]} />
+    <SidebarProvider value={{ sidebarTranslateX }}>
+      {/* Edge swipe area - only visible when sidebar is hidden */}
+      {isSidebarHidden && (
+        <GestureDetector gesture={edgeSwipeGesture}>
+          <View style={styles.edgeSwipeArea}>
+            <View style={styles.edgeIndicator} />
+          </View>
         </GestureDetector>
-
-        <TouchableOpacity 
-          style={[styles.iconButton, activePanel === 'multitasking' && styles.iconButtonActive]}
-          onPress={() => togglePanel('multitasking')}
-        >
-          <Ionicons name="albums" size={24} color={activePanel === 'multitasking' ? AppColors.primary : '#888'} />
-        </TouchableOpacity>
-
-        <View style={styles.spacer} />
-
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={onExit}
-        >
-          <Ionicons name="exit-outline" size={24} color="#888" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
-          onPress={() => togglePanel('settings')}
-        >
-          <Ionicons name="settings" size={24} color={activePanel === 'settings' ? AppColors.primary : '#888'} />
-        </TouchableOpacity>
-      </View>
-
-      {activePanel === 'files' && (
-        <Sidebar
-          onClose={() => setActivePanel(null)}
-          onOpenAllProjects={onOpenAllProjects}
-        />
       )}
 
-      {activePanel === 'chat' && (
-        <ChatPanel onClose={() => setActivePanel(null)} />
-      )}
+      <GestureDetector gesture={sidebarSwipeGesture}>
+        <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
+          <TouchableOpacity
+            style={[styles.iconButton, activePanel === 'files' && styles.iconButtonActive]}
+            onPress={() => togglePanel('files')}
+          >
+            <Ionicons name="folder" size={24} color={activePanel === 'files' ? AppColors.primary : '#888'} />
+          </TouchableOpacity>
 
-      {activePanel === 'preview' && (
-        <PreviewPanel
-          onClose={() => setActivePanel(null)}
-          previewUrl="http://localhost:3001"
-          projectName="Project Preview"
-        />
-      )}
+          <TouchableOpacity
+            style={[styles.iconButton, activePanel === 'chat' && styles.iconButtonActive]}
+            onPress={() => togglePanel('chat')}
+          >
+            <Ionicons name="chatbubbles" size={24} color={activePanel === 'chat' ? AppColors.primary : '#888'} />
+          </TouchableOpacity>
 
-      {activePanel === 'settings' && (
-        <SettingsPanel onClose={() => setActivePanel(null)} />
-      )}
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={handleTerminalClick}
+          >
+            <Ionicons name="terminal" size={24} color="#888" />
+          </TouchableOpacity>
 
-      <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
+          <TouchableOpacity
+            style={[styles.iconButton, activePanel === 'preview' && styles.iconButtonActive]}
+            onPress={() => togglePanel('preview')}
+          >
+            <Ionicons name="phone-portrait" size={24} color={activePanel === 'preview' ? AppColors.primary : '#888'} />
+          </TouchableOpacity>
 
-      {/* Show normal content always (behind vertical panel) */}
-      {activePanel !== 'multitasking' && (
-        <Animated.View style={[
-          { flex: 1 },
-          isVerticalPanelMounted && contentRendererAnimatedStyle
-        ]}>
-          <ContentRenderer children={children} animatedStyle={{}} />
+          <View style={styles.spacer} />
+
+          {/* Vertical Icon Switcher - swipe to select pages */}
+          <View style={styles.spacer} />
+
+          <VerticalIconSwitcher
+            icons={[
+              { name: 'home-outline', action: () => console.log('Home') },
+              { name: 'code-slash-outline', action: () => console.log('Code') },
+              { name: 'terminal-outline', action: () => console.log('Terminal') },
+              { name: 'folder-outline', action: () => console.log('Files') },
+              { name: 'git-branch-outline', action: () => console.log('Git') },
+              { name: 'search-outline', action: () => console.log('Search') },
+              { name: 'settings-outline', action: () => console.log('Settings') },
+            ]}
+            onIconChange={(index) => console.log('Selected icon:', index)}
+          />
+
+          <View style={styles.spacer} />
+
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onExit}
+          >
+            <Ionicons name="exit-outline" size={24} color="#888" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
+            onPress={() => togglePanel('settings')}
+          >
+            <Ionicons name="settings" size={24} color={activePanel === 'settings' ? AppColors.primary : '#888'} />
+          </TouchableOpacity>
         </Animated.View>
-      )}
+      </GestureDetector>
 
-      {/* Render VerticalCardSwitcher on top (keeps it during animation) */}
-      {isVerticalPanelMounted && (
-        <>
-          {/* Solid black background layer - stays opaque until panel is gone */}
-          <Animated.View style={[
-            StyleSheet.absoluteFillObject,
-            {
-              backgroundColor: '#0a0a0a',
-            },
-            blackBackgroundAnimatedStyle
-          ]} />
+      {/* Wrap all content in animated container that shifts with sidebar */}
+      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
+        {activePanel === 'files' && (
+          <Sidebar
+            onClose={() => setActivePanel(null)}
+            onOpenAllProjects={onOpenAllProjects}
+          />
+        )}
 
-          {/* Panel content with opacity animation */}
+        {activePanel === 'chat' && (
+          <ChatPanel onClose={() => setActivePanel(null)} />
+        )}
+
+        {activePanel === 'preview' && (
+          <PreviewPanel
+            onClose={() => setActivePanel(null)}
+            previewUrl="http://localhost:3001"
+            projectName="Project Preview"
+          />
+        )}
+
+        {activePanel === 'settings' && (
+          <SettingsPanel onClose={() => setActivePanel(null)} />
+        )}
+
+        <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
+
+        {/* Show normal content always (behind vertical panel) */}
+        {activePanel !== 'multitasking' && (
           <Animated.View style={[
-            StyleSheet.absoluteFillObject,
-            verticalPanelAnimatedStyle
+            { flex: 1 },
+            isVerticalPanelMounted && contentRendererAnimatedStyle
           ]}>
-            <VerticalCardSwitcher
-              onClose={closeVerticalPanel}
-              trackpadTranslation={trackpadTranslation}
-              isTrackpadActive={isTrackpadActive}
-              skipZoomAnimation={skipZoomAnimation}
-            >
-              {(tab, isCardMode, cardDimensions) => children && children(tab, isCardMode, cardDimensions)}
-            </VerticalCardSwitcher>
+            <ContentRenderer
+              children={children}
+              animatedStyle={{}}
+              onPinchOut={() => togglePanel('multitasking')}
+            />
           </Animated.View>
-        </>
-      )}
+        )}
 
-      {/* Overlay other panels on top */}
-      {activePanel === 'multitasking' && (
-        <MultitaskingPanel onClose={() => togglePanel(null)}>
-          {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
-        </MultitaskingPanel>
-      )}
-    </>
+        {/* Render VerticalCardSwitcher on top (keeps it during animation) */}
+        {isVerticalPanelMounted && (
+          <>
+            {/* Solid black background layer - stays opaque until panel is gone */}
+            <Animated.View style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: '#0a0a0a',
+              },
+              blackBackgroundAnimatedStyle
+            ]} />
+
+            {/* Panel content with opacity animation */}
+            <Animated.View style={[
+              StyleSheet.absoluteFillObject,
+              verticalPanelAnimatedStyle
+            ]}>
+              <VerticalCardSwitcher
+                onClose={closeVerticalPanel}
+                trackpadTranslation={trackpadTranslation}
+                isTrackpadActive={isTrackpadActive}
+                skipZoomAnimation={skipZoomAnimation}
+              >
+                {(tab, isCardMode, cardDimensions) => children && children(tab, isCardMode, cardDimensions)}
+              </VerticalCardSwitcher>
+            </Animated.View>
+          </>
+        )}
+
+        {/* Overlay other panels on top */}
+        {activePanel === 'multitasking' && (
+          <MultitaskingPanel onClose={() => togglePanel(null)}>
+            {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
+          </MultitaskingPanel>
+        )}
+      </Animated.View>
+    </SidebarProvider>
   );
 };
 
@@ -449,5 +552,21 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     borderWidth: 1.5,
     borderColor: 'rgba(139, 124, 246, 0.25)',
+  },
+  edgeSwipeArea: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 20,
+    zIndex: 1002,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  edgeIndicator: {
+    width: 3,
+    height: 40,
+    backgroundColor: 'rgba(139, 124, 246, 0.4)',
+    borderRadius: 1.5,
   },
 });

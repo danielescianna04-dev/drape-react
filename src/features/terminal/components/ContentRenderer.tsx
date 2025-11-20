@@ -1,6 +1,7 @@
 import React from 'react';
 import { Dimensions } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { runOnJS } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 import { FluidTabSwitcher } from '../../../shared/components/FluidTabSwitcher';
 
@@ -9,9 +10,10 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 interface ContentRendererProps {
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
   animatedStyle: any;
+  onPinchOut?: () => void;
 }
 
-export const ContentRenderer = ({ children, animatedStyle }: ContentRendererProps) => {
+export const ContentRenderer = ({ children, animatedStyle, onPinchOut }: ContentRendererProps) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
 
   // Find current tab index
@@ -26,14 +28,26 @@ export const ContentRenderer = ({ children, animatedStyle }: ContentRendererProp
     }
   };
 
+  // Pinch gesture to open multitasking (like iPad)
+  const pinchGesture = Gesture.Pinch()
+    .onEnd((event) => {
+      'worklet';
+      // If pinching in (scale < 0.8), open multitasking
+      if (event.scale < 0.8 && onPinchOut) {
+        runOnJS(onPinchOut)();
+      }
+    });
+
   return (
-    <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-      <FluidTabSwitcher
-        currentIndex={currentIndex}
-        tabs={tabs}
-        renderTab={(tab) => children(tab, false, { width: SCREEN_WIDTH, height: SCREEN_HEIGHT })}
-        onIndexChange={handleIndexChange}
-      />
-    </Animated.View>
+    <GestureDetector gesture={pinchGesture}>
+      <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+        <FluidTabSwitcher
+          currentIndex={currentIndex}
+          tabs={tabs}
+          renderTab={(tab) => children(tab, false, { width: SCREEN_WIDTH, height: SCREEN_HEIGHT })}
+          onIndexChange={handleIndexChange}
+        />
+      </Animated.View>
+    </GestureDetector>
   );
 };

@@ -1,10 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, ScrollView, Keyboard } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated as RNAnimated, ScrollView, Keyboard } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TabTypeSelector, TabType } from './TabTypeSelector';
+import { useSidebarOffset } from '../context/SidebarContext';
 
 interface TabBarProps {
   isCardMode?: boolean;
@@ -12,16 +14,22 @@ interface TabBarProps {
 
 export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useTabStore();
-  const scaleAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
-  const visibilityAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnims = useRef<{ [key: string]: RNAnimated.Value }>({}).current;
+  const visibilityAnim = useRef(new RNAnimated.Value(1)).current;
   const insets = useSafeAreaInsets();
   const [showTabTypeSelector, setShowTabTypeSelector] = useState(false);
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  // Animate TabBar left position based on sidebar state
+  const tabBarAnimatedStyle = useAnimatedStyle(() => ({
+    left: 50 + sidebarTranslateX.value, // Goes from 50 to 0
+  }));
 
   useEffect(() => {
     tabs.forEach(tab => {
       if (!scaleAnims[tab.id]) {
-        scaleAnims[tab.id] = new Animated.Value(0);
-        Animated.spring(scaleAnims[tab.id], {
+        scaleAnims[tab.id] = new RNAnimated.Value(0);
+        RNAnimated.spring(scaleAnims[tab.id], {
           toValue: 1,
           useNativeDriver: true,
           tension: 80,
@@ -33,7 +41,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
 
   // Animate TabBar visibility
   useEffect(() => {
-    Animated.spring(visibilityAnim, {
+    RNAnimated.spring(visibilityAnim, {
       toValue: isCardMode ? 0 : 1,
       useNativeDriver: true,
       damping: 20,
@@ -140,6 +148,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   return (
     <Animated.View style={[
       styles.container,
+      tabBarAnimatedStyle,
       {
         paddingTop: insets.top,
         opacity: visibilityAnim,
