@@ -301,8 +301,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     })
     .onEnd((event) => {
       'worklet';
-      // Swipe left to hide - if swiped more than halfway or fast velocity
-      if (event.translationX < -25 || event.velocityX < -500) {
+      // Swipe left to hide - require more intentional swipe to prevent accidents
+      if (event.translationX < -35 || event.velocityX < -800) {
         sidebarTranslateX.value = withTiming(-50, {
           duration: 250,
           easing: Easing.out(Easing.cubic),
@@ -316,7 +316,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         });
       }
     })
-    .activeOffsetX([-5, 1000]); // Allow left swipe easily, block right swipe
+    .activeOffsetX([-10, 1000]); // Require more intentional swipe to prevent accidents
 
   // Swipe gesture from left edge to show sidebar
   const edgeSwipeGesture = Gesture.Pan()
@@ -553,15 +553,21 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 20,
+    width: 40,
     zIndex: 1002,
     justifyContent: 'center',
     alignItems: 'flex-end',
+    paddingRight: 5,
   },
   edgeIndicator: {
-    width: 3,
-    height: 40,
-    backgroundColor: 'rgba(139, 124, 246, 0.4)',
-    borderRadius: 1.5,
+    width: 6,
+    height: 60,
+    backgroundColor: 'rgba(139, 124, 246, 0.6)',
+    borderRadius: 3,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

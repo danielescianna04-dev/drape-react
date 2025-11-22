@@ -36,7 +36,9 @@
       "Bash(node:*)",
       "Bash(npx tsc:*)",
       "Bash(git stash:*)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(tree:*)",
+      "Bash(npm test:*)"
     ],
     "deny": [],
     "ask": []

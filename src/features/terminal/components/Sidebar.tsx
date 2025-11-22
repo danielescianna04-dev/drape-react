@@ -204,6 +204,9 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           </View>
           <Text style={styles.logoText}>Drape</Text>
         </View>
+        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="rgba(255, 255, 255, 0.6)" />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -660,7 +663,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 999,
   },
   container: {
@@ -705,6 +708,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: 0.5,
+  },
+  closeButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   headerTitle: {
     fontSize: 16,
