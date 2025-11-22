@@ -20,9 +20,10 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const [showTabTypeSelector, setShowTabTypeSelector] = useState(false);
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animate TabBar left position based on sidebar state
+  // Animate TabBar to stay centered when sidebar hides
   const tabBarAnimatedStyle = useAnimatedStyle(() => ({
-    left: 50 + sidebarTranslateX.value, // Goes from 50 to 0
+    left: 50,
+    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25 (shift left by half to center)
   }));
 
   useEffect(() => {
@@ -146,21 +147,20 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   };
 
   return (
-    <Animated.View style={[
-      styles.container,
-      tabBarAnimatedStyle,
-      {
-        paddingTop: insets.top,
-        opacity: visibilityAnim,
-        transform: [{
-          translateY: visibilityAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [-20, 0], // Slide up/down
-          })
-        }]
-      }
-    ]}>
-      <ScrollView
+    <Animated.View style={[styles.container, tabBarAnimatedStyle]}>
+      <RNAnimated.View style={[
+        {
+          paddingTop: insets.top,
+          opacity: visibilityAnim,
+          transform: [{
+            translateY: visibilityAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [-20, 0], // Slide up/down
+            })
+          }]
+        }
+      ]}>
+        <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.scrollView}
@@ -169,10 +169,10 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
       >
         {tabs.map(tab => {
           const isActive = tab.id === activeTabId;
-          const scale = scaleAnims[tab.id] || new Animated.Value(1);
-          
+          const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
+
           return (
-            <Animated.View
+            <RNAnimated.View
               key={tab.id}
               style={[
                 styles.tabWrapper,
@@ -205,11 +205,11 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                   </TouchableOpacity>
                 )}
               </TouchableOpacity>
-            </Animated.View>
+            </RNAnimated.View>
           );
         })}
       </ScrollView>
-      
+
       <TouchableOpacity style={styles.addButton} onPress={handleAddTab}>
         <Ionicons name="add" size={18} color="#666" />
       </TouchableOpacity>
@@ -219,6 +219,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
         onClose={() => setShowTabTypeSelector(false)}
         onSelectType={handleSelectTabType}
       />
+      </RNAnimated.View>
     </Animated.View>
   );
 };
@@ -227,7 +228,6 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     top: 0,
-    left: 50,
     right: 0,
     minHeight: 40,
     flexDirection: 'row',

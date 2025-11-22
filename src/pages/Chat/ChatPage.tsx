@@ -24,6 +24,7 @@ import { GitHubView } from '../../features/terminal/components/views/GitHubView'
 import { BrowserView } from '../../features/terminal/components/views/BrowserView';
 import { PreviewView } from '../../features/terminal/components/views/PreviewView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 
 const colors = AppColors.dark;
 
@@ -51,6 +52,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const cardModeAnim = useSharedValue(isCardMode ? 1 : 0); // Animate card mode transitions
   const keyboardHeight = useSharedValue(0); // Track keyboard height
   const insets = useSafeAreaInsets();
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  // Animate ChatPage to shift left when sidebar hides (stay centered)
+  const chatPageAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25 (shift left by half to center)
+  }));
 
   // Store input for each tab separately
   const tabInputsRef = useRef<Record<string, string>>({});
@@ -950,7 +957,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       styles.container,
       cardDimensionsAnimatedStyle, // Animated width, height, borderRadius, marginTop, overflow
       cardBorderAnimatedStyle,
-      animatedStyle
+      animatedStyle,
+      chatPageAnimatedStyle
     ]}>
       {/* Premium gradient background */}
       <LinearGradient

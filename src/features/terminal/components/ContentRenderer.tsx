@@ -44,7 +44,7 @@ export const ContentRenderer = ({ children, animatedStyle, onPinchOut }: Content
         <FluidTabSwitcher
           currentIndex={currentIndex}
           tabs={tabs}
-          renderTab={(tab) => children(tab, false, { width: SCREEN_WIDTH, height: SCREEN_HEIGHT })}
+          renderTab={(tab, width) => children(tab, false, { width, height: SCREEN_HEIGHT })}
           onIndexChange={handleIndexChange}
         />
       </Animated.View>

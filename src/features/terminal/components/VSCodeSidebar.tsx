@@ -351,11 +351,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     transform: [{ translateX: sidebarTranslateX.value }],
   }));
 
-  // Content expands to fill space when sidebar is hidden
-  const contentAnimatedStyle = useAnimatedStyle(() => ({
-    marginLeft: 50 + sidebarTranslateX.value, // Goes from 50 to 0
-  }));
-
   return (
     <SidebarProvider value={{ sidebarTranslateX }}>
       {/* Edge swipe area - only visible when sidebar is hidden */}
@@ -433,8 +428,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         </Animated.View>
       </GestureDetector>
 
-      {/* Wrap all content in animated container that shifts with sidebar */}
-      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
+      {/* Content area - TabBar will animate its position via context */}
+      <View style={{ flex: 1 }}>
         {activePanel === 'files' && (
           <Sidebar
             onClose={() => setActivePanel(null)}
@@ -509,7 +504,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
           </MultitaskingPanel>
         )}
-      </Animated.View>
+      </View>
     </SidebarProvider>
   );
 };
