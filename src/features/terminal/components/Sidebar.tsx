@@ -27,6 +27,8 @@ import { GitHubAuthModal } from './GitHubAuthModal';
 import { FileViewer } from './FileViewer';
 import { githubTokenService } from '../../../core/github/githubTokenService';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { EmptyState } from '../../../shared/components/organisms';
+import { IconButton } from '../../../shared/components/atoms';
 
 interface Props {
   onClose: () => void;
@@ -204,9 +206,14 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           </View>
           <Text style={styles.logoText}>Drape</Text>
         </View>
-        <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-          <Ionicons name="close" size={24} color="rgba(255, 255, 255, 0.6)" />
-        </TouchableOpacity>
+        <IconButton
+          iconName="close"
+          size={24}
+          color="rgba(255, 255, 255, 0.6)"
+          onPress={handleClose}
+          style={styles.closeButton}
+          accessibilityLabel="Chiudi sidebar"
+        />
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -231,11 +238,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             />
           </View>
         ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="folder-open-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-            <Text style={styles.emptyText}>Nessun progetto aperto</Text>
-            <Text style={styles.emptySubtext}>Apri un progetto dalla Home per vedere i file</Text>
-          </View>
+          <EmptyState
+            icon="folder-open-outline"
+            title="Nessun progetto aperto"
+            subtitle="Apri un progetto dalla Home per vedere i file"
+          />
         )}
       </ScrollView>
     </Animated.View>
@@ -259,10 +266,10 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 const ChatList = ({ chats }: any) => {
   if (chats.length === 0) {
     return (
-      <View style={styles.emptyState}>
-        <Ionicons name="chatbubbles-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-        <Text style={styles.emptyText}>No chats yet</Text>
-      </View>
+      <EmptyState
+        icon="chatbubbles-outline"
+        title="No chats yet"
+      />
     );
   }
 
@@ -299,9 +306,10 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
       )}
 
       {(repositories || []).length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>Nessuna repository trovata</Text>
-        </View>
+        <EmptyState
+          icon="logo-github"
+          title="Nessuna repository trovata"
+        />
       ) : (
         (repositories || []).map((repo: any) => (
           <TouchableOpacity
@@ -509,10 +517,10 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       </View>
 
       {projectFolders.length === 0 && workstations.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-          <Text style={styles.emptyText}>Nessun progetto</Text>
-        </View>
+        <EmptyState
+          icon="folder-outline"
+          title="Nessun progetto"
+        />
       ) : (
         <>
           {projectFolders.map((folder) => (
@@ -795,24 +803,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
-  },
-  emptyText: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 16,
-    color: 'rgba(255, 255, 255, 0.5)',
-  },
-  emptySubtext: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 8,
-    color: 'rgba(255, 255, 255, 0.3)',
   },
   connectButton: {
     marginTop: 24,
