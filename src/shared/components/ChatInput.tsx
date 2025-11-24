@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../theme/colors';
+import { IconButton } from './atoms';
 
 interface ChatInputProps {
   value: string;
@@ -101,23 +102,28 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <View style={styles.mainInputRow}>
         {/* Left Accessory Button (e.g., inspect mode) */}
         {leftAccessory && (
-          <TouchableOpacity
-            style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}
-            onPress={leftAccessory.onPress}
-          >
-            <Ionicons
-              name={leftAccessory.icon}
+          <View style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}>
+            <IconButton
+              iconName={leftAccessory.icon}
               size={22}
-              color={leftAccessory.isActive ? AppColors.primary : '#8A8A8A'}
+              color="#8A8A8A"
+              onPress={leftAccessory.onPress}
+              isActive={leftAccessory.isActive}
+              activeColor={AppColors.primary}
+              style={styles.iconButtonOverride}
             />
-          </TouchableOpacity>
+          </View>
         )}
 
         {/* Tools Button - only show when showTopBar is true */}
         {showTopBar && (
-          <TouchableOpacity style={styles.toolsButton}>
-            <Ionicons name="attach" size={24} color="#8A8A8A" />
-          </TouchableOpacity>
+          <IconButton
+            iconName="attach"
+            size={24}
+            color="#8A8A8A"
+            onPress={() => {}}
+            style={styles.toolsButton}
+          />
         )}
 
         {/* Input Field */}
@@ -235,6 +241,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 124, 246, 0.3)',
     borderColor: 'rgba(139, 124, 246, 0.6)',
     borderWidth: 1.5,
+  },
+  iconButtonOverride: {
+    width: 'auto',
+    height: 'auto',
   },
   toolsButton: {
     width: 36,
