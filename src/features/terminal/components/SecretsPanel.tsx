@@ -5,6 +5,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
+import { PanelHeader, EmptyState } from '../../../shared/components/organisms';
+import { IconButton } from '../../../shared/components/atoms';
 
 interface Props {
   onClose: () => void;
@@ -133,18 +135,11 @@ export const SecretsPanel = ({ onClose }: Props) => {
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Ionicons name="key" size={24} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Secrets & Variables</Text>
-        </View>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <View style={styles.closeButtonBg}>
-            <Ionicons name="close" size={22} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
-      </View>
+      <PanelHeader
+        title="Secrets & Variables"
+        icon="key"
+        onClose={onClose}
+      />
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
@@ -227,11 +222,11 @@ export const SecretsPanel = ({ onClose }: Props) => {
 
             {/* Variables List */}
             {envVars.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="file-tray-outline" size={48} color="rgba(255, 255, 255, 0.2)" />
-                <Text style={styles.emptyStateText}>Nessuna variabile d'ambiente configurata</Text>
-                <Text style={styles.emptyStateSubtext}>Clicca su "Aggiungi" per creare la tua prima variabile</Text>
-              </View>
+              <EmptyState
+                icon="file-tray-outline"
+                title="Nessuna variabile d'ambiente configurata"
+                subtitle="Clicca su 'Aggiungi' per creare la tua prima variabile"
+              />
             ) : (
               envVars.map((envVar) => (
                 <View key={envVar.key} style={styles.variableItem}>
@@ -315,36 +310,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 1000,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  closeButton: {
-    padding: 4,
-  },
-  closeButtonBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -459,23 +424,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginTop: 16,
-  },
-  emptyStateSubtext: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.3)',
-    marginTop: 8,
-    textAlign: 'center',
   },
   variableItem: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
