@@ -30,7 +30,7 @@ export default function App() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-  
+
   const { addWorkstation, setWorkstation } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
 
@@ -196,20 +196,16 @@ export default function App() {
               onImportProject={() => setShowImportModal(true)}
               onMyProjects={() => setCurrentScreen('terminal')}
               onOpenProject={async (workstation) => {
-                // Set workstation and switch to terminal screen
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
 
-                // Clear old terminal items and add fresh loading message
                 setTimeout(async () => {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
                   if (currentTab && workstation.githubUrl) {
-                    // Clear old messages
                     clearTerminalItems(currentTab.id);
 
-                    // Add loading message for fresh clone
                     addTerminalItemToStore(currentTab.id, {
                       id: `loading-${Date.now()}`,
                       type: 'loading',
@@ -217,11 +213,9 @@ export default function App() {
                       timestamp: new Date(),
                     });
 
-                    // Clone repository and update loading message
                     try {
                       await workstationService.getWorkstationFiles(workstation.projectId || workstation.id, workstation.githubUrl);
 
-                      // Stop loading animation by changing type to system
                       updateTerminalItemsByType(currentTab.id, 'loading', {
                         type: 'system',
                         content: 'Cloning repository to workstation'
@@ -235,7 +229,6 @@ export default function App() {
                         timestamp: new Date(),
                       });
                     } catch (err: any) {
-                      // Stop loading animation
                       updateTerminalItemsByType(currentTab.id, 'loading', {
                         type: 'system',
                         content: 'Cloning repository to workstation'
