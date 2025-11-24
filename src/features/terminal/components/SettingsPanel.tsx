@@ -4,11 +4,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { PanelHeader } from '../../../shared/components/organisms';
 
 interface Props {
   onClose: () => void;
 }
 
+/**
+ * Settings panel for app configuration
+ * AI model selection, behavior settings, and app info
+ */
 export const SettingsPanel = ({ onClose }: Props) => {
   const {
     selectedModel,
@@ -34,18 +39,12 @@ export const SettingsPanel = ({ onClose }: Props) => {
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Ionicons name="settings" size={24} color={AppColors.primary} />
-          <Text style={styles.headerTitle}>Impostazioni</Text>
-        </View>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <View style={styles.closeButtonBg}>
-            <Ionicons name="close" size={22} color="#FFFFFF" />
-          </View>
-        </TouchableOpacity>
-      </View>
+      <PanelHeader
+        title="Impostazioni"
+        icon="settings"
+        onClose={onClose}
+        style={styles.header}
+      />
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Modello AI */}
@@ -178,38 +177,7 @@ const styles = StyleSheet.create({
     zIndex: 1002,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  closeButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   content: {
     flex: 1,
