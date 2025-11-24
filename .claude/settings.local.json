@@ -43,7 +43,8 @@
       "Bash(do echo -n '$file: ')",
       "Bash(done)",
       "Bash(for file in DraggableProject NewProjectModal NewFolderModal ImportGitHubModal GitHubAuthModal FolderManager ProjectItem ProblemScreen CreateProjectScreen AllProjectsScreen ProjectsHomeScreen)",
-      "Bash(do echo \"=== Checking $file ===\" grep -r \"import.*$file\" /Users/getmad/Projects/drape-react/src --include=\"*.tsx\" --include=\"*.ts\")"
+      "Bash(do echo \"=== Checking $file ===\" grep -r \"import.*$file\" /Users/getmad/Projects/drape-react/src --include=\"*.tsx\" --include=\"*.ts\")",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []
