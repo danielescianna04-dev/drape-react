@@ -5,6 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { githubService } from '../../../core/github/githubService';
 
+/**
+ * GitHub connection component
+ * Displays a connect button to start OAuth flow
+ */
 export const GitHubConnect: React.FC = () => {
   const handleConnect = () => {
     githubService.startOAuthFlow();
@@ -17,7 +21,7 @@ export const GitHubConnect: React.FC = () => {
       <Text style={styles.emptyText}>
         Collega il tuo account GitHub per accedere alle tue repository
       </Text>
-      
+
       <TouchableOpacity style={styles.connectButton} onPress={handleConnect}>
         <LinearGradient
           colors={[AppColors.primary, AppColors.primaryShade]}
