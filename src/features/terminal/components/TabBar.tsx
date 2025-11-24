@@ -20,10 +20,9 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   const [showTabTypeSelector, setShowTabTypeSelector] = useState(false);
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animate TabBar to stay centered when sidebar hides
+  // Animate TabBar to expand from left edge when sidebar hides
   const tabBarAnimatedStyle = useAnimatedStyle(() => ({
-    left: 50,
-    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25 (shift left by half to center)
+    left: 50 + sidebarTranslateX.value, // Goes from 50 to 0 (expand to left edge)
   }));
 
   useEffect(() => {
@@ -150,6 +149,8 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
     <Animated.View style={[styles.container, tabBarAnimatedStyle]}>
       <RNAnimated.View style={[
         {
+          flex: 1,
+          flexDirection: 'row',
           paddingTop: insets.top,
           opacity: visibilityAnim,
           transform: [{

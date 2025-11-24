@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -8,6 +9,7 @@ import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { ChatInput } from '../../../shared/components/ChatInput';
+import { useSidebarOffset } from '../context/SidebarContext';
 
 interface Props {
   terminalTabId: string; // The terminal tab itself (where to write new commands)
@@ -23,6 +25,12 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
   const { currentWorkstation } = useTerminalStore();
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  // Animate content to shift left when sidebar hides
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25
+  }));
 
   // Get terminal items based on sourceTabId
   const allTerminalItems = useMemo(() => {
@@ -168,6 +176,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
+      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
       {/* Header with gradient */}
       <View style={styles.headerContainer}>
         <LinearGradient
@@ -315,6 +324,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         isExecuting={isExecuting}
         showTopBar={false}
       />
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 };

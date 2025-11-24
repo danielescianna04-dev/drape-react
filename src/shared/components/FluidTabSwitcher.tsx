@@ -1,5 +1,5 @@
-import React, { ReactNode, useCallback, useEffect } from 'react';
-import { StyleSheet, Dimensions, View } from 'react-native';
+import React, { ReactNode, useCallback, useEffect, useState } from 'react';
+import { StyleSheet, Dimensions, View, LayoutChangeEvent } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -20,13 +20,10 @@ const SPRING_CONFIG = {
   restSpeedThreshold: 2,
 };
 
-const SWIPE_VELOCITY_THRESHOLD = 500;
-const SWIPE_DISTANCE_THRESHOLD = SCREEN_WIDTH * 0.35;
-
 interface FluidTabSwitcherProps<T = any> {
   currentIndex: number;
   tabs: T[];
-  renderTab: (tab: T) => ReactNode;
+  renderTab: (tab: T, width: number) => ReactNode;
   onIndexChange: (newIndex: number) => void;
 }
 
@@ -36,13 +33,22 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
   renderTab,
   onIndexChange,
 }) => {
+  const [containerWidth, setContainerWidth] = useState(SCREEN_WIDTH);
+  
   // Single translateX that controls the entire track position
-  const translateX = useSharedValue(-currentIndex * SCREEN_WIDTH);
+  const translateX = useSharedValue(-currentIndex * containerWidth);
 
-  // Sync translateX when currentIndex changes externally
+  // Sync translateX when currentIndex or containerWidth changes
   useEffect(() => {
-    translateX.value = withSpring(-currentIndex * SCREEN_WIDTH, SPRING_CONFIG);
-  }, [currentIndex]);
+    translateX.value = withSpring(-currentIndex * containerWidth, SPRING_CONFIG);
+  }, [currentIndex, containerWidth]);
+
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width } = event.nativeEvent.layout;
+    if (width && width !== containerWidth) {
+      setContainerWidth(width);
+    }
+  }, [containerWidth]);
 
   const handleIndexChange = useCallback((newIndex: number) => {
     onIndexChange(newIndex);
@@ -53,7 +59,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
     .failOffsetY([-25, 25])
     .onUpdate((event) => {
       'worklet';
-      const basePosition = -currentIndex * SCREEN_WIDTH;
+      const basePosition = -currentIndex * containerWidth;
       const { translationX } = event;
 
       // Apply rubber band at edges
@@ -69,6 +75,9 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
     .onEnd((event) => {
       'worklet';
       const { translationX, velocityX } = event;
+      
+      const SWIPE_VELOCITY_THRESHOLD = 500;
+      const SWIPE_DISTANCE_THRESHOLD = containerWidth * 0.35;
 
       const shouldSwipeLeft =
         currentIndex < tabs.length - 1 &&
@@ -86,7 +95,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
       }
 
       // Animate to target position
-      translateX.value = withSpring(-targetIndex * SCREEN_WIDTH, SPRING_CONFIG, (finished) => {
+      translateX.value = withSpring(-targetIndex * containerWidth, SPRING_CONFIG, (finished) => {
         if (finished && targetIndex !== currentIndex) {
           runOnJS(handleIndexChange)(targetIndex);
         }
@@ -111,7 +120,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
   }, [tabs, currentIndex]);
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={handleLayout}>
       <GestureDetector gesture={panGesture}>
         <Animated.View style={[styles.track, trackStyle]}>
           {tabs.map((tab, index) => {
@@ -119,8 +128,8 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
             const isVisible = visibleTabs.some(v => v.actualIndex === index);
 
             return (
-              <View key={index} style={styles.page}>
-                {isVisible ? renderTab(tab) : null}
+              <View key={index} style={[styles.page, { width: containerWidth }]}>
+                {isVisible ? renderTab(tab, containerWidth) : null}
               </View>
             );
           })}
@@ -140,7 +149,6 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   page: {
-    width: SCREEN_WIDTH,
     height: '100%',
   },
 });

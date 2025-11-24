@@ -54,9 +54,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animate ChatPage to shift left when sidebar hides (stay centered)
-  const chatPageAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25 (shift left by half to center)
+  // Animate content to shift left when sidebar hides (background stays fixed)
+  const contentAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25
   }));
 
   // Store input for each tab separately
@@ -957,8 +957,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       styles.container,
       cardDimensionsAnimatedStyle, // Animated width, height, borderRadius, marginTop, overflow
       cardBorderAnimatedStyle,
-      animatedStyle,
-      chatPageAnimatedStyle
+      animatedStyle
     ]}>
       {/* Premium gradient background */}
       <LinearGradient
@@ -975,7 +974,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <View style={styles.glowTop} />
         <View style={styles.glowBottom} />
       </LinearGradient>
-      
+
+      {/* Content wrapper with animation */}
+      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
       {currentTab?.type === 'file' ? (
         <FileViewer
           visible={true}
@@ -1164,6 +1165,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       </Animated.View>
         </>
       )}
+      </Animated.View>
     </Animated.View>
   );
 };
