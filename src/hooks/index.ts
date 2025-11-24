@@ -8,3 +8,5 @@ export { useContentOffset } from './ui/useContentOffset';
 
 // Business Hooks - Handle business logic and state
 export { useChatState } from './business/useChatState';
+export { useEnvVariables } from './business/useEnvVariables';
+export type { EnvVariable } from './business/useEnvVariables';
