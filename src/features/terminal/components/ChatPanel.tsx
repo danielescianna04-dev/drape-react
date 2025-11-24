@@ -5,6 +5,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { PanelHeader, EmptyState } from '../../../shared/components/organisms';
+import { IconButton } from '../../../shared/components/atoms';
 
 interface Props {
   onClose: () => void;
@@ -157,16 +159,21 @@ export const ChatPanel = ({ onClose }: Props) => {
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="chatbubbles" size={24} color={AppColors.primary} />
-            <Text style={styles.headerTitle}>Conversazioni</Text>
-          </View>
-          <TouchableOpacity onPress={handleNewChat} style={styles.newChatIconButton}>
-            <Ionicons name="add" size={24} color={AppColors.primary} />
-          </TouchableOpacity>
-        </View>
+        <PanelHeader
+          title="Conversazioni"
+          icon="chatbubbles"
+          onClose={handleClose}
+          rightActions={
+            <IconButton
+              iconName="add"
+              size={24}
+              color={AppColors.primary}
+              onPress={handleNewChat}
+              style={styles.newChatButton}
+              accessibilityLabel="Nuova conversazione"
+            />
+          }
+        />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -195,15 +202,11 @@ export const ChatPanel = ({ onClose }: Props) => {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {filteredChats.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="chatbubble-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'Nessuna conversazione trovata' : 'Nessuna conversazione'}
-            </Text>
-            <Text style={styles.emptySubtext}>
-              Inizia una nuova conversazione premendo il pulsante sopra
-            </Text>
-          </View>
+          <EmptyState
+            icon="chatbubble-outline"
+            title={searchQuery ? 'Nessuna conversazione trovata' : 'Nessuna conversazione'}
+            subtitle="Inizia una nuova conversazione premendo il pulsante sopra"
+          />
         ) : (
           <View style={styles.chatList}>
             {filteredChats.map((chat) => (
@@ -328,26 +331,6 @@ const styles = StyleSheet.create({
     width: 250,
     zIndex: 1000,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
   searchContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
@@ -373,36 +356,15 @@ const styles = StyleSheet.create({
   clearSearchButton: {
     padding: 4,
   },
-  newChatIconButton: {
+  newChatButton: {
     width: 36,
     height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
     borderRadius: 18,
     backgroundColor: 'rgba(139, 124, 246, 0.1)',
   },
   content: {
     flex: 1,
     paddingHorizontal: 20,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.4)',
-    textAlign: 'center',
-    paddingHorizontal: 40,
-    lineHeight: 18,
   },
   chatList: {
     gap: 8,

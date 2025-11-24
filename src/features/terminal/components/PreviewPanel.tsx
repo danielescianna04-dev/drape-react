@@ -10,6 +10,7 @@ import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatInput } from '../../../shared/components/ChatInput';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
+import { IconButton } from '../../../shared/components/atoms';
 
 interface Props {
   onClose: () => void;
@@ -521,9 +522,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           <View style={[styles.header, { paddingTop: insets.top }]}>
             <View style={styles.headerContent}>
               <View style={styles.headerLeft}>
-                <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color="#FFFFFF" />
-                </TouchableOpacity>
+                <IconButton
+                  iconName="close"
+                  size={24}
+                  color="#FFFFFF"
+                  onPress={handleClose}
+                  style={styles.closeButton}
+                  accessibilityLabel="Chiudi preview"
+                />
 
                 <View style={styles.titleContainer}>
                   <Text style={styles.headerTitle}>Preview</Text>
@@ -535,25 +541,32 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               </View>
 
               <View style={styles.headerRight}>
-                <TouchableOpacity
+                <IconButton
+                  iconName="arrow-back"
+                  size={20}
+                  color={canGoBack ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"}
                   onPress={handleGoBack}
-                  disabled={!canGoBack}
                   style={[styles.iconButton, !canGoBack && styles.iconButtonDisabled]}
-                >
-                  <Ionicons name="arrow-back" size={20} color={canGoBack ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"} />
-                </TouchableOpacity>
+                  accessibilityLabel="Indietro"
+                />
 
-                <TouchableOpacity
+                <IconButton
+                  iconName="arrow-forward"
+                  size={20}
+                  color={canGoForward ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"}
                   onPress={handleGoForward}
-                  disabled={!canGoForward}
                   style={[styles.iconButton, !canGoForward && styles.iconButtonDisabled]}
-                >
-                  <Ionicons name="arrow-forward" size={20} color={canGoForward ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"} />
-                </TouchableOpacity>
+                  accessibilityLabel="Avanti"
+                />
 
-                <TouchableOpacity onPress={handleRefresh} style={styles.iconButton}>
-                  <Ionicons name="refresh" size={20} color="#FFFFFF" />
-                </TouchableOpacity>
+                <IconButton
+                  iconName="refresh"
+                  size={20}
+                  color="#FFFFFF"
+                  onPress={handleRefresh}
+                  style={styles.iconButton}
+                  accessibilityLabel="Ricarica"
+                />
               </View>
             </View>
           </View>
