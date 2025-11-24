@@ -1,0 +1,10 @@
+/**
+ * Central export point for all custom hooks
+ * Organized by category for better discoverability
+ */
+
+// UI Hooks - Handle user interface concerns
+export { useContentOffset } from './ui/useContentOffset';
+
+// Business Hooks - Handle business logic and state
+export { useChatState } from './business/useChatState';

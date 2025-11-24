@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { View, StyleSheet, Dimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS, interpolate, Easing } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
@@ -15,6 +14,7 @@ import { PreviewPanel } from './PreviewPanel';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { SidebarProvider } from '../context/SidebarContext';
+import { IconButton } from '../../../shared/components/atoms';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | null;
 
@@ -364,33 +364,43 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       <GestureDetector gesture={sidebarSwipeGesture}>
         <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
-          <TouchableOpacity
-            style={[styles.iconButton, activePanel === 'files' && styles.iconButtonActive]}
+          <IconButton
+            iconName="folder"
+            size={24}
+            color="#888"
             onPress={() => togglePanel('files')}
-          >
-            <Ionicons name="folder" size={24} color={activePanel === 'files' ? AppColors.primary : '#888'} />
-          </TouchableOpacity>
+            isActive={activePanel === 'files'}
+            activeColor={AppColors.primary}
+            accessibilityLabel="Files panel"
+          />
 
-          <TouchableOpacity
-            style={[styles.iconButton, activePanel === 'chat' && styles.iconButtonActive]}
+          <IconButton
+            iconName="chatbubbles"
+            size={24}
+            color="#888"
             onPress={() => togglePanel('chat')}
-          >
-            <Ionicons name="chatbubbles" size={24} color={activePanel === 'chat' ? AppColors.primary : '#888'} />
-          </TouchableOpacity>
+            isActive={activePanel === 'chat'}
+            activeColor={AppColors.primary}
+            accessibilityLabel="Chat panel"
+          />
 
-          <TouchableOpacity
-            style={styles.iconButton}
+          <IconButton
+            iconName="terminal"
+            size={24}
+            color="#888"
             onPress={handleTerminalClick}
-          >
-            <Ionicons name="terminal" size={24} color="#888" />
-          </TouchableOpacity>
+            accessibilityLabel="Terminal"
+          />
 
-          <TouchableOpacity
-            style={[styles.iconButton, activePanel === 'preview' && styles.iconButtonActive]}
+          <IconButton
+            iconName="phone-portrait"
+            size={24}
+            color="#888"
             onPress={() => togglePanel('preview')}
-          >
-            <Ionicons name="phone-portrait" size={24} color={activePanel === 'preview' ? AppColors.primary : '#888'} />
-          </TouchableOpacity>
+            isActive={activePanel === 'preview'}
+            activeColor={AppColors.primary}
+            accessibilityLabel="Preview panel"
+          />
 
           <View style={styles.spacer} />
 
@@ -412,19 +422,23 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
           <View style={styles.spacer} />
 
-          <TouchableOpacity
-            style={styles.iconButton}
+          <IconButton
+            iconName="exit-outline"
+            size={24}
+            color="#888"
             onPress={onExit}
-          >
-            <Ionicons name="exit-outline" size={24} color="#888" />
-          </TouchableOpacity>
+            accessibilityLabel="Exit"
+          />
 
-          <TouchableOpacity
-            style={[styles.iconButton, activePanel === 'settings' && styles.iconButtonActive]}
+          <IconButton
+            iconName="settings"
+            size={24}
+            color="#888"
             onPress={() => togglePanel('settings')}
-          >
-            <Ionicons name="settings" size={24} color={activePanel === 'settings' ? AppColors.primary : '#888'} />
-          </TouchableOpacity>
+            isActive={activePanel === 'settings'}
+            activeColor={AppColors.primary}
+            accessibilityLabel="Settings panel"
+          />
         </Animated.View>
       </GestureDetector>
 

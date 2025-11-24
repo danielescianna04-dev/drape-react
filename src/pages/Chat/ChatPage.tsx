@@ -25,6 +25,8 @@ import { BrowserView } from '../../features/terminal/components/views/BrowserVie
 import { PreviewView } from '../../features/terminal/components/views/PreviewView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
+import { useChatState } from '../../hooks/business/useChatState';
+import { useContentOffset } from '../../hooks/ui/useContentOffset';
 
 const colors = AppColors.dark;
 
@@ -36,33 +38,40 @@ interface ChatPageProps {
 }
 
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
-  const [input, setInput] = useState('');
-  const [isTerminalMode, setIsTerminalMode] = useState(true);
-  const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
-  const [selectedModel, setSelectedModel] = useState('gemini-2.0-flash-exp');
-  const [conversationHistory, setConversationHistory] = useState<string[]>([]);
-  const isProcessingToolsRef = useRef(false); // Prevent duplicate tool processing
+  // Use custom hooks for state management and UI concerns
+  const chatState = useChatState(isCardMode);
+  const contentAnimatedStyle = useContentOffset();
+
   const scrollViewRef = useRef<ScrollView>(null);
-  const [scrollPaddingBottom, setScrollPaddingBottom] = useState(300);
-  const widgetHeight = useSharedValue(90); // Track widget height (default ~90px: 40 topControls + 50 mainInputRow)
-  const scaleAnim = useSharedValue(1);
-  const inputPositionAnim = useSharedValue(0);
-  const borderAnim = useSharedValue(0);
-  const hasChatStartedAnim = useSharedValue(0); // 0 = not started, 1 = started
-  const cardModeAnim = useSharedValue(isCardMode ? 1 : 0); // Animate card mode transitions
-  const keyboardHeight = useSharedValue(0); // Track keyboard height
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animate content to shift left when sidebar hides (background stays fixed)
-  const contentAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: sidebarTranslateX.value / 2 }], // Goes from 0 to -25
-  }));
-
-  // Store input for each tab separately
-  const tabInputsRef = useRef<Record<string, string>>({});
-  const previousTabIdRef = useRef<string | undefined>();
-  const previousInputRef = useRef<string>(''); // Track previous input to detect only new chars
+  // Destructure chat state for easier access
+  const {
+    input,
+    setInput,
+    isTerminalMode,
+    setIsTerminalMode,
+    forcedMode,
+    setForcedMode,
+    selectedModel,
+    setSelectedModel,
+    conversationHistory,
+    setConversationHistory,
+    scrollPaddingBottom,
+    setScrollPaddingBottom,
+    isProcessingToolsRef,
+    tabInputsRef,
+    previousTabIdRef,
+    previousInputRef,
+    widgetHeight,
+    scaleAnim,
+    inputPositionAnim,
+    borderAnim,
+    hasChatStartedAnim,
+    cardModeAnim,
+    keyboardHeight,
+  } = chatState;
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
