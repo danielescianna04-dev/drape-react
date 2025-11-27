@@ -1,13 +1,17 @@
 // Google Cloud Run configuration
 const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app';
-const LOCAL_URL = 'http://192.168.1.18:3000';
+
+// Auto-detect local IP from environment (set by scripts/get-local-ip.js)
+const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.1.18';
+const LOCAL_URL = `http://${LOCAL_IP}:3000`;
+const LOCAL_WS_URL = `ws://${LOCAL_IP}:3000`;
 
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production';
 
 export const config = {
   // Backend URLs
   apiUrl: process.env.EXPO_PUBLIC_API_URL || (isProduction ? PRODUCTION_URL : LOCAL_URL),
-  wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_URL.replace('https://', 'wss://') : 'ws://192.168.1.18:3000'),
+  wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_URL.replace('https://', 'wss://') : LOCAL_WS_URL),
   
   // Endpoints
   endpoints: {

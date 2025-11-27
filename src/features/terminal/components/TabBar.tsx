@@ -61,9 +61,8 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
 
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();
-    if (tabs.length === 1) return;
 
-    Animated.timing(scaleAnims[id], {
+    RNAnimated.timing(scaleAnims[id], {
       toValue: 0,
       duration: 200,
       useNativeDriver: true,
@@ -197,14 +196,12 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                 >
                   {tab.title}
                 </Text>
-                {tabs.length > 1 && (
-                  <TouchableOpacity
-                    onPress={(e) => handleRemoveTab(tab.id, e)}
-                    style={styles.closeButton}
-                  >
-                    <Ionicons name="close" size={14} color="#666" />
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  onPress={(e) => handleRemoveTab(tab.id, e)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={14} color="#666" />
+                </TouchableOpacity>
               </TouchableOpacity>
             </RNAnimated.View>
           );

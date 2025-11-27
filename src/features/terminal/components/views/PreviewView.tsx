@@ -51,7 +51,7 @@ export const PreviewView = ({ tab }: Props) => {
             onPress={() => setDevice('mobile')}
             activeOpacity={0.7}
           >
-            <Ionicons name="phone-portrait" size={18} color={device === 'mobile' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'} />
+            <Ionicons name="phone-portrait" size={18} color={device === 'mobile' ? AppColors.primary : '#6E6E73'} />
             <Text style={[styles.deviceButtonText, device === 'mobile' && styles.deviceButtonTextActive]}>Mobile</Text>
           </TouchableOpacity>
 
@@ -60,7 +60,7 @@ export const PreviewView = ({ tab }: Props) => {
             onPress={() => setDevice('tablet')}
             activeOpacity={0.7}
           >
-            <Ionicons name="tablet-portrait" size={18} color={device === 'tablet' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'} />
+            <Ionicons name="tablet-portrait" size={18} color={device === 'tablet' ? AppColors.primary : '#6E6E73'} />
             <Text style={[styles.deviceButtonText, device === 'tablet' && styles.deviceButtonTextActive]}>Tablet</Text>
           </TouchableOpacity>
 
@@ -69,7 +69,7 @@ export const PreviewView = ({ tab }: Props) => {
             onPress={() => setDevice('desktop')}
             activeOpacity={0.7}
           >
-            <Ionicons name="desktop" size={18} color={device === 'desktop' ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'} />
+            <Ionicons name="desktop" size={18} color={device === 'desktop' ? AppColors.primary : '#6E6E73'} />
             <Text style={[styles.deviceButtonText, device === 'desktop' && styles.deviceButtonTextActive]}>Desktop</Text>
           </TouchableOpacity>
         </View>
@@ -80,7 +80,7 @@ export const PreviewView = ({ tab }: Props) => {
             onPress={() => setOrientation(orientation === 'portrait' ? 'landscape' : 'portrait')}
             activeOpacity={0.7}
           >
-            <Ionicons name="phone-portrait" size={18} color="rgba(255, 255, 255, 0.7)" style={{
+            <Ionicons name="phone-portrait" size={18} color="#6E6E73" style={{
               transform: [{ rotate: orientation === 'landscape' ? '90deg' : '0deg' }]
             }} />
           </TouchableOpacity>
@@ -90,15 +90,15 @@ export const PreviewView = ({ tab }: Props) => {
             onPress={() => setShowGrid(!showGrid)}
             activeOpacity={0.7}
           >
-            <Ionicons name="grid-outline" size={18} color="rgba(255, 255, 255, 0.7)" />
+            <Ionicons name="grid-outline" size={18} color="#6E6E73" />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.toolButton} activeOpacity={0.7}>
-            <Ionicons name="refresh" size={18} color="rgba(255, 255, 255, 0.7)" />
+            <Ionicons name="refresh" size={18} color="#6E6E73" />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.toolButton} activeOpacity={0.7}>
-            <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255, 255, 255, 0.7)" />
+            <Ionicons name="ellipsis-horizontal" size={18} color="#6E6E73" />
           </TouchableOpacity>
         </View>
       </View>
@@ -164,7 +164,7 @@ export const PreviewView = ({ tab }: Props) => {
 
           {/* Device Label */}
           <View style={styles.deviceLabel}>
-            <Ionicons name="information-circle" size={14} color="rgba(255, 255, 255, 0.5)" />
+            <Ionicons name="information-circle" size={14} color="#6E6E73" />
             <Text style={styles.deviceLabelText}>
               {device.charAt(0).toUpperCase() + device.slice(1)} • {orientation}
             </Text>
@@ -178,7 +178,7 @@ export const PreviewView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#FFFFFF',
     paddingLeft: 50, // IconBar width
   },
   toolbar: {
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
   deviceSelector: {
     flexDirection: 'row',
@@ -201,9 +201,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: '#F5F5F7',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#E5E5EA',
   },
   deviceButtonActive: {
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
   deviceButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#6E6E73',
   },
   deviceButtonTextActive: {
     color: AppColors.primary,
@@ -225,11 +225,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: '#F5F5F7',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#E5E5EA',
   },
   toolButtonActive: {
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
@@ -241,9 +241,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    backgroundColor: '#F9FAFB',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: '#E5E5EA',
   },
   infoLeft: {
     flexDirection: 'row',
@@ -258,12 +258,12 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#1E1E1F',
   },
   dimensionsText: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#6E6E73',
     fontFamily: 'monospace',
   },
   scrollView: {
@@ -342,14 +342,14 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: '#F5F5F7',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#E5E5EA',
   },
   deviceLabelText: {
     fontSize: 11,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: '#6E6E73',
   },
 });

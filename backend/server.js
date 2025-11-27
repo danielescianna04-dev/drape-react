@@ -3,7 +3,31 @@ const cors = require('cors');
 const axios = require('axios');
 const http = require('http');
 const WebSocket = require('ws');
+const os = require('os');
 require('dotenv').config();
+
+// Auto-detect local network IP
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        if (iface.address.startsWith('192.168') || iface.address.startsWith('10.') || iface.address.startsWith('172.')) {
+          return iface.address;
+        }
+      }
+    }
+  }
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+const LOCAL_IP = getLocalIP();
 const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const admin = require('firebase-admin');
@@ -3522,14 +3546,21 @@ wss.on('connection', (ws) => {
 
 // Start server with WebSocket support
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Drape Backend running on port ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
-  console.log(`🌐 Network access: http://YOUR_IP:${PORT}/health`);
-  console.log(`🔌 WebSocket endpoint: ws://YOUR_IP:${PORT}/ws`);
-  console.log(`☁️  Connected to Google Cloud Project: ${PROJECT_ID}`);
-  console.log(`🌍 Location: ${LOCATION}`);
-  console.log(`🖥️  Workstation Management: ENABLED`);
-  console.log(`👁️  Preview URL Detection: ENABLED`);
+  console.log('');
+  console.log('='.repeat(55));
+  console.log('  🚀 Drape Backend Started');
+  console.log('='.repeat(55));
+  console.log(`  📍 Local IP:     ${LOCAL_IP}`);
+  console.log(`  🔌 Port:         ${PORT}`);
+  console.log('');
+  console.log(`  🌐 API URL:      http://${LOCAL_IP}:${PORT}`);
+  console.log(`  🔗 Health:       http://${LOCAL_IP}:${PORT}/health`);
+  console.log(`  📡 WebSocket:    ws://${LOCAL_IP}:${PORT}/ws`);
+  console.log('');
+  console.log(`  ☁️  GCP Project:  ${PROJECT_ID}`);
+  console.log(`  🌍 Region:       ${LOCATION}`);
+  console.log('='.repeat(55));
+  console.log('');
 });
 
 // Get project files from workstation
