@@ -97,23 +97,34 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
       const newTranslation = startY.value + event.translationY;
       const maxScroll = (icons.length - 1) * ICON_SIZE;
 
+      // Smoother rubber band effect at edges
       if (newTranslation > 0) {
-        translateY.value = newTranslation * 0.2;
+        translateY.value = newTranslation * 0.3;
       } else if (Math.abs(newTranslation) > maxScroll) {
         const overflow = Math.abs(newTranslation) - maxScroll;
-        translateY.value = -(maxScroll + overflow * 0.2);
+        translateY.value = -(maxScroll + overflow * 0.3);
       } else {
         translateY.value = newTranslation;
       }
     })
-    .onEnd(() => {
+    .onEnd((event) => {
+      const velocity = event.velocityY;
       let targetIndex = Math.round(Math.abs(translateY.value) / ICON_SIZE);
+
+      // Consider velocity for smoother flick gestures
+      if (Math.abs(velocity) > 500) {
+        const velocityBoost = velocity > 0 ? -1 : 1;
+        targetIndex = Math.round((Math.abs(translateY.value) + velocityBoost * ICON_SIZE * 0.5) / ICON_SIZE);
+      }
+
       targetIndex = Math.max(0, Math.min(icons.length - 1, targetIndex));
 
       const targetY = -targetIndex * ICON_SIZE;
       translateY.value = withSpring(targetY, {
-        damping: 20,
-        stiffness: 150,
+        damping: 18,
+        stiffness: 180,
+        mass: 0.8,
+        velocity: velocity,
       });
 
       if (targetIndex !== activeIndex) {

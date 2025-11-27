@@ -213,6 +213,9 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        bounces={true}
+        scrollEventThrottle={16}
+        alwaysBounceVertical={true}
       >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>

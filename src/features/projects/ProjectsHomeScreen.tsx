@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
@@ -16,9 +16,26 @@ interface Props {
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject }: Props) => {
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadRecentProjects();
+
+    // Shimmer animation for skeleton
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0,
+          duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
   }, []);
 
   const loadRecentProjects = async () => {
@@ -63,6 +80,28 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
+  const shimmerOpacity = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.6],
+  });
+
+  const SkeletonCard = () => (
+    <View style={styles.skeletonCard}>
+      <LinearGradient
+        colors={['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.01)']}
+        style={styles.skeletonGradient}
+      >
+        <View style={styles.skeletonContent}>
+          <Animated.View style={[styles.skeletonIcon, { opacity: shimmerOpacity }]} />
+          <View style={styles.skeletonInfo}>
+            <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
+            <Animated.View style={[styles.skeletonSubtitle, { opacity: shimmerOpacity }]} />
+          </View>
+        </View>
+      </LinearGradient>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       {/* Animated gradient background */}
@@ -81,7 +120,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         <View style={styles.headerLeft}>
           <Text style={styles.logo}>drape</Text>
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>AI IDE</Text>
+            <Text style={styles.badgeText}>IDE</Text>
           </View>
         </View>
         <TouchableOpacity style={styles.avatarButton} activeOpacity={0.8}>
@@ -125,24 +164,36 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       </View>
 
       {/* Projects section */}
-      {recentProjects.length > 0 && (
-        <View style={styles.projectsContainer}>
-          <View style={styles.projectsHeader}>
-            <Text style={styles.projectsTitle}>Recent</Text>
+      <View style={styles.projectsContainer}>
+        <View style={styles.projectsHeader}>
+          <Text style={styles.projectsTitle}>Recent</Text>
+          {!loading && recentProjects.length > 0 && (
             <TouchableOpacity onPress={onMyProjects} style={styles.viewAllButton} activeOpacity={0.8}>
               <Text style={styles.viewAllText}>View all</Text>
               <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.5)" />
             </TouchableOpacity>
-          </View>
+          )}
+        </View>
 
-          {/* Only projects grid scrolls */}
-          <ScrollView
-            style={styles.projectsScrollView}
-            contentContainerStyle={styles.projectsScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.projectsGrid}>
-              {recentProjects.map((project) => (
+        {/* Only projects grid scrolls */}
+        <ScrollView
+          style={styles.projectsScrollView}
+          contentContainerStyle={styles.projectsScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.projectsGrid}>
+            {loading ? (
+              // Skeleton loading state
+              <>
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+              </>
+            ) : recentProjects.length > 0 ? (
+              // Actual projects
+              recentProjects.map((project) => (
                 <TouchableOpacity
                   key={project.id}
                   style={styles.projectCard}
@@ -177,11 +228,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     </View>
                   </LinearGradient>
                 </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
-      )}
+              ))
+            ) : (
+              // Empty state
+              <View style={styles.emptyState}>
+                <Ionicons name="folder-outline" size={48} color="rgba(255, 255, 255, 0.2)" />
+                <Text style={styles.emptyText}>No projects yet</Text>
+                <Text style={styles.emptySubtext}>Create your first project to get started</Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </View>
     </View>
   );
 };
@@ -396,5 +454,62 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.35)',
+  },
+  // Skeleton loading
+  skeletonCard: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  skeletonGradient: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+  },
+  skeletonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  skeletonIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  skeletonInfo: {
+    flex: 1,
+  },
+  skeletonTitle: {
+    width: '60%',
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 6,
+  },
+  skeletonSubtitle: {
+    width: '40%',
+    height: 10,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  // Empty state
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.3)',
+    marginTop: 6,
   },
 });

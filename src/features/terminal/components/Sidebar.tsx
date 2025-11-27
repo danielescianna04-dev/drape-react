@@ -7,7 +7,9 @@ import {
   TouchableOpacity,
   TextInput,
   Animated,
-  Modal,} from 'react-native';
+  Modal,
+  PanResponder,
+} from 'react-native';
 import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -45,7 +47,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
   const slideAnim = useRef(new Animated.Value(-300)).current;
-  
+  const panX = useRef(new Animated.Value(0)).current;
+
   const { addTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
   const {
@@ -67,6 +70,44 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     userId,
     currentWorkstation,
   } = useTerminalStore();
+
+  // PanResponder for swipe to close
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to left swipe (negative dx), more sensitive
+        return gestureState.dx < -5 && Math.abs(gestureState.dy) < 100;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow swipe left (close direction)
+        if (gestureState.dx < 0) {
+          panX.setValue(gestureState.dx);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // If swiped more than 50px left or fast swipe, close sidebar
+        const swipeSpeed = Math.abs(gestureState.vx);
+        if (gestureState.dx < -50 || (gestureState.dx < -20 && swipeSpeed > 0.5)) {
+          Animated.timing(panX, {
+            toValue: -300,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            panX.setValue(0);
+            onClose();
+          });
+        } else {
+          // Snap back to original position
+          Animated.spring(panX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 10,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     Animated.spring(slideAnim, {
@@ -194,12 +235,22 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         onPress={handleClose}
       />
 
-      <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
+      <Animated.View
+        style={[
+          styles.container,
+          {
+            transform: [
+              { translateX: slideAnim },
+              { translateX: panX }
+            ]
+          }
+        ]}
+      >
       <LinearGradient
         colors={['#0a0a0a', '#000000']}
         style={StyleSheet.absoluteFill}
       />
-      <View style={styles.header}>
+      <View style={styles.header} {...panResponder.panHandlers}>
         <View style={styles.logoContainer}>
           <View style={styles.logoIconContainer}>
             <Ionicons name="cube" size={20} color={AppColors.primary} />
@@ -216,7 +267,14 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ flexGrow: 1 }}
+        nestedScrollEnabled={true}
+      >
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
             <FileExplorer

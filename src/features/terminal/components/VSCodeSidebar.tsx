@@ -294,29 +294,30 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarSwipeGesture = Gesture.Pan()
     .onUpdate((event) => {
       'worklet';
-      // Only allow swipe left (negative translation)
-      if (event.translationX < 0) {
+      // Only allow swipe left (negative translation) when horizontal movement is dominant
+      if (event.translationX < 0 && Math.abs(event.translationX) > Math.abs(event.translationY)) {
         sidebarTranslateX.value = Math.max(event.translationX, -50);
       }
     })
     .onEnd((event) => {
       'worklet';
-      // Swipe left to hide - require more intentional swipe to prevent accidents
-      if (event.translationX < -35 || event.velocityX < -800) {
+      // Swipe left to hide - balanced thresholds to avoid conflict with vertical scroll
+      if (event.translationX < -25 || event.velocityX < -400) {
         sidebarTranslateX.value = withTiming(-50, {
-          duration: 250,
+          duration: 200,
           easing: Easing.out(Easing.cubic),
         });
         runOnJS(setIsSidebarHidden)(true);
       } else {
-        // Snap back if not swiped enough
+        // Snap back if not swiped enough - no bounce
         sidebarTranslateX.value = withTiming(0, {
-          duration: 250,
+          duration: 150,
           easing: Easing.out(Easing.cubic),
         });
       }
     })
-    .activeOffsetX([-10, 1000]); // Require more intentional swipe to prevent accidents
+    .activeOffsetX([-10, 1000]) // Require more horizontal movement before activating
+    .activeOffsetY([-50, 50]); // Block if too much vertical movement (let vertical scroll handle it)
 
   // Swipe gesture from left edge to show sidebar
   const edgeSwipeGesture = Gesture.Pan()
@@ -479,6 +480,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               children={children}
               animatedStyle={{}}
               onPinchOut={() => togglePanel('multitasking')}
+              swipeEnabled={activePanel === null}
             />
           </Animated.View>
         )}
@@ -567,21 +569,16 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 40,
+    width: 60,
     zIndex: 1002,
     justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingRight: 5,
+    alignItems: 'flex-start',
+    paddingLeft: 4,
   },
   edgeIndicator: {
-    width: 6,
-    height: 60,
-    backgroundColor: 'rgba(139, 124, 246, 0.6)',
-    borderRadius: 3,
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 5,
+    width: 3,
+    height: 50,
+    backgroundColor: 'rgba(139, 124, 246, 0.4)',
+    borderRadius: 1.5,
   },
 });

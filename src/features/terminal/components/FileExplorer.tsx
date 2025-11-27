@@ -307,7 +307,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
       }, {} as Record<string, typeof searchResults>);
 
       return (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          scrollEventThrottle={16}
+          nestedScrollEnabled={true}
+        >
           <Text style={styles.resultsCount}>
             {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} in {Object.keys(resultsByFile).length} file{Object.keys(resultsByFile).length !== 1 ? 's' : ''}
           </Text>
@@ -365,7 +371,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
 
     // Name search - show as before
     return (
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        scrollEventThrottle={16}
+        nestedScrollEnabled={true}
+      >
         {fileTree.map(node => renderNode(node, 0))}
       </ScrollView>
     );

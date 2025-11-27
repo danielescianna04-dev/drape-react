@@ -25,6 +25,7 @@ interface FluidTabSwitcherProps<T = any> {
   tabs: T[];
   renderTab: (tab: T, width: number) => ReactNode;
   onIndexChange: (newIndex: number) => void;
+  swipeEnabled?: boolean;
 }
 
 export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
@@ -32,6 +33,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
   tabs,
   renderTab,
   onIndexChange,
+  swipeEnabled = true,
 }) => {
   const [containerWidth, setContainerWidth] = useState(SCREEN_WIDTH);
   
@@ -57,6 +59,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
   const panGesture = Gesture.Pan()
     .activeOffsetX([-10, 10])
     .failOffsetY([-25, 25])
+    .enabled(swipeEnabled)
     .onUpdate((event) => {
       'worklet';
       const basePosition = -currentIndex * containerWidth;
@@ -75,7 +78,7 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
     .onEnd((event) => {
       'worklet';
       const { translationX, velocityX } = event;
-      
+
       const SWIPE_VELOCITY_THRESHOLD = 500;
       const SWIPE_DISTANCE_THRESHOLD = containerWidth * 0.35;
 

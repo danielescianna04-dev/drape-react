@@ -88,13 +88,6 @@ export const workstationService = {
         lastAccessed: doc.data().lastAccessed?.toDate() || new Date(),
       })) as UserProject[];
 
-      console.log('📦 Projects loaded from Firebase:', projects.map(p => ({
-        name: p.name,
-        type: p.type,
-        hasRepositoryUrl: !!p.repositoryUrl,
-        repositoryUrl: p.repositoryUrl
-      })));
-
       return projects;
     } catch (error) {
       console.error('Error getting user projects:', error);

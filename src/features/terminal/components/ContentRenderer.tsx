@@ -11,9 +11,10 @@ interface ContentRendererProps {
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
   animatedStyle: any;
   onPinchOut?: () => void;
+  swipeEnabled?: boolean;
 }
 
-export const ContentRenderer = ({ children, animatedStyle, onPinchOut }: ContentRendererProps) => {
+export const ContentRenderer = ({ children, animatedStyle, onPinchOut, swipeEnabled = true }: ContentRendererProps) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
 
   // Find current tab index
@@ -46,6 +47,7 @@ export const ContentRenderer = ({ children, animatedStyle, onPinchOut }: Content
           tabs={tabs}
           renderTab={(tab, width) => children(tab, false, { width, height: SCREEN_HEIGHT })}
           onIndexChange={handleIndexChange}
+          swipeEnabled={swipeEnabled}
         />
       </Animated.View>
     </GestureDetector>
