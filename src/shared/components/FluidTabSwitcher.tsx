@@ -146,6 +146,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
+    backgroundColor: '#0a0a0a',
   },
   track: {
     flexDirection: 'row',
@@ -153,5 +154,6 @@ const styles = StyleSheet.create({
   },
   page: {
     height: '100%',
+    backgroundColor: '#0a0a0a',
   },
 });
