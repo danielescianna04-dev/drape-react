@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import * as DocumentPicker from 'expo-document-picker';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
@@ -13,7 +14,7 @@ interface Props {
   onOpenProject: (workstation: any) => void;
 }
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject }: Props) => {
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
@@ -23,6 +24,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const actionSheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     loadRecentProjects();
@@ -38,6 +41,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         Animated.timing(shimmerAnim, {
           toValue: 0,
           duration: 1200,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Pulse animation for FAB
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.05,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 2000,
           useNativeDriver: true,
         }),
       ])
@@ -63,10 +82,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const diff = now.getTime() - new Date(date).getTime();
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days > 0) return `${days}d ago`;
-    if (hours > 0) return `${hours}h ago`;
-    return 'now';
+
+    if (days > 0) return `${days}g fa`;
+    if (hours > 0) return `${hours}h fa`;
+    return 'ora';
   };
 
   const handleBrowseFiles = async () => {
@@ -79,11 +98,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
-        Alert.alert('File Selected', `${file.name}\nSize: ${(file.size || 0) / 1024} KB`);
+        Alert.alert('File Selezionato', `${file.name}\nDimensione: ${((file.size || 0) / 1024).toFixed(1)} KB`);
       }
     } catch (error) {
       console.error('Error picking document:', error);
-      Alert.alert('Error', 'Failed to open file picker');
+      Alert.alert('Errore', 'Impossibile aprire il file picker');
     }
   };
 
@@ -107,12 +126,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     });
   };
 
-  const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-
   const handleOpenMenu = (project: any) => {
     setSelectedProject(project);
     setMenuVisible(true);
-    // Animate sheet up
     Animated.spring(sheetAnim, {
       toValue: 0,
       useNativeDriver: true,
@@ -122,7 +138,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   };
 
   const handleCloseMenu = () => {
-    // Animate sheet down
     Animated.timing(sheetAnim, {
       toValue: SCREEN_HEIGHT,
       duration: 250,
@@ -136,65 +151,27 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const handleDeleteProject = async () => {
     if (!selectedProject) return;
 
-    handleCloseMenu();
-
-    setTimeout(() => {
-      Alert.alert(
-        'Delete Project',
-        `Are you sure you want to delete "${selectedProject.name}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await workstationService.deleteWorkstation(selectedProject.id);
-                setRecentProjects(prev => prev.filter(p => p.id !== selectedProject.id));
-              } catch (error) {
-                console.error('Error deleting project:', error);
-                Alert.alert('Error', 'Failed to delete project');
-              }
+    Alert.alert(
+      'Elimina Progetto',
+      `Sei sicuro di voler eliminare "${selectedProject.name}"?`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await workstationService.deleteWorkstation(selectedProject.id);
+              handleCloseMenu();
+              loadRecentProjects();
+            } catch (error) {
+              console.error('Error deleting project:', error);
+              Alert.alert('Errore', 'Impossibile eliminare il progetto');
             }
-          }
-        ]
-      );
-    }, 300);
-  };
-
-  const handleRenameProject = () => {
-    if (!selectedProject) return;
-    const projectToRename = selectedProject;
-
-    handleCloseMenu();
-
-    setTimeout(() => {
-      Alert.prompt(
-        'Rename Project',
-        'Enter a new name:',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Rename',
-            onPress: async (newName) => {
-              if (newName && newName.trim()) {
-                try {
-                  // TODO: Implement rename in workstationService
-                  setRecentProjects(prev =>
-                    prev.map(p => p.id === projectToRename.id ? { ...p, name: newName.trim() } : p)
-                  );
-                } catch (error) {
-                  console.error('Error renaming project:', error);
-                  Alert.alert('Error', 'Failed to rename project');
-                }
-              }
-            }
-          }
-        ],
-        'plain-text',
-        projectToRename.name
-      );
-    }, 300);
+          },
+        },
+      ]
+    );
   };
 
   const shimmerOpacity = shimmerAnim.interpolate({
@@ -205,42 +182,97 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const SkeletonItem = () => (
     <View style={styles.skeletonItem}>
       <Animated.View style={[styles.skeletonIcon, { opacity: shimmerOpacity }]} />
-      <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
-      <Animated.View style={[styles.skeletonSubtitle, { opacity: shimmerOpacity }]} />
+      <View style={styles.skeletonContent}>
+        <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
+        <Animated.View style={[styles.skeletonSubtitle, { opacity: shimmerOpacity }]} />
+      </View>
     </View>
   );
 
+  const getLanguageIcon = (language: string) => {
+    const lang = language?.toLowerCase() || '';
+    if (lang.includes('react') || lang.includes('javascript')) return 'logo-react';
+    if (lang.includes('python')) return 'logo-python';
+    if (lang.includes('node')) return 'logo-nodejs';
+    if (lang.includes('swift') || lang.includes('ios')) return 'logo-apple';
+    if (lang.includes('android') || lang.includes('kotlin')) return 'logo-android';
+    if (lang.includes('html') || lang.includes('css')) return 'logo-html5';
+    return 'folder';
+  };
+
+  const getLanguageColor = (language: string) => {
+    const lang = language?.toLowerCase() || '';
+    if (lang.includes('react')) return '#61DAFB';
+    if (lang.includes('javascript')) return '#F7DF1E';
+    if (lang.includes('typescript')) return '#3178C6';
+    if (lang.includes('python')) return '#3776AB';
+    if (lang.includes('node')) return '#68A063';
+    if (lang.includes('swift')) return '#FA7343';
+    if (lang.includes('kotlin')) return '#7F52FF';
+    return AppColors.primary;
+  };
+
   return (
     <View style={styles.container}>
-      {/* Animated gradient background */}
+      {/* Background */}
       <LinearGradient
-        colors={['#000000', '#0a0510', '#050208', '#000000']}
-        locations={[0, 0.3, 0.7, 1]}
+        colors={['#0A0A0F', '#0D0B14', '#0A0A0F']}
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Glow effects */}
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
+      {/* Decorative orbs */}
+      <View style={styles.orbPurple} />
+      <View style={styles.orbBlue} />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarButton} activeOpacity={0.7}>
-          <Ionicons name="person" size={18} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.addButton}
-          activeOpacity={0.8}
-          onPress={handleOpenActionMenu}
-        >
-          <Ionicons name="add" size={22} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity style={styles.avatarButton} activeOpacity={0.7}>
+            <LinearGradient
+              colors={['rgba(139, 92, 246, 0.3)', 'rgba(139, 92, 246, 0.1)']}
+              style={styles.avatarGradient}
+            >
+              <Ionicons name="person" size={18} color="#A78BFA" />
+            </LinearGradient>
+          </TouchableOpacity>
+          <View style={styles.welcomeText}>
+            <Text style={styles.greeting}>Bentornato</Text>
+            <Text style={styles.subtitle}>I tuoi progetti</Text>
+          </View>
+        </View>
+
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={styles.addButton}
+            activeOpacity={0.8}
+            onPress={handleOpenActionMenu}
+          >
+            <LinearGradient
+              colors={[AppColors.primary, '#9333EA']}
+              style={styles.addButtonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Ionicons name="add" size={24} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {/* Projects section */}
       <View style={styles.projectsContainer}>
-        <View style={styles.projectsHeader}>
-          <Text style={styles.projectsTitle}>Your Projects</Text>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionIcon}>
+              <Ionicons name="time-outline" size={14} color={AppColors.primary} />
+            </View>
+            <Text style={styles.sectionTitle}>Recenti</Text>
+          </View>
+          {recentProjects.length > 0 && (
+            <TouchableOpacity onPress={onMyProjects} activeOpacity={0.7}>
+              <Text style={styles.seeAllText}>Vedi tutti</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         <ScrollView
@@ -249,148 +281,188 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           showsVerticalScrollIndicator={false}
         >
           {loading ? (
-            // Skeleton loading state - simple list
             <>
-              <SkeletonItem />
               <SkeletonItem />
               <SkeletonItem />
               <SkeletonItem />
             </>
           ) : recentProjects.length > 0 ? (
-            // Project cards
             <>
-              {recentProjects.map((project) => (
-                <TouchableOpacity
-                  key={project.id}
-                  style={styles.projectCard}
-                  activeOpacity={0.7}
-                  onPress={() => onOpenProject(project)}
-                  onLongPress={() => handleOpenMenu(project)}
-                  delayLongPress={400}
-                >
-                  <View style={styles.projectCardHeader}>
-                    <View style={styles.projectIcon}>
-                      <Ionicons name="folder" size={20} color={AppColors.primary} />
-                    </View>
-                    <TouchableOpacity
-                      style={styles.projectMenuBtn}
-                      onPress={() => handleOpenMenu(project)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              {recentProjects.map((project, index) => {
+                const langColor = getLanguageColor(project.language);
+                return (
+                  <TouchableOpacity
+                    key={project.id}
+                    style={styles.projectCard}
+                    activeOpacity={0.7}
+                    onPress={() => onOpenProject(project)}
+                    onLongPress={() => handleOpenMenu(project)}
+                    delayLongPress={400}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.04)', 'rgba(255,255,255,0.01)']}
+                      style={styles.projectCardGradient}
                     >
-                      <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255, 255, 255, 0.4)" />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
-                  <Text style={styles.projectMeta}>
-                    {project.language || 'Project'} • {getTimeAgo(project.createdAt)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                      <View style={styles.projectCardContent}>
+                        <View style={[styles.projectIcon, { backgroundColor: `${langColor}15` }]}>
+                          <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor} />
+                        </View>
+                        <View style={styles.projectInfo}>
+                          <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
+                          <View style={styles.projectMetaRow}>
+                            <View style={[styles.languageBadge, { backgroundColor: `${langColor}15` }]}>
+                              <Text style={[styles.languageText, { color: langColor }]}>
+                                {project.language || 'Progetto'}
+                              </Text>
+                            </View>
+                            <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.projectMenuBtn}
+                          onPress={() => handleOpenMenu(project)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons name="ellipsis-vertical" size={16} color="rgba(255,255,255,0.4)" />
+                        </TouchableOpacity>
+                      </View>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                );
+              })}
 
-              {/* View All Projects Button */}
+              {/* View All Button */}
               <TouchableOpacity
-                style={styles.viewAllProjectsButton}
+                style={styles.viewAllButton}
                 activeOpacity={0.7}
                 onPress={onMyProjects}
               >
-                <View style={styles.viewAllProjectsContent}>
+                <LinearGradient
+                  colors={['rgba(139, 92, 246, 0.12)', 'rgba(139, 92, 246, 0.06)']}
+                  style={styles.viewAllGradient}
+                >
                   <Ionicons name="grid-outline" size={18} color={AppColors.primary} />
-                  <Text style={styles.viewAllProjectsText}>View all projects</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255, 255, 255, 0.3)" />
+                  <Text style={styles.viewAllText}>Visualizza tutti i progetti</Text>
+                  <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+                </LinearGradient>
               </TouchableOpacity>
             </>
           ) : (
-            // Empty state
             <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <Ionicons name="folder-open-outline" size={40} color="rgba(255, 255, 255, 0.15)" />
-              </View>
-              <Text style={styles.emptyText}>No projects yet</Text>
-              <Text style={styles.emptySubtext}>Tap + to create your first project</Text>
+              <LinearGradient
+                colors={['rgba(139, 92, 246, 0.1)', 'rgba(139, 92, 246, 0.02)']}
+                style={styles.emptyIconContainer}
+              >
+                <Ionicons name="folder-open-outline" size={48} color="rgba(167, 139, 250, 0.5)" />
+              </LinearGradient>
+              <Text style={styles.emptyTitle}>Nessun progetto</Text>
+              <Text style={styles.emptySubtitle}>Tocca + per creare il tuo primo progetto</Text>
+
+              <TouchableOpacity
+                style={styles.emptyButton}
+                activeOpacity={0.8}
+                onPress={handleOpenActionMenu}
+              >
+                <LinearGradient
+                  colors={[AppColors.primary, '#9333EA']}
+                  style={styles.emptyButtonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  <Ionicons name="add" size={20} color="#fff" />
+                  <Text style={styles.emptyButtonText}>Crea progetto</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           )}
         </ScrollView>
       </View>
 
-      {/* Bottom Action Sheet */}
+      {/* Project Menu Bottom Sheet */}
       {menuVisible && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Backdrop */}
           <Pressable
             style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
             onPress={handleCloseMenu}
           />
-
-          {/* Sheet container */}
           <Animated.View
             style={[
               styles.sheetContainer,
               { transform: [{ translateY: sheetAnim }] }
             ]}
           >
-            {/* Handle bar */}
             <View style={styles.sheetHandle}>
               <View style={styles.sheetHandleBar} />
             </View>
 
-            {/* Project name header */}
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetProjectIcon}>
-                <Ionicons name="folder" size={20} color={AppColors.primary} />
-              </View>
-              <Text style={styles.sheetTitle} numberOfLines={1}>
-                {selectedProject?.name}
-              </Text>
-            </View>
-
-            {/* Actions */}
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                style={styles.sheetItem}
-                activeOpacity={0.6}
-                onPress={() => {
-                  const project = selectedProject;
-                  handleCloseMenu();
-                  setTimeout(() => project && onOpenProject(project), 250);
-                }}
-              >
-                <View style={styles.sheetItemIcon}>
-                  <Ionicons name="open-outline" size={22} color="#fff" />
+            {selectedProject && (
+              <>
+                <View style={styles.sheetHeader}>
+                  <View style={[styles.sheetProjectIcon, { backgroundColor: `${getLanguageColor(selectedProject.language)}15` }]}>
+                    <Ionicons
+                      name={getLanguageIcon(selectedProject.language) as any}
+                      size={20}
+                      color={getLanguageColor(selectedProject.language)}
+                    />
+                  </View>
+                  <View style={styles.sheetProjectInfo}>
+                    <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
+                    <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
+                  </View>
                 </View>
-                <Text style={styles.sheetItemText}>Open</Text>
-              </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.6} onPress={handleRenameProject}>
-                <View style={styles.sheetItemIcon}>
-                  <Ionicons name="pencil-outline" size={22} color="#fff" />
+                <View style={styles.sheetActions}>
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                    handleCloseMenu();
+                    setTimeout(() => onOpenProject(selectedProject), 300);
+                  }}>
+                    <View style={styles.sheetActionIcon}>
+                      <Ionicons name="open-outline" size={20} color="#fff" />
+                    </View>
+                    <Text style={styles.sheetActionText}>Apri</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                    <View style={styles.sheetActionIcon}>
+                      <Ionicons name="copy-outline" size={20} color="#fff" />
+                    </View>
+                    <Text style={styles.sheetActionText}>Duplica</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                    <View style={styles.sheetActionIcon}>
+                      <Ionicons name="share-outline" size={20} color="#fff" />
+                    </View>
+                    <Text style={styles.sheetActionText}>Condividi</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                    <View style={styles.sheetActionIcon}>
+                      <Ionicons name="create-outline" size={20} color="#fff" />
+                    </View>
+                    <Text style={styles.sheetActionText}>Rinomina</Text>
+                  </TouchableOpacity>
                 </View>
-                <Text style={styles.sheetItemText}>Rename</Text>
-              </TouchableOpacity>
 
-              <TouchableOpacity style={styles.sheetItem} activeOpacity={0.6}>
-                <View style={styles.sheetItemIcon}>
-                  <Ionicons name="copy-outline" size={22} color="#fff" />
-                </View>
-                <Text style={styles.sheetItemText}>Duplicate</Text>
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={styles.sheetDeleteButton}
+                  activeOpacity={0.7}
+                  onPress={handleDeleteProject}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                  <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                </TouchableOpacity>
+              </>
+            )}
 
-            {/* Delete action (separate) */}
-            <TouchableOpacity style={styles.sheetDeleteButton} activeOpacity={0.6} onPress={handleDeleteProject}>
-              <Ionicons name="trash-outline" size={20} color="#FF6B6B" />
-              <Text style={styles.sheetDeleteText}>Delete Project</Text>
-            </TouchableOpacity>
-
-            {/* Cancel button */}
             <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
-              <Text style={styles.sheetCancelText}>Cancel</Text>
+              <Text style={styles.sheetCancelText}>Annulla</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
       )}
 
-      {/* Action Menu (FAB) Bottom Sheet */}
+      {/* Action Menu Bottom Sheet */}
       {actionMenuVisible && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <Pressable
@@ -407,7 +479,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <View style={styles.sheetHandleBar} />
             </View>
 
-            <Text style={styles.actionSheetTitle}>Create</Text>
+            <Text style={styles.actionSheetTitle}>Crea nuovo</Text>
 
             <TouchableOpacity
               style={styles.actionSheetItem}
@@ -417,13 +489,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 setTimeout(onCreateProject, 250);
               }}
             >
-              <View style={[styles.actionSheetIcon, { backgroundColor: 'rgba(139, 124, 246, 0.15)' }]}>
-                <Ionicons name="add-circle" size={24} color={AppColors.primary} />
-              </View>
+              <LinearGradient
+                colors={[`${AppColors.primary}20`, `${AppColors.primary}08`]}
+                style={styles.actionSheetIconGradient}
+              >
+                <Ionicons name="add-circle" size={26} color={AppColors.primary} />
+              </LinearGradient>
               <View style={styles.actionSheetItemInfo}>
-                <Text style={styles.actionSheetItemTitle}>New Project</Text>
-                <Text style={styles.actionSheetItemSubtitle}>Start from scratch</Text>
+                <Text style={styles.actionSheetItemTitle}>Nuovo Progetto</Text>
+                <Text style={styles.actionSheetItemSubtitle}>Inizia da zero</Text>
               </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -434,13 +510,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 setTimeout(onImportProject, 250);
               }}
             >
-              <View style={[styles.actionSheetIcon, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
-                <Ionicons name="logo-github" size={24} color="#fff" />
+              <View style={[styles.actionSheetIconGradient, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
+                <Ionicons name="logo-github" size={26} color="#fff" />
               </View>
               <View style={styles.actionSheetItemInfo}>
-                <Text style={styles.actionSheetItemTitle}>Import from GitHub</Text>
-                <Text style={styles.actionSheetItemSubtitle}>Clone a repository</Text>
+                <Text style={styles.actionSheetItemTitle}>Importa da GitHub</Text>
+                <Text style={styles.actionSheetItemSubtitle}>Clona una repository</Text>
               </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -448,17 +525,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               activeOpacity={0.7}
               onPress={handleBrowseFiles}
             >
-              <View style={[styles.actionSheetIcon, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}>
-                <Ionicons name="folder-open" size={24} color="#fff" />
+              <View style={[styles.actionSheetIconGradient, { backgroundColor: 'rgba(255,255,255,0.06)' }]}>
+                <Ionicons name="document-outline" size={26} color="#fff" />
               </View>
               <View style={styles.actionSheetItemInfo}>
-                <Text style={styles.actionSheetItemTitle}>Browse Files</Text>
-                <Text style={styles.actionSheetItemSubtitle}>Open from device</Text>
+                <Text style={styles.actionSheetItemTitle}>Apri File</Text>
+                <Text style={styles.actionSheetItemSubtitle}>Sfoglia dal dispositivo</Text>
               </View>
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseActionMenu}>
-              <Text style={styles.sheetCancelText}>Cancel</Text>
+              <Text style={styles.sheetCancelText}>Annulla</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -470,26 +548,26 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#0A0A0F',
   },
-  glowTop: {
+  // Decorative orbs
+  orbPurple: {
     position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: 'rgba(139, 124, 246, 0.05)',
-    opacity: 0.3,
+    top: -100,
+    right: -80,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
   },
-  glowBottom: {
+  orbBlue: {
     position: 'absolute',
-    bottom: -100,
-    right: -150,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(107, 93, 214, 0.03)',
-    opacity: 0.2,
+    bottom: 100,
+    left: -120,
+    width: 350,
+    height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(59, 130, 246, 0.04)',
   },
   // Header
   header: {
@@ -497,24 +575,48 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 56,
-    marginBottom: 24,
+    paddingTop: 60,
+    paddingBottom: 20,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   avatarButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  avatarGradient: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(167, 139, 250, 0.2)',
+  },
+  welcomeText: {
+    gap: 2,
+  },
+  greeting: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  subtitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
   },
   addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: AppColors.primary,
+    borderRadius: 24,
+    overflow: 'hidden',
+  },
+  addButtonGradient: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -523,18 +625,36 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
-  projectsHeader: {
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  projectsTitle: {
-    fontSize: 13,
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionTitle: {
+    fontSize: 14,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: 'rgba(255,255,255,0.6)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+  },
+  seeAllText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppColors.primary,
   },
   projectsScrollView: {
     flex: 1,
@@ -542,96 +662,118 @@ const styles = StyleSheet.create({
   projectsScrollContent: {
     paddingBottom: 40,
   },
-  // Project card
+  // Project Card
   projectCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    marginBottom: 10,
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  projectCardHeader: {
+  projectCardGradient: {
+    padding: 14,
+  },
+  projectCardContent: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
   },
   projectIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(139, 124, 246, 0.12)',
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  projectInfo: {
+    flex: 1,
+    marginLeft: 14,
+  },
+  projectName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 6,
+  },
+  projectMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  languageBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  languageText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  projectTime: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
   },
   projectMenuBtn: {
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  projectName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  projectMeta: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  // View All Projects Button
-  viewAllProjectsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(139, 124, 246, 0.08)',
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 4,
+  // View All Button
+  viewAllButton: {
+    marginTop: 8,
+    borderRadius: 14,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: 'rgba(139, 92, 246, 0.2)',
   },
-  viewAllProjectsContent: {
+  viewAllGradient: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     gap: 10,
   },
-  viewAllProjectsText: {
+  viewAllText: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '500',
     color: AppColors.primary,
   },
-  // Skeleton loading
+  // Skeleton
   skeletonItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.02)',
     borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   skeletonIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    marginBottom: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  skeletonContent: {
+    flex: 1,
+    marginLeft: 14,
+    gap: 8,
   },
   skeletonTitle: {
-    width: '60%',
-    height: 18,
+    width: '70%',
+    height: 16,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   skeletonSubtitle: {
     width: '40%',
-    height: 14,
+    height: 12,
     borderRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
   },
   // Empty state
   emptyState: {
@@ -639,174 +781,193 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 60,
   },
-  emptyIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
-  emptyText: {
-    fontSize: 16,
+  emptyTitle: {
+    fontSize: 20,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: '#fff',
+    marginBottom: 8,
   },
-  emptySubtext: {
+  emptySubtitle: {
     fontSize: 14,
-    fontWeight: '400',
-    color: 'rgba(255, 255, 255, 0.25)',
-    marginTop: 4,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 28,
   },
-  // Bottom Sheet (project menu)
+  emptyButton: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  emptyButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    gap: 10,
+  },
+  emptyButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  // Bottom Sheet
   sheetBackdrop: {
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   sheetContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#161618',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 34,
+    backgroundColor: '#141418',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 40,
   },
   sheetHandle: {
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   sheetHandleBar: {
-    width: 32,
+    width: 40,
     height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 2,
   },
   sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   sheetProjectIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetTitle: {
+  sheetProjectInfo: {
     flex: 1,
-    fontSize: 15,
+    marginLeft: 12,
+  },
+  sheetProjectName: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  sheetProjectMeta: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
   },
   sheetActions: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 16,
+    paddingVertical: 20,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  sheetItem: {
+  sheetActionItem: {
     alignItems: 'center',
-    gap: 6,
-    minWidth: 65,
+    gap: 8,
   },
-  sheetItemIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  sheetActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetItemText: {
-    fontSize: 11,
+  sheetActionText: {
+    fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255,255,255,0.7)',
   },
   sheetDeleteButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     paddingVertical: 14,
-    marginHorizontal: 16,
-    marginTop: 10,
-    backgroundColor: 'rgba(255, 90, 90, 0.08)',
-    borderRadius: 10,
+    marginHorizontal: 20,
+    marginTop: 12,
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderRadius: 12,
   },
   sheetDeleteText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FF5A5A',
+    color: '#FF6B6B',
   },
   sheetCancelButton: {
     alignItems: 'center',
     paddingVertical: 14,
-    marginHorizontal: 16,
+    marginHorizontal: 20,
     marginTop: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
   },
   sheetCancelText: {
     fontSize: 14,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'rgba(255,255,255,0.5)',
   },
-  // Action Sheet (FAB menu)
+  // Action Sheet
   actionSheetContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#161618',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 34,
+    backgroundColor: '#141418',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 40,
   },
   actionSheetTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.35)',
+    color: 'rgba(255,255,255,0.4)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     paddingHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   actionSheetItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 20,
   },
-  actionSheetIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+  actionSheetIconGradient: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   actionSheetItemInfo: {
     flex: 1,
+    marginLeft: 14,
   },
   actionSheetItemTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 2,
   },
   actionSheetItemSubtitle: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: 'rgba(255, 255, 255, 0.4)',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
   },
 });
