@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -171,8 +172,8 @@ export default function App() {
 
   if (currentScreen === 'splash') {
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
           <SplashScreen onFinish={() => setCurrentScreen('home')} />
           <StatusBar style="light" />
         </SafeAreaProvider>
@@ -181,8 +182,9 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+      <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
         <NetworkConfigProvider>
         <ErrorBoundary>
         {currentScreen === 'home' && (
@@ -385,6 +387,7 @@ export default function App() {
         )}
       </ErrorBoundary>
       </NetworkConfigProvider>
+      </View>
 
       <ImportGitHubModal
         visible={showImportModal}
