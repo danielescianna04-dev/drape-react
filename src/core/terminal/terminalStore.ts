@@ -50,7 +50,8 @@ const saveChatsToStorage = async (chats: ChatSession[]) => {
 };
 
 interface TerminalState {
-  // Terminal
+  // Terminal - Global log (all commands from anywhere in the app)
+  globalTerminalLog: TerminalItem[];
   terminalItems: TerminalItem[];
   isLoading: boolean;
   hasInteracted: boolean;
@@ -86,6 +87,8 @@ interface TerminalState {
   autoApprove: boolean;
   isRecording: boolean;
   previewUrl: string | null;
+  previewServerStatus: 'checking' | 'running' | 'stopped';
+  previewServerUrl: string | null; // The actual running server URL
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
   
@@ -96,6 +99,8 @@ interface TerminalState {
   
   // Actions
   addTerminalItem: (item: TerminalItem) => void;
+  addGlobalTerminalLog: (item: TerminalItem) => void;
+  clearGlobalTerminalLog: () => void;
   executeCommand: (command: string, workstationId?: string) => Promise<void>;
   clearTerminal: () => void;
   setLoading: (loading: boolean) => void;
@@ -128,6 +133,8 @@ interface TerminalState {
   setAutoApprove: (value: boolean) => void;
   setIsRecording: (value: boolean) => void;
   setPreviewUrl: (url: string | null) => void;
+  setPreviewServerStatus: (status: 'checking' | 'running' | 'stopped') => void;
+  setPreviewServerUrl: (url: string | null) => void;
   setIsToolsExpanded: (value: boolean) => void;
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
@@ -137,6 +144,7 @@ interface TerminalState {
 
 export const useTerminalStore = create<TerminalState>((set) => ({
   // Initial state
+  globalTerminalLog: [],
   terminalItems: [],
   isLoading: false,
   hasInteracted: false,
@@ -164,6 +172,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   autoApprove: false,
   isRecording: false,
   previewUrl: null,
+  previewServerStatus: 'stopped',
+  previewServerUrl: null,
   isToolsExpanded: false,
   isSidebarOpen: false,
   autocompleteOptions: [],
@@ -176,7 +186,22 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       terminalItems: [...state.terminalItems, item],
       hasInteracted: true,
     })),
-  
+
+  // Global terminal log - centralizes all commands from anywhere in the app
+  addGlobalTerminalLog: (item) =>
+    set((state) => {
+      console.log('📝 Global Terminal Log:', item.type, item.content?.substring(0, 50));
+      return {
+        globalTerminalLog: [...state.globalTerminalLog, {
+          ...item,
+          timestamp: item.timestamp || new Date(),
+        }],
+      };
+    }),
+
+  clearGlobalTerminalLog: () =>
+    set({ globalTerminalLog: [] }),
+
   executeCommand: async (command: string, workstationId?: string) => {
     // Implementazione gestita da useTerminalExecutor
   },
@@ -308,6 +333,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setAutoApprove: (value) => set({ autoApprove: value }),
   setIsRecording: (value) => set({ isRecording: value }),
   setPreviewUrl: (url) => set({ previewUrl: url }),
+  setPreviewServerStatus: (status) => set({ previewServerStatus: status }),
+  setPreviewServerUrl: (url) => set({ previewServerUrl: url }),
   setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
   setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
   setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),

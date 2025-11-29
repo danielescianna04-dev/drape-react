@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import { TouchableOpacity, StyleSheet, ViewStyle, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface IconButtonProps {
@@ -10,7 +10,7 @@ interface IconButtonProps {
   /** Icon color */
   color?: string;
   /** Callback when button is pressed */
-  onPress: () => void;
+  onPress?: () => void;
   /** Whether button is in active/selected state */
   isActive?: boolean;
   /** Active state color */
@@ -37,11 +37,17 @@ export const IconButton: React.FC<IconButtonProps> = ({
 }) => {
   return (
     <TouchableOpacity
-      style={[styles.button, isActive && styles.activeButton, style]}
+      style={[styles.button, style]}
       onPress={onPress}
       accessibilityLabel={accessibilityLabel || iconName}
       accessibilityRole="button"
     >
+      {/* Active indicator bar on the left */}
+      <View style={[
+        styles.activeIndicator,
+        isActive && { backgroundColor: activeColor }
+      ]} />
+
       <Ionicons
         name={iconName}
         size={size}
@@ -53,12 +59,20 @@ export const IconButton: React.FC<IconButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
-  activeButton: {
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+  activeIndicator: {
+    position: 'absolute',
+    left: 0,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+    backgroundColor: 'transparent',
   },
 });

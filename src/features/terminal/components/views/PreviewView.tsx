@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../../shared/theme/colors';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSidebarOffset } from '../../context/SidebarContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -17,10 +18,15 @@ type Orientation = 'portrait' | 'landscape';
 
 export const PreviewView = ({ tab }: Props) => {
   const [device, setDevice] = useState<DeviceType>('mobile');
-  const insets = useSafeAreaInsets();
   const [orientation, setOrientation] = useState<Orientation>('portrait');
   const [showGrid, setShowGrid] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('http://localhost:8081');
+
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: sidebarTranslateX.value / 2 }],
+  }));
 
   const getDeviceDimensions = () => {
     const baseWidth = SCREEN_WIDTH - 100;
@@ -42,7 +48,7 @@ export const PreviewView = ({ tab }: Props) => {
   const scale = Math.min(1, (SCREEN_WIDTH - 80) / dimensions.width);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
+    <Animated.View style={[styles.container, animatedStyle]}>
       {/* Toolbar */}
       <View style={styles.toolbar}>
         <View style={styles.deviceSelector}>
@@ -171,7 +177,7 @@ export const PreviewView = ({ tab }: Props) => {
           </View>
         </View>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 };
 

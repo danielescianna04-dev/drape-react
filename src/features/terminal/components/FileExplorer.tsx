@@ -385,18 +385,18 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
 
   return (
     <View style={styles.container}>
-      {/* Search Bar */}
+      {/* Compact Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchInputWrapper}>
           {searching ? (
             <ActivityIndicator size="small" color={AppColors.primary} style={styles.searchIcon} />
           ) : (
-            <Ionicons name="search" size={16} color="rgba(255, 255, 255, 0.5)" style={styles.searchIcon} />
+            <Ionicons name="search" size={14} color="rgba(255, 255, 255, 0.4)" style={styles.searchIcon} />
           )}
           <TextInput
             style={styles.searchInput}
-            placeholder={searchMode === 'name' ? 'Search files by name...' : 'Search in file contents...'}
-            placeholderTextColor="rgba(255, 255, 255, 0.4)"
+            placeholder="Search..."
+            placeholderTextColor="rgba(255, 255, 255, 0.3)"
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
@@ -404,28 +404,19 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.5)" />
+              <Ionicons name="close-circle" size={14} color="rgba(255, 255, 255, 0.4)" />
             </TouchableOpacity>
           )}
-        </View>
-
-        {/* Search Mode Toggle */}
-        <View style={styles.searchModeContainer}>
+          {/* Search mode toggle inline */}
           <TouchableOpacity
-            style={[styles.searchModeButton, searchMode === 'name' && styles.searchModeButtonActive]}
-            onPress={() => setSearchMode('name')}
+            style={styles.searchModeToggle}
+            onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}
           >
-            <Text style={[styles.searchModeText, searchMode === 'name' && styles.searchModeTextActive]}>
-              Name
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.searchModeButton, searchMode === 'content' && styles.searchModeButtonActive]}
-            onPress={() => setSearchMode('content')}
-          >
-            <Text style={[styles.searchModeText, searchMode === 'content' && styles.searchModeTextActive]}>
-              Content
-            </Text>
+            <Ionicons
+              name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'}
+              size={14}
+              color={AppColors.primary}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -447,30 +438,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchContainer: {
-    padding: 8,
-    backgroundColor: '#0a0a0a',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    height: 32,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 6,
   },
   searchInput: {
     flex: 1,
-    height: 36,
     color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 13,
+    fontSize: 12,
+    paddingVertical: 0,
   },
   clearButton: {
+    padding: 2,
+  },
+  searchModeToggle: {
     padding: 4,
+    marginLeft: 4,
   },
   searchModeContainer: {
     flexDirection: 'row',

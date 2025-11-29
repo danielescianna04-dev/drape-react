@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { logCommand, logOutput, logError } from './terminalLogger';
+import { TerminalSource } from '../../shared/types';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -21,8 +23,12 @@ class TerminalExecutor {
   async executeCommand(
     command: string,
     workstationId: string,
-    cwd?: string
+    cwd?: string,
+    source: TerminalSource = 'ai' // Default to 'ai' since this executor is mainly used by AI
   ): Promise<CommandResult> {
+    // Log the command to global terminal
+    logCommand(command, source);
+
     try {
       const response = await axios.post(`${API_URL}/terminal/execute`, {
         command,
@@ -31,16 +37,29 @@ class TerminalExecutor {
         timeout: 30000,
       });
 
-      return {
+      const result = {
         output: response.data.output || '',
         error: response.data.error,
         exitCode: response.data.exitCode || 0,
         executionTime: response.data.executionTime || 0,
       };
+
+      // Log the output/error to global terminal
+      if (result.error) {
+        logError(result.error, source);
+      } else if (result.output) {
+        logOutput(result.output, source, result.exitCode);
+      }
+
+      return result;
     } catch (error: any) {
+      const errorMsg = error.response?.data?.error || error.message || 'Command execution failed';
+      // Log error to global terminal
+      logError(errorMsg, source);
+
       return {
         output: '',
-        error: error.response?.data?.error || error.message || 'Command execution failed',
+        error: errorMsg,
         exitCode: 1,
         executionTime: 0,
       };

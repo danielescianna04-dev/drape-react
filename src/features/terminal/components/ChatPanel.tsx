@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
-import { PanelHeader, EmptyState } from '../../../shared/components/organisms';
+import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
 
 interface Props {
@@ -146,7 +145,7 @@ export const ChatPanel = ({ onClose }: Props) => {
 
   return (
     <>
-      {/* Backdrop - Click to close */}
+      {/* Backdrop */}
       <TouchableOpacity
         style={styles.backdrop}
         activeOpacity={1}
@@ -154,161 +153,105 @@ export const ChatPanel = ({ onClose }: Props) => {
       />
 
       <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
-        <LinearGradient
-          colors={['#0a0a0a', '#000000']}
-          style={StyleSheet.absoluteFill}
-        />
+        {/* New Chat Button - ChatGPT style */}
+        <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
+          <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
+          <Text style={styles.newChatText}>Nuova chat</Text>
+        </TouchableOpacity>
 
-        <PanelHeader
-          title="Conversazioni"
-          icon="chatbubbles"
-          onClose={handleClose}
-          rightActions={
-            <IconButton
-              iconName="add"
-              size={24}
-              color={AppColors.primary}
-              onPress={handleNewChat}
-              style={styles.newChatButton}
-              accessibilityLabel="Nuova conversazione"
-            />
-          }
-        />
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchWrapper}>
-          <View style={styles.searchIconContainer}>
-            <Ionicons name="search" size={18} color="rgba(255, 255, 255, 0.6)" />
-          </View>
+        {/* Search */}
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
           <TextInput
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Cerca conversazioni..."
-            placeholderTextColor="rgba(255, 255, 255, 0.4)"
+            placeholder="Cerca nelle chat..."
+            placeholderTextColor="rgba(255,255,255,0.4)"
           />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setSearchQuery('')}
-              style={styles.clearSearchButton}
-            >
-              <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.5)" />
-            </TouchableOpacity>
-          )}
         </View>
-      </View>
 
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {filteredChats.length === 0 ? (
-          <EmptyState
-            icon="chatbubble-outline"
-            title={searchQuery ? 'Nessuna conversazione trovata' : 'Nessuna conversazione'}
-            subtitle="Inizia una nuova conversazione premendo il pulsante sopra"
-          />
-        ) : (
-          <View style={styles.chatList}>
-            {filteredChats.map((chat) => (
-              <View key={chat.id} style={styles.chatItemWrapper}>
-                {renamingChatId === chat.id ? (
-                  // Rename mode
-                  <View style={styles.renameContainer}>
-                    <TextInput
-                      style={styles.renameInput}
-                      value={renamingValue}
-                      onChangeText={setRenamingValue}
-                      onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                      autoFocus
-                      placeholder="Nome conversazione"
-                      placeholderTextColor="rgba(255, 255, 255, 0.4)"
-                    />
+        {/* Chat List */}
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.contentContainer}
+        >
+          {filteredChats.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'Nessun risultato' : 'Nessuna chat'}
+              </Text>
+            </View>
+          ) : (
+            <>
+              {/* Today section */}
+              <Text style={styles.sectionTitle}>Recenti</Text>
+              {filteredChats.map((chat) => (
+                <View key={chat.id} style={styles.chatItemWrapper}>
+                  {renamingChatId === chat.id ? (
+                    <View style={styles.renameContainer}>
+                      <TextInput
+                        style={styles.renameInput}
+                        value={renamingValue}
+                        onChangeText={setRenamingValue}
+                        onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                        autoFocus
+                        placeholder="Nome chat"
+                        placeholderTextColor="rgba(255,255,255,0.4)"
+                      />
+                      <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                        <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                        <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
                     <TouchableOpacity
-                      onPress={() => handleRenameSubmit(chat.id)}
-                      style={styles.renameButton}
+                      style={styles.chatItem}
+                      onPress={() => handleSelectChat(chat)}
+                      activeOpacity={0.7}
                     >
-                      <Ionicons name="checkmark" size={20} color={AppColors.primary} />
+                      <Ionicons name="chatbubble-outline" size={16} color="rgba(255,255,255,0.5)" />
+                      <Text style={styles.chatTitle} numberOfLines={1}>{chat.title}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleMenuToggle(chat.id)}
+                        style={styles.menuButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
+                      </TouchableOpacity>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => setRenamingChatId(null)}
-                      style={styles.renameButton}
-                    >
-                      <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.chatItem}
-                    onPress={() => handleSelectChat(chat)}
-                    activeOpacity={0.7}
-                  >
-                    <LinearGradient
-                      colors={['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.02)']}
-                      style={styles.chatItemGradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    >
-                      <View style={styles.chatItemContent}>
-                        <View style={styles.chatIconCircle}>
-                          <LinearGradient
-                            colors={['rgba(139, 124, 246, 0.2)', 'rgba(107, 93, 214, 0.1)']}
-                            style={styles.chatIconGradient}
-                          >
-                            <Ionicons name="chatbubble" size={14} color="rgba(255, 255, 255, 0.8)" />
-                          </LinearGradient>
-                        </View>
+                  )}
 
-                        <View style={styles.chatInfo}>
-                          <Text style={styles.chatTitle} numberOfLines={1}>
-                            {chat.title}
-                          </Text>
-                          {chat.description && (
-                            <Text style={styles.chatDescription} numberOfLines={1}>
-                              {chat.description}
-                            </Text>
-                          )}
-                          <View style={styles.chatMeta}>
-                            <Ionicons name="time-outline" size={12} color="rgba(255, 255, 255, 0.4)" />
-                            <Text style={styles.chatDate}>{getTimeAgo(chat.lastUsed)}</Text>
-                          </View>
-                        </View>
+                  {/* Dropdown menu */}
+                  {openMenuId === chat.id && (
+                    <View style={styles.dropdown}>
+                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
+                        <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
+                        <Text style={styles.dropdownText}>Rinomina</Text>
+                      </TouchableOpacity>
+                      <View style={styles.dropdownDivider} />
+                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
+                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                        <Text style={[styles.dropdownText, { color: '#ef4444' }]}>Elimina</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </>
+          )}
+        </ScrollView>
 
-                        <TouchableOpacity
-                          onPress={() => handleMenuToggle(chat.id)}
-                          style={styles.menuButton}
-                        >
-                          <Ionicons name="ellipsis-vertical" size={16} color="rgba(255, 255, 255, 0.5)" />
-                        </TouchableOpacity>
-                      </View>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                )}
-
-                {/* Dropdown menu */}
-                {openMenuId === chat.id && (
-                  <View style={styles.dropdown}>
-                    <TouchableOpacity
-                      style={styles.dropdownItem}
-                      onPress={() => handleRename(chat)}
-                    >
-                      <Ionicons name="pencil" size={16} color="rgba(255, 255, 255, 0.8)" />
-                      <Text style={styles.dropdownText}>Rinomina</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.dropdownItem, styles.dropdownItemDanger]}
-                      onPress={() => handleDelete(chat.id)}
-                    >
-                      <Ionicons name="trash" size={16} color="#FF6B6B" />
-                      <Text style={[styles.dropdownText, styles.dropdownTextDanger]}>Elimina</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-    </Animated.View>
+        {/* Bottom close button */}
+        <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
+          <Text style={styles.bottomCloseText}>Chiudi</Text>
+        </TouchableOpacity>
+      </Animated.View>
     </>
   );
 };
@@ -320,181 +263,161 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     zIndex: 999,
   },
   container: {
     position: 'absolute',
-    left: 50,
+    left: 44,
     top: 0,
     bottom: 0,
-    width: 250,
+    width: 260,
+    backgroundColor: '#0a0a0a',
     zIndex: 1000,
+    paddingTop: 54,
   },
-  searchContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  searchWrapper: {
+  newChatButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingVertical: 12,
     paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    gap: 10,
   },
-  searchIconContainer: {
-    marginRight: 8,
+  newChatText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 12,
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    gap: 8,
   },
   searchInput: {
     flex: 1,
-    color: '#FFFFFF',
-    fontSize: 14,
-    paddingVertical: 10,
-  },
-  clearSearchButton: {
-    padding: 4,
-  },
-  newChatButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    color: '#fff',
+    fontSize: 13,
+    padding: 0,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
   },
-  chatList: {
-    gap: 8,
+  contentContainer: {
+    paddingHorizontal: 8,
+    paddingBottom: 20,
   },
-  chatItem: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 8,
-  },
-  chatItemGradient: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-  },
-  chatItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  chatIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  chatIconGradient: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.25)',
+    paddingTop: 60,
+    gap: 12,
   },
-  chatInfo: {
-    flex: 1,
+  emptyText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
   },
-  chatTitle: {
-    fontSize: 15,
+  sectionTitle: {
+    fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.95)',
-    marginBottom: 4,
-  },
-  chatMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  chatDate: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  chatSeparator: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.3)',
-  },
-  chatMessages: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: 'rgba(255,255,255,0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   chatItemWrapper: {
     position: 'relative',
   },
-  chatDescription: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginBottom: 4,
+  chatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 10,
+  },
+  chatTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.85)',
   },
   menuButton: {
-    padding: 8,
-    marginLeft: 4,
+    padding: 4,
+    opacity: 0.6,
   },
   dropdown: {
     position: 'absolute',
     top: 0,
-    right: 0,
-    backgroundColor: '#1a1a1a',
+    right: 4,
+    backgroundColor: '#2a2a2a',
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    overflow: 'hidden',
     zIndex: 1000,
     minWidth: 140,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowRadius: 12,
+    elevation: 8,
   },
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  dropdownItemDanger: {
-    borderBottomWidth: 0,
+  dropdownDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
   dropdownText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '500',
-  },
-  dropdownTextDanger: {
-    color: '#FF6B6B',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.85)',
   },
   renameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 8,
+    marginHorizontal: 4,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    gap: 8,
   },
   renameInput: {
     flex: 1,
-    color: '#FFFFFF',
+    color: '#fff',
     fontSize: 14,
-    paddingVertical: 6,
+    padding: 0,
   },
-  renameButton: {
-    padding: 6,
-    marginLeft: 8,
+  renameAction: {
+    padding: 4,
+  },
+  bottomClose: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    gap: 6,
+  },
+  bottomCloseText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
   },
 });

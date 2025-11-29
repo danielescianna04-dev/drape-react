@@ -55,8 +55,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   // Handle terminal icon click - open/create AI terminal tab showing ALL commands from ALL chats
   const handleTerminalClick = useCallback(() => {
-    // Close any open panel first
-    setActivePanel(null);
+    // Set terminal as active panel for highlighting
+    setActivePanel('terminal');
 
     // Look for existing AI terminal tab (has specific ID 'terminal-ai')
     // This is different from manual terminals created by the user
@@ -317,7 +317,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       }
     })
     .activeOffsetX([-10, 1000]) // Require more horizontal movement before activating
-    .activeOffsetY([-50, 50]); // Block if too much vertical movement (let vertical scroll handle it)
+    .activeOffsetY([-50, 50]) // Block if too much vertical movement (let vertical scroll handle it)
+    .hitSlop({ right: 100 }); // Extend touch area 100px to the right of the sidebar
 
   // Swipe gesture from left edge to show sidebar
   const edgeSwipeGesture = Gesture.Pan()
@@ -390,11 +391,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             size={24}
             color="#888"
             onPress={handleTerminalClick}
+            isActive={activePanel === 'terminal'}
+            activeColor={AppColors.primary}
             accessibilityLabel="Terminal"
           />
 
           <IconButton
-            iconName="phone-portrait"
+            iconName="eye"
             size={24}
             color="#888"
             onPress={() => togglePanel('preview')}
@@ -410,7 +413,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
           <VerticalIconSwitcher
             icons={[
-              { name: 'home-outline', action: () => console.log('Home') },
+              { name: 'grid-outline', action: () => console.log('Home') },
               { name: 'code-slash-outline', action: () => console.log('Code') },
               { name: 'terminal-outline', action: () => console.log('Terminal') },
               { name: 'folder-outline', action: () => console.log('Files') },
@@ -480,7 +483,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               children={children}
               animatedStyle={{}}
               onPinchOut={() => togglePanel('multitasking')}
-              swipeEnabled={activePanel === null}
+              swipeEnabled={false}
             />
           </Animated.View>
         )}
@@ -531,17 +534,15 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 50,
+    width: 44,
     backgroundColor: '#0a0a0a',
-    borderRightWidth: 1,
-    borderRightColor: '#1a1a1a',
     paddingTop: 60,
     paddingBottom: 20,
     zIndex: 1001,
   },
   iconButton: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderLeftWidth: 2,

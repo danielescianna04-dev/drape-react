@@ -1,11 +1,10 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated as RNAnimated, ScrollView, Keyboard } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TabTypeSelector, TabType } from './TabTypeSelector';
 import { useSidebarOffset } from '../context/SidebarContext';
 
 interface TabBarProps {
@@ -13,16 +12,15 @@ interface TabBarProps {
 }
 
 export const TabBar = ({ isCardMode = false }: TabBarProps) => {
-  const { tabs, activeTabId, setActiveTab, removeTab, addTab } = useTabStore();
+  const { tabs, activeTabId, setActiveTab, removeTab } = useTabStore();
   const scaleAnims = useRef<{ [key: string]: RNAnimated.Value }>({}).current;
   const visibilityAnim = useRef(new RNAnimated.Value(1)).current;
   const insets = useSafeAreaInsets();
-  const [showTabTypeSelector, setShowTabTypeSelector] = useState(false);
   const { sidebarTranslateX } = useSidebarOffset();
 
   // Animate TabBar to expand from left edge when sidebar hides
   const tabBarAnimatedStyle = useAnimatedStyle(() => ({
-    left: 50 + sidebarTranslateX.value, // Goes from 50 to 0 (expand to left edge)
+    left: 44 + sidebarTranslateX.value,
   }));
 
   useEffect(() => {
@@ -54,7 +52,6 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
   if (isCardMode && visibilityAnim._value === 0) return null;
 
   const handleTabPress = (tabId: string) => {
-    // Chiudi la tastiera immediatamente prima di cambiare tab
     Keyboard.dismiss();
     setActiveTab(tabId);
   };
@@ -72,66 +69,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
     });
   };
 
-  const handleAddTab = () => {
-    setShowTabTypeSelector(true);
-  };
-
-  const handleSelectTabType = (type: TabType) => {
-    const timestamp = Date.now();
-    let newTab;
-
-    switch (type) {
-      case 'chat':
-        newTab = {
-          id: `chat-${timestamp}`,
-          type: 'chat' as const,
-          title: 'Nuova Chat',
-          data: { chatId: timestamp.toString() }
-        };
-        break;
-      case 'terminal':
-        newTab = {
-          id: `terminal-${timestamp}`,
-          type: 'terminal' as const,
-          title: 'Terminal',
-        };
-        break;
-      case 'github':
-        newTab = {
-          id: `github-${timestamp}`,
-          type: 'github' as const,
-          title: 'GitHub',
-        };
-        break;
-      case 'browser':
-        newTab = {
-          id: `browser-${timestamp}`,
-          type: 'browser' as const,
-          title: 'Browser',
-        };
-        break;
-      case 'preview':
-        newTab = {
-          id: `preview-${timestamp}`,
-          type: 'preview' as const,
-          title: 'Preview',
-        };
-        break;
-      case 'file':
-        newTab = {
-          id: `file-${timestamp}`,
-          type: 'file' as const,
-          title: 'File',
-        };
-        break;
-      default:
-        return;
-    }
-
-    addTab(newTab);
-  };
-
-  const getTabIcon = (type: string) => {
+  const getTabIcon = (type: string): keyof typeof Ionicons.glyphMap => {
     switch (type) {
       case 'terminal': return 'terminal';
       case 'file': return 'document-text';
@@ -155,68 +93,59 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
           transform: [{
             translateY: visibilityAnim.interpolate({
               inputRange: [0, 1],
-              outputRange: [-20, 0], // Slide up/down
+              outputRange: [-20, 0],
             })
           }]
         }
       ]}>
         <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="always"
-      >
-        {tabs.map(tab => {
-          const isActive = tab.id === activeTabId;
-          const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="always"
+        >
+          {tabs.map(tab => {
+            const isActive = tab.id === activeTabId;
+            const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
 
-          return (
-            <RNAnimated.View
-              key={tab.id}
-              style={[
-                styles.tabWrapper,
-                { transform: [{ scale }] }
-              ]}
-            >
-              <TouchableOpacity
-                style={[styles.tab, isActive && styles.tabActive]}
-                onPress={() => handleTabPress(tab.id)}
-                activeOpacity={0.7}
+            return (
+              <RNAnimated.View
+                key={tab.id}
+                style={[
+                  styles.tabWrapper,
+                  { transform: [{ scale }] }
+                ]}
               >
-                <Ionicons 
-                  name={getTabIcon(tab.type)} 
-                  size={14} 
-                  color={isActive ? AppColors.primary : '#666'} 
-                />
-                <Text
-                  style={[styles.tabTitle, isActive && styles.tabTitleActive]}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {tab.title}
-                </Text>
                 <TouchableOpacity
-                  onPress={(e) => handleRemoveTab(tab.id, e)}
-                  style={styles.closeButton}
+                  style={[styles.tab, isActive && styles.tabActive]}
+                  onPress={() => handleTabPress(tab.id)}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={14} color="#666" />
+                  <Ionicons
+                    name={getTabIcon(tab.type)}
+                    size={14}
+                    color={isActive ? AppColors.primary : '#666'}
+                  />
+                  <Text
+                    style={[styles.tabTitle, isActive && styles.tabTitleActive]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {tab.title}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={(e) => handleRemoveTab(tab.id, e)}
+                    style={styles.closeButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={14} color="#666" />
+                  </TouchableOpacity>
                 </TouchableOpacity>
-              </TouchableOpacity>
-            </RNAnimated.View>
-          );
-        })}
-      </ScrollView>
-
-      <TouchableOpacity style={styles.addButton} onPress={handleAddTab}>
-        <Ionicons name="add" size={18} color="#666" />
-      </TouchableOpacity>
-
-      <TabTypeSelector
-        visible={showTabTypeSelector}
-        onClose={() => setShowTabTypeSelector(false)}
-        onSelectType={handleSelectTabType}
-      />
+              </RNAnimated.View>
+            );
+          })}
+        </ScrollView>
       </RNAnimated.View>
     </Animated.View>
   );
@@ -227,18 +156,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    minHeight: 40,
+    minHeight: 38,
     flexDirection: 'row',
     backgroundColor: '#0a0a0a',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
     zIndex: 100,
+    borderBottomLeftRadius: 12,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 8,
+    paddingLeft: 0,
+    paddingRight: 8,
     alignItems: 'center',
   },
   tabWrapper: {
@@ -247,13 +176,13 @@ const styles = StyleSheet.create({
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     backgroundColor: 'transparent',
     borderRadius: 6,
     gap: 6,
-    minWidth: 120,
-    maxWidth: 200,
+    minWidth: 100,
+    maxWidth: 170,
   },
   tabActive: {
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
@@ -269,13 +198,5 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 2,
-  },
-  addButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderLeftWidth: 1,
-    borderLeftColor: '#1a1a1a',
   },
 });

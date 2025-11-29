@@ -1,15 +1,50 @@
 /**
  * Simple Node.js Static File Server
  * Replacement for Python's http.server for systems without Python
+ * With automatic port finding if requested port is in use
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 
 // Get port and directory from command line args
-const port = process.argv[2] || 8000;
+const requestedPort = parseInt(process.argv[2]) || 8000;
 const directory = process.argv[3] || '.';
+
+/**
+ * Check if a port is available
+ * @param {number} port - Port to check
+ * @returns {Promise<boolean>} - True if port is available
+ */
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+/**
+ * Find an available port starting from the given port
+ * @param {number} startPort - Starting port to try
+ * @param {number} maxAttempts - Maximum number of ports to try
+ * @returns {Promise<number>} - First available port
+ */
+async function findAvailablePort(startPort, maxAttempts = 100) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available port found after trying ${maxAttempts} ports starting from ${startPort}`);
+}
 
 // MIME types for common file extensions
 const mimeTypes = {
@@ -89,7 +124,30 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Static file server running at http://0.0.0.0:${port}/`);
-  console.log(`Serving files from: ${path.resolve(directory)}`);
-});
+// Start server with automatic port finding
+async function startServer() {
+  try {
+    const port = await findAvailablePort(requestedPort);
+
+    if (port !== requestedPort) {
+      console.log(`⚠️  Port ${requestedPort} is in use, using port ${port} instead`);
+    }
+
+    server.listen(port, '0.0.0.0', () => {
+      // Output the actual port being used - this is parsed by the frontend
+      console.log(`ACTUAL_PORT:${port}`);
+      console.log(`Static file server running at http://0.0.0.0:${port}/`);
+      console.log(`Serving files from: ${path.resolve(directory)}`);
+    });
+
+    server.on('error', (err) => {
+      console.error(`Server error: ${err.message}`);
+      process.exit(1);
+    });
+  } catch (err) {
+    console.error(`Failed to start server: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+startServer();

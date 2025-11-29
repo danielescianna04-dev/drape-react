@@ -1208,7 +1208,7 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     position: 'absolute',
-    left: 50,
+    left: 44,
     right: 0,
     pointerEvents: 'box-none',
   },
@@ -1248,7 +1248,7 @@ const styles = StyleSheet.create({
   },
   output: {
     flex: 1,
-    paddingLeft: 50,
+    paddingLeft: 44,
     paddingTop: 100, // Further increased to add space below TabBar
   },
   outputCardMode: {

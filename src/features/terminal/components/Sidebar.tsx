@@ -13,7 +13,6 @@ import {
 import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { GitHubConnect } from './GitHubConnect';
@@ -246,23 +245,16 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           }
         ]}
       >
-      <LinearGradient
-        colors={['#0a0a0a', '#000000']}
-        style={StyleSheet.absoluteFill}
-      />
+      <View style={StyleSheet.absoluteFill}>
+        <View style={{ flex: 1, backgroundColor: '#0a0a0a' }} />
+      </View>
       <View style={styles.header} {...panResponder.panHandlers}>
-        <View style={styles.logoContainer}>
-          <View style={styles.logoIconContainer}>
-            <Ionicons name="cube" size={20} color={AppColors.primary} />
-          </View>
-          <Text style={styles.logoText}>Drape</Text>
-        </View>
+        <Text style={styles.headerTitle}>Files</Text>
         <IconButton
           iconName="close"
-          size={24}
-          color="rgba(255, 255, 255, 0.6)"
+          size={20}
+          color="rgba(255, 255, 255, 0.4)"
           onPress={handleClose}
-          style={styles.closeButton}
           accessibilityLabel="Chiudi sidebar"
         />
       </View>
@@ -734,7 +726,7 @@ const styles = StyleSheet.create({
   },
   container: {
     position: 'absolute',
-    left: 50,
+    left: 44,
     top: 0,
     bottom: 0,
     width: '55%',
@@ -750,40 +742,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 60,
+    paddingTop: 56,
     paddingHorizontal: 12,
-    paddingBottom: 16,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  logoIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(139, 124, 246, 0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  closeButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingBottom: 8,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   searchContainer: {
     paddingHorizontal: 8,

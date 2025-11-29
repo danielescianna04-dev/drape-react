@@ -7,7 +7,7 @@ import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CONTENT_WIDTH = SCREEN_WIDTH - 50;
+const CONTENT_WIDTH = SCREEN_WIDTH - 44;
 const SCALE = 0.85;
 const HEADER_HEIGHT = 120;
 const PAGINATION_HEIGHT = 120;
@@ -190,7 +190,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
 const styles = StyleSheet.create({
   overlay: {
     position: 'absolute',
-    left: 50,
+    left: 44,
     top: 0,
     right: 0,
     bottom: 0,

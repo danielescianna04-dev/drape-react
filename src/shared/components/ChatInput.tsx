@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { AppColors } from '../theme/colors';
 import { IconButton } from './atoms';
 
@@ -49,10 +50,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <LinearGradient
-      colors={['rgba(28, 28, 30, 0.98)', 'rgba(28, 28, 30, 0.92)']}
-      style={styles.inputGradient}
-    >
+    <View style={styles.floatingContainer}>
+      {/* Outer glow effect */}
+      <View style={styles.glowEffect} />
+
+      <BlurView intensity={40} tint="dark" style={styles.blurWrapper}>
+        <LinearGradient
+          colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
+          style={styles.inputGradient}
+        >
       {/* Top Controls */}
       {showTopBar && (
         <View style={styles.topControls}>
@@ -149,26 +155,71 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           style={styles.sendButton}
           activeOpacity={0.7}
         >
-          <Ionicons
-            name="arrow-up-circle"
-            size={32}
-            color={value.trim() && !disabled && !isExecuting ? AppColors.primary : '#333'}
-          />
+          <View style={[
+            styles.sendButtonInner,
+            value.trim() && !disabled && !isExecuting && styles.sendButtonActive
+          ]}>
+            <Ionicons
+              name="arrow-up"
+              size={18}
+              color={value.trim() && !disabled && !isExecuting ? '#fff' : '#555'}
+            />
+          </View>
         </TouchableOpacity>
       </View>
-    </LinearGradient>
+        </LinearGradient>
+      </BlurView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  floatingContainer: {
+    marginHorizontal: 16,
+    marginBottom: Platform.OS === 'ios' ? 20 : 16,
+    position: 'relative',
+  },
+  glowEffect: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    right: 4,
+    bottom: -4,
+    borderRadius: 28,
+    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    ...Platform.select({
+      ios: {
+        shadowColor: AppColors.primary,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.25,
+        shadowRadius: 24,
+      },
+      android: {
+        elevation: 16,
+      },
+    }),
+  },
+  blurWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.4,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 12,
+      },
+    }),
+  },
   inputGradient: {
     borderRadius: 24,
-    borderWidth: 0,
-    elevation: 8,
-    justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
-    maxHeight: 250, // Limite massimo dell'intero widget
-    marginHorizontal: 16, // Margine orizzontale per restringere la card
-    marginBottom: 16,
+    justifyContent: 'flex-end',
+    maxHeight: 250,
   },
   topControls: {
     height: 40,
@@ -258,6 +309,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  sendButtonInner: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  sendButtonActive: {
+    backgroundColor: AppColors.primary,
+    borderColor: 'transparent',
+    ...Platform.select({
+      ios: {
+        shadowColor: AppColors.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   input: {
     flex: 1,

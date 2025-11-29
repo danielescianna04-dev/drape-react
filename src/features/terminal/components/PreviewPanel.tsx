@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChatInput } from '../../../shared/components/ChatInput';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { IconButton } from '../../../shared/components/atoms';
+import { useSidebarOffset } from '../context/SidebarContext';
+import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
 
 interface Props {
   onClose: () => void;
@@ -20,23 +23,84 @@ interface Props {
 }
 
 export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
-  const { currentWorkstation } = useTerminalStore();
+  const {
+    currentWorkstation,
+    previewServerStatus: globalServerStatus,
+    previewServerUrl: globalServerUrl,
+    setPreviewServerStatus,
+    setPreviewServerUrl
+  } = useTerminalStore();
   const { apiUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  // Animate left position - WebView handles resize
+  const containerAnimatedStyle = useAnimatedStyle(() => {
+    'worklet';
+    return {
+      left: 44 + sidebarTranslateX.value,
+    };
+  });
+
+  // Function to animate FAB width to target
+  const animateFabWidth = (targetWidth: number) => {
+    Animated.spring(fabWidthAnim, {
+      toValue: targetWidth,
+      useNativeDriver: false,
+      damping: 20,
+      stiffness: 180,
+    }).start();
+  };
+
+  // Track if FAB is expanded for the animated reaction (shared value for UI thread access)
+  const isExpandedShared = useSharedValue(false);
+
+  // React to sidebar changes when FAB is expanded
+  useAnimatedReaction(
+    () => sidebarTranslateX.value,
+    (currentValue, previousValue) => {
+      // Only animate if FAB is expanded and sidebar position changed
+      if (isExpandedShared.value && previousValue !== null && currentValue !== previousValue) {
+        // Calculate new width: base 300 + sidebar offset (0 to 50)
+        const newWidth = 300 + Math.abs(currentValue);
+        runOnJS(animateFabWidth)(newWidth);
+      }
+    },
+    []
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  const [serverStatus, setServerStatus] = useState<'checking' | 'running' | 'stopped'>('stopped');
+  // Initialize from global store - preserves state when switching tabs
+  const [serverStatus, setServerStatusLocal] = useState<'checking' | 'running' | 'stopped'>(globalServerStatus);
+
+  // Wrapper to update both local and global state
+  const setServerStatus = (status: 'checking' | 'running' | 'stopped') => {
+    setServerStatusLocal(status);
+    setPreviewServerStatus(status);
+  };
+
   const [isStarting, setIsStarting] = useState(false);
+  const [startingMessage, setStartingMessage] = useState('');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [currentPreviewUrl, setCurrentPreviewUrl] = useState(previewUrl); // Track the actual URL to use
+  // Initialize from global store if available, otherwise use prop
+  const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(globalServerUrl || previewUrl);
+
+  // Wrapper to update both local and global URL
+  const setCurrentPreviewUrl = (url: string) => {
+    setCurrentPreviewUrlLocal(url);
+    setPreviewServerUrl(url);
+  };
   const webViewRef = useRef<WebView>(null);
   const inputRef = useRef<TextInput>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string } | null>(null);
+  const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
+  const fabOpacityAnim = useRef(new Animated.Value(1)).current;
 
   // Opening animation - fade in
   useEffect(() => {
@@ -48,39 +112,15 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }, []);
 
   // Update currentPreviewUrl when previewUrl prop changes
+  // But don't overwrite if we already have a running server URL from global store
   useEffect(() => {
-    if (previewUrl && previewUrl !== currentPreviewUrl) {
+    if (previewUrl && previewUrl !== currentPreviewUrl && !globalServerUrl) {
       setCurrentPreviewUrl(previewUrl);
     }
   }, [previewUrl]);
 
-  // Cleanup: Stop server when component unmounts or workstation changes
-  useEffect(() => {
-    return () => {
-      // Extract port from current preview URL
-      const portMatch = currentPreviewUrl.match(/:(\d+)/);
-      if (portMatch && currentWorkstation?.id) {
-        const port = parseInt(portMatch[1]);
-        console.log(`🧹 PreviewPanel unmounting - stopping server on port ${port}`);
-
-        // Call backend to stop the server (don't await, fire and forget)
-        fetch(`${apiUrl}terminal/stop-server`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            workstationId: currentWorkstation.id,
-            port: port
-          }),
-        }).then(() => {
-          console.log(`✅ Server stop request sent for port ${port}`);
-        }).catch((error) => {
-          console.log(`⚠️ Failed to stop server: ${error.message}`);
-        });
-      }
-    };
-  }, [currentWorkstation?.id, currentPreviewUrl, apiUrl]);
+  // NOTE: Server is NOT stopped on unmount - only when user clicks X button
+  // This allows navigating to other pages while keeping server running
 
   // Check server status periodically (only if server is expected to be running)
   useEffect(() => {
@@ -174,6 +214,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
       if (response.ok) {
         console.log(`✅ Server is running! Status: ${response.status}`);
+        // Only log the first time (when transitioning from checking to running)
+        if (serverStatus !== 'running') {
+          logOutput(`Server is running at ${currentPreviewUrl}`, 'preview', 0);
+        }
         setServerStatus('running');
       } else {
         console.log(`⚠️ Server responded but not OK. Status: ${response.status}`);
@@ -189,8 +233,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     if (!projectInfo) return;
 
     setIsStarting(true);
+    setStartingMessage('Preparazione ambiente...');
+
+    // Log the technical command to global terminal (for developers)
+    logCommand(projectInfo.startCommand, 'preview');
+    logSystem(`Starting server for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
     try {
+      setStartingMessage('Avvio del server...');
       console.log('Starting server with command:', projectInfo.startCommand);
       console.log('Current workstation:', currentWorkstation);
       console.log('Workstation ID to send:', currentWorkstation?.id);
@@ -218,12 +268,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         throw new Error(`Server responded with status: ${response.status}`);
       }
 
+      setStartingMessage('Quasi pronto...');
       const result = await response.json();
       console.log('📋 Server start result:', JSON.stringify(result, null, 2));
 
       // If there's a preview URL in the response, update our preview URL
       if (result.previewUrl) {
         console.log('🔗 Preview URL detected:', result.previewUrl);
+        setStartingMessage('Connessione in corso...');
         setCurrentPreviewUrl(result.previewUrl); // Update the URL to check
       } else {
         console.log('⚠️ No preview URL in response');
@@ -237,7 +289,20 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           console.log(`   Health check passed after ${result.healthCheck.attempts} attempts`);
           console.log(`   URL checked: ${result.healthCheck.url}`);
         }
+        // Log success to global terminal (technical for developers)
+        logOutput(`Server started successfully at ${result.previewUrl || currentPreviewUrl}`, 'preview', 0);
         setServerStatus('running');
+      } else if (result.previewUrl) {
+        // If we have a preview URL, try checking - server might be running even with exitCode != 0
+        // This handles static servers that exit the spawning process but stay running
+        console.log('🔍 Preview URL found, starting health checks...');
+        console.log(`   Exit code: ${result.exitCode}`);
+        console.log(`   Preview URL: ${result.previewUrl}`);
+        // Log to terminal (technical for developers)
+        logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
+        setServerStatus('checking');
+        // Give server a moment to fully start, then check
+        setTimeout(() => checkServerStatus(), 500);
       } else if (result.exitCode === 0) {
         // Fallback: If exitCode is 0 but serverReady is false, start checking
         console.log('⚠️ Server command executed but not verified ready');
@@ -248,17 +313,23 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           console.log(`   Health check result: ${JSON.stringify(result.healthCheck)}`);
         }
         console.log('   Starting local health checks...');
+        // Log to terminal
+        logSystem('Waiting for server to start...', 'preview');
         setServerStatus('checking');
         checkServerStatus();
       } else {
-        // Command failed
+        // Command failed and no preview URL
         console.log('❌ Server command failed');
         console.log(`   Exit code: ${result.exitCode}`);
         console.log(`   Error output: ${result.error}`);
+        // Log error to global terminal
+        logError(`Server failed to start: ${result.error || 'Unknown error'}`, 'preview');
         setServerStatus('stopped');
       }
     } catch (error) {
       console.error('Failed to start server:', error);
+      // Log error to global terminal
+      logError(`Failed to start server: ${error.message || 'Connection error'}`, 'preview');
       // Show error state
       setServerStatus('stopped');
     } finally {
@@ -271,6 +342,40 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       clearInterval(checkInterval.current);
     }
 
+    // Stop the server if running
+    if (serverStatus === 'running' || serverStatus === 'checking') {
+      const portMatch = currentPreviewUrl.match(/:(\d+)/);
+      if (portMatch && currentWorkstation?.id) {
+        const port = parseInt(portMatch[1]);
+        console.log(`🛑 Stopping server on port ${port}`);
+
+        // Log stop command to global terminal
+        logCommand(`kill -9 $(lsof -ti:${port})`, 'preview');
+        logSystem(`Stopping server on port ${port}...`, 'preview');
+
+        fetch(`${apiUrl}terminal/stop-server`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            workstationId: currentWorkstation.id,
+            port: port
+          }),
+        }).then(() => {
+          console.log(`✅ Server stopped on port ${port}`);
+          logOutput(`Server stopped on port ${port}`, 'preview', 0);
+        }).catch((error) => {
+          console.log(`⚠️ Failed to stop server: ${error.message}`);
+          logError(`Failed to stop server: ${error.message}`, 'preview');
+        });
+      }
+
+      // Reset global state when server is stopped
+      setPreviewServerStatus('stopped');
+      setPreviewServerUrl(null);
+    }
+
     Animated.timing(fadeAnim, {
       toValue: 0,
       duration: 200,
@@ -281,6 +386,35 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const handleRefresh = () => {
     webViewRef.current?.reload();
     checkServerStatus();
+  };
+
+  // FAB expand animation - width depends on sidebar state
+  const expandFab = () => {
+    isExpandedShared.value = true;
+    setIsInputExpanded(true);
+    // Calculate width based on current sidebar position
+    // sidebarTranslateX: 0 = sidebar visible, -50 = sidebar hidden
+    const expandedWidth = 300 + Math.abs(sidebarTranslateX.value);
+    Animated.spring(fabWidthAnim, {
+      toValue: expandedWidth,
+      useNativeDriver: false,
+      damping: 18,
+      stiffness: 200,
+    }).start(() => {
+      inputRef.current?.focus();
+    });
+  };
+
+  // FAB collapse animation - slower and smoother than expand
+  const collapseFab = () => {
+    isExpandedShared.value = false;
+    setIsInputExpanded(false); // Immediately hide input content
+    Animated.spring(fabWidthAnim, {
+      toValue: 44, // Collapsed width
+      useNativeDriver: false,
+      damping: 22, // Higher damping = less bounce
+      stiffness: 140, // Lower stiffness = slower, gentler motion
+    }).start();
   };
 
   const handleGoBack = () => {
@@ -507,153 +641,157 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         onPress={handleClose}
       />
 
-      <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-        <LinearGradient
-          colors={['#0a0a0a', '#000000']}
-          style={StyleSheet.absoluteFill}
-        />
+      <Reanimated.View style={[styles.container, containerAnimatedStyle]}>
+        <Animated.View style={[{ flex: 1 }, { opacity: fadeAnim }]}>
+          <LinearGradient
+            colors={['#0a0a0a', '#000000']}
+            style={StyleSheet.absoluteFill}
+          />
 
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={insets.top}
         >
-          {/* Header */}
-          <View style={[styles.header, { paddingTop: insets.top }]}>
-            <View style={styles.headerContent}>
-              <View style={styles.headerLeft}>
-                <IconButton
-                  iconName="close"
-                  size={24}
-                  color="#FFFFFF"
+          {/* Header - Only show when server is running */}
+          {serverStatus === 'running' && (
+            <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+              <View style={styles.headerRow}>
+                {/* Close */}
+                <TouchableOpacity
                   onPress={handleClose}
                   style={styles.closeButton}
-                  accessibilityLabel="Chiudi preview"
-                />
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
+                </TouchableOpacity>
 
-                <View style={styles.titleContainer}>
-                  <Text style={styles.headerTitle}>Preview</Text>
+                {/* URL Bar - centered */}
+                <View style={styles.urlBar}>
                   <View style={[
-                    styles.statusDot,
-                    { backgroundColor: serverStatus === 'running' ? '#00D084' : serverStatus === 'checking' ? '#FFA500' : '#FF4444' }
+                    styles.statusIndicator,
+                    { backgroundColor: '#00D084' }
                   ]} />
+                  <Text style={styles.urlText} numberOfLines={1}>
+                    {currentPreviewUrl ? currentPreviewUrl.replace(/^https?:\/\//, '') : 'localhost'}
+                  </Text>
                 </View>
-              </View>
 
-              <View style={styles.headerRight}>
-                <IconButton
-                  iconName="arrow-back"
-                  size={20}
-                  color={canGoBack ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"}
-                  onPress={handleGoBack}
-                  style={[styles.iconButton, !canGoBack && styles.iconButtonDisabled]}
-                  accessibilityLabel="Indietro"
-                />
-
-                <IconButton
-                  iconName="arrow-forward"
-                  size={20}
-                  color={canGoForward ? "#FFFFFF" : "rgba(255, 255, 255, 0.3)"}
-                  onPress={handleGoForward}
-                  style={[styles.iconButton, !canGoForward && styles.iconButtonDisabled]}
-                  accessibilityLabel="Avanti"
-                />
-
-                <IconButton
-                  iconName="refresh"
-                  size={20}
-                  color="#FFFFFF"
+                {/* Refresh */}
+                <TouchableOpacity
                   onPress={handleRefresh}
-                  style={styles.iconButton}
-                  accessibilityLabel="Ricarica"
-                />
+                  style={styles.refreshButton}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
+                </TouchableOpacity>
               </View>
             </View>
-          </View>
+          )}
 
           {/* WebView Preview or Start Screen */}
           <View style={styles.webViewContainer}>
           {serverStatus === 'stopped' ? (
-            // Server not running - show start screen
+            // Server not running - Device mockup style with ChatPage background
             <View style={styles.startScreen}>
-              <View style={styles.startContent}>
-                <View style={styles.iconCircle}>
-                  <Ionicons
-                    name={projectInfo?.isReactNative ? "phone-portrait" : "rocket"}
-                    size={48}
-                    color={projectInfo?.isReactNative ? "#FFA500" : AppColors.primary}
-                  />
+              {/* ChatPage gradient background */}
+              <LinearGradient
+                colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
+                locations={[0, 0.3, 0.7, 1]}
+                style={StyleSheet.absoluteFill}
+              >
+                <View style={styles.glowTop} />
+                <View style={styles.glowBottom} />
+              </LinearGradient>
+
+              {/* Close button top right */}
+              <TouchableOpacity
+                onPress={handleClose}
+                style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
+              </TouchableOpacity>
+
+              {/* iPhone 15 Pro style mockup */}
+              <View style={styles.iphoneMockup}>
+                {/* Status bar area - beside Dynamic Island */}
+                <View style={styles.statusBarArea}>
+                  {/* Time - left of Dynamic Island */}
+                  <Text style={styles.fakeTime}>9:41</Text>
+
+                  {/* Dynamic Island - center */}
+                  <View style={styles.dynamicIsland} />
+
+                  {/* Icons - right of Dynamic Island */}
+                  <View style={styles.fakeStatusIcons}>
+                    <Ionicons name="wifi" size={10} color="#fff" />
+                    <Ionicons name="battery-full" size={10} color="#fff" />
+                  </View>
                 </View>
 
-                <Text style={styles.startTitle}>
-                  {projectInfo?.isReactNative ? "Progetto React Native/Expo" : "Anteprima non disponibile"}
-                </Text>
-                <Text style={styles.startSubtitle}>
-                  {projectInfo?.isReactNative && !projectInfo?.supportsWebPreview
-                    ? "Progetto mobile-only - anteprima web non disponibile"
-                    : projectInfo?.isReactNative
-                    ? "Avvio del server con supporto web..."
-                    : "Il server di sviluppo non è in esecuzione"}
-                </Text>
+                {/* Screen content - fake app UI */}
+                <View style={styles.iphoneScreen}>
 
-                {projectInfo && (
-                  <View style={styles.infoCard}>
-                    <View style={styles.infoRow}>
-                      <Ionicons name="folder-outline" size={18} color="rgba(255, 255, 255, 0.6)" />
-                      <Text style={styles.infoLabel}>Progetto</Text>
-                      <Text style={styles.infoValue}>{projectInfo.description}</Text>
+                  {/* Fake app content */}
+                  <View style={styles.fakeAppContent}>
+                    {/* Header */}
+                    <View style={styles.fakeHeader}>
+                      <View style={styles.fakeAvatar} />
+                      <View style={styles.fakeHeaderText}>
+                        <View style={[styles.fakeLine, { width: 80 }]} />
+                        <View style={[styles.fakeLine, { width: 50, opacity: 0.5 }]} />
+                      </View>
                     </View>
-                    <View style={styles.infoDivider} />
-                    <View style={styles.infoRow}>
-                      <Ionicons name="code-outline" size={18} color="rgba(255, 255, 255, 0.6)" />
-                      <Text style={styles.infoLabel}>Comando</Text>
-                      <Text style={styles.infoValueMono}>{projectInfo.startCommand}</Text>
+
+                    {/* Cards */}
+                    <View style={styles.fakeCard}>
+                      <View style={styles.fakeCardImage} />
+                      <View style={[styles.fakeLine, { width: '70%', marginTop: 8 }]} />
+                      <View style={[styles.fakeLine, { width: '40%', opacity: 0.5 }]} />
                     </View>
-                    {projectInfo.isReactNative && !projectInfo.supportsWebPreview && (
-                      <>
-                        <View style={styles.infoDivider} />
-                        <View style={styles.infoRow}>
-                          <Ionicons name="information-circle-outline" size={18} color="#FFA500" />
-                          <Text style={styles.infoLabel}>Preview</Text>
-                          <Text style={styles.infoValue}>Solo tramite Expo Go</Text>
-                        </View>
-                      </>
-                    )}
-                    {projectInfo.isReactNative && projectInfo.supportsWebPreview && (
-                      <>
-                        <View style={styles.infoDivider} />
-                        <View style={styles.infoRow}>
-                          <Ionicons name="globe-outline" size={18} color="#00D9FF" />
-                          <Text style={styles.infoLabel}>Web</Text>
-                          <Text style={styles.infoValue}>Supporto Web Attivo</Text>
-                        </View>
-                      </>
-                    )}
+
+                    <View style={[styles.fakeCard, { opacity: 0.6 }]}>
+                      <View style={styles.fakeCardImage} />
+                      <View style={[styles.fakeLine, { width: '60%', marginTop: 8 }]} />
+                    </View>
                   </View>
-                )}
 
+                  {/* Home indicator */}
+                  <View style={styles.homeIndicator} />
+                </View>
+
+                {/* Side buttons */}
+                <View style={styles.iphoneSideButton} />
+                <View style={styles.iphoneVolumeUp} />
+                <View style={styles.iphoneVolumeDown} />
+              </View>
+
+              {/* Bottom section */}
+              <View style={styles.startBottomSection}>
                 <TouchableOpacity
                   style={[styles.startButton, isStarting && styles.startButtonDisabled]}
                   onPress={handleStartServer}
                   disabled={isStarting}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
                 >
-                  <LinearGradient
-                    colors={isStarting ? ['#555', '#444'] : [AppColors.primary, '#7C5DFA']}
-                    style={styles.startButtonGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    {isStarting ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Ionicons name="play-circle" size={22} color="#FFFFFF" />
-                    )}
-                    <Text style={styles.startButtonText}>
-                      {isStarting ? 'Avvio in corso...' : 'Avvia Server'}
-                    </Text>
-                  </LinearGradient>
+                  {isStarting ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons name="play" size={20} color="#FFFFFF" />
+                  )}
                 </TouchableOpacity>
+                {/* Status message during startup */}
+                {isStarting && startingMessage && (
+                  <View style={styles.startingMessageContainer}>
+                    <Text style={styles.startingMessage}>{startingMessage}</Text>
+                  </View>
+                )}
+                {!isStarting && projectInfo && (
+                  <Text style={styles.projectTypeText}>
+                    {projectInfo.description || projectInfo.type}
+                  </Text>
+                )}
               </View>
             </View>
           ) : serverStatus === 'checking' ? (
@@ -822,51 +960,131 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 allowsInlineMediaPlayback={true}
                 mediaPlaybackRequiresUserAction={false}
                 originWhitelist={['*']}
+                // Performance optimizations for smooth sidebar animation
+                renderToHardwareTextureAndroid={true}
+                shouldRasterizeIOS={true}
+                cacheEnabled={true}
+                cacheMode="LOAD_CACHE_ELSE_NETWORK"
               />
             </>
           )}
           </View>
-
-          {/* Input Box at Bottom */}
-          <View style={styles.inputContainer}>
-            {/* Selected Element Chip */}
-            {selectedElement && (
-              <View style={styles.selectedElementContainer}>
-                <View style={styles.selectedElementChip}>
-                  <View style={styles.chipIconContainer}>
-                    <Ionicons name="code-slash" size={14} color={AppColors.primary} />
-                  </View>
-                  <View style={styles.chipContent}>
-                    <Text style={styles.chipSelector}>{selectedElement.selector}</Text>
-                    {selectedElement.text && (
-                      <Text style={styles.chipText} numberOfLines={1}>{selectedElement.text}</Text>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => setSelectedElement(null)}
-                    style={styles.chipClose}
-                  >
-                    <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <ChatInput
-              value={message}
-              onChangeText={setMessage}
-              onSend={handleSendMessage}
-              placeholder="Scrivi un messaggio..."
-              showTopBar={false}
-              leftAccessory={{
-                icon: 'locate-outline',
-                onPress: toggleInspectMode,
-                isActive: isInspectMode,
-              }}
-            />
-          </View>
         </KeyboardAvoidingView>
-      </Animated.View>
+
+          {/* Animated FAB / Input Box - Only show when server is running */}
+          {serverStatus === 'running' && (
+            <Reanimated.View style={[styles.fabInputWrapper, { bottom: insets.bottom + 8, left: 12 }]}>
+              {/* Selected Element Chip - only when expanded */}
+              {isInputExpanded && selectedElement && (
+                <View style={styles.selectedElementContainer}>
+                  <View style={styles.selectedElementChip}>
+                    <View style={styles.chipIconContainer}>
+                      <Ionicons name="code-slash" size={14} color={AppColors.primary} />
+                    </View>
+                    <View style={styles.chipContent}>
+                      <Text style={styles.chipSelector}>{selectedElement.selector}</Text>
+                      {selectedElement.text && (
+                        <Text style={styles.chipText} numberOfLines={1}>{selectedElement.text}</Text>
+                      )}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setSelectedElement(null)}
+                      style={styles.chipClose}
+                    >
+                      <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Animated FAB that expands into input */}
+              <Animated.View
+                style={[
+                  styles.fabAnimated,
+                  { width: fabWidthAnim }
+                ]}
+              >
+                <BlurView intensity={60} tint="dark" style={styles.fabBlur}>
+                  {isInputExpanded ? (
+                    <>
+                      {/* Close Button */}
+                      <TouchableOpacity
+                        onPress={collapseFab}
+                        style={styles.previewInputButton}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={20}
+                          color="rgba(255, 255, 255, 0.5)"
+                        />
+                      </TouchableOpacity>
+
+                      {/* Inspect Mode Button */}
+                      <TouchableOpacity
+                        onPress={toggleInspectMode}
+                        style={[
+                          styles.previewInputButton,
+                          isInspectMode && styles.previewInputButtonActive
+                        ]}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="scan-outline"
+                          size={18}
+                          color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
+                        />
+                      </TouchableOpacity>
+
+                      {/* Text Input */}
+                      <TextInput
+                        ref={inputRef}
+                        style={styles.previewInput}
+                        value={message}
+                        onChangeText={setMessage}
+                        placeholder="Chiedi modifiche..."
+                        placeholderTextColor="rgba(255, 255, 255, 0.35)"
+                        multiline
+                        maxLength={500}
+                        onSubmitEditing={handleSendMessage}
+                        keyboardAppearance="dark"
+                        returnKeyType="send"
+                      />
+
+                      {/* Send Button */}
+                      <TouchableOpacity
+                        onPress={handleSendMessage}
+                        disabled={!message.trim()}
+                        style={styles.previewSendButton}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[
+                          styles.previewSendButtonInner,
+                          message.trim() && styles.previewSendButtonActive
+                        ]}>
+                          <Ionicons
+                            name="arrow-up"
+                            size={16}
+                            color={message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)'}
+                          />
+                        </View>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={expandFab}
+                      style={styles.fabButton}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="pencil" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  )}
+                </BlurView>
+              </Animated.View>
+            </Reanimated.View>
+          )}
+        </Animated.View>
+      </Reanimated.View>
     </>
   );
 };
@@ -883,74 +1101,66 @@ const styles = StyleSheet.create({
   },
   container: {
     position: 'absolute',
-    left: 50, // Offset for sidebar
+    // left is animated via containerAnimatedStyle
     right: 0,
     top: 0,
     bottom: 0,
     zIndex: 1000,
+    overflow: 'hidden',
   },
   header: {
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#000000',
+    paddingHorizontal: 10,
+    paddingBottom: 8,
   },
-  headerContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    height: 44,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  titleContainer: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+  closeButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  statusDot: {
+  refreshButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  urlBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusIndicator: {
     width: 6,
     height: 6,
     borderRadius: 3,
+    marginRight: 8,
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconButtonDisabled: {
-    opacity: 0.3,
+  urlText: {
+    flex: 1,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   webViewContainer: {
     flex: 1,
     position: 'relative',
+    backgroundColor: '#0a0a0a', // Dark background to prevent white flash
   },
   webView: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent', // Let container background show during resize
   },
   loadingContainer: {
     position: 'absolute',
@@ -972,104 +1182,205 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000000',
+    paddingBottom: 100,
   },
-  startContent: {
+  glowTop: {
+    position: 'absolute',
+    top: -100,
+    left: -50,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    opacity: 0.6,
+  },
+  glowBottom: {
+    position: 'absolute',
+    bottom: -150,
+    right: -80,
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: 'rgba(139, 124, 246, 0.05)',
+    opacity: 0.5,
+  },
+  startCloseButton: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
-    maxWidth: 500,
+    zIndex: 10,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(139, 124, 246, 0.12)',
-    borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
+  // iPhone 15 Pro mockup styles
+  iphoneMockup: {
+    width: 220,
+    height: 450,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 44,
+    borderWidth: 4,
+    borderColor: '#3a3a3c',
+    overflow: 'hidden',
+    position: 'relative',
+    // Titanium frame effect
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  statusBarArea: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    backgroundColor: '#1a1a2e',
+    marginHorizontal: 4,
+    marginTop: 4,
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
   },
-  startTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  startSubtitle: {
-    fontSize: 15,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 32,
-    textAlign: 'center',
-  },
-  infoCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  dynamicIsland: {
+    width: 72,
+    height: 20,
+    backgroundColor: '#000',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 16,
-    width: '100%',
-    marginBottom: 32,
+    marginHorizontal: 8,
   },
-  infoRow: {
+  iphoneScreen: {
+    flex: 1,
+    backgroundColor: '#1a1a2e',
+    marginHorizontal: 4,
+    marginBottom: 4,
+    borderBottomLeftRadius: 40,
+    borderBottomRightRadius: 40,
+    overflow: 'hidden',
+  },
+  fakeTime: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+    width: 32,
+  },
+  fakeStatusIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    width: 32,
+    justifyContent: 'flex-end',
+  },
+  fakeAppContent: {
+    flex: 1,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  fakeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 8,
   },
-  infoDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginVertical: 12,
+  fakeAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(139, 124, 246, 0.4)',
   },
-  infoLabel: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontWeight: '600',
-    minWidth: 70,
+  fakeHeaderText: {
+    gap: 4,
   },
-  infoValue: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '500',
-    flex: 1,
+  fakeLine: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
-  infoValueMono: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontFamily: 'monospace',
-    flex: 1,
+  fakeCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    padding: 10,
+  },
+  fakeCardImage: {
+    width: '100%',
+    height: 70,
+    borderRadius: 8,
+    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+  },
+  homeIndicator: {
+    width: 100,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    alignSelf: 'center',
+    marginBottom: 8,
+    marginTop: 'auto',
+  },
+  // Side buttons
+  iphoneSideButton: {
+    position: 'absolute',
+    right: -4,
+    top: 120,
+    width: 4,
+    height: 60,
+    backgroundColor: '#3a3a3c',
+    borderTopLeftRadius: 2,
+    borderBottomLeftRadius: 2,
+  },
+  iphoneVolumeUp: {
+    position: 'absolute',
+    left: -4,
+    top: 100,
+    width: 4,
+    height: 28,
+    backgroundColor: '#3a3a3c',
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  iphoneVolumeDown: {
+    position: 'absolute',
+    left: -4,
+    top: 140,
+    width: 4,
+    height: 28,
+    backgroundColor: '#3a3a3c',
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  startBottomSection: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   startButton: {
-    width: '100%',
-    borderRadius: 10,
-    overflow: 'hidden',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   startButtonDisabled: {
     opacity: 0.6,
   },
-  startButtonGradient: {
-    flexDirection: 'row',
+  startingMessageContainer: {
+    marginTop: 16,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 10,
   },
-  startButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+  startingMessage: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
   },
-  inputContainer: {
-    backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  inputBorder: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  projectTypeText: {
+    marginTop: 12,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
   },
   selectedElementContainer: {
     paddingHorizontal: 16,
@@ -1122,6 +1433,77 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewInputButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  previewInputButtonActive: {
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+  },
+  previewInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#fff',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    maxHeight: 100,
+    lineHeight: 20,
+  },
+  previewSendButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSendButtonInner: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewSendButtonActive: {
+    backgroundColor: AppColors.primary,
+  },
+  // New animated FAB styles
+  fabInputWrapper: {
+    position: 'absolute',
+    // left is animated via fabWrapperAnimatedStyle (12 when sidebar visible, -38 when hidden -> expands)
+    right: 12,
+    alignItems: 'flex-end', // FAB starts from right
+  },
+  fabAnimated: {
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    // Shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  fabBlur: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 4,
+    overflow: 'hidden',
+  },
+  fabButton: {
+    flex: 1,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },

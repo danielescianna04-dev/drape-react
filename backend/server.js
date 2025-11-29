@@ -28,6 +28,42 @@ function getLocalIP() {
   return '127.0.0.1';
 }
 const LOCAL_IP = getLocalIP();
+const net = require('net');
+
+/**
+ * Check if a port is available
+ * @param {number} port - Port to check
+ * @returns {Promise<boolean>} - True if port is available
+ */
+function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+/**
+ * Find an available port starting from the given port
+ * @param {number} startPort - Starting port to try
+ * @param {number} maxAttempts - Maximum number of ports to try
+ * @returns {Promise<number>} - First available port
+ */
+async function findAvailablePort(startPort, maxAttempts = 100) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+    console.log(`⚠️  Port ${port} is in use, trying ${port + 1}...`);
+  }
+  throw new Error(`No available port found after trying ${maxAttempts} ports starting from ${startPort}`);
+}
+
 const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const admin = require('firebase-admin');
@@ -1560,6 +1596,25 @@ async function executeCommandOnWorkstation(command, workstationId) {
         console.log(`📍 Using default port: ${port}`);
       }
 
+      // Check if this is a static server command (node static-server.js)
+      const isStaticServer = command.includes('static-server.js');
+
+      // For static server commands, find an available port and update the command
+      if (isStaticServer) {
+        console.log(`🔍 Static server detected - checking if port ${port} is available...`);
+        const originalPort = port;
+        port = await findAvailablePort(port);
+
+        if (port !== originalPort) {
+          console.log(`⚠️  Port ${originalPort} is in use, using port ${port} instead`);
+          // Update the command with the new port
+          execCommand = execCommand.replace(/\b\d{4,5}\b/, port.toString());
+          console.log(`📝 Updated command: ${execCommand}`);
+        } else {
+          console.log(`✅ Port ${port} is available`);
+        }
+      }
+
       // For React Native/Expo projects, clean only the target port (NOT 8081 to avoid killing main app)
       if (isReactNative && port !== 8081) {
         try {
@@ -1918,6 +1973,32 @@ function convertToPublicUrl(localUrl, workstationId) {
 // Detect preview URL from command output
 function detectPreviewUrl(output, command) {
   const isExpoWeb = command && command.includes('expo') && command.includes('--web');
+
+  // Check for ACTUAL_PORT from our static-server.js (automatic port finding)
+  const actualPortMatch = output.match(/ACTUAL_PORT:(\d+)/);
+  if (actualPortMatch) {
+    const port = actualPortMatch[1];
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    let localIp = 'localhost';
+
+    for (const interfaceName in networkInterfaces) {
+      const interfaces = networkInterfaces[interfaceName];
+      if (interfaces) {
+        for (const iface of interfaces) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            localIp = iface.address;
+            break;
+          }
+        }
+      }
+      if (localIp !== 'localhost') break;
+    }
+
+    const url = `http://${localIp}:${port}`;
+    console.log(`🔗 Detected ACTUAL_PORT: ${port}, using URL: ${url}`);
+    return url;
+  }
 
   // Look for common development server patterns
   const urlPatterns = [

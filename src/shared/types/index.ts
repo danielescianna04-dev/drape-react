@@ -7,6 +7,8 @@ export enum TerminalItemType {
   USER_MESSAGE = 'user_message', // User message in chat (not a terminal command)
 }
 
+export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system';
+
 export interface TerminalItem {
   id?: string;
   content: string;
@@ -15,6 +17,7 @@ export interface TerminalItem {
   errorDetails?: string;
   exitCode?: number;
   previewUrl?: string;
+  source?: TerminalSource; // Where the command originated from
 }
 
 export interface ChatSession {

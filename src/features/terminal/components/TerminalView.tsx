@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -9,7 +8,6 @@ import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { ChatInput } from '../../../shared/components/ChatInput';
-import { useContentOffset } from '../../../hooks/ui/useContentOffset';
 
 interface Props {
   terminalTabId: string; // The terminal tab itself (where to write new commands)
@@ -24,31 +22,38 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
-  const { currentWorkstation } = useTerminalStore();
-
-  // Use content offset hook for sidebar animation
-  const contentAnimatedStyle = useContentOffset();
+  const { currentWorkstation, globalTerminalLog, addGlobalTerminalLog } = useTerminalStore();
 
   // Get terminal items based on sourceTabId
+  // Now includes GLOBAL log from all sources (preview, AI, etc.)
   const allTerminalItems = useMemo(() => {
+    const allItems: any[] = [];
+
+    // Always include global terminal log (commands from preview, AI, etc.)
+    if (globalTerminalLog && globalTerminalLog.length > 0) {
+      allItems.push(...globalTerminalLog);
+    }
+
     if (sourceTabId === 'all') {
-      // Show commands from ALL chat tabs, sorted by timestamp
-      const allItems: any[] = [];
+      // Show commands from ALL chat tabs + global log
       tabs.forEach(tab => {
         if (tab.type === 'chat' && tab.terminalItems) {
           allItems.push(...tab.terminalItems);
         }
       });
-      // Sort by timestamp to show chronological order
-      return allItems.sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
     } else {
-      // Show commands from specific tab
+      // Show commands from specific tab + global log
       const sourceTab = tabs.find(t => t.id === sourceTabId);
-      return sourceTab?.terminalItems || [];
+      if (sourceTab?.terminalItems) {
+        allItems.push(...sourceTab.terminalItems);
+      }
     }
-  }, [sourceTabId, tabs]);
+
+    // Sort by timestamp to show chronological order
+    return allItems.sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  }, [sourceTabId, tabs, globalTerminalLog]);
 
   // Filter out USER_MESSAGE items and their OUTPUT responses - only show real terminal commands
   const terminalItems = useMemo(() => {
@@ -89,12 +94,15 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
     setInput('');
     setIsExecuting(true);
 
-    // Add command to terminal (write to terminalTabId, not sourceTabId)
-    addTerminalItemToTab(terminalTabId, {
-      id: Date.now().toString(),
+    const commandId = Date.now().toString();
+
+    // Add command to GLOBAL terminal log (visible everywhere)
+    addGlobalTerminalLog({
+      id: commandId,
       content: command,
       type: TerminalItemType.COMMAND,
       timestamp: new Date(),
+      source: 'terminal',
     });
 
     try {
@@ -106,22 +114,24 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         }
       );
 
-      // Add output to terminal (write to terminalTabId, not sourceTabId)
-      addTerminalItemToTab(terminalTabId, {
+      // Add output to GLOBAL terminal log
+      addGlobalTerminalLog({
         id: (Date.now() + 1).toString(),
         content: response.data.output || '',
         type: response.data.error ? TerminalItemType.ERROR : TerminalItemType.OUTPUT,
         timestamp: new Date(),
         exitCode: response.data.exitCode,
+        source: 'terminal',
       });
     } catch (error: any) {
-      // Add error to terminal (write to terminalTabId, not sourceTabId)
-      addTerminalItemToTab(terminalTabId, {
+      // Add error to GLOBAL terminal log
+      addGlobalTerminalLog({
         id: (Date.now() + 1).toString(),
         content: error.response?.data?.error || error.message || 'Unknown error',
         type: TerminalItemType.ERROR,
         timestamp: new Date(),
         errorDetails: error.response?.data?.details,
+        source: 'terminal',
       });
     } finally {
       setIsExecuting(false);
@@ -173,7 +183,6 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
       {/* Header with gradient */}
       <View style={styles.headerContainer}>
         <LinearGradient
@@ -269,15 +278,40 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                       </Text>
                     </View>
 
-                    {item.timestamp && (
-                      <Text style={styles.timestamp}>
-                        {new Date(item.timestamp).toLocaleTimeString('it-IT', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                        })}
-                      </Text>
-                    )}
+                    <View style={styles.headerRight}>
+                      {item.source && (
+                        <View style={[
+                          styles.sourceBadge,
+                          item.source === 'preview' && styles.sourceBadgePreview,
+                          item.source === 'ai' && styles.sourceBadgeAI,
+                          item.source === 'terminal' && styles.sourceBadgeTerminal,
+                        ]}>
+                          <Ionicons
+                            name={
+                              item.source === 'preview' ? 'phone-portrait-outline' :
+                              item.source === 'ai' ? 'sparkles' :
+                              item.source === 'terminal' ? 'terminal-outline' : 'code-outline'
+                            }
+                            size={10}
+                            color="rgba(255,255,255,0.7)"
+                          />
+                          <Text style={styles.sourceText}>
+                            {item.source === 'preview' ? 'Preview' :
+                             item.source === 'ai' ? 'AI' :
+                             item.source === 'terminal' ? 'Terminal' : item.source}
+                          </Text>
+                        </View>
+                      )}
+                      {item.timestamp && (
+                        <Text style={styles.timestamp}>
+                          {new Date(item.timestamp).toLocaleTimeString('it-IT', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit'
+                          })}
+                        </Text>
+                      )}
+                    </View>
                   </View>
 
                   {/* Content */}
@@ -324,7 +358,6 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         isExecuting={isExecuting}
         showTopBar={false}
       />
-      </Animated.View>
     </KeyboardAvoidingView>
   );
 };
@@ -333,6 +366,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
+    paddingLeft: 50, // Account for sidebar width (same as ChatPage output)
   },
   headerContainer: {
     position: 'relative',
@@ -499,6 +533,36 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.45)',
     fontFamily: 'monospace',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sourceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sourceBadgePreview: {
+    backgroundColor: 'rgba(0, 208, 132, 0.15)',
+  },
+  sourceBadgeAI: {
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+  },
+  sourceBadgeTerminal: {
+    backgroundColor: 'rgba(255, 165, 0, 0.15)',
+  },
+  sourceText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
   cardContent: {
     padding: 14,
