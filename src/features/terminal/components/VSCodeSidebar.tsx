@@ -447,7 +447,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       </GestureDetector>
 
       {/* Content area - TabBar will animate its position via context */}
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
         {activePanel === 'files' && (
           <Sidebar
             onClose={() => setActivePanel(null)}

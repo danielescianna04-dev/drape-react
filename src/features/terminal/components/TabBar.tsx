@@ -58,15 +58,9 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
 
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();
-
-    RNAnimated.timing(scaleAnims[id], {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
-      removeTab(id);
-      delete scaleAnims[id];
-    });
+    // Remove immediately without animation to prevent white flash
+    delete scaleAnims[id];
+    removeTab(id);
   };
 
   const getTabIcon = (type: string): keyof typeof Ionicons.glyphMap => {
@@ -105,8 +99,9 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="always"
         >
-          {tabs.map(tab => {
+          {tabs.map((tab, index) => {
             const isActive = tab.id === activeTabId;
+            const isFirstTab = index === 0;
             const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
 
             return (
@@ -118,7 +113,11 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                 ]}
               >
                 <TouchableOpacity
-                  style={[styles.tab, isActive && styles.tabActive]}
+                  style={[
+                    styles.tab,
+                    isActive && styles.tabActive,
+                    isActive && isFirstTab && styles.tabActiveFirst
+                  ]}
                   onPress={() => handleTabPress(tab.id)}
                   activeOpacity={0.7}
                 >
@@ -171,7 +170,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabWrapper: {
-    marginRight: 4,
+    marginRight: 0,
   },
   tab: {
     flexDirection: 'row',
@@ -179,13 +178,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     backgroundColor: 'transparent',
-    borderRadius: 6,
+    borderTopLeftRadius: 6,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     gap: 6,
     minWidth: 100,
     maxWidth: 170,
   },
   tabActive: {
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
+  },
+  tabActiveFirst: {
+    borderBottomLeftRadius: 12,
   },
   tabTitle: {
     fontSize: 12,
