@@ -8,6 +8,7 @@ import Animated, { FadeIn, FadeOut, SlideInRight } from 'react-native-reanimated
 
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
+import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
@@ -22,7 +23,7 @@ import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 
 console.log('🔵 App.tsx loaded');
 
-type Screen = 'splash' | 'home' | 'create' | 'terminal';
+type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -194,7 +195,7 @@ export default function App() {
             <ProjectsHomeScreen
               onCreateProject={() => setCurrentScreen('create')}
               onImportProject={() => setShowImportModal(true)}
-              onMyProjects={() => setCurrentScreen('terminal')}
+              onMyProjects={() => setCurrentScreen('allProjects')}
               onOpenProject={async (workstation) => {
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
@@ -257,7 +258,32 @@ export default function App() {
           >
             <CreateProjectScreen
               onBack={() => setCurrentScreen('home')}
-              onCreate={(projectData) => setCurrentScreen('terminal')}
+              onCreate={(workstation) => {
+                setWorkstation(workstation);
+                setCurrentScreen('terminal');
+
+                // Add welcome message to chat
+                setTimeout(() => {
+                  const { activeTabId, tabs } = useTabStore.getState();
+                  const currentTab = tabs.find(t => t.id === activeTabId);
+
+                  if (currentTab) {
+                    clearTerminalItems(currentTab.id);
+                    addTerminalItemToStore(currentTab.id, {
+                      id: `welcome-${Date.now()}`,
+                      type: 'system',
+                      content: `Project "${workstation.name}" created successfully!`,
+                      timestamp: new Date(),
+                    });
+                    addTerminalItemToStore(currentTab.id, {
+                      id: `info-${Date.now()}`,
+                      type: 'output',
+                      content: `Language: ${workstation.language || 'Not specified'}\nYou can start coding or ask the AI for help.`,
+                      timestamp: new Date(),
+                    });
+                  }
+                }, 100);
+              }}
             />
           </Animated.View>
         )}
@@ -293,6 +319,68 @@ export default function App() {
                 );
               }}
             </VSCodeSidebar>
+          </Animated.View>
+        )}
+
+        {currentScreen === 'allProjects' && (
+          <Animated.View
+            key="all-projects-screen"
+            entering={SlideInRight.duration(300)}
+            exiting={FadeOut.duration(200)}
+            style={{ flex: 1 }}
+          >
+            <AllProjectsScreen
+              onClose={() => setCurrentScreen('home')}
+              onOpenProject={async (workstation) => {
+                setWorkstation(workstation);
+                setCurrentScreen('terminal');
+
+                setTimeout(async () => {
+                  const { activeTabId, tabs } = useTabStore.getState();
+                  const currentTab = tabs.find(t => t.id === activeTabId);
+
+                  if (currentTab && workstation.githubUrl) {
+                    clearTerminalItems(currentTab.id);
+
+                    addTerminalItemToStore(currentTab.id, {
+                      id: `loading-${Date.now()}`,
+                      type: 'loading',
+                      content: 'Cloning repository to workstation',
+                      timestamp: new Date(),
+                    });
+
+                    try {
+                      await workstationService.getWorkstationFiles(workstation.projectId || workstation.id, workstation.githubUrl);
+
+                      updateTerminalItemsByType(currentTab.id, 'loading', {
+                        type: 'system',
+                        content: 'Cloning repository to workstation'
+                      });
+
+                      const repoName = workstation.githubUrl.split('/').pop()?.replace('.git', '') || workstation.name;
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `success-${Date.now()}`,
+                        type: 'output',
+                        content: `✓ Repository cloned successfully: ${repoName}`,
+                        timestamp: new Date(),
+                      });
+                    } catch (err: any) {
+                      updateTerminalItemsByType(currentTab.id, 'loading', {
+                        type: 'system',
+                        content: 'Cloning repository to workstation'
+                      });
+
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `error-${Date.now()}`,
+                        type: 'error',
+                        content: `✗ ${err.message || 'Failed to clone repository'}`,
+                        timestamp: new Date(),
+                      });
+                    }
+                  }
+                }, 100);
+              }}
+            />
           </Animated.View>
         )}
       </ErrorBoundary>

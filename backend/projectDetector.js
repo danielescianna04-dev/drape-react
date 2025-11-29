@@ -281,6 +281,58 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // C/C++ (CMake)
+  if (files.includes('CMakeLists.txt')) {
+    return {
+      type: 'cmake',
+      defaultPort: 8080,
+      startCommand: 'cmake --build build && ./build/main',
+      installCommand: 'cmake -B build',
+      description: 'C/C++ (CMake) Application',
+      buildCommand: 'cmake --build build'
+    };
+  }
+
+  // C/C++ (Makefile)
+  if (files.includes('Makefile') && (files.some(f => f.endsWith('.c')) || files.some(f => f.endsWith('.cpp')))) {
+    return {
+      type: 'make',
+      defaultPort: 8080,
+      startCommand: 'make && ./main',
+      installCommand: 'make',
+      description: 'C/C++ (Makefile) Application',
+      buildCommand: 'make'
+    };
+  }
+
+  // C/C++ (single file)
+  const cFile = files.find(f => f.endsWith('.c') && !f.includes('/'));
+  const cppFile = files.find(f => (f.endsWith('.cpp') || f.endsWith('.cc') || f.endsWith('.cxx')) && !f.includes('/'));
+
+  if (cppFile) {
+    const outputName = cppFile.replace(/\.(cpp|cc|cxx)$/, '');
+    return {
+      type: 'cpp',
+      defaultPort: null, // Console app, no web server
+      startCommand: `g++ -o ${outputName} ${cppFile} && ./${outputName}`,
+      installCommand: null,
+      description: 'C++ Application',
+      buildCommand: `g++ -o ${outputName} ${cppFile}`
+    };
+  }
+
+  if (cFile) {
+    const outputName = cFile.replace('.c', '');
+    return {
+      type: 'c',
+      defaultPort: null, // Console app, no web server
+      startCommand: `gcc -o ${outputName} ${cFile} && ./${outputName}`,
+      installCommand: null,
+      description: 'C Application',
+      buildCommand: `gcc -o ${outputName} ${cFile}`
+    };
+  }
+
   // Bun
   if (files.includes('bun.lockb') || (packageJson?.dependencies?.['bun'] || packageJson?.devDependencies?.['bun'])) {
     return {

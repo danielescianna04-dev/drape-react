@@ -366,6 +366,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       <GestureDetector gesture={sidebarSwipeGesture}>
         <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
+          {/* Tabs/Home button - returns to tabs view */}
+          <IconButton
+            iconName="albums"
+            size={24}
+            color="#888"
+            onPress={() => setActivePanel(null)}
+            isActive={activePanel === null}
+            activeColor={AppColors.primary}
+            accessibilityLabel="Tabs view"
+          />
+
           <IconButton
             iconName="folder"
             size={24}

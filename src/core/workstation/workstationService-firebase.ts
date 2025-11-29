@@ -254,6 +254,11 @@ export const workstationService = {
     }
   },
 
+  // Alias per compatibilità
+  async deleteWorkstation(workstationId: string): Promise<void> {
+    return this.deleteProject(workstationId);
+  },
+
   // Helper per estrarre nome repository
   getRepositoryName(repositoryUrl: string): string {
     if (!repositoryUrl) return 'unknown';

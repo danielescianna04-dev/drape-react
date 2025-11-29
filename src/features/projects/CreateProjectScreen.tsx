@@ -1,8 +1,23 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Dimensions,
+  Platform,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
+import { workstationService } from '../../core/workstation/workstationService-firebase';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface Props {
   onBack: () => void;
@@ -10,255 +25,778 @@ interface Props {
 }
 
 const languages = [
-  { id: 'javascript', name: 'JavaScript', icon: 'logo-javascript', color: '#F7DF1E', desc: 'Web scripting' },
-  { id: 'typescript', name: 'TypeScript', icon: 'logo-javascript', color: '#3178C6', desc: 'Typed JavaScript' },
-  { id: 'python', name: 'Python', icon: 'logo-python', color: '#3776AB', desc: 'Versatile language' },
-  { id: 'java', name: 'Java', icon: 'logo-java', color: '#007396', desc: 'Enterprise apps' },
-  { id: 'cpp', name: 'C++', icon: 'code-slash', color: '#00599C', desc: 'High performance' },
-  { id: 'c', name: 'C', icon: 'code-slash', color: '#A8B9CC', desc: 'System programming' },
-  { id: 'csharp', name: 'C#', icon: 'code-slash', color: '#239120', desc: '.NET framework' },
-  { id: 'go', name: 'Go', icon: 'code-slash', color: '#00ADD8', desc: 'Google language' },
-  { id: 'rust', name: 'Rust', icon: 'code-slash', color: '#CE422B', desc: 'Memory safe' },
-  { id: 'php', name: 'PHP', icon: 'logo-php', color: '#777BB4', desc: 'Web backend' },
-  { id: 'ruby', name: 'Ruby', icon: 'code-slash', color: '#CC342D', desc: 'Rails framework' },
-  { id: 'swift', name: 'Swift', icon: 'logo-apple', color: '#FA7343', desc: 'iOS development' },
-  { id: 'kotlin', name: 'Kotlin', icon: 'logo-android', color: '#7F52FF', desc: 'Android apps' },
-  { id: 'dart', name: 'Dart', icon: 'code-slash', color: '#0175C2', desc: 'Flutter apps' },
-  { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB', desc: 'UI library' },
-  { id: 'vue', name: 'Vue.js', icon: 'logo-vue', color: '#42B883', desc: 'Progressive framework' },
-  { id: 'angular', name: 'Angular', icon: 'logo-angular', color: '#DD0031', desc: 'Full framework' },
-  { id: 'node', name: 'Node.js', icon: 'logo-nodejs', color: '#68A063', desc: 'JavaScript runtime' },
-  { id: 'html', name: 'HTML/CSS', icon: 'logo-html5', color: '#E34F26', desc: 'Web fundamentals' },
-  { id: 'sql', name: 'SQL', icon: 'server', color: '#4479A1', desc: 'Database queries' },
+  { id: 'javascript', name: 'JavaScript', icon: 'logo-javascript', color: '#F7DF1E' },
+  { id: 'typescript', name: 'TypeScript', icon: 'logo-javascript', color: '#3178C6' },
+  { id: 'python', name: 'Python', icon: 'logo-python', color: '#3776AB' },
+  { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
+  { id: 'node', name: 'Node.js', icon: 'logo-nodejs', color: '#68A063' },
+  { id: 'cpp', name: 'C++', icon: 'code-slash', color: '#00599C' },
+  { id: 'java', name: 'Java', icon: 'cafe-outline', color: '#ED8B00' },
+  { id: 'swift', name: 'Swift', icon: 'logo-apple', color: '#FA7343' },
+  { id: 'kotlin', name: 'Kotlin', icon: 'logo-android', color: '#7F52FF' },
+  { id: 'go', name: 'Go', icon: 'code-slash', color: '#00ADD8' },
+  { id: 'rust', name: 'Rust', icon: 'code-slash', color: '#CE422B' },
+  { id: 'html', name: 'HTML/CSS', icon: 'logo-html5', color: '#E34F26' },
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
-  const [createGitHubRepo, setCreateGitHubRepo] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const inputRef = useRef<TextInput>(null);
 
-  const handleCreate = () => {
-    onCreate({ 
-      name: projectName, 
-      language: selectedLanguage, 
-      template: 'blank',
-      createGitHubRepo 
-    });
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const handleNext = () => {
+    if (step === 1) {
+      if (!projectName.trim()) {
+        Alert.alert('Attenzione', 'Inserisci un nome per il progetto');
+        return;
+      }
+      Keyboard.dismiss();
+      setStep(2);
+    } else if (step === 2) {
+      if (!selectedLanguage) {
+        Alert.alert('Attenzione', 'Seleziona un linguaggio');
+        return;
+      }
+      setStep(3);
+    }
   };
 
-  const canProceed = () => {
-    if (step === 1) return projectName.trim().length > 0;
-    if (step === 2) return selectedLanguage !== '';
-    return true;
+  const handleBack = () => {
+    if (step > 1) {
+      setStep(step - 1);
+    } else {
+      onBack();
+    }
   };
+
+  const handleCreate = async () => {
+    Keyboard.dismiss();
+    setIsCreating(true);
+    try {
+      const userId = 'anonymous';
+      const project = await workstationService.savePersonalProject(projectName, userId);
+
+      const workstation = {
+        id: project.id,
+        projectId: project.id,
+        name: projectName,
+        language: selectedLanguage,
+        status: 'creating' as const,
+        createdAt: new Date(),
+        files: [],
+        folderId: null,
+      };
+
+      onCreate(workstation);
+    } catch (error) {
+      console.error('Error creating project:', error);
+      Alert.alert('Errore', 'Impossibile creare il progetto. Riprova.');
+      setIsCreating(false);
+    }
+  };
+
+  const selectedLang = languages.find(l => l.id === selectedLanguage);
+  const canProceed = step === 1 ? projectName.trim().length > 0 : step === 2 ? selectedLanguage !== '' : true;
+
+  const renderStepIndicator = () => (
+    <View style={styles.stepIndicator}>
+      {[1, 2, 3].map((s) => (
+        <React.Fragment key={s}>
+          <View style={[styles.stepDot, step >= s && styles.stepDotActive]}>
+            {step > s ? (
+              <Ionicons name="checkmark" size={14} color="#fff" />
+            ) : (
+              <Text style={[styles.stepNumber, step >= s && styles.stepNumberActive]}>{s}</Text>
+            )}
+          </View>
+          {s < 3 && (
+            <View style={styles.stepLineContainer}>
+              <View style={[styles.stepLine, step > s && styles.stepLineActive]} />
+            </View>
+          )}
+        </React.Fragment>
+      ))}
+    </View>
+  );
+
+  const renderStep1 = () => (
+    <View style={styles.stepContent}>
+      <View style={styles.stepHeader}>
+        <View style={styles.stepIconContainer}>
+          <LinearGradient
+            colors={[AppColors.primary, '#9333EA']}
+            style={styles.stepIconGradient}
+          >
+            <Ionicons name="create-outline" size={28} color="#fff" />
+          </LinearGradient>
+        </View>
+        <Text style={styles.stepTitle}>Dai un nome al progetto</Text>
+        <Text style={styles.stepSubtitle}>Scegli un nome unico per identificarlo</Text>
+      </View>
+
+      <View style={[styles.inputWrapper, inputFocused && styles.inputWrapperFocused]}>
+        <LinearGradient
+          colors={inputFocused ? ['rgba(139, 92, 246, 0.15)', 'rgba(147, 51, 234, 0.1)'] : ['rgba(255,255,255,0.03)', 'rgba(255,255,255,0.01)']}
+          style={styles.inputGradient}
+        >
+          <View style={styles.inputContainer}>
+            <View style={[styles.inputIcon, inputFocused && styles.inputIconFocused]}>
+              <Ionicons name="folder" size={18} color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'} />
+            </View>
+            <TextInput
+              ref={inputRef}
+              style={styles.textInput}
+              placeholder="es. mia-app"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={projectName}
+              onChangeText={setProjectName}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                Keyboard.dismiss();
+                if (projectName.trim()) handleNext();
+              }}
+            />
+            {projectName.length > 0 && (
+              <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
+                <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </LinearGradient>
+      </View>
+
+      <View style={styles.suggestions}>
+        <Text style={styles.suggestionsLabel}>Idee rapide</Text>
+        <View style={styles.suggestionChips}>
+          {['portfolio', 'todo-app', 'api-server', 'landing-page'].map((name) => (
+            <TouchableOpacity
+              key={name}
+              style={[styles.suggestionChip, projectName === name && styles.suggestionChipActive]}
+              onPress={() => setProjectName(name)}
+            >
+              <Text style={[styles.suggestionChipText, projectName === name && styles.suggestionChipTextActive]}>
+                {name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderStep2 = () => (
+    <View style={styles.stepContent}>
+      <View style={styles.stepHeader}>
+        <View style={styles.stepIconContainer}>
+          <LinearGradient
+            colors={[AppColors.primary, '#9333EA']}
+            style={styles.stepIconGradient}
+          >
+            <Ionicons name="code-slash" size={28} color="#fff" />
+          </LinearGradient>
+        </View>
+        <Text style={styles.stepTitle}>Scegli il linguaggio</Text>
+        <Text style={styles.stepSubtitle}>Quale tecnologia userai?</Text>
+      </View>
+
+      {selectedLang && (
+        <View style={styles.selectedLanguageBar}>
+          <LinearGradient
+            colors={[`${selectedLang.color}20`, `${selectedLang.color}10`]}
+            style={styles.selectedLanguageGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+          >
+            <Ionicons name={selectedLang.icon as any} size={18} color={selectedLang.color} />
+            <Text style={[styles.selectedLanguageText, { color: selectedLang.color }]}>
+              {selectedLang.name} selezionato
+            </Text>
+            <Ionicons name="checkmark-circle" size={18} color={selectedLang.color} />
+          </LinearGradient>
+        </View>
+      )}
+
+      <View style={styles.languagesGrid}>
+        {languages.map((lang) => {
+          const isSelected = selectedLanguage === lang.id;
+          return (
+            <TouchableOpacity
+              key={lang.id}
+              style={[styles.langCard, isSelected && styles.langCardSelected]}
+              onPress={() => setSelectedLanguage(lang.id)}
+              activeOpacity={0.7}
+            >
+              {isSelected && (
+                <LinearGradient
+                  colors={[`${lang.color}25`, `${lang.color}10`]}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
+              <View style={[styles.langIcon, { backgroundColor: `${lang.color}15` }]}>
+                <Ionicons name={lang.icon as any} size={24} color={lang.color} />
+              </View>
+              <Text style={[styles.langName, isSelected && { color: '#fff' }]}>
+                {lang.name}
+              </Text>
+              {isSelected && (
+                <View style={[styles.langCheck, { backgroundColor: lang.color }]}>
+                  <Ionicons name="checkmark" size={10} color="#fff" />
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const renderStep3 = () => (
+    <View style={styles.stepContent}>
+      <View style={styles.stepHeader}>
+        <View style={styles.stepIconContainer}>
+          <LinearGradient
+            colors={['#10B981', '#059669']}
+            style={styles.stepIconGradient}
+          >
+            <Ionicons name="rocket" size={28} color="#fff" />
+          </LinearGradient>
+        </View>
+        <Text style={styles.stepTitle}>Tutto pronto!</Text>
+        <Text style={styles.stepSubtitle}>Controlla i dettagli del progetto</Text>
+      </View>
+
+      <View style={styles.summaryCard}>
+        <LinearGradient
+          colors={['rgba(139, 92, 246, 0.08)', 'rgba(147, 51, 234, 0.04)']}
+          style={styles.summaryGradient}
+        >
+          <View style={styles.summaryItem}>
+            <View style={styles.summaryIconWrapper}>
+              <Ionicons name="folder" size={18} color={AppColors.primary} />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>Nome progetto</Text>
+              <Text style={styles.summaryValue}>{projectName}</Text>
+            </View>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryItem}>
+            <View style={[styles.summaryIconWrapper, { backgroundColor: `${selectedLang?.color}15` }]}>
+              <Ionicons name={selectedLang?.icon as any} size={18} color={selectedLang?.color} />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>Linguaggio</Text>
+              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
+            </View>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryItem}>
+            <View style={styles.summaryIconWrapper}>
+              <Ionicons name="document-text" size={18} color={AppColors.primary} />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>Tipo</Text>
+              <Text style={styles.summaryValue}>Progetto vuoto</Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </View>
+
+      <View style={styles.readyMessage}>
+        <Ionicons name="sparkles" size={20} color="#A78BFA" />
+        <Text style={styles.readyText}>
+          Premi "Crea" per iniziare a programmare!
+        </Text>
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#000000', '#0a0a0f', '#1a0a2e', '#000000']} locations={[0, 0.3, 0.6, 1]} style={StyleSheet.absoluteFill} />
+      {/* Background */}
+      <LinearGradient
+        colors={['#0A0A0F', '#0F0A1A', '#0A0A0F']}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Decorative glow */}
+      <View style={styles.glowTop} />
+      <View style={styles.glowBottom} />
+
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+          <Ionicons name={step === 1 ? "close" : "chevron-back"} size={22} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Create Project</Text>
-          <Text style={styles.headerSubtitle}>Step {step} of 3</Text>
+          <Text style={styles.headerTitle}>Nuovo Progetto</Text>
+          <Text style={styles.headerStep}>Passo {step}/3</Text>
         </View>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 44 }} />
       </View>
-      <View style={styles.progressDots}>
-        {[1, 2, 3].map((dot) => (
-          <View key={dot} style={[styles.dot, dot === step && styles.dotActive, dot < step && styles.dotCompleted]} />
-        ))}
-      </View>
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {step === 1 && (
-          <View style={styles.step}>
-            <View style={styles.heroContainer}>
-              <LinearGradient
-                colors={['rgba(139, 92, 246, 0.2)', 'rgba(139, 92, 246, 0.05)']}
-                style={styles.heroGradient}
-              >
-                <View style={styles.floatingIcon}>
-                  <Ionicons name="rocket" size={64} color={AppColors.primary} />
-                </View>
-              </LinearGradient>
-            </View>
-            <Text style={styles.stepTitle}>Let's create something amazing</Text>
-            <Text style={styles.stepSubtitle}>Give your project a name to get started</Text>
-            <View style={styles.inputWrapper}>
-              <View style={styles.inputLabel}>
-                <Ionicons name="folder" size={16} color="rgba(255, 255, 255, 0.5)" />
-                <Text style={styles.inputLabelText}>Project Name</Text>
-              </View>
-              <View style={styles.inputContainer}>
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="my-awesome-project" 
-                  placeholderTextColor="rgba(255, 255, 255, 0.3)" 
-                  value={projectName} 
-                  onChangeText={setProjectName} 
-                  autoFocus 
-                  autoCapitalize="none" 
-                  autoCorrect={false} 
-                />
-                {projectName.length > 0 && (
-                  <View style={styles.checkIcon}>
-                    <Ionicons name="checkmark-circle" size={24} color={AppColors.primary} />
-                  </View>
-                )}
-              </View>
-              {projectName.length > 0 && (
-                <View style={styles.successHint}>
-                  <View style={styles.successDot} />
-                  <Text style={styles.successText}>Perfect! Ready to continue</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.examplesContainer}>
-              <Text style={styles.examplesTitle}>Examples:</Text>
-              <View style={styles.exampleChips}>
-                {['portfolio-site', 'todo-app', 'api-server'].map((example) => (
-                  <TouchableOpacity
-                    key={example}
-                    style={styles.exampleChip}
-                    onPress={() => setProjectName(example)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.exampleText}>{example}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </View>
-        )}
-        {step === 2 && (
-          <View style={styles.step}>
-            <View style={styles.stepIconContainer}>
-              <Ionicons name="code-slash" size={40} color={AppColors.primary} />
-            </View>
-            <Text style={styles.stepTitle}>Choose language</Text>
-            <Text style={styles.stepSubtitle}>A blank project structure will be created</Text>
-            <View style={styles.languagesGrid}>
-              {languages.map((lang) => (
-                <TouchableOpacity key={lang.id} style={[styles.languageCard, selectedLanguage === lang.id && styles.languageCardSelected]} onPress={() => setSelectedLanguage(lang.id)} activeOpacity={0.7}>
-                  <Ionicons name={lang.icon as any} size={36} color={lang.color} />
-                  <Text style={styles.languageName}>{lang.name}</Text>
-                  <Text style={styles.languageDesc}>{lang.desc}</Text>
-                  {selectedLanguage === lang.id && (
-                    <View style={styles.checkBadge}>
-                      <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+
+      {/* Step Indicator */}
+      {renderStepIndicator()}
+
+      {/* Content */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          keyboardVisible && { paddingBottom: 20 }
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {step === 1 && renderStep1()}
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
+      </ScrollView>
+
+      {/* Bottom Button - Hidden when keyboard is visible */}
+      {!keyboardVisible && (
+        <View style={styles.bottomBar}>
+          <TouchableOpacity
+            style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
+            onPress={step === 3 ? handleCreate : handleNext}
+            disabled={!canProceed || isCreating}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={canProceed ? [AppColors.primary, '#9333EA'] : ['#1F1F2E', '#1A1A26']}
+              style={styles.actionBtnGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              {isCreating ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
+                    {step === 3 ? 'Crea Progetto' : 'Continua'}
+                  </Text>
+                  {canProceed && (
+                    <View style={styles.actionBtnIcon}>
+                      <Ionicons name={step === 3 ? "checkmark" : "chevron-forward"} size={18} color="#fff" />
                     </View>
                   )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        )}
-        {step === 3 && (
-          <View style={styles.step}>
-            <View style={styles.stepIconContainer}>
-              <Ionicons name="logo-github" size={40} color="#FFFFFF" />
-            </View>
-            <Text style={styles.stepTitle}>GitHub Repository</Text>
-            <Text style={styles.stepSubtitle}>Optional: Create a new GitHub repo</Text>
-            <View style={styles.optionsList}>
-              <TouchableOpacity style={[styles.optionCard, createGitHubRepo && styles.optionCardSelected]} onPress={() => setCreateGitHubRepo(true)} activeOpacity={0.7}>
-                <View style={styles.optionIcon}>
-                  <Ionicons name="logo-github" size={24} color={createGitHubRepo ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'} />
-                </View>
-                <View style={styles.optionInfo}>
-                  <Text style={styles.optionTitle}>Create GitHub Repo</Text>
-                  <Text style={styles.optionDesc}>Initialize with README and .gitignore</Text>
-                </View>
-                {createGitHubRepo && <Ionicons name="checkmark-circle" size={24} color={AppColors.primary} />}
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.optionCard, !createGitHubRepo && styles.optionCardSelected]} onPress={() => setCreateGitHubRepo(false)} activeOpacity={0.7}>
-                <View style={styles.optionIcon}>
-                  <Ionicons name="close-circle-outline" size={24} color={!createGitHubRepo ? AppColors.primary : 'rgba(255, 255, 255, 0.6)'} />
-                </View>
-                <View style={styles.optionInfo}>
-                  <Text style={styles.optionTitle}>Skip for now</Text>
-                  <Text style={styles.optionDesc}>You can add it later</Text>
-                </View>
-                {!createGitHubRepo && <Ionicons name="checkmark-circle" size={24} color={AppColors.primary} />}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-      <View style={styles.footer}>
-        {step > 1 && (
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => setStep(step - 1)}>
-            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
-            <Text style={styles.secondaryButtonText}>Back</Text>
+                </>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
-        )}
-        <TouchableOpacity style={[styles.primaryButton, !canProceed() && styles.buttonDisabled, step === 1 && { flex: 1 }]} onPress={() => (step < 3 ? setStep(step + 1) : handleCreate())} disabled={!canProceed()}>
-          <Text style={styles.primaryButtonText}>{step === 3 ? 'Create Project' : 'Continue'}</Text>
-          <Ionicons name={step === 3 ? 'checkmark' : 'arrow-forward'} size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-      </View>
+        </View>
+      )}
     </View>
   );
 };
 
+const CARD_WIDTH = (SCREEN_WIDTH - 48 - 16) / 3;
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 16 },
-  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerCenter: { alignItems: 'center' },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: '#FFFFFF' },
-  headerSubtitle: { fontSize: 12, color: 'rgba(255, 255, 255, 0.4)', marginTop: 2 },
-  progressDots: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 16 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: 'rgba(255, 255, 255, 0.2)' },
-  dotActive: { backgroundColor: AppColors.primary, width: 24 },
-  dotCompleted: { backgroundColor: AppColors.primary },
-  content: { flex: 1, paddingHorizontal: 24 },
-  step: { paddingBottom: 40 },
-  heroContainer: { alignSelf: 'center', marginBottom: 32 },
-  heroGradient: { width: 160, height: 160, borderRadius: 80, alignItems: 'center', justifyContent: 'center' },
-  floatingIcon: { transform: [{ translateY: -4 }] },
-  stepIconContainer: { width: 72, height: 72, borderRadius: 18, backgroundColor: 'rgba(139, 92, 246, 0.1)', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 20, borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' },
-  stepTitle: { fontSize: 26, fontWeight: '700', color: '#FFFFFF', marginBottom: 8, textAlign: 'center' },
-  stepSubtitle: { fontSize: 15, color: 'rgba(255, 255, 255, 0.5)', textAlign: 'center', marginBottom: 32 },
-  inputWrapper: { marginBottom: 24 },
-  inputLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, paddingHorizontal: 4 },
-  inputLabelText: { fontSize: 13, fontWeight: '600', color: 'rgba(255, 255, 255, 0.6)', textTransform: 'uppercase', letterSpacing: 0.5 },
-  inputContainer: { flexDirection: 'row', alignItems: 'center', height: 60, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 16, borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.1)', paddingHorizontal: 20, gap: 12 },
-  input: { flex: 1, fontSize: 17, color: '#FFFFFF', fontWeight: '500' },
-  checkIcon: { transform: [{ scale: 1.1 }] },
-  successHint: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 4 },
-  successDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: AppColors.primary },
-  successText: { fontSize: 13, color: AppColors.primary, fontWeight: '500' },
-  examplesContainer: { marginTop: 8 },
-  examplesTitle: { fontSize: 12, fontWeight: '600', color: 'rgba(255, 255, 255, 0.4)', marginBottom: 10, paddingHorizontal: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
-  exampleChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  exampleChip: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)' },
-  exampleText: { fontSize: 13, color: 'rgba(255, 255, 255, 0.6)', fontWeight: '500' },
-  languagesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  languageCard: { width: '31%', aspectRatio: 1, backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 14, borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.06)', alignItems: 'center', justifyContent: 'center', padding: 12, position: 'relative' },
-  languageCardSelected: { borderColor: AppColors.primary, backgroundColor: 'rgba(139, 92, 246, 0.1)', transform: [{ scale: 1.02 }] },
-  languageIconCircle: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  languageName: { fontSize: 13, fontWeight: '600', color: '#FFFFFF', textAlign: 'center' },
-  selectedBadge: { position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10, backgroundColor: AppColors.primary, alignItems: 'center', justifyContent: 'center' },
-  languagesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  languageCard: { width: '48%', aspectRatio: 1, backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 16, borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.06)', alignItems: 'center', justifyContent: 'center', padding: 16, position: 'relative' },
-  languageCardSelected: { borderColor: AppColors.primary, backgroundColor: 'rgba(139, 92, 246, 0.08)' },
-  languageName: { fontSize: 16, fontWeight: '600', color: '#FFFFFF', marginTop: 12 },
-  languageDesc: { fontSize: 12, color: 'rgba(255, 255, 255, 0.4)', marginTop: 4, textAlign: 'center' },
-  checkBadge: { position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: 12, backgroundColor: AppColors.primary, alignItems: 'center', justifyContent: 'center' },
-  footer: { flexDirection: 'row', gap: 12, paddingHorizontal: 24, paddingVertical: 20, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.05)' },
-  secondaryButton: { flex: 1, height: 52, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  secondaryButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
-  primaryButton: { flex: 1, height: 52, backgroundColor: AppColors.primary, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  buttonDisabled: { opacity: 0.5 },
-  primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
-  optionsList: { gap: 12 },
-  optionCard: { flexDirection: 'row', alignItems: 'center', padding: 18, backgroundColor: 'rgba(255, 255, 255, 0.03)', borderRadius: 14, borderWidth: 2, borderColor: 'rgba(255, 255, 255, 0.06)', gap: 14 },
-  optionCardSelected: { borderColor: AppColors.primary, backgroundColor: 'rgba(139, 92, 246, 0.08)' },
-  optionIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(255, 255, 255, 0.05)', alignItems: 'center', justifyContent: 'center' },
-  optionInfo: { flex: 1 },
-  optionTitle: { fontSize: 17, fontWeight: '600', color: '#FFFFFF', marginBottom: 4 },
-  optionDesc: { fontSize: 13, color: 'rgba(255, 255, 255, 0.5)' },
+  container: {
+    flex: 1,
+    backgroundColor: '#0A0A0F',
+  },
+  glowTop: {
+    position: 'absolute',
+    top: -150,
+    left: -100,
+    width: 350,
+    height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(139, 92, 246, 0.08)',
+  },
+  glowBottom: {
+    position: 'absolute',
+    bottom: -100,
+    right: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(147, 51, 234, 0.06)',
+  },
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 56,
+    paddingBottom: 12,
+  },
+  backBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  headerCenter: {
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  headerStep: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  // Step Indicator
+  stepIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 50,
+    paddingVertical: 16,
+  },
+  stepDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  stepDotActive: {
+    backgroundColor: AppColors.primary,
+    borderColor: AppColors.primary,
+  },
+  stepNumber: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  stepNumberActive: {
+    color: '#fff',
+  },
+  stepLineContainer: {
+    width: 50,
+    height: 2,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 8,
+    borderRadius: 1,
+    overflow: 'hidden',
+  },
+  stepLine: {
+    width: '0%',
+    height: '100%',
+    backgroundColor: AppColors.primary,
+  },
+  stepLineActive: {
+    width: '100%',
+  },
+  // Content
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 120,
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepHeader: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  stepIconContainer: {
+    marginBottom: 16,
+  },
+  stepIconGradient: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  stepSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.45)',
+    textAlign: 'center',
+  },
+  // Input
+  inputWrapper: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  inputWrapperFocused: {
+    borderColor: AppColors.primary,
+  },
+  inputGradient: {
+    padding: 4,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 52,
+  },
+  inputIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  inputIconFocused: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  clearBtn: {
+    padding: 4,
+  },
+  // Suggestions
+  suggestions: {
+    marginTop: 24,
+  },
+  suggestionsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  suggestionChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  suggestionChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  suggestionChipActive: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderColor: AppColors.primary,
+  },
+  suggestionChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  suggestionChipTextActive: {
+    color: AppColors.primary,
+  },
+  // Selected language bar
+  selectedLanguageBar: {
+    marginBottom: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  selectedLanguageGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  selectedLanguageText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Languages grid
+  languagesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  langCard: {
+    width: CARD_WIDTH,
+    aspectRatio: 0.9,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.05)',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  langCardSelected: {
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+  },
+  langIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  langName: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+  },
+  langCheck: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Summary
+  summaryCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.15)',
+  },
+  summaryGradient: {
+    padding: 20,
+  },
+  summaryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  summaryIconWrapper: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  summaryInfo: {
+    flex: 1,
+  },
+  summaryLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  summaryValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 16,
+  },
+  // Ready message
+  readyMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 24,
+    gap: 8,
+  },
+  readyText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  // Bottom bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 34,
+    backgroundColor: 'rgba(10, 10, 15, 0.95)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(139, 92, 246, 0.1)',
+  },
+  actionBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  actionBtnDisabled: {
+    opacity: 0.5,
+  },
+  actionBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  actionBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  actionBtnTextDisabled: {
+    color: 'rgba(255,255,255,0.3)',
+  },
+  actionBtnIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
