@@ -143,13 +143,13 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       case TerminalItemType.COMMAND:
         return AppColors.primary;
       case TerminalItemType.OUTPUT:
-        return '#FFFFFF';
+        return AppColors.white.full;
       case TerminalItemType.ERROR:
-        return '#FF6B6B';
+        return AppColors.error;
       case TerminalItemType.SYSTEM:
-        return '#FFA500';
+        return AppColors.terminal.yellow;
       default:
-        return 'rgba(255, 255, 255, 0.7)';
+        return AppColors.white.w60;
     }
   };
 
@@ -186,7 +186,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       {/* Header with gradient */}
       <View style={styles.headerContainer}>
         <LinearGradient
-          colors={['rgba(10, 10, 15, 0.95)', 'rgba(10, 10, 15, 0.7)']}
+          colors={[AppColors.dark.backgroundAlt, 'rgba(10, 10, 15, 0.7)']}
           style={styles.headerGradient}
         >
           <View style={styles.header}>
@@ -228,7 +228,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       >
         {terminalItems.length === 0 ? (
           <View style={styles.emptyState}>
-            <Ionicons name="terminal-outline" size={48} color="rgba(255, 255, 255, 0.2)" />
+            <Ionicons name="terminal-outline" size={48} color={AppColors.white.w25} />
             <Text style={styles.emptyText}>
               {isAICommandHistory ? 'Nessun comando eseguito' : 'Terminal Interattivo'}
             </Text>
@@ -244,7 +244,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
             {terminalItems.map((item, index) => (
               <View key={item.id || index} style={styles.terminalCard}>
                 <LinearGradient
-                  colors={['rgba(30, 30, 46, 0.95)', 'rgba(24, 24, 37, 0.9)']}
+                  colors={[AppColors.dark.surface, AppColors.dark.surfaceAlt]}
                   style={styles.cardGradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -261,8 +261,8 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                         size={16}
                         color={
                           item.type === TerminalItemType.COMMAND ? AppColors.primary :
-                          item.type === TerminalItemType.ERROR ? '#FF6B6B' :
-                          item.type === TerminalItemType.SYSTEM ? '#FFA500' : '#00D084'
+                          item.type === TerminalItemType.ERROR ? AppColors.error :
+                          item.type === TerminalItemType.SYSTEM ? AppColors.terminal.yellow : AppColors.success
                         }
                       />
                       <Text style={[
@@ -293,7 +293,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                               item.source === 'terminal' ? 'terminal-outline' : 'code-outline'
                             }
                             size={10}
-                            color="rgba(255,255,255,0.7)"
+                            color={AppColors.white.w60}
                           />
                           <Text style={styles.sourceText}>
                             {item.source === 'preview' ? 'Preview' :
@@ -391,9 +391,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: AppColors.primaryAlpha.a15,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.25)',
+    borderColor: AppColors.primaryAlpha.a20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     letterSpacing: -0.3,
   },
   workspaceRow: {
@@ -420,7 +420,7 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 11,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -428,16 +428,16 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: 9,
     paddingVertical: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: AppColors.white.w04,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: AppColors.white.w10,
   },
   statusDot: {
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#2ED573',
+    backgroundColor: AppColors.success,
   },
   statusDotActive: {
     backgroundColor: AppColors.primary,
@@ -445,13 +445,13 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 10,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   headerBorder: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: AppColors.white.w10,
     marginHorizontal: 20,
   },
   content: {
@@ -470,13 +470,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 15,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: AppColors.white.w40,
     marginTop: 20,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.25)',
+    color: AppColors.white.w25,
     textAlign: 'center',
     paddingHorizontal: 40,
     lineHeight: 18,
@@ -492,7 +492,7 @@ const styles = StyleSheet.create({
   cardGradient: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: AppColors.white.w10,
     overflow: 'hidden',
   },
   cardHeader: {
@@ -501,9 +501,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: AppColors.black.full + '33',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: AppColors.white.w06,
   },
   typeIconContainer: {
     flexDirection: 'row',
@@ -520,18 +520,18 @@ const styles = StyleSheet.create({
     color: AppColors.primary,
   },
   typeLabelError: {
-    color: '#FF6B6B',
+    color: AppColors.error,
   },
   typeLabelSystem: {
-    color: '#FFA500',
+    color: AppColors.terminal.yellow,
   },
   typeLabelOutput: {
-    color: '#00D084',
+    color: AppColors.success,
   },
   timestamp: {
     fontSize: 9,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: AppColors.white.w40,
     fontFamily: 'monospace',
   },
   headerRight: {
@@ -546,21 +546,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: AppColors.white.w10,
   },
   sourceBadgePreview: {
-    backgroundColor: 'rgba(0, 208, 132, 0.15)',
+    backgroundColor: AppColors.success + '26',
   },
   sourceBadgeAI: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: AppColors.primaryAlpha.a15,
   },
   sourceBadgeTerminal: {
-    backgroundColor: 'rgba(255, 165, 0, 0.15)',
+    backgroundColor: AppColors.terminal.yellow + '26',
   },
   sourceText: {
     fontSize: 9,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -572,13 +572,13 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     lineHeight: 20,
     letterSpacing: 0.2,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
   },
   errorText: {
-    color: '#FF6B6B',
+    color: AppColors.error,
   },
   systemText: {
-    color: '#FFA500',
+    color: AppColors.terminal.yellow,
   },
   cardFooter: {
     paddingHorizontal: 14,
@@ -595,12 +595,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   exitCodeSuccess: {
-    backgroundColor: 'rgba(0, 208, 132, 0.12)',
-    borderColor: 'rgba(0, 208, 132, 0.2)',
+    backgroundColor: AppColors.success + '1F',
+    borderColor: AppColors.success + '33',
   },
   exitCodeError: {
-    backgroundColor: 'rgba(255, 107, 107, 0.12)',
-    borderColor: 'rgba(255, 107, 107, 0.2)',
+    backgroundColor: AppColors.error + '1F',
+    borderColor: AppColors.error + '33',
   },
   terminalItemWrapper: {
     borderRadius: 14,
@@ -609,19 +609,19 @@ const styles = StyleSheet.create({
   terminalItem: {
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: AppColors.white.w10,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: AppColors.black.full,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 2,
   },
   terminalItemCommand: {
-    borderColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: AppColors.primaryAlpha.a15,
   },
   terminalItemError: {
-    borderColor: 'rgba(255, 107, 107, 0.15)',
+    borderColor: AppColors.error + '26',
   },
   terminalItemGradient: {
     borderRadius: 14,
@@ -640,9 +640,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: AppColors.black.full + '33',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: AppColors.white.w06,
   },
   terminalItemLeft: {
     flexDirection: 'row',
@@ -660,13 +660,13 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 7,
     paddingVertical: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: AppColors.white.w04,
     borderRadius: 6,
   },
   terminalItemTime: {
     fontSize: 9,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.45)',
+    color: AppColors.white.w40,
     fontFamily: 'monospace',
   },
   terminalItemContent: {
@@ -684,15 +684,15 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
     padding: 10,
-    backgroundColor: 'rgba(255, 107, 107, 0.12)',
+    backgroundColor: AppColors.error + '1F',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.25)',
+    borderColor: AppColors.error + '40',
   },
   errorDetailsText: {
     flex: 1,
     fontSize: 12,
-    color: '#FF8A8A',
+    color: AppColors.errorAlt,
     fontFamily: 'monospace',
     lineHeight: 18,
   },
@@ -700,19 +700,19 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: 'rgba(255, 165, 0, 0.12)',
+    backgroundColor: AppColors.terminal.yellow + '1F',
     borderRadius: 6,
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
     borderWidth: 1,
-    borderColor: 'rgba(255, 165, 0, 0.2)',
+    borderColor: AppColors.terminal.yellow + '33',
   },
   exitCodeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#FFAB40',
+    color: AppColors.terminal.yellow,
     fontFamily: 'monospace',
     letterSpacing: 0.5,
   },

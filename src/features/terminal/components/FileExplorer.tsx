@@ -76,17 +76,17 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
   const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
     const iconMap: { [key: string]: { icon: string; color: string } } = {
-      js: { icon: 'logo-javascript', color: '#F7DF1E' },
-      jsx: { icon: 'logo-react', color: '#61DAFB' },
-      ts: { icon: 'logo-javascript', color: '#3178C6' },
-      tsx: { icon: 'logo-react', color: '#3178C6' },
-      py: { icon: 'logo-python', color: '#3776AB' },
-      html: { icon: 'logo-html5', color: '#E34F26' },
-      css: { icon: 'logo-css3', color: '#1572B6' },
-      json: { icon: 'code-working', color: '#FFB800' },
-      md: { icon: 'document-text', color: '#888888' },
+      js: { icon: 'logo-javascript', color: AppColors.icon.default },
+      jsx: { icon: 'logo-react', color: AppColors.icon.default },
+      ts: { icon: 'logo-javascript', color: AppColors.icon.default },
+      tsx: { icon: 'logo-react', color: AppColors.icon.default },
+      py: { icon: 'logo-python', color: AppColors.icon.default },
+      html: { icon: 'logo-html5', color: AppColors.icon.default },
+      css: { icon: 'logo-css3', color: AppColors.icon.default },
+      json: { icon: 'code-working', color: AppColors.icon.default },
+      md: { icon: 'document-text', color: AppColors.icon.default },
     };
-    return iconMap[ext || ''] || { icon: 'document-outline', color: '#888888' };
+    return iconMap[ext || ''] || { icon: 'document-outline', color: AppColors.icon.default };
   };
 
   const filterFiles = (): string[] => {
@@ -184,7 +184,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="small" color="rgba(255, 255, 255, 0.5)" />
+        <ActivityIndicator size="small" color={AppColors.white.w50} />
       </View>
     );
   }
@@ -253,13 +253,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
           <Ionicons
             name={isExpanded ? 'chevron-down' : 'chevron-forward'}
             size={14}
-            color="rgba(255, 255, 255, 0.6)"
+            color={AppColors.white.w60}
             style={styles.chevron}
           />
           <Ionicons
             name={isExpanded ? 'folder-open' : 'folder'}
             size={16}
-            color={isExpanded ? '#8B5CF6' : 'rgba(255, 255, 255, 0.6)'}
+            color={isExpanded ? AppColors.primary : AppColors.white.w60}
             style={styles.folderIcon}
           />
           <Text style={styles.folderName}>{node.name}</Text>
@@ -291,7 +291,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
       if (searchResults.length === 0) {
         return (
           <View style={styles.searchResultsContainer}>
-            <Ionicons name="search-outline" size={48} color="rgba(255, 255, 255, 0.3)" />
+            <Ionicons name="search-outline" size={48} color={AppColors.white.w25} />
             <Text style={styles.noResultsText}>No results found</Text>
           </View>
         );
@@ -391,12 +391,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
           {searching ? (
             <ActivityIndicator size="small" color={AppColors.primary} style={styles.searchIcon} />
           ) : (
-            <Ionicons name="search" size={14} color="rgba(255, 255, 255, 0.4)" style={styles.searchIcon} />
+            <Ionicons name="search" size={14} color={AppColors.white.w40} style={styles.searchIcon} />
           )}
           <TextInput
             style={styles.searchInput}
             placeholder="Search..."
-            placeholderTextColor="rgba(255, 255, 255, 0.3)"
+            placeholderTextColor={AppColors.white.w25}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
@@ -404,7 +404,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={14} color="rgba(255, 255, 255, 0.4)" />
+              <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
             </TouchableOpacity>
           )}
           {/* Search mode toggle inline */}
@@ -444,7 +444,7 @@ const styles = StyleSheet.create({
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 6,
     paddingHorizontal: 8,
     height: 32,
@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: AppColors.white.w60,
     fontSize: 12,
     paddingVertical: 0,
   },
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 6,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: AppColors.dark.surface,
     alignItems: 'center',
   },
   searchModeButtonActive: {
@@ -482,11 +482,11 @@ const styles = StyleSheet.create({
   },
   searchModeText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     fontWeight: '500',
   },
   searchModeTextActive: {
-    color: 'white',
+    color: AppColors.white.full,
   },
   scrollView: {
     flex: 1,
@@ -499,11 +499,11 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
   },
   emptyText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: AppColors.white.w40,
   },
   fileItem: {
     flexDirection: 'row',
@@ -516,7 +516,7 @@ const styles = StyleSheet.create({
   },
   fileName: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: AppColors.white.w60,
     flex: 1,
   },
   folderItem: {
@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
   },
   folderName: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: AppColors.white.w60,
     fontWeight: '500',
     flex: 1,
   },
@@ -547,21 +547,21 @@ const styles = StyleSheet.create({
   searchingText: {
     marginTop: 16,
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
   },
   noResultsText: {
     marginTop: 16,
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
   },
   resultsCount: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    backgroundColor: AppColors.primaryAlpha.a10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: AppColors.white.w04,
   },
   fileResultGroup: {
     marginBottom: 12,
@@ -571,9 +571,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: AppColors.white.w04,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: AppColors.white.w04,
   },
   resultFileIcon: {
     marginRight: 8,
@@ -581,11 +581,11 @@ const styles = StyleSheet.create({
   fileResultPath: {
     flex: 1,
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: AppColors.white.w60,
     fontWeight: '500',
   },
   resultCountBadge: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    backgroundColor: AppColors.primaryAlpha.a20,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -602,11 +602,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.03)',
+    borderBottomColor: AppColors.white.w04,
   },
   lineNumber: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: AppColors.white.w40,
     fontWeight: '600',
     width: 40,
     marginRight: 12,
@@ -615,7 +615,7 @@ const styles = StyleSheet.create({
   resultContent: {
     flex: 1,
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: AppColors.white.w60,
     lineHeight: 18,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },

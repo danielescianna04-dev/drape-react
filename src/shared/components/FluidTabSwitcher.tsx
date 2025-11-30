@@ -7,6 +7,7 @@ import Animated, {
   withSpring,
   runOnJS,
 } from 'react-native-reanimated';
+import { AppColors } from '../theme/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -146,7 +147,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
   },
   track: {
     flexDirection: 'row',
@@ -154,6 +155,6 @@ const styles = StyleSheet.create({
   },
   page: {
     height: '100%',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
   },
 });

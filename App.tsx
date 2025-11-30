@@ -69,44 +69,8 @@ export default function App() {
 
     console.log('🔄 [cloneRepositoryWithAuth] accounts:', accounts.length, 'hasToken:', !!token);
 
-    // Show popup if:
-    // 1. Multiple accounts exist and no specific token for this owner - let user choose
-    // 2. No token at all - need to authenticate
-    const needsAuth = !token;
-    const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
-
-    if (needsAuth || hasMultipleAccounts) {
-      console.log('🔄 [cloneRepositoryWithAuth] Showing popup - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
-      try {
-        token = await requestGitAuth(
-          hasMultipleAccounts
-            ? `Scegli un account per "${repoName}"`
-            : `Autenticazione richiesta per "${repoName}"`,
-          { repositoryUrl: githubUrl, owner }
-        );
-        console.log('🔄 [cloneRepositoryWithAuth] Got token from popup');
-
-        // Get the username of the account that was authenticated
-        const validation = await githubTokenService.validateToken(token);
-        if (validation.valid && validation.username) {
-          usedAccountUsername = validation.username;
-
-          // Salva l'account GitHub nel progetto
-          console.log('🔗 [cloneRepositoryWithAuth] Saving GitHub account to project:', usedAccountUsername);
-          await workstationService.updateProjectGitHubAccount(projectId, usedAccountUsername);
-        }
-      } catch {
-        // User cancelled
-        console.log('🔄 [cloneRepositoryWithAuth] User cancelled auth');
-        addTerminalItemToStore(tabId, {
-          id: `cancelled-${Date.now()}`,
-          type: 'system',
-          content: 'Autenticazione annullata',
-          timestamp: new Date(),
-        });
-        return;
-      }
-    }
+    // NON chiedere auth subito - prova prima senza token (per repo pubblici)
+    // L'auth verrà chiesta solo se il clone fallisce con 401
 
     addTerminalItemToStore(tabId, {
       id: `loading-${Date.now()}`,
@@ -250,34 +214,11 @@ export default function App() {
       let githubToken = newToken;
 
       if (!githubToken) {
-        // Check if we have multiple accounts or need to choose
-        const accounts = await githubTokenService.getAccounts(userId);
+        // Per i repo pubblici non serve token - lo chiederemo solo se fallisce con 401
+        // Se abbiamo già un token per questo owner, usalo
         const existingToken = await githubTokenService.getToken(owner, userId);
-
-        console.log('📥 [handleImportRepo] accounts:', accounts.length, 'hasExistingToken:', !!existingToken);
-
-        if (accounts.length > 1 || !existingToken) {
-          // Multiple accounts: let user choose which to use
-          // Or no token for this owner: prompt for auth
-          console.log('📥 [handleImportRepo] Showing auth popup...');
-          try {
-            setShowImportModal(false);
-            githubToken = await requestGitAuth(
-              accounts.length > 1
-                ? `Scegli un account per clonare "${repoName}"`
-                : `Autenticazione richiesta per clonare "${repoName}"`,
-              { repositoryUrl: url, owner }
-            );
-            console.log('📥 [handleImportRepo] Got token from popup');
-          } catch (err) {
-            // User cancelled
-            console.log('📥 [handleImportRepo] User cancelled auth');
-            setIsImporting(false);
-            return;
-          }
-        } else {
-          githubToken = existingToken;
-        }
+        console.log('📥 [handleImportRepo] hasExistingToken:', !!existingToken);
+        githubToken = existingToken || undefined;
       } else {
         await githubTokenService.saveToken(owner, githubToken, userId);
       }

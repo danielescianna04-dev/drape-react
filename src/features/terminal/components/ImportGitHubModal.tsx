@@ -86,7 +86,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
           <Animated.View style={[styles.modalWrapper, { transform: [{ translateY: modalOffset }] }]}>
             <View style={styles.modalContainer}>
                 <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.04)']}
+                  colors={[AppColors.white.w08, AppColors.white.w04]}
                   style={styles.modalGradient}
                 >
                   {/* Header with icon */}
@@ -96,7 +96,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                         colors={[AppColors.primary, AppColors.purpleMedium]}
                         style={styles.iconGradient}
                       >
-                        <Ionicons name="logo-github" size={24} color="#FFFFFF" />
+                        <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
                       </LinearGradient>
                     </View>
                     <Text style={styles.title}>Import from GitHub</Text>
@@ -111,7 +111,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                         value={String(repoUrl || '')}
                         onChangeText={(text) => setRepoUrl(String(text || ''))}
                         placeholder="https://github.com/username/repository"
-                        placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                        placeholderTextColor={AppColors.white.w35}
                         autoCapitalize="none"
                         autoCorrect={false}
                         editable={!isLoading}
@@ -124,7 +124,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                           style={styles.clearButton}
                           onPress={() => setRepoUrl('')}
                         >
-                          <Ionicons name="close-circle" size={18} color="rgba(255, 255, 255, 0.4)" />
+                          <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
                         </TouchableOpacity>
                       )}
                     </View>
@@ -150,7 +150,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                       <LinearGradient
                         colors={
                           !isValidUrl || isLoading
-                            ? ['rgba(139, 124, 246, 0.3)', 'rgba(107, 93, 214, 0.3)']
+                            ? [AppColors.primaryAlpha.a40, AppColors.primaryAlpha.a40]
                             : [AppColors.primary, AppColors.purpleMedium]
                         }
                         start={{ x: 0, y: 0 }}
@@ -158,7 +158,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                         style={styles.importButton}
                       >
                         {isLoading ? (
-                          <ActivityIndicator color="#FFFFFF" />
+                          <ActivityIndicator color={AppColors.white.full} />
                         ) : (
                           <Text style={styles.importText}>Import</Text>
                         )}
@@ -180,7 +180,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backgroundColor: AppColors.black.b80,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -201,11 +201,11 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   modalGradient: {
-    backgroundColor: '#0a0a0f',
+    backgroundColor: AppColors.dark.backgroundAlt,
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
+    borderColor: AppColors.primaryAlpha.a20,
   },
   borderGlow: {
     position: 'absolute',
@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: AppColors.primaryAlpha.a15,
     pointerEvents: 'none',
   },
   header: {
@@ -235,12 +235,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     letterSpacing: -0.5,
   },
   inputSection: {
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     marginBottom: 8,
     letterSpacing: 0.5,
   },
@@ -257,14 +257,14 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: AppColors.white.w04,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 14,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     fontWeight: '500',
   },
   clearButton: {
@@ -280,14 +280,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: AppColors.white.w04,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelText: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: AppColors.white.w80,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   importText: {
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     fontSize: 15,
     fontWeight: '700',
   },

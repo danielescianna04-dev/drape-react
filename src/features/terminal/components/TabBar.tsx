@@ -124,7 +124,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                   <Ionicons
                     name={getTabIcon(tab.type)}
                     size={14}
-                    color={isActive ? AppColors.primary : '#666'}
+                    color={isActive ? AppColors.primary : AppColors.icon.muted}
                   />
                   <Text
                     style={[styles.tabTitle, isActive && styles.tabTitleActive]}
@@ -138,7 +138,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                     style={styles.closeButton}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Ionicons name="close" size={14} color="#666" />
+                    <Ionicons name="close" size={14} color={AppColors.icon.muted} />
                   </TouchableOpacity>
                 </TouchableOpacity>
               </RNAnimated.View>
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     right: 0,
     minHeight: 38,
     flexDirection: 'row',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
     zIndex: 100,
     borderBottomLeftRadius: 12,
   },
@@ -187,19 +187,19 @@ const styles = StyleSheet.create({
     maxWidth: 170,
   },
   tabActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: AppColors.primaryAlpha.a15,
   },
   tabActiveFirst: {
     borderBottomLeftRadius: 12,
   },
   tabTitle: {
     fontSize: 12,
-    color: '#666',
+    color: AppColors.icon.muted,
     fontWeight: '500',
     flex: 1,
   },
   tabTitleActive: {
-    color: '#fff',
+    color: AppColors.white.full,
   },
   closeButton: {
     padding: 2,

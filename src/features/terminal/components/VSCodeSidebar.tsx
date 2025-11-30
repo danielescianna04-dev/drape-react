@@ -164,11 +164,11 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     return {
       transform: [{ scale: trackpadScale.value }],
       backgroundColor: trackpadBrightness.value > 0
-        ? '#202020'
-        : '#1a1a1a',
+        ? AppColors.dark.surfaceVariant
+        : AppColors.dark.surfaceAlt,
       borderColor: trackpadBrightness.value > 0
-        ? 'rgba(139, 124, 246, 0.5)'
-        : 'rgba(139, 124, 246, 0.25)',
+        ? AppColors.primaryAlpha.a60
+        : AppColors.primaryAlpha.a20,
       borderWidth: trackpadBrightness.value > 0 ? 2 : 1.5,
     };
   });
@@ -389,21 +389,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       <GestureDetector gesture={sidebarSwipeGesture}>
         <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
-          {/* Tabs/Home button - returns to tabs view */}
-          <IconButton
-            iconName="albums"
-            size={24}
-            color="#888"
-            onPress={() => setActivePanel(null)}
-            isActive={activePanel === null}
-            activeColor={AppColors.primary}
-            accessibilityLabel="Tabs view"
-          />
-
           <IconButton
             iconName="folder"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={() => togglePanel('files')}
             isActive={activePanel === 'files'}
             activeColor={AppColors.primary}
@@ -413,7 +402,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <IconButton
             iconName="chatbubbles"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={() => togglePanel('chat')}
             isActive={activePanel === 'chat'}
             activeColor={AppColors.primary}
@@ -423,7 +412,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <IconButton
             iconName="terminal"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={handleTerminalClick}
             isActive={activePanel === 'terminal'}
             activeColor={AppColors.primary}
@@ -433,7 +422,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <IconButton
             iconName="eye"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={() => togglePanel('preview')}
             isActive={activePanel === 'preview'}
             activeColor={AppColors.primary}
@@ -461,7 +450,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <IconButton
             iconName="exit-outline"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={onExit}
             accessibilityLabel="Exit"
           />
@@ -469,7 +458,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <IconButton
             iconName="settings"
             size={24}
-            color="#888"
+            color={AppColors.icon.default}
             onPress={() => togglePanel('settings')}
             isActive={activePanel === 'settings'}
             activeColor={AppColors.primary}
@@ -479,7 +468,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       </GestureDetector>
 
       {/* Content area - TabBar will animate its position via context */}
-      <View style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+      <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }}>
         {activePanel === 'files' && (
           <Sidebar
             onClose={() => setActivePanel(null)}
@@ -531,7 +520,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View style={[
               StyleSheet.absoluteFillObject,
               {
-                backgroundColor: '#0a0a0a',
+                backgroundColor: AppColors.dark.backgroundAlt,
               },
               blackBackgroundAnimatedStyle
             ]} />
@@ -571,7 +560,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 44,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
     paddingTop: 60,
     paddingBottom: 20,
     zIndex: 1001,
@@ -586,7 +575,7 @@ const styles = StyleSheet.create({
   },
   iconButtonActive: {
     borderLeftColor: AppColors.primary,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    backgroundColor: AppColors.primaryAlpha.a10,
   },
   spacer: {
     flex: 1,
@@ -596,10 +585,10 @@ const styles = StyleSheet.create({
     height: 180,
     marginHorizontal: 6,
     marginBottom: 16,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: AppColors.dark.surfaceAlt,
     borderRadius: 19,
     borderWidth: 1.5,
-    borderColor: 'rgba(139, 124, 246, 0.25)',
+    borderColor: AppColors.primaryAlpha.a20,
   },
   edgeSwipeArea: {
     position: 'absolute',
@@ -615,7 +604,7 @@ const styles = StyleSheet.create({
   edgeIndicator: {
     width: 3,
     height: 50,
-    backgroundColor: 'rgba(139, 124, 246, 0.4)',
+    backgroundColor: AppColors.primaryAlpha.a40,
     borderRadius: 1.5,
   },
 });

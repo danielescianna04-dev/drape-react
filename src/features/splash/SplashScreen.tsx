@@ -100,7 +100,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
     <View style={styles.container}>
       {/* Dark gradient background */}
       <LinearGradient
-        colors={['#000000', '#0a0a0f', '#000000']}
+        colors={[AppColors.black.full, AppColors.dark.backgroundAlt, AppColors.black.full]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -117,7 +117,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
         ]}
       >
         <LinearGradient
-          colors={['rgba(139, 124, 246, 0.4)', 'transparent']}
+          colors={[AppColors.primaryAlpha.a40, 'transparent']}
           style={styles.glowGradient}
         />
       </Animated.View>
@@ -134,7 +134,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
         ]}
       >
         <LinearGradient
-          colors={['rgba(168, 85, 247, 0.3)', 'transparent']}
+          colors={[AppColors.primaryAlpha.a20, 'transparent']}
           style={styles.glowGradient}
         />
       </Animated.View>
@@ -203,7 +203,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: AppColors.black.full,
   },
   content: {
     flex: 1,
@@ -259,13 +259,13 @@ const styles = StyleSheet.create({
   iconBar: {
     width: 20,
     height: 3,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: AppColors.white.full,
     borderRadius: 2,
   },
   brandName: {
     fontSize: 52,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     letterSpacing: -2,
     textAlign: 'center',
   },
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     letterSpacing: 1.5,
     textAlign: 'center',
     marginTop: 16,
@@ -299,7 +299,7 @@ const styles = StyleSheet.create({
   brandText: {
     fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: AppColors.white.w40,
     letterSpacing: 0.5,
   },
 });

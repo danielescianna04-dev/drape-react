@@ -282,7 +282,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const cardBorderAnimatedStyle = useAnimatedStyle(() => {
     return {
       borderWidth: borderAnim.value * 2,
-      borderColor: `rgba(139, 124, 246, ${borderAnim.value * 0.3})`,
+      borderColor: `rgba(155, 138, 255, ${borderAnim.value * 0.3})`,
     };
   });
 
@@ -970,12 +970,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     ]}>
       {/* Premium gradient background */}
       <LinearGradient
-        colors={[
-          '#0a0a0a',
-          '#121212',
-          '#1a1a1a',
-          '#0f0f0f',
-        ]}
+        colors={AppColors.gradient.dark}
         locations={[0, 0.3, 0.7, 1]}
         style={styles.background}
       >
@@ -1075,7 +1070,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         inputWrapperAnimatedStyle
       ]}>
         <LinearGradient
-          colors={['rgba(28, 28, 30, 0.98)', 'rgba(28, 28, 30, 0.92)']}
+          colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
           style={styles.inputGradient}
           onLayout={(e) => {
             // Aggiorna l'altezza del widget quando cambia
@@ -1100,7 +1095,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <Ionicons
                       name="code-slash"
                       size={14}
-                      color={isTerminalMode ? '#fff' : '#8A8A8A'}
+                      color={isTerminalMode ? AppColors.white.full : '#8A8A8A'}
                     />
                   </Animated.View>
                 </TouchableOpacity>
@@ -1116,7 +1111,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <Ionicons
                       name="sparkles"
                       size={14}
-                      color={!isTerminalMode ? '#fff' : '#8A8A8A'}
+                      color={!isTerminalMode ? AppColors.white.full : '#8A8A8A'}
                     />
                   </Animated.View>
                 </TouchableOpacity>
@@ -1129,7 +1124,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             {/* Model Selector */}
             <TouchableOpacity style={styles.modelSelector}>
               <SafeText style={styles.modelText}>Llama 3.1 8B</SafeText>
-              <Ionicons name="chevron-down" size={12} color="#666" />
+              <Ionicons name="chevron-down" size={12} color={AppColors.dark.bodyText} />
             </TouchableOpacity>
           </View>
 
@@ -1146,7 +1141,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               value={input}
               onChangeText={handleInputChange}
               placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
-              placeholderTextColor="#6E7681"
+              placeholderTextColor={AppColors.dark.bodyText}
               multiline
               maxLength={1000}
               onSubmitEditing={handleSend}
@@ -1162,10 +1157,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               style={styles.sendButton}
               activeOpacity={0.7}
             >
-              <Ionicons 
-                name="arrow-up-circle" 
-                size={32} 
-                color={input.trim() && !isLoading ? AppColors.primary : '#333'} 
+              <Ionicons
+                name="arrow-up-circle"
+                size={32}
+                color={input.trim() && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
               />
             </TouchableOpacity>
 
@@ -1182,7 +1177,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
   },
   background: {
     ...StyleSheet.absoluteFillObject,
@@ -1194,7 +1189,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    backgroundColor: AppColors.primaryAlpha.a08,
     opacity: 0.6,
   },
   glowBottom: {
@@ -1204,7 +1199,7 @@ const styles = StyleSheet.create({
     width: 400,
     height: 400,
     borderRadius: 200,
-    backgroundColor: 'rgba(139, 124, 246, 0.05)',
+    backgroundColor: AppColors.primaryAlpha.a05,
     opacity: 0.5,
   },
   inputWrapper: {
@@ -1237,7 +1232,7 @@ const styles = StyleSheet.create({
   contextName: {
     fontSize: 15,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.95)',
+    color: AppColors.white.full,
   },
   eyeButton: {
     width: 28,
@@ -1269,36 +1264,36 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: AppColors.primaryAlpha.a15,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
     borderWidth: 2,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
+    borderColor: AppColors.primaryAlpha.a40,
     elevation: 8,
   },
   logoTitle: {
     fontSize: 48,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     marginBottom: 8,
   },
   logoSubtitle: {
     fontSize: 18,
-    color: '#8B7CF6',
+    color: AppColors.primary,
     fontWeight: '600',
     marginBottom: 24,
   },
   logoDivider: {
     width: 80,
     height: 3,
-    backgroundColor: 'rgba(139, 124, 246, 0.4)',
+    backgroundColor: AppColors.primaryAlpha.a40,
     marginBottom: 24,
     borderRadius: 2,
   },
   logoDescription: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: AppColors.white.w60,
     textAlign: 'center',
     lineHeight: 24,
     fontWeight: '400',
@@ -1315,7 +1310,7 @@ const styles = StyleSheet.create({
   inputGradient: {
     borderRadius: 24,
     borderWidth: 1.5,
-    borderColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: AppColors.primaryAlpha.a15,
     elevation: 8,
     justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
     maxHeight: 250, // Limite massimo dell'intero widget
@@ -1339,13 +1334,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: AppColors.dark.surfaceAlt,
     padding: 2,
   },
   autoLabel: {
     fontSize: 9,
     fontWeight: '600',
-    color: '#8B7CF6',
+    color: AppColors.primary,
     letterSpacing: 0.3,
   },
   modeButton: {
@@ -1356,11 +1351,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
 },
   modeButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    backgroundColor: AppColors.primaryAlpha.a20,
   },
   modeButtonForced: {
     borderWidth: 1,
-    borderColor: '#8B7CF6',
+    borderColor: AppColors.primary,
   },
   modelSelector: {
     flexDirection: 'row',
@@ -1370,12 +1365,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#1a1a1a',
+    borderColor: AppColors.dark.surfaceAlt,
     gap: 4,
   },
   modelText: {
     fontSize: 10,
-    color: '#888',
+    color: AppColors.icon.default,
     fontWeight: '500',
   },
   mainInputRow: {
@@ -1400,7 +1395,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 14,
-    color: '#F0F0F0',
+    color: AppColors.dark.titleText,
     fontFamily: 'monospace',
     paddingHorizontal: 16,
     paddingVertical: 14,

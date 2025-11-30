@@ -193,7 +193,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
             <View style={styles.metaDot} />
             <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
-            {project.githubUrl && (
+            {(project.repositoryUrl || project.githubUrl) && (
               <>
                 <View style={styles.metaDot} />
                 <Ionicons name="logo-github" size={12} color="rgba(255,255,255,0.35)" />

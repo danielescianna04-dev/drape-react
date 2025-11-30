@@ -116,18 +116,26 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       friction: 11,
     }).start();
 
-    // Auto-open current project if exists
-    if (currentWorkstation && !selectedProjectId) {
-      setSelectedProjectId(currentWorkstation.projectId || currentWorkstation.id);
-      setSelectedRepoUrl(currentWorkstation.githubUrl || '');
-    }
-
     // Carica workstations da Firestore
     const loadData = async () => {
       const workstations = await workstationService.getWorkstations();
       loadWorkstations(workstations);
     };
     loadData();
+  }, []);
+
+  // Auto-open current project if exists - always sync with currentWorkstation
+  useEffect(() => {
+    if (currentWorkstation) {
+      const projectId = currentWorkstation.projectId || currentWorkstation.id;
+      const repoUrl = currentWorkstation.repositoryUrl || '';
+
+      // Always update the selected project and repo URL when currentWorkstation changes
+      setSelectedProjectId(projectId);
+      setSelectedRepoUrl(repoUrl);
+
+      console.log('📂 Sidebar: synced with currentWorkstation', { projectId, repoUrl });
+    }
   }, [currentWorkstation]);
 
   const handleClose = () => {
@@ -201,7 +209,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         status: wsResult.status as any,
         createdAt: project.createdAt,
         files: [],
-        githubUrl: project.repositoryUrl,
+        repositoryUrl: project.repositoryUrl,
         folderId: null,
       };
       
@@ -246,14 +254,14 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         ]}
       >
       <View style={StyleSheet.absoluteFill}>
-        <View style={{ flex: 1, backgroundColor: '#0a0a0a' }} />
+        <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }} />
       </View>
       <View style={styles.header} {...panResponder.panHandlers}>
         <Text style={styles.headerTitle}>Files</Text>
         <IconButton
           iconName="close"
           size={20}
-          color="rgba(255, 255, 255, 0.4)"
+          color={AppColors.white.w40}
           onPress={handleClose}
           accessibilityLabel="Chiudi sidebar"
         />
@@ -331,7 +339,7 @@ const ChatList = ({ chats }: any) => {
             <Text style={styles.listItemTitle}>{chat.title}</Text>
             <Text style={styles.listItemSubtitle}>{chat.messages.length} messages</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color="rgba(255, 255, 255, 0.4)" />
+          <Ionicons name="chevron-forward" size={20} color={AppColors.white.w40} />
         </TouchableOpacity>
       ))}
     </View>
@@ -393,7 +401,7 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
                 </View>
               )}
               <View style={styles.repoMetaItem}>
-                <Ionicons name="star-outline" size={14} color="rgba(255, 255, 255, 0.5)" />
+                <Ionicons name="star-outline" size={14} color={AppColors.white.w50} />
                 <Text style={styles.repoMetaText}>{String(repo.stargazers_count || 0)}</Text>
               </View>
             </View>
@@ -450,7 +458,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
         status: 'idle' as const,
         createdAt: new Date(),
         files: [],
-        githubUrl: String(repoUrl || ''),
+        repositoryUrl: String(repoUrl || ''),
         folderId: null,
       };
       console.log('🔵 New workstation:', newWorkstation);
@@ -510,12 +518,12 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
         onRequestClose={() => setShowImportModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24 }}>
-            <Text style={{ fontSize: 20, fontWeight: '600', color: '#FFFFFF', marginBottom: 20 }}>Import GitHub Repo</Text>
+          <View style={{ width: '100%', maxWidth: 400, backgroundColor: AppColors.dark.surfaceAlt, borderRadius: 16, padding: 24 }}>
+            <Text style={{ fontSize: 20, fontWeight: '600', color: AppColors.white.full, marginBottom: 20 }}>Import GitHub Repo</Text>
             <TextInput
-              style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, color: '#FFFFFF', marginBottom: 20 }}
+              style={{ backgroundColor: AppColors.white.w06, borderRadius: 8, padding: 12, color: AppColors.white.full, marginBottom: 20 }}
               placeholder="https://github.com/user/repo.git"
-              placeholderTextColor="rgba(255,255,255,0.4)"
+              placeholderTextColor={AppColors.white.w40}
               onSubmitEditing={(e) => {
                 const url = String(e.nativeEvent.text || '').trim();
                 if (url) {
@@ -524,11 +532,11 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
                 }
               }}
             />
-            <TouchableOpacity 
-              style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: 12, borderRadius: 8, alignItems: 'center' }}
+            <TouchableOpacity
+              style={{ backgroundColor: AppColors.white.w10, padding: 12, borderRadius: 8, alignItems: 'center' }}
               onPress={() => setShowImportModal(false)}
             >
-              <Text style={{ color: '#FFFFFF' }}>Cancel</Text>
+              <Text style={{ color: AppColors.white.full }}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -673,12 +681,12 @@ const ImportModal = ({ visible, onClose, onImport }: { visible: boolean; onClose
     onRequestClose={onClose}
   >
     <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-      <View style={{ width: '100%', maxWidth: 400, backgroundColor: '#1a1a1a', borderRadius: 16, padding: 24 }}>
-        <SafeText style={{ fontSize: 20, fontWeight: '600', color: '#FFFFFF', marginBottom: 20 }}>Import GitHub Repo</SafeText>
+      <View style={{ width: '100%', maxWidth: 400, backgroundColor: AppColors.dark.surfaceAlt, borderRadius: 16, padding: 24 }}>
+        <SafeText style={{ fontSize: 20, fontWeight: '600', color: AppColors.white.full, marginBottom: 20 }}>Import GitHub Repo</SafeText>
         <TextInput
-          style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, color: '#FFFFFF', marginBottom: 20 }}
+          style={{ backgroundColor: AppColors.white.w06, borderRadius: 8, padding: 12, color: AppColors.white.full, marginBottom: 20 }}
           placeholder="https://github.com/user/repo.git"
-          placeholderTextColor="rgba(255,255,255,0.4)"
+          placeholderTextColor={AppColors.white.w40}
           onSubmitEditing={(e) => {
             const url = String(e.nativeEvent.text || '').trim();
             if (url) {
@@ -687,11 +695,11 @@ const ImportModal = ({ visible, onClose, onImport }: { visible: boolean; onClose
             }
           }}
         />
-        <TouchableOpacity 
-          style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: 12, borderRadius: 8, alignItems: 'center' }}
+        <TouchableOpacity
+          style={{ backgroundColor: AppColors.white.w10, padding: 12, borderRadius: 8, alignItems: 'center' }}
           onPress={onClose}
         >
-          <SafeText style={{ color: '#FFFFFF' }}>Cancel</SafeText>
+          <SafeText style={{ color: AppColors.white.full }}>Cancel</SafeText>
         </TouchableOpacity>
       </View>
     </View>
@@ -721,7 +729,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: AppColors.dark.overlay,
     zIndex: 999,
   },
   container: {
@@ -732,7 +740,7 @@ const styles = StyleSheet.create({
     width: '55%',
     maxWidth: 220,
     zIndex: 1000,
-    shadowColor: '#000',
+    shadowColor: AppColors.black.full,
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 12,
@@ -749,7 +757,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -763,9 +771,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: AppColors.white.w10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
     gap: 8,
   },
   searchIconContainer: {
@@ -774,7 +782,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 12,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     fontWeight: '500',
   },
   clearSearchButton: {
@@ -784,7 +792,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 20,
     marginBottom: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: AppColors.white.w04,
     borderRadius: 16,
     marginHorizontal: 8,
     padding: 4,
@@ -792,12 +800,12 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   tabActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: AppColors.primaryAlpha.a15,
     borderColor: AppColors.primary,
   },
   tabContent: {
@@ -812,17 +820,17 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabIconContainerActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    backgroundColor: AppColors.primaryAlpha.a20,
   },
   tabText: {
     fontSize: 14,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
   },
   tabTextActive: {
     color: AppColors.primary,
@@ -839,7 +847,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   connectButtonText: {
-    color: '#fff',
+    color: AppColors.white.full,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -851,7 +859,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: AppColors.white.w06,
   },
   listItemContent: {
     flex: 1,
@@ -860,11 +868,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
   },
   listItemSubtitle: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
   },
   userInfo: {
     flexDirection: 'row',
@@ -873,7 +881,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: AppColors.white.w10,
   },
   userDetails: {
     flex: 1,
@@ -881,21 +889,21 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
   },
   userRepos: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
     marginTop: 2,
   },
   repoItem: {
     padding: 12,
     borderRadius: 12,
     marginBottom: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: AppColors.white.w04,
   },
   repoItemSelected: {
-    backgroundColor: 'rgba(111, 92, 255, 0.2)',
+    backgroundColor: AppColors.primaryAlpha.a20,
     borderWidth: 1,
     borderColor: AppColors.primary,
   },
@@ -909,12 +917,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
   },
   repoDescription: {
     fontSize: 12,
     lineHeight: 16,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     marginBottom: 8,
   },
   repoMeta: {
@@ -929,7 +937,7 @@ const styles = StyleSheet.create({
   },
   repoMetaText: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: AppColors.white.w50,
   },
   languageDot: {
     width: 10,
@@ -942,21 +950,21 @@ const styles = StyleSheet.create({
   cloneLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     marginBottom: 8,
   },
   cloneInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   cloneInput: {
     flex: 1,
     fontSize: 13,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -975,7 +983,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 0,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    borderBottomColor: AppColors.white.w06,
   },
   projectItemContent: {
     padding: 8,
@@ -1000,12 +1008,12 @@ const styles = StyleSheet.create({
   projectName: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     marginBottom: 0,
   },
   projectLanguage: {
     fontSize: 9,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     fontWeight: '500',
   },
   projectMeta: {
@@ -1020,7 +1028,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
+    borderColor: AppColors.primaryAlpha.a40,
   },
   languageText: {
     fontSize: 9,
@@ -1029,7 +1037,7 @@ const styles = StyleSheet.create({
   },
   projectUrl: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: AppColors.white.w60,
     marginBottom: 4,
   },
   projectStatus: {
@@ -1045,21 +1053,21 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: AppColors.white.w60,
     textTransform: 'uppercase',
     fontWeight: '600',
     letterSpacing: 0.5,
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopColor: AppColors.white.w10,
     padding: 8,
   },
   footerButton: {
     borderRadius: 6,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
     paddingVertical: 10,
     paddingHorizontal: 20,
   },
@@ -1092,7 +1100,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.3)',
+    borderColor: AppColors.primaryAlpha.a40,
     marginBottom: 8,
   },
   importButtonText: {
@@ -1106,10 +1114,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     padding: 12,
-    backgroundColor: 'rgba(0, 255, 136, 0.1)',
+    backgroundColor: AppColors.primaryAlpha.a10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.3)',
+    borderColor: AppColors.primaryAlpha.a40,
     marginBottom: 12,
   },
   newProjectText: {
@@ -1129,7 +1137,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: AppColors.white.w15,
     paddingVertical: 8,
     paddingHorizontal: 6,
     alignItems: 'center',
@@ -1144,7 +1152,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionButtonText: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: AppColors.white.w60,
     fontSize: 10,
     fontWeight: '500',
     textAlign: 'center',
@@ -1154,11 +1162,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     padding: 12,
-    backgroundColor: 'rgba(255, 165, 0, 0.1)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 165, 0, 0.2)',
+    borderColor: AppColors.white.w10,
   },
   folderName: {
     flex: 1,
@@ -1170,10 +1178,10 @@ const styles = StyleSheet.create({
     padding: 10,
     marginLeft: 24,
     marginBottom: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    backgroundColor: AppColors.white.w04,
     borderRadius: 6,
     borderLeftWidth: 2,
-    borderLeftColor: 'rgba(0, 255, 136, 0.3)',
+    borderLeftColor: AppColors.primaryAlpha.a40,
   },
   menuButton: {
     padding: 4,
@@ -1181,22 +1189,22 @@ const styles = StyleSheet.create({
   },
   contextMenuOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: AppColors.dark.overlay,
     justifyContent: 'center',
     alignItems: 'center',
   },
   contextMenu: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: AppColors.dark.surfaceAlt,
     borderRadius: 12,
     padding: 16,
     minWidth: 250,
     borderWidth: 1,
-    borderColor: 'rgba(0, 255, 136, 0.2)',
+    borderColor: AppColors.primaryAlpha.a20,
   },
   contextMenuTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: AppColors.white.w60,
     marginBottom: 12,
   },
   contextMenuItem: {
@@ -1205,12 +1213,12 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: AppColors.white.w04,
     marginBottom: 8,
   },
   contextMenuText: {
     fontSize: 14,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     flex: 1,
   },
   modalOverlay: {
@@ -1223,11 +1231,11 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: 'rgba(28, 28, 30, 0.98)',
+    backgroundColor: AppColors.dark.surface,
     borderRadius: 20,
     padding: 28,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1238,17 +1246,17 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: AppColors.white.full,
   },
   modalInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 12,
     padding: 14,
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     fontSize: 14,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   modalButtons: {
     flexDirection: 'row',
@@ -1256,25 +1264,25 @@ const styles = StyleSheet.create({
   },
   modalCancelButton: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: AppColors.white.w10,
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   modalCancelText: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: AppColors.white.w60,
     fontSize: 15,
     fontWeight: '500',
   },
   modalSubmitButton: {
     flex: 1,
-    backgroundColor: '#58A6FF',
+    backgroundColor: AppColors.primary,
     padding: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   modalSubmitText: {
-    color: '#FFFFFF',
+    color: AppColors.white.full,
     fontSize: 15,
     fontWeight: '600',
   },
@@ -1289,7 +1297,7 @@ const styles = StyleSheet.create({
   fileExplorerHeader: {
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomColor: AppColors.white.w10,
     marginBottom: 8,
   },
   backButton: {
@@ -1298,7 +1306,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
@@ -1314,13 +1322,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     padding: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: AppColors.white.w06,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: AppColors.white.w10,
   },
   compactButtonText: {
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: AppColors.white.w60,
     fontSize: 14,
     fontWeight: '600',
   },
