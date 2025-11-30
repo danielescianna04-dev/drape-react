@@ -510,10 +510,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       if (existingChat) {
         // Chat already exists, just update title and description from first message
+        // Also ensure repositoryId is set (in case it was created before entering a project)
         useTerminalStore.getState().updateChat(chatId, {
           title: title,
           description: userMessage.slice(0, 100),
           lastUsed: new Date(),
+          repositoryId: existingChat.repositoryId || currentWorkstation?.id,
+          repositoryName: existingChat.repositoryName || currentWorkstation?.name,
         });
 
         // Update tab title to match chat title

@@ -653,13 +653,37 @@ export default function App() {
 
                 // Only clear terminal items when switching to a DIFFERENT project
                 if (!isSameProject) {
-                  const { activeTabId: preNavTabId } = useTabStore.getState();
-                  if (preNavTabId) {
-                    console.log('🗑️ [onOpenProject-Home] Different project - clearing tab:', preNavTabId);
-                    clearTerminalItems(preNavTabId);
-                  }
-                  // Also clear global terminal log
+                  // Clear global terminal log
                   clearGlobalTerminalLog();
+
+                  // Find the most recent chat for this project
+                  const { chatHistory } = useTerminalStore.getState();
+                  const projectChats = chatHistory.filter(c =>
+                    c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
+                  );
+                  const mostRecentChat = projectChats.sort((a, b) =>
+                    new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+                  )[0];
+
+                  const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
+
+                  if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
+                    // Load the most recent chat with its messages
+                    console.log('📥 [onOpenProject-Home] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
+                    if (preNavTabId) {
+                      updateTab(preNavTabId, {
+                        title: mostRecentChat.title,
+                        data: { chatId: mostRecentChat.id },
+                        terminalItems: mostRecentChat.messages
+                      });
+                    }
+                  } else {
+                    // No existing chat - clear items and start fresh
+                    console.log('🗑️ [onOpenProject-Home] Different project - clearing tab:', preNavTabId);
+                    if (preNavTabId) {
+                      clearTerminalItems(preNavTabId);
+                    }
+                  }
                 } else {
                   console.log('✅ [onOpenProject-Home] Same project - preserving chat messages');
                 }
@@ -818,13 +842,37 @@ export default function App() {
 
                 // Only clear terminal items when switching to a DIFFERENT project
                 if (!isSameProject) {
-                  const { activeTabId: preNavTabId } = useTabStore.getState();
-                  if (preNavTabId) {
-                    console.log('🗑️ [onOpenProject-All] Different project - clearing tab:', preNavTabId);
-                    clearTerminalItems(preNavTabId);
-                  }
-                  // Also clear global terminal log
+                  // Clear global terminal log
                   clearGlobalTerminalLog();
+
+                  // Find the most recent chat for this project
+                  const { chatHistory } = useTerminalStore.getState();
+                  const projectChats = chatHistory.filter(c =>
+                    c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
+                  );
+                  const mostRecentChat = projectChats.sort((a, b) =>
+                    new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+                  )[0];
+
+                  const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
+
+                  if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
+                    // Load the most recent chat with its messages
+                    console.log('📥 [onOpenProject-All] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
+                    if (preNavTabId) {
+                      updateTab(preNavTabId, {
+                        title: mostRecentChat.title,
+                        data: { chatId: mostRecentChat.id },
+                        terminalItems: mostRecentChat.messages
+                      });
+                    }
+                  } else {
+                    // No existing chat - clear items and start fresh
+                    console.log('🗑️ [onOpenProject-All] Different project - clearing tab:', preNavTabId);
+                    if (preNavTabId) {
+                      clearTerminalItems(preNavTabId);
+                    }
+                  }
                 } else {
                   console.log('✅ [onOpenProject-All] Same project - preserving chat messages');
                 }

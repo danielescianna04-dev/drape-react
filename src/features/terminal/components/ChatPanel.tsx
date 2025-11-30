@@ -73,6 +73,8 @@ export const ChatPanel = ({ onClose }: Props) => {
       lastUsed: new Date(),
       messages: [],
       aiModel: 'gemini-2.0-flash-exp',
+      repositoryId: currentWorkstation?.id,
+      repositoryName: currentWorkstation?.name,
     };
 
     // Save chat to chatHistory immediately
