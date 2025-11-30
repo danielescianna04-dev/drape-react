@@ -509,18 +509,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (userMessage.length > 50) title += '...';
 
       if (existingChat) {
-        // Chat already exists, just update title and description from first message
-        // Also ensure repositoryId is set (in case it was created before entering a project)
+        // Chat already exists, update description and lastUsed
+        // Only update title if it's still the default (not manually renamed by user)
+        const wasManuallyRenamed = existingChat.title !== 'Nuova Conversazione';
+        const finalTitle = wasManuallyRenamed ? existingChat.title : title;
+
         useTerminalStore.getState().updateChat(chatId, {
-          title: title,
+          title: finalTitle,
           description: userMessage.slice(0, 100),
           lastUsed: new Date(),
           repositoryId: existingChat.repositoryId || currentWorkstation?.id,
           repositoryName: existingChat.repositoryName || currentWorkstation?.name,
         });
 
-        // Update tab title to match chat title
-        updateTab(currentTab.id, { title: title });
+        // Update tab title to match chat title (only if not manually renamed)
+        if (!wasManuallyRenamed) {
+          updateTab(currentTab.id, { title: finalTitle });
+        }
       } else {
         // Chat doesn't exist yet, create it now
         const newChat = {
