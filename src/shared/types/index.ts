@@ -70,8 +70,10 @@ export interface WorkstationInfo {
   webUrl?: string;
   folderId?: string | null;
   repositoryUrl?: string;
+  githubAccountUsername?: string; // Account GitHub collegato a questo progetto
   createdAt: Date;
   files: any[];
+  projectId?: string; // ID del progetto Firebase
 }
 
 export interface ProjectFolder {

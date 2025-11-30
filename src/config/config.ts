@@ -2,7 +2,7 @@
 const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app';
 
 // Auto-detect local IP from environment (set by scripts/get-local-ip.js)
-const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.1.18';
+const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.1.10';
 const LOCAL_URL = `http://${LOCAL_IP}:3000`;
 const LOCAL_WS_URL = `ws://${LOCAL_IP}:3000`;
 

@@ -10,6 +10,7 @@ import axios from 'axios';
 WebBrowser.maybeCompleteAuthSession();
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const GITHUB_CLIENT_ID = process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23likDO7phRcPUBcrk';
 
 interface Props {
   visible: boolean;
@@ -53,7 +54,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
         try {
           const response = await axios.post(`${API_BASE_URL}/github/poll-device`, {
             device_code: deviceFlow.device_code,
-            client_id: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID,
+            client_id: GITHUB_CLIENT_ID,
           });
 
           if (response.data.access_token) {
@@ -94,7 +95,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
 
       console.log('Redirect URI:', redirectUri);
 
-      const authUrl = `https://github.com/login/oauth/authorize?client_id=${process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,user`;
+      const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,user`;
 
       console.log('Opening browser with URL:', authUrl);
 
@@ -140,10 +141,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
     try {
       console.log('🔐 Starting GitHub device flow...');
       console.log('API URL:', API_BASE_URL);
-      console.log('Client ID:', process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID);
+      console.log('Client ID:', GITHUB_CLIENT_ID);
 
       const response = await axios.post(`${API_BASE_URL}/github/device-flow`, {
-        client_id: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID,
+        client_id: GITHUB_CLIENT_ID,
         scope: 'repo,user',
       });
 
@@ -173,22 +174,41 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
     }
   }
 
+  // On mobile, use Device Flow; on web/PC use WebBrowser OAuth
+  const handleGitHubAuth = () => {
+    if (Platform.OS === 'ios' || Platform.OS === 'android') {
+      // Mobile: use Device Flow
+      handleStartDeviceFlow();
+    } else {
+      // Web/PC: use WebBrowser OAuth
+      handleWebBrowserAuth();
+    }
+  };
+
   const renderOptions = () => (
     <>
-      <Text style={styles.title}>Authentication Required</Text>
-      <Text style={styles.subtitle}>This repository is private. Choose an authentication method.</Text>
+      <Text style={styles.title}>Autenticazione richiesta</Text>
+      <Text style={styles.subtitle}>Questo repository è privato. Scegli un metodo di autenticazione.</Text>
       <TouchableOpacity
         style={styles.optionButton}
-        onPress={handleWebBrowserAuth}
+        onPress={handleGitHubAuth}
         disabled={isLoading}
       >
         <Ionicons name="logo-github" size={24} color="#FFFFFF" />
-        <Text style={styles.optionButtonText}>Authenticate with GitHub</Text>
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionButtonText}>Autentica con GitHub</Text>
+          {(Platform.OS === 'ios' || Platform.OS === 'android') && (
+            <Text style={styles.optionSubtext}>Via Device Flow</Text>
+          )}
+        </View>
         {isLoading && <ActivityIndicator color="#FFFFFF" />}
       </TouchableOpacity>
       <TouchableOpacity style={styles.optionButton} onPress={() => setStep('pat')}>
         <Ionicons name="key-outline" size={24} color="#FFFFFF" />
-        <Text style={styles.optionButtonText}>Use a Personal Access Token</Text>
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionButtonText}>Usa un Personal Access Token</Text>
+          <Text style={styles.optionSubtext}>Genera un token da GitHub</Text>
+        </View>
       </TouchableOpacity>
       {error && <Text style={styles.errorText}>{error}</Text>}
     </>
@@ -198,10 +218,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
     <>
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.6)" />
-        <Text style={styles.backButtonText}>Back</Text>
+        <Text style={styles.backButtonText}>Indietro</Text>
       </TouchableOpacity>
       <Text style={styles.title}>Personal Access Token</Text>
-      <Text style={styles.subtitle}>Generate a token from your GitHub settings and paste it below.</Text>
+      <Text style={styles.subtitle}>Genera un token dalle impostazioni di GitHub e incollalo qui sotto.</Text>
       <TextInput
         style={styles.input}
         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
@@ -216,7 +236,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
         onPress={handlePatSubmit}
         disabled={!pat.trim()}
       >
-        <Text style={styles.submitButtonText}>Authenticate</Text>
+        <Text style={styles.submitButtonText}>Autentica</Text>
       </TouchableOpacity>
     </>
   );
@@ -226,25 +246,25 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.6)" />
       </TouchableOpacity>
-      <Text style={styles.title}>Authorize on GitHub</Text>
-      <Text style={styles.subtitle}>Enter the code below on the GitHub website to grant access.</Text>
-      
+      <Text style={styles.title}>Autorizza su GitHub</Text>
+      <Text style={styles.subtitle}>Inserisci il codice qui sotto sul sito di GitHub per concedere l'accesso.</Text>
+
       <View style={styles.deviceCodeContainer}>
         <Text style={styles.deviceCode}>{deviceFlow?.user_code}</Text>
         <TouchableOpacity style={styles.copyButton} onPress={() => Clipboard.setStringAsync(deviceFlow?.user_code || '')}>
           <Ionicons name="copy-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.copyButtonText}>Copy Code</Text>
+          <Text style={styles.copyButtonText}>Copia Codice</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.linkButton} onPress={handleOpenVerification}>
-        <Ionicons name="open-outline" size={16} color={AppColors.primary} />
-        <Text style={styles.linkText}>Open GitHub and Authorize</Text>
+        <Ionicons name="open-outline" size={16} color="#FFFFFF" />
+        <Text style={styles.linkText}>Apri GitHub e Autorizza</Text>
       </TouchableOpacity>
 
       <View style={styles.pollingIndicator}>
         <ActivityIndicator color={AppColors.primary} />
-        <Text style={styles.pollingText}>Waiting for authorization...</Text>
+        <Text style={styles.pollingText}>In attesa dell'autorizzazione...</Text>
       </View>
       {error && <Text style={styles.errorText}>{error}</Text>}
     </>
@@ -338,17 +358,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-    height: 60,
+    minHeight: 68,
+    paddingVertical: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 12,
     paddingHorizontal: 20,
     marginBottom: 12,
   },
+  optionTextContainer: {
+    flex: 1,
+  },
   optionButtonText: {
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-    flex: 1,
+  },
+  optionSubtext: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    marginTop: 2,
   },
   backButton: {
     flexDirection: 'row',

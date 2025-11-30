@@ -86,8 +86,18 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
   const handleIndexChange = (newIndex: number) => {
     setActiveIndex(newIndex);
     onIconChange?.(newIndex);
-    icons[newIndex]?.action();
+    // Don't execute action here - only on tap!
   };
+
+  const handleTap = () => {
+    // Execute the action of the currently selected icon
+    icons[activeIndex]?.action();
+  };
+
+  const tapGesture = Gesture.Tap()
+    .onEnd(() => {
+      runOnJS(handleTap)();
+    });
 
   const panGesture = Gesture.Pan()
     .onStart(() => {
@@ -132,8 +142,11 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
       }
     });
 
+  // Combine tap and pan gestures - pan takes priority during drag
+  const composedGesture = Gesture.Race(tapGesture, panGesture);
+
   return (
-    <GestureDetector gesture={panGesture}>
+    <GestureDetector gesture={composedGesture}>
       <View style={styles.wrapper}>
         <Animated.View style={styles.container}>
           {icons.map((icon, index) => (

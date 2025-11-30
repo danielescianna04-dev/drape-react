@@ -10,11 +10,14 @@ import Animated, { FadeIn, FadeOut, SlideInRight } from 'react-native-reanimated
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
+import { GitManagementScreen } from './src/features/projects/GitManagementScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
+import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
+import { requestGitAuth } from './src/core/github/gitAuthStore';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
 import { useTabStore } from './src/core/tabs/tabStore';
 import ChatPage from './src/pages/Chat/ChatPage';
@@ -22,9 +25,9 @@ import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar'
 import { FileViewer } from './src/features/terminal/components/FileViewer';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 
-console.log('🔵 App.tsx loaded');
+console.log('App.tsx loaded');
 
-type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects';
+type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects' | 'gitSettings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -35,6 +38,162 @@ export default function App() {
 
   const { addWorkstation, setWorkstation } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
+
+  // Helper function to clone repository with auth popup if needed
+  const cloneRepositoryWithAuth = async (
+    projectId: string,
+    githubUrl: string,
+    tabId: string,
+    workstationName: string,
+    linkedGithubAccount?: string // Account GitHub già collegato al progetto
+  ) => {
+    console.log('🔄 [cloneRepositoryWithAuth] Starting clone for:', githubUrl);
+
+    const userId = useTerminalStore.getState().userId || 'anonymous';
+    const match = githubUrl.match(/github\.com\/([^\/]+)\//);
+    const owner = match ? match[1] : 'unknown';
+    const repoName = githubUrl.split('/').pop()?.replace('.git', '') || workstationName;
+
+    console.log('🔄 [cloneRepositoryWithAuth] userId:', userId, 'owner:', owner);
+    console.log('🔄 [cloneRepositoryWithAuth] linkedGithubAccount:', linkedGithubAccount);
+
+    // Check if we have accounts and need to choose
+    const accounts = await githubTokenService.getAccounts(userId);
+
+    // Prima prova con l'account già collegato al progetto
+    let token = linkedGithubAccount
+      ? await githubTokenService.getToken(linkedGithubAccount, userId)
+      : await githubTokenService.getToken(owner, userId);
+
+    let usedAccountUsername = linkedGithubAccount || owner;
+
+    console.log('🔄 [cloneRepositoryWithAuth] accounts:', accounts.length, 'hasToken:', !!token);
+
+    // Show popup if:
+    // 1. Multiple accounts exist and no specific token for this owner - let user choose
+    // 2. No token at all - need to authenticate
+    const needsAuth = !token;
+    const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
+
+    if (needsAuth || hasMultipleAccounts) {
+      console.log('🔄 [cloneRepositoryWithAuth] Showing popup - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
+      try {
+        token = await requestGitAuth(
+          hasMultipleAccounts
+            ? `Scegli un account per "${repoName}"`
+            : `Autenticazione richiesta per "${repoName}"`,
+          { repositoryUrl: githubUrl, owner }
+        );
+        console.log('🔄 [cloneRepositoryWithAuth] Got token from popup');
+
+        // Get the username of the account that was authenticated
+        const validation = await githubTokenService.validateToken(token);
+        if (validation.valid && validation.username) {
+          usedAccountUsername = validation.username;
+
+          // Salva l'account GitHub nel progetto
+          console.log('🔗 [cloneRepositoryWithAuth] Saving GitHub account to project:', usedAccountUsername);
+          await workstationService.updateProjectGitHubAccount(projectId, usedAccountUsername);
+        }
+      } catch {
+        // User cancelled
+        console.log('🔄 [cloneRepositoryWithAuth] User cancelled auth');
+        addTerminalItemToStore(tabId, {
+          id: `cancelled-${Date.now()}`,
+          type: 'system',
+          content: 'Autenticazione annullata',
+          timestamp: new Date(),
+        });
+        return;
+      }
+    }
+
+    addTerminalItemToStore(tabId, {
+      id: `loading-${Date.now()}`,
+      type: 'loading',
+      content: 'Cloning repository to workstation',
+      timestamp: new Date(),
+    });
+
+    try {
+      console.log('🔄 [cloneRepositoryWithAuth] Calling getWorkstationFiles...');
+      console.log('🔄 [cloneRepositoryWithAuth] projectId:', projectId);
+      console.log('🔄 [cloneRepositoryWithAuth] githubUrl:', githubUrl);
+      console.log('🔄 [cloneRepositoryWithAuth] token:', token ? token.substring(0, 10) + '...' : 'none');
+
+      await workstationService.getWorkstationFiles(projectId, githubUrl, token || undefined);
+
+      console.log('🔄 [cloneRepositoryWithAuth] Clone successful!');
+
+      updateTerminalItemsByType(tabId, 'loading', {
+        type: 'system',
+        content: 'Cloning repository to workstation'
+      });
+
+      addTerminalItemToStore(tabId, {
+        id: `success-${Date.now()}`,
+        type: 'output',
+        content: `✓ Repository cloned successfully: ${repoName}`,
+        timestamp: new Date(),
+      });
+    } catch (err: any) {
+      updateTerminalItemsByType(tabId, 'loading', {
+        type: 'system',
+        content: 'Cloning repository to workstation'
+      });
+
+      // Check if it's an auth error - show popup
+      console.log('🔄 [cloneRepositoryWithAuth] Error:', err.response?.status, err.message);
+      console.log('🔄 [cloneRepositoryWithAuth] Full error:', err);
+
+      if (err.response?.status === 401) {
+        console.log('🔄 [cloneRepositoryWithAuth] 401 error - showing auth popup...');
+        try {
+          const newToken = await requestGitAuth(
+            `Repository privato. Autenticazione richiesta per "${repoName}"`,
+            { repositoryUrl: githubUrl, owner }
+          );
+          console.log('🔄 [cloneRepositoryWithAuth] Got new token, retrying...');
+
+          addTerminalItemToStore(tabId, {
+            id: `retry-${Date.now()}`,
+            type: 'loading',
+            content: 'Ritentando con nuove credenziali...',
+            timestamp: new Date(),
+          });
+
+          // Retry clone with new token
+          await workstationService.getWorkstationFiles(projectId, githubUrl, newToken);
+
+          updateTerminalItemsByType(tabId, 'loading', {
+            type: 'system',
+            content: 'Ritentando con nuove credenziali...'
+          });
+
+          addTerminalItemToStore(tabId, {
+            id: `success-${Date.now()}`,
+            type: 'output',
+            content: `✓ Repository cloned successfully: ${repoName}`,
+            timestamp: new Date(),
+          });
+        } catch (authErr: any) {
+          addTerminalItemToStore(tabId, {
+            id: `error-${Date.now()}`,
+            type: 'error',
+            content: `✗ ${authErr.message || 'Autenticazione annullata'}`,
+            timestamp: new Date(),
+          });
+        }
+      } else {
+        addTerminalItemToStore(tabId, {
+          id: `error-${Date.now()}`,
+          type: 'error',
+          content: `✗ ${err.message || 'Failed to clone repository'}`,
+          timestamp: new Date(),
+        });
+      }
+    }
+  };
 
   const handleDeepLink = (url: string) => {
     const { path } = Linking.parse(url);
@@ -77,16 +236,48 @@ export default function App() {
   }, []);
 
   const handleImportRepo = async (url: string, newToken?: string) => {
+    console.log('📥 [handleImportRepo] Starting import for:', url);
     try {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
 
       const match = url.match(/github\.com\/([^\/]+)\//);
       const owner = match ? match[1] : 'unknown';
+      const repoName = url.split('/').pop()?.replace('.git', '') || 'repository';
+
+      console.log('📥 [handleImportRepo] userId:', userId, 'owner:', owner, 'repoName:', repoName);
 
       let githubToken = newToken;
+
       if (!githubToken) {
-        githubToken = await githubTokenService.getToken(owner, userId);
+        // Check if we have multiple accounts or need to choose
+        const accounts = await githubTokenService.getAccounts(userId);
+        const existingToken = await githubTokenService.getToken(owner, userId);
+
+        console.log('📥 [handleImportRepo] accounts:', accounts.length, 'hasExistingToken:', !!existingToken);
+
+        if (accounts.length > 1 || !existingToken) {
+          // Multiple accounts: let user choose which to use
+          // Or no token for this owner: prompt for auth
+          console.log('📥 [handleImportRepo] Showing auth popup...');
+          try {
+            setShowImportModal(false);
+            githubToken = await requestGitAuth(
+              accounts.length > 1
+                ? `Scegli un account per clonare "${repoName}"`
+                : `Autenticazione richiesta per clonare "${repoName}"`,
+              { repositoryUrl: url, owner }
+            );
+            console.log('📥 [handleImportRepo] Got token from popup');
+          } catch (err) {
+            // User cancelled
+            console.log('📥 [handleImportRepo] User cancelled auth');
+            setIsImporting(false);
+            return;
+          }
+        } else {
+          githubToken = existingToken;
+        }
       } else {
         await githubTokenService.saveToken(owner, githubToken, userId);
       }
@@ -107,7 +298,7 @@ export default function App() {
       };
 
       addWorkstation(workstation);
-      setWorkstation(workstation); // Set as current workstation
+      setWorkstation(workstation);
       setShowImportModal(false);
       setIsImporting(false);
       setCurrentScreen('terminal');
@@ -125,17 +316,14 @@ export default function App() {
             timestamp: new Date(),
           });
 
-          // Clone repository and update loading message
           try {
-            await workstationService.getWorkstationFiles(workstation.projectId, url);
+            await workstationService.getWorkstationFiles(workstation.projectId, url, githubToken || undefined);
 
-            // Stop loading animation by changing type to system
             updateTerminalItemsByType(currentTab.id, 'loading', {
               type: 'system',
               content: 'Cloning repository to workstation'
             });
 
-            const repoName = url.split('/').pop()?.replace('.git', '') || project.name;
             addTerminalItemToStore(currentTab.id, {
               id: `success-${Date.now()}`,
               type: 'output',
@@ -143,18 +331,42 @@ export default function App() {
               timestamp: new Date(),
             });
           } catch (err: any) {
-            // Stop loading animation
             updateTerminalItemsByType(currentTab.id, 'loading', {
               type: 'system',
               content: 'Cloning repository to workstation'
             });
 
-            addTerminalItemToStore(currentTab.id, {
-              id: `error-${Date.now()}`,
-              type: 'error',
-              content: `✗ ${err.message || 'Failed to clone repository'}`,
-              timestamp: new Date(),
-            });
+            // Check if it's an auth error - show popup
+            if (err.response?.status === 401) {
+              try {
+                const token = await requestGitAuth(
+                  `Repository privato. Autenticazione richiesta per "${repoName}"`,
+                  { repositoryUrl: url, owner }
+                );
+                // Retry clone with new token
+                await workstationService.getWorkstationFiles(workstation.projectId, url, token);
+                addTerminalItemToStore(currentTab.id, {
+                  id: `success-${Date.now()}`,
+                  type: 'output',
+                  content: `✓ Repository cloned successfully: ${repoName}`,
+                  timestamp: new Date(),
+                });
+              } catch (authErr: any) {
+                addTerminalItemToStore(currentTab.id, {
+                  id: `error-${Date.now()}`,
+                  type: 'error',
+                  content: `✗ ${authErr.message || 'Autenticazione annullata'}`,
+                  timestamp: new Date(),
+                });
+              }
+            } else {
+              addTerminalItemToStore(currentTab.id, {
+                id: `error-${Date.now()}`,
+                type: 'error',
+                content: `✗ ${err.message || 'Failed to clone repository'}`,
+                timestamp: new Date(),
+              });
+            }
           }
         }
       }, 100);
@@ -162,10 +374,19 @@ export default function App() {
       setIsImporting(false);
       console.error('Import error:', error.response?.status);
 
+      // If 401, use the new popup system
       if (error.response?.status === 401 && !newToken) {
-        setPendingRepoUrl(url);
-        setShowAuthModal(true);
         setShowImportModal(false);
+        try {
+          const token = await requestGitAuth(
+            'Repository privato. Autenticazione GitHub richiesta.',
+            { repositoryUrl: url, owner: url.match(/github\.com\/([^\/]+)\//)?.[1] }
+          );
+          // Retry with new token
+          handleImportRepo(url, token);
+        } catch (err) {
+          // User cancelled, do nothing
+        }
       }
     }
   };
@@ -198,6 +419,7 @@ export default function App() {
               onCreateProject={() => setCurrentScreen('create')}
               onImportProject={() => setShowImportModal(true)}
               onMyProjects={() => setCurrentScreen('allProjects')}
+              onSettings={() => setCurrentScreen('gitSettings')}
               onOpenProject={async (workstation) => {
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
@@ -206,44 +428,16 @@ export default function App() {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
-                  if (currentTab && workstation.githubUrl) {
+                  const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
+                  if (currentTab && githubUrl) {
                     clearTerminalItems(currentTab.id);
-
-                    addTerminalItemToStore(currentTab.id, {
-                      id: `loading-${Date.now()}`,
-                      type: 'loading',
-                      content: 'Cloning repository to workstation',
-                      timestamp: new Date(),
-                    });
-
-                    try {
-                      await workstationService.getWorkstationFiles(workstation.projectId || workstation.id, workstation.githubUrl);
-
-                      updateTerminalItemsByType(currentTab.id, 'loading', {
-                        type: 'system',
-                        content: 'Cloning repository to workstation'
-                      });
-
-                      const repoName = workstation.githubUrl.split('/').pop()?.replace('.git', '') || workstation.name;
-                      addTerminalItemToStore(currentTab.id, {
-                        id: `success-${Date.now()}`,
-                        type: 'output',
-                        content: `✓ Repository cloned successfully: ${repoName}`,
-                        timestamp: new Date(),
-                      });
-                    } catch (err: any) {
-                      updateTerminalItemsByType(currentTab.id, 'loading', {
-                        type: 'system',
-                        content: 'Cloning repository to workstation'
-                      });
-
-                      addTerminalItemToStore(currentTab.id, {
-                        id: `error-${Date.now()}`,
-                        type: 'error',
-                        content: `✗ ${err.message || 'Failed to clone repository'}`,
-                        timestamp: new Date(),
-                      });
-                    }
+                    await cloneRepositoryWithAuth(
+                      workstation.projectId || workstation.id,
+                      githubUrl,
+                      currentTab.id,
+                      workstation.name,
+                      workstation.githubAccountUsername
+                    );
                   }
                 }, 100);
               }}
@@ -341,47 +535,32 @@ export default function App() {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
-                  if (currentTab && workstation.githubUrl) {
+                  const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
+                  if (currentTab && githubUrl) {
                     clearTerminalItems(currentTab.id);
-
-                    addTerminalItemToStore(currentTab.id, {
-                      id: `loading-${Date.now()}`,
-                      type: 'loading',
-                      content: 'Cloning repository to workstation',
-                      timestamp: new Date(),
-                    });
-
-                    try {
-                      await workstationService.getWorkstationFiles(workstation.projectId || workstation.id, workstation.githubUrl);
-
-                      updateTerminalItemsByType(currentTab.id, 'loading', {
-                        type: 'system',
-                        content: 'Cloning repository to workstation'
-                      });
-
-                      const repoName = workstation.githubUrl.split('/').pop()?.replace('.git', '') || workstation.name;
-                      addTerminalItemToStore(currentTab.id, {
-                        id: `success-${Date.now()}`,
-                        type: 'output',
-                        content: `✓ Repository cloned successfully: ${repoName}`,
-                        timestamp: new Date(),
-                      });
-                    } catch (err: any) {
-                      updateTerminalItemsByType(currentTab.id, 'loading', {
-                        type: 'system',
-                        content: 'Cloning repository to workstation'
-                      });
-
-                      addTerminalItemToStore(currentTab.id, {
-                        id: `error-${Date.now()}`,
-                        type: 'error',
-                        content: `✗ ${err.message || 'Failed to clone repository'}`,
-                        timestamp: new Date(),
-                      });
-                    }
+                    await cloneRepositoryWithAuth(
+                      workstation.projectId || workstation.id,
+                      githubUrl,
+                      currentTab.id,
+                      workstation.name,
+                      workstation.githubAccountUsername
+                    );
                   }
                 }, 100);
               }}
+            />
+          </Animated.View>
+        )}
+
+        {currentScreen === 'gitSettings' && (
+          <Animated.View
+            key="git-settings-screen"
+            entering={SlideInRight.duration(300)}
+            exiting={FadeOut.duration(200)}
+            style={{ flex: 1 }}
+          >
+            <GitManagementScreen
+              onClose={() => setCurrentScreen('home')}
             />
           </Animated.View>
         )}
@@ -409,6 +588,7 @@ export default function App() {
           }
         }}
       />
+      <GitAuthPopup />
       <StatusBar style="light" />
     </SafeAreaProvider>
     </GestureHandlerRootView>

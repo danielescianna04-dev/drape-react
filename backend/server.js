@@ -3263,7 +3263,7 @@ app.post('/workstation/git-command', async (req, res) => {
 });
 
 // Helper function to clone and read repository files
-async function cloneAndReadRepository(repositoryUrl, projectId) {
+async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = null) {
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
@@ -3280,15 +3280,48 @@ async function cloneAndReadRepository(repositoryUrl, projectId) {
         console.error('Error creating repos directory:', err);
     }
 
-    // Check if repository is already cloned
+    // Build clone URL with token if provided (for private repos)
+    let cloneUrl = repositoryUrl;
+    if (githubToken) {
+        // Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
+        cloneUrl = repositoryUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+        console.log('🔑 Using authenticated clone URL');
+    }
+
+    // Check if repository is already cloned AND has files
+    let needsClone = false;
     try {
         await fs.access(repoPath);
-        console.log('✅ Repository already cloned at:', repoPath);
+        // Folder exists, check if it has files (not just .git)
+        const entries = await fs.readdir(repoPath);
+        const hasFiles = entries.some(e => e !== '.git');
+        if (hasFiles) {
+            console.log('✅ Repository already cloned at:', repoPath);
+            // If we have a token, do a git pull to ensure latest
+            if (githubToken) {
+                try {
+                    console.log('🔄 Pulling latest changes...');
+                    await execAsync(`cd "${repoPath}" && git pull`);
+                } catch (pullError) {
+                    console.log('⚠️ Pull failed, but repo exists:', pullError.message);
+                }
+            }
+        } else {
+            console.log('📂 Folder exists but is empty, re-cloning...');
+            // Remove empty folder
+            await fs.rm(repoPath, { recursive: true, force: true });
+            needsClone = true;
+        }
     } catch {
+        needsClone = true;
+    }
+
+    if (needsClone) {
         // Repository not cloned yet, clone it now
         console.log('📦 Cloning repository:', repositoryUrl);
+        console.log('📦 Has token:', !!githubToken);
         try {
-            await execAsync(`git clone ${repositoryUrl} ${repoPath}`);
+            await execAsync(`git clone ${cloneUrl} "${repoPath}"`);
             console.log('✅ Repository cloned successfully');
         } catch (cloneError) {
             console.error('❌ Error cloning repository:', cloneError.message);
@@ -3339,6 +3372,10 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     let { projectId } = req.params;
     const { repositoryUrl } = req.query;
 
+    // Get GitHub token from Authorization header
+    const authHeader = req.headers.authorization;
+    const githubToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+
     // Remove ws- prefix if present
     if (projectId.startsWith('ws-')) {
         projectId = projectId.substring(3);
@@ -3347,10 +3384,11 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     try {
         console.log('📂 Getting files for project:', projectId);
         console.log('🔗 Repository URL:', repositoryUrl);
+        console.log('🔑 Has GitHub token:', !!githubToken);
 
         // If repositoryUrl is provided, clone and read from local filesystem
         if (repositoryUrl) {
-            const files = await cloneAndReadRepository(repositoryUrl, projectId);
+            const files = await cloneAndReadRepository(repositoryUrl, projectId, githubToken);
             console.log(`✅ Found ${files.length} files in cloned repository`);
             res.json({ success: true, files });
             return;
@@ -3436,6 +3474,272 @@ app.get('/workstation/:projectId/file-content', async (req, res) => {
         console.error('❌ [FILE-CONTENT] Error:', error.message);
         console.error('   Stack:', error.stack);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== GIT OPERATIONS ====================
+
+const { execSync, exec } = require('child_process');
+
+/**
+ * Get git status, commits, and branches for a project
+ */
+app.get('/git/status/:projectId', async (req, res) => {
+    let { projectId } = req.params;
+
+    // Remove ws- prefix if present
+    if (projectId.startsWith('ws-')) {
+        projectId = projectId.substring(3);
+    }
+
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
+
+    try {
+        // Check if repo exists
+        await fs.access(repoPath);
+
+        // Check if it's a git repo
+        const gitDir = path.join(repoPath, '.git');
+        try {
+            await fs.access(gitDir);
+        } catch {
+            return res.json({ isGitRepo: false });
+        }
+
+        // Get current branch
+        let currentBranch = 'main';
+        try {
+            currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+        } catch (e) {
+            console.log('Could not get current branch:', e.message);
+        }
+
+        // Get commits (last 50)
+        let commits = [];
+        try {
+            const logOutput = execSync(
+                'git log --pretty=format:"%H|%h|%s|%an|%ae|%ai" -50',
+                { cwd: repoPath, encoding: 'utf-8' }
+            );
+            if (logOutput.trim()) {
+                commits = logOutput.trim().split('\n').map((line, index) => {
+                    const [hash, shortHash, message, author, authorEmail, date] = line.split('|');
+                    return {
+                        hash,
+                        shortHash,
+                        message,
+                        author,
+                        authorEmail,
+                        date: new Date(date),
+                        isHead: index === 0,
+                        branch: index === 0 ? currentBranch : undefined
+                    };
+                });
+            }
+        } catch (e) {
+            console.log('Could not get commits:', e.message);
+        }
+
+        // Get branches
+        let branches = [];
+        try {
+            const branchOutput = execSync('git branch -a', { cwd: repoPath, encoding: 'utf-8' });
+            const branchLines = branchOutput.trim().split('\n');
+            branches = branchLines.map(line => {
+                const isCurrent = line.startsWith('*');
+                const name = line.replace(/^\*?\s*/, '').trim();
+                const isRemote = name.startsWith('remotes/');
+                return {
+                    name: isRemote ? name.replace('remotes/', '') : name,
+                    isCurrent,
+                    isRemote
+                };
+            }).filter(b => !b.name.includes('HEAD'));
+
+            // Get ahead/behind for current branch
+            try {
+                const trackingOutput = execSync(`git rev-list --left-right --count origin/${currentBranch}...HEAD`, { cwd: repoPath, encoding: 'utf-8' });
+                const [behind, ahead] = trackingOutput.trim().split('\t').map(Number);
+                const currentBranchObj = branches.find(b => b.isCurrent);
+                if (currentBranchObj) {
+                    currentBranchObj.ahead = ahead;
+                    currentBranchObj.behind = behind;
+                }
+            } catch (e) {
+                // No tracking branch or other error
+            }
+        } catch (e) {
+            console.log('Could not get branches:', e.message);
+        }
+
+        // Get status (staged, modified, untracked)
+        let status = { staged: [], modified: [], untracked: [], deleted: [] };
+        try {
+            const statusOutput = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
+            if (statusOutput.trim()) {
+                statusOutput.trim().split('\n').forEach(line => {
+                    const code = line.substring(0, 2);
+                    const file = line.substring(3);
+
+                    if (code[0] === 'A' || code[0] === 'M' || code[0] === 'D') {
+                        status.staged.push(file);
+                    }
+                    if (code[1] === 'M') {
+                        status.modified.push(file);
+                    }
+                    if (code === '??') {
+                        status.untracked.push(file);
+                    }
+                    if (code[1] === 'D') {
+                        status.deleted.push(file);
+                    }
+                });
+            }
+        } catch (e) {
+            console.log('Could not get status:', e.message);
+        }
+
+        res.json({
+            isGitRepo: true,
+            currentBranch,
+            commits,
+            branches,
+            status
+        });
+
+    } catch (error) {
+        console.error('❌ Git status error:', error.message);
+        res.json({ isGitRepo: false, error: error.message });
+    }
+});
+
+/**
+ * Git fetch
+ */
+app.post('/git/fetch/:projectId', async (req, res) => {
+    let { projectId } = req.params;
+    const authHeader = req.headers.authorization;
+    const githubToken = authHeader?.replace('Bearer ', '');
+
+    if (projectId.startsWith('ws-')) {
+        projectId = projectId.substring(3);
+    }
+
+    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+    try {
+        await fs.access(repoPath);
+
+        // Configure git with token if provided
+        if (githubToken) {
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+            if (remoteUrl.includes('github.com')) {
+                const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+                execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
+            }
+        }
+
+        // Fetch
+        execSync('git fetch --all', { cwd: repoPath, encoding: 'utf-8' });
+
+        // Reset remote URL to remove token
+        if (githubToken) {
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+            const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+            execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
+        }
+
+        res.json({ success: true, message: 'Fetch completed' });
+    } catch (error) {
+        console.error('❌ Git fetch error:', error.message);
+        res.json({ success: false, message: error.message });
+    }
+});
+
+/**
+ * Git pull
+ */
+app.post('/git/pull/:projectId', async (req, res) => {
+    let { projectId } = req.params;
+    const authHeader = req.headers.authorization;
+    const githubToken = authHeader?.replace('Bearer ', '');
+
+    if (projectId.startsWith('ws-')) {
+        projectId = projectId.substring(3);
+    }
+
+    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+    try {
+        await fs.access(repoPath);
+
+        // Configure git with token if provided
+        if (githubToken) {
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+            if (remoteUrl.includes('github.com')) {
+                const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+                execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
+            }
+        }
+
+        // Pull
+        const output = execSync('git pull', { cwd: repoPath, encoding: 'utf-8' });
+
+        // Reset remote URL to remove token
+        if (githubToken) {
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+            const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+            execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
+        }
+
+        res.json({ success: true, message: 'Pull completed', output });
+    } catch (error) {
+        console.error('❌ Git pull error:', error.message);
+        res.json({ success: false, message: error.message });
+    }
+});
+
+/**
+ * Git push
+ */
+app.post('/git/push/:projectId', async (req, res) => {
+    let { projectId } = req.params;
+    const authHeader = req.headers.authorization;
+    const githubToken = authHeader?.replace('Bearer ', '');
+
+    if (projectId.startsWith('ws-')) {
+        projectId = projectId.substring(3);
+    }
+
+    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+    try {
+        await fs.access(repoPath);
+
+        if (!githubToken) {
+            return res.json({ success: false, message: 'GitHub token required for push' });
+        }
+
+        // Configure git with token
+        const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+        if (remoteUrl.includes('github.com')) {
+            const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+            execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
+        }
+
+        // Push
+        const output = execSync('git push', { cwd: repoPath, encoding: 'utf-8' });
+
+        // Reset remote URL to remove token
+        const currentUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+        const cleanUrl = currentUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+        execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
+
+        res.json({ success: true, message: 'Push completed', output });
+    } catch (error) {
+        console.error('❌ Git push error:', error.message);
+        res.json({ success: false, message: error.message });
     }
 });
 

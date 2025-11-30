@@ -11,12 +11,13 @@ import { TabBar } from './TabBar';
 import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
+import { GitPanel } from './GitPanel';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 
-type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -73,6 +74,28 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         type: 'terminal',
         title: 'Terminal AI',
         data: { sourceTabId: 'all' }, // Show commands from ALL tabs
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
+  // Handle git icon click - open/create GitHub tab as a full page
+  const handleGitClick = useCallback(() => {
+    // Close any open panel
+    setActivePanel(null);
+
+    // Look for existing GitHub tab
+    const gitHubTab = tabs.find(t => t.id === 'github-main');
+
+    if (gitHubTab) {
+      // GitHub tab already exists - just switch to it
+      setActiveTab('github-main');
+    } else {
+      // Create new GitHub tab
+      addTab({
+        id: 'github-main',
+        type: 'github',
+        title: 'Git',
+        data: {},
       });
     }
   }, [tabs, setActiveTab, addTab]);
@@ -424,15 +447,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
           <VerticalIconSwitcher
             icons={[
-              { name: 'grid-outline', action: () => console.log('Home') },
-              { name: 'code-slash-outline', action: () => console.log('Code') },
-              { name: 'terminal-outline', action: () => console.log('Terminal') },
-              { name: 'folder-outline', action: () => console.log('Files') },
-              { name: 'git-branch-outline', action: () => console.log('Git') },
-              { name: 'search-outline', action: () => console.log('Search') },
-              { name: 'settings-outline', action: () => console.log('Settings') },
+              { name: 'grid-outline', action: () => setActivePanel(null) },
+              { name: 'folder-outline', action: () => togglePanel('files') },
+              { name: 'terminal-outline', action: handleTerminalClick },
+              { name: 'git-branch-outline', action: handleGitClick },
+              { name: 'settings-outline', action: () => togglePanel('settings') },
             ]}
-            onIconChange={(index) => console.log('Selected icon:', index)}
+            onIconChange={(index) => {}}
           />
 
           <View style={styles.spacer} />
@@ -480,6 +501,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
         {activePanel === 'settings' && (
           <SettingsPanel onClose={() => setActivePanel(null)} />
+        )}
+
+        {activePanel === 'git' && (
+          <GitPanel onClose={() => setActivePanel(null)} />
         )}
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />

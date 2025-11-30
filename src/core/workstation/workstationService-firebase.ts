@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import axios from 'axios';
@@ -12,6 +12,7 @@ export interface UserProject {
   name: string;
   type: 'git' | 'personal';
   repositoryUrl?: string; // Per progetti Git
+  githubAccountUsername?: string; // Account GitHub collegato a questo progetto
   userId: string;
   createdAt: Date;
   lastAccessed: Date;
@@ -126,7 +127,7 @@ export const workstationService = {
     }
   },
 
-  async getWorkstationFiles(workstationId: string, repositoryUrl?: string): Promise<string[]> {
+  async getWorkstationFiles(workstationId: string, repositoryUrl?: string, githubToken?: string): Promise<string[]> {
     try {
       const url = repositoryUrl
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
@@ -136,15 +137,21 @@ export const workstationService = {
       console.log('🌐 API_BASE_URL:', API_BASE_URL);
       console.log('🌐 workstationId:', workstationId);
       console.log('🌐 repositoryUrl:', repositoryUrl);
+      console.log('🌐 Has GitHub token:', !!githubToken);
 
       // Create a custom axios instance with extended timeout for cloning operations
-      // We can't use timeout: 0 because axios doesn't handle it properly
       const axiosLongTimeout = axios.create({
         timeout: 600000 // 10 minutes for large repository clones
       });
 
+      // Add Authorization header if token is provided
+      const headers: Record<string, string> = {};
+      if (githubToken) {
+        headers['Authorization'] = `Bearer ${githubToken}`;
+      }
+
       console.log('🌐 About to make GET request...');
-      const response = await axiosLongTimeout.get(url);
+      const response = await axiosLongTimeout.get(url, { headers });
       console.log('🌐 Response received:', response.status);
       const files = response.data.files || [];
 
@@ -254,6 +261,34 @@ export const workstationService = {
     }
   },
 
+  // Aggiorna account GitHub collegato al progetto
+  async updateProjectGitHubAccount(projectId: string, githubUsername: string): Promise<void> {
+    try {
+      console.log('🔗 Linking GitHub account to project:', { projectId, githubUsername });
+      await updateDoc(doc(db, COLLECTION, projectId), {
+        githubAccountUsername: githubUsername,
+      });
+      console.log('✅ GitHub account linked successfully');
+    } catch (error) {
+      console.error('Error updating project GitHub account:', error);
+      throw error;
+    }
+  },
+
+  // Rimuovi account GitHub dal progetto
+  async removeProjectGitHubAccount(projectId: string): Promise<void> {
+    try {
+      console.log('🔓 Unlinking GitHub account from project:', projectId);
+      await updateDoc(doc(db, COLLECTION, projectId), {
+        githubAccountUsername: null,
+      });
+      console.log('✅ GitHub account unlinked successfully');
+    } catch (error) {
+      console.error('Error removing project GitHub account:', error);
+      throw error;
+    }
+  },
+
   // Alias per compatibilità
   async deleteWorkstation(workstationId: string): Promise<void> {
     return this.deleteProject(workstationId);
@@ -294,7 +329,7 @@ export const workstationService = {
     try {
       const userId = 'anonymous'; // TODO: get from auth
       const projects = await this.getUserProjects(userId);
-      
+
       return projects.map(project => ({
         id: project.id,
         name: project.name,
@@ -302,8 +337,10 @@ export const workstationService = {
         status: project.status as any,
         createdAt: project.createdAt,
         files: [],
-        githubUrl: project.repositoryUrl,
+        repositoryUrl: project.repositoryUrl,
+        githubAccountUsername: project.githubAccountUsername,
         folderId: null,
+        projectId: project.id,
       }));
     } catch (error) {
       console.error('Error getting workstations:', error);
