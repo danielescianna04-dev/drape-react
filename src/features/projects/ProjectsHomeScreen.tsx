@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import axios from 'axios';
 
 interface Props {
   onCreateProject: () => void;
@@ -22,6 +24,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
+  const [repoVisibility, setRepoVisibility] = useState<'loading' | 'public' | 'private' | 'unknown'>('unknown');
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -86,9 +89,50 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
+  const checkRepoVisibility = async (repoUrl: string) => {
+    try {
+      setRepoVisibility('loading');
+      // Extract owner/repo from GitHub URL
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (!match) {
+        setRepoVisibility('unknown');
+        return;
+      }
+      const owner = match[1];
+      const repo = match[2].replace('.git', '');
+
+      // Try to access the repo without authentication
+      // If successful, it's public. If 404, it's private (or doesn't exist)
+      const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+        timeout: 5000,
+        validateStatus: (status) => status < 500, // Don't throw on 4xx
+      });
+
+      if (response.status === 200) {
+        setRepoVisibility(response.data.private ? 'private' : 'public');
+      } else if (response.status === 404) {
+        // Private repo or doesn't exist - assume private
+        setRepoVisibility('private');
+      } else {
+        setRepoVisibility('unknown');
+      }
+    } catch (error) {
+      console.log('Error checking repo visibility:', error);
+      setRepoVisibility('unknown');
+    }
+  };
+
   const handleOpenMenu = (project: any) => {
     setSelectedProject(project);
+    setRepoVisibility('unknown');
     setMenuVisible(true);
+
+    // Check repo visibility if it's a GitHub project
+    const repoUrl = project.repositoryUrl || project.githubUrl;
+    if (repoUrl && repoUrl.includes('github.com')) {
+      checkRepoVisibility(repoUrl);
+    }
+
     Animated.spring(sheetAnim, {
       toValue: 0,
       useNativeDriver: true,
@@ -382,6 +426,43 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
                   </View>
                 </View>
+
+                {/* Repository Info Section */}
+                {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                  <View style={styles.repoInfoSection}>
+                    <View style={styles.repoInfoRow}>
+                      <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
+                      <Text style={styles.repoUrlText} numberOfLines={1}>
+                        {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
+                          await Clipboard.setStringAsync(url);
+                          Alert.alert('Copiato', 'Link repository copiato negli appunti');
+                        }}
+                        style={styles.copyButton}
+                      >
+                        <Ionicons name="copy-outline" size={14} color="rgba(255,255,255,0.4)" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.repoVisibilityRow}>
+                      {repoVisibility === 'loading' ? (
+                        <ActivityIndicator size="small" color={AppColors.primary} />
+                      ) : repoVisibility === 'public' ? (
+                        <View style={styles.visibilityBadge}>
+                          <Ionicons name="globe-outline" size={12} color="#4ade80" />
+                          <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                        </View>
+                      ) : repoVisibility === 'private' ? (
+                        <View style={styles.visibilityBadge}>
+                          <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
+                          <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                )}
 
                 <View style={styles.sheetActions}>
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
@@ -727,6 +808,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
+  },
+  repoInfoSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    gap: 8,
+  },
+  repoInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  repoUrlText: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    fontFamily: 'monospace',
+  },
+  copyButton: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  repoVisibilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  visibilityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  visibilityText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   sheetActions: {
     flexDirection: 'row',
