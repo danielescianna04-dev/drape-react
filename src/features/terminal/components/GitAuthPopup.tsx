@@ -114,10 +114,10 @@ export const GitAuthPopup = () => {
   const loadAccounts = async () => {
     try {
       setLoadingAccounts(true);
-      // Use gitAccountService (same as Settings screen) for consistency
-      const accs = await gitAccountService.getAccounts(userId);
+      // Use getAllAccounts to get both local and shared accounts from Firebase
+      const accs = await gitAccountService.getAllAccounts(userId);
       setAccounts(accs);
-      console.log('🔐 [GitAuthPopup] Loaded accounts from gitAccountService:', accs.length);
+      console.log('🔐 [GitAuthPopup] Loaded accounts (local + shared):', accs.length);
 
       // If no accounts, go directly to options
       if (accs.length === 0) {
@@ -276,31 +276,39 @@ export const GitAuthPopup = () => {
         </View>
       ) : (
         <>
-          {accounts.map((account) => (
-            <TouchableOpacity
-              key={account.id}
-              style={styles.accountOption}
-              onPress={() => handleSelectAccount(account)}
-              disabled={isLoading}
-            >
-              {account.avatarUrl ? (
-                <Image source={{ uri: account.avatarUrl }} style={styles.accountAvatar} />
-              ) : (
-                <View style={[styles.accountAvatar, styles.avatarPlaceholder]}>
-                  <Ionicons name="person" size={20} color="rgba(255,255,255,0.5)" />
+          {accounts.map((account) => {
+            const isShared = account.id.startsWith('shared-');
+            return (
+              <TouchableOpacity
+                key={account.id}
+                style={styles.accountOption}
+                onPress={() => handleSelectAccount(account)}
+                disabled={isLoading}
+              >
+                {account.avatarUrl ? (
+                  <Image source={{ uri: account.avatarUrl }} style={styles.accountAvatar} />
+                ) : (
+                  <View style={[styles.accountAvatar, styles.avatarPlaceholder]}>
+                    <Ionicons name="person" size={20} color="rgba(255,255,255,0.5)" />
+                  </View>
+                )}
+                <View style={styles.accountOptionInfo}>
+                  <Text style={styles.accountOptionName}>{account.username}</Text>
+                  <Text style={styles.accountOptionMeta}>
+                    {account.provider === 'github' ? 'GitHub' : account.provider}
+                    {isShared && ' • Condiviso'}
+                  </Text>
                 </View>
-              )}
-              <View style={styles.accountOptionInfo}>
-                <Text style={styles.accountOptionName}>{account.username}</Text>
-                <Text style={styles.accountOptionMeta}>{account.provider === 'github' ? 'GitHub' : account.provider}</Text>
-              </View>
-              {isLoading ? (
-                <ActivityIndicator size="small" color={AppColors.primary} />
-              ) : (
-                <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.3)" />
-              )}
-            </TouchableOpacity>
-          ))}
+                {isLoading ? (
+                  <ActivityIndicator size="small" color={AppColors.primary} />
+                ) : isShared ? (
+                  <Ionicons name="people" size={18} color="rgba(255,255,255,0.3)" />
+                ) : (
+                  <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.3)" />
+                )}
+              </TouchableOpacity>
+            );
+          })}
 
           <TouchableOpacity
             style={styles.addAccountOption}

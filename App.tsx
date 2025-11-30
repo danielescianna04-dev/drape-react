@@ -385,45 +385,25 @@ export default function App() {
         const accounts = await gitAccountService.getAccounts(userId);
         console.log('📥 [handleImportRepo] gitAccountService accounts count:', accounts.length);
 
-        // If NO accounts at all, ALWAYS require auth FIRST
+        // If NO accounts, try without auth first (works for public repos)
+        // Auth will be requested later if clone fails with 401
         if (accounts.length === 0) {
-          console.log('📥📥📥 [handleImportRepo] NO ACCOUNTS - showing auth popup');
-          try {
-            setShowImportModal(false);
-            githubToken = await requestGitAuth(
-              `Collega un account GitHub per clonare "${repoName}"`,
-              { repositoryUrl: url, owner }
-            );
-            console.log('📥 [handleImportRepo] Got token from popup');
-          } catch (err) {
-            console.log('📥📥📥 [handleImportRepo] User cancelled auth - STOPPING');
-            setIsImporting(false);
-            return;
-          }
+          console.log('📥📥📥 [handleImportRepo] NO ACCOUNTS - trying without auth (public repo)');
+          githubToken = null; // Will try clone without token first
         } else {
           // Have accounts - check if we have token for this repo
           const tokenResult = await gitAccountService.getTokenForRepo(userId, url);
           const existingToken = tokenResult?.token || null;
           console.log('📥 [handleImportRepo] hasExistingToken:', !!existingToken);
 
-          if (accounts.length > 1 || !existingToken) {
-            console.log('📥📥📥 [handleImportRepo] Showing auth popup...');
-            try {
-              setShowImportModal(false);
-              githubToken = await requestGitAuth(
-                accounts.length > 1
-                  ? `Scegli un account per clonare "${repoName}"`
-                  : `Autenticazione richiesta per clonare "${repoName}"`,
-                { repositoryUrl: url, owner }
-              );
-              console.log('📥 [handleImportRepo] Got token from popup');
-            } catch (err) {
-              console.log('📥📥📥 [handleImportRepo] User cancelled auth - STOPPING');
-              setIsImporting(false);
-              return;
-            }
-          } else {
+          // If only one account and has token, use it silently
+          if (accounts.length === 1 && existingToken) {
             githubToken = existingToken;
+          } else {
+            // Multiple accounts or no token - let clone try without auth first
+            // If it's a private repo, auth will be requested on 401
+            console.log('📥📥📥 [handleImportRepo] Will try clone, auth on demand if needed');
+            githubToken = existingToken; // Use existing if available, null otherwise
           }
         }
       } else {

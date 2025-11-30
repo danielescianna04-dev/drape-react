@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { sharedGitAccountService } from './sharedGitAccountService';
 
 // Supported Git providers
 export type GitProvider =
@@ -122,8 +123,25 @@ export const gitAccountService = {
       const tokenKey = `${TOKEN_PREFIX}${userId}-${provider}-${userInfo.username}`;
       await SecureStore.setItemAsync(tokenKey, token);
 
-      // Save account to list
+      // Save account to list (local)
       await this.addAccountToList(account, userId);
+
+      // Also save to Firebase (shared with other users)
+      try {
+        await sharedGitAccountService.saveSharedAccount(
+          provider,
+          userInfo.username,
+          userInfo.avatarUrl,
+          userId,
+          {
+            displayName: userInfo.displayName,
+            email: userInfo.email,
+            serverUrl,
+          }
+        );
+      } catch (firebaseErr) {
+        console.warn('⚠️ Could not save to shared accounts:', firebaseErr);
+      }
 
       console.log(`✅ ${provider} account saved:`, account.username);
       return account;
@@ -242,6 +260,47 @@ export const gitAccountService = {
     } catch (error) {
       console.error('Error getting accounts:', error);
       return [];
+    }
+  },
+
+  // Get all accounts: local + shared from Firebase
+  async getAllAccounts(userId: string): Promise<GitAccount[]> {
+    try {
+      // Get local accounts (with tokens)
+      const localAccounts = await this.getAccounts(userId);
+
+      // Get shared accounts from Firebase
+      const sharedAccounts = await sharedGitAccountService.getSharedAccounts();
+
+      // Merge: use local accounts, add shared accounts that don't exist locally
+      const localUsernames = new Set(localAccounts.map(a => `${a.provider}-${a.username}`));
+
+      const mergedAccounts = [...localAccounts];
+
+      for (const shared of sharedAccounts) {
+        const key = `${shared.provider}-${shared.username}`;
+        if (!localUsernames.has(key)) {
+          // Add shared account (user will need to authenticate to use it)
+          mergedAccounts.push({
+            id: `shared-${shared.id}`,
+            provider: shared.provider,
+            username: shared.username,
+            displayName: shared.displayName,
+            avatarUrl: shared.avatarUrl,
+            email: shared.email,
+            serverUrl: shared.serverUrl,
+            addedAt: shared.addedAt,
+          });
+        }
+      }
+
+      return mergedAccounts.sort(
+        (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
+      );
+    } catch (error) {
+      console.error('Error getting all accounts:', error);
+      // Fallback to local accounts only
+      return this.getAccounts(userId);
     }
   },
 

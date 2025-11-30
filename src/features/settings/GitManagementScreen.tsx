@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { githubTokenService, GitHubAccount } from '../../core/github/githubTokenService';
+import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { AppColors } from '../../shared/theme/colors';
 import { GitHubAuthModal } from '../terminal/components/GitHubAuthModal';
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export const GitManagementScreen = ({ onClose }: Props) => {
-  const [accounts, setAccounts] = useState<GitHubAccount[]>([]);
+  const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
@@ -52,7 +53,8 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const accs = await githubTokenService.getAccounts(userId);
+      // Load all accounts (local + shared from Firebase)
+      const accs = await gitAccountService.getAllAccounts(userId);
       setAccounts(accs);
     } catch (error) {
       console.error('Error loading accounts:', error);
@@ -61,7 +63,18 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     }
   };
 
-  const handleDeleteAccount = (account: GitHubAccount) => {
+  const handleDeleteAccount = (account: GitAccount) => {
+    const isShared = account.id.startsWith('shared-');
+
+    if (isShared) {
+      Alert.alert(
+        'Account condiviso',
+        'Questo account è stato aggiunto da un altro utente. Non puoi rimuoverlo, ma puoi aggiungere il tuo.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     Alert.alert(
       'Rimuovi Account',
       `Sei sicuro di voler rimuovere l'account ${account.username}?`,
@@ -72,7 +85,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await githubTokenService.deleteToken(account.owner, userId);
+              await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error) {
               Alert.alert('Errore', 'Impossibile rimuovere l\'account');
@@ -90,14 +103,9 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   const handleAuthenticated = async (token: string) => {
     setShowAuthModal(false);
     try {
-      // Validate token and get user info
-      const validation = await githubTokenService.validateToken(token);
-      if (validation.valid && validation.username) {
-        await githubTokenService.saveToken(validation.username, token, userId);
-        loadAccounts();
-      } else {
-        Alert.alert('Errore', 'Token non valido');
-      }
+      // Save account using gitAccountService (saves to local + Firebase)
+      await gitAccountService.saveAccount('github', token, userId);
+      loadAccounts();
     } catch (error) {
       Alert.alert('Errore', 'Impossibile salvare l\'account');
     }
@@ -131,31 +139,44 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     );
   };
 
-  const renderAccountCard = (account: GitHubAccount) => (
-    <View key={account.id} style={styles.accountCard}>
-      {account.avatarUrl ? (
-        <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatar, styles.avatarPlaceholder]}>
-          <Ionicons name="person" size={24} color="rgba(255,255,255,0.5)" />
+  const renderAccountCard = (account: GitAccount) => {
+    const isShared = account.id.startsWith('shared-');
+    const providerIcon = account.provider === 'github' ? 'logo-github' : 'git-branch';
+
+    return (
+      <View key={account.id} style={styles.accountCard}>
+        {account.avatarUrl ? (
+          <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarPlaceholder]}>
+            <Ionicons name="person" size={24} color="rgba(255,255,255,0.5)" />
+          </View>
+        )}
+        <View style={styles.accountInfo}>
+          <Text style={styles.accountName}>{account.username}</Text>
+          <View style={styles.accountMetaRow}>
+            <Ionicons name={providerIcon as any} size={12} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.accountMeta}>
+              {isShared ? 'Condiviso • ' : ''}Aggiunto {getTimeAgo(account.addedAt)}
+            </Text>
+          </View>
         </View>
-      )}
-      <View style={styles.accountInfo}>
-        <Text style={styles.accountName}>{account.username}</Text>
-        <View style={styles.accountMetaRow}>
-          <Ionicons name="logo-github" size={12} color="rgba(255,255,255,0.35)" />
-          <Text style={styles.accountMeta}>Aggiunto {getTimeAgo(account.addedAt)}</Text>
-        </View>
+        {isShared ? (
+          <View style={styles.sharedBadge}>
+            <Ionicons name="people" size={16} color={AppColors.primary} />
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={() => handleDeleteAccount(account)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
+          </TouchableOpacity>
+        )}
       </View>
-      <TouchableOpacity
-        style={styles.deleteBtn}
-        onPress={() => handleDeleteAccount(account)}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -360,6 +381,15 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 10,
     backgroundColor: 'rgba(255,77,77,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  sharedBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: `${AppColors.primary}15`,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
