@@ -57,17 +57,7 @@ export const useTabStore = create<TabStore>((set) => ({
   }),
   
   removeTab: (id) => set((state) => {
-    const tabToRemove = state.tabs.find(t => t.id === id);
-
-    // If removing a chat tab with no messages, delete it from chatHistory
-    if (tabToRemove?.type === 'chat' && tabToRemove.data?.chatId) {
-      const hasMessages = tabToRemove.terminalItems && tabToRemove.terminalItems.length > 0;
-      if (!hasMessages) {
-        // Delete empty chat from terminalStore
-        useTerminalStore.getState().deleteChat(tabToRemove.data.chatId);
-      }
-    }
-
+    // Keep all chats in chatHistory - only delete manually from ChatPanel
     const newTabs = state.tabs.filter(t => t.id !== id);
     let newActiveId = state.activeTabId;
 
@@ -115,23 +105,9 @@ export const useTabStore = create<TabStore>((set) => ({
       console.log(`   - id: "${t.id}", type: "${t.type}", items: ${t.terminalItems?.length || 0}`);
     });
 
-    // Only delete EMPTY chats from terminalStore (preserve chats with messages)
-    tabsToRemove.forEach(tab => {
-      if (tab.type === 'chat' && tab.data?.chatId) {
-        // Check if chat has messages in chatHistory (not just in tab.terminalItems)
-        const chatInHistory = useTerminalStore.getState().chatHistory.find(c => c.id === tab.data.chatId);
-        const hasMessagesInHistory = chatInHistory?.messages && chatInHistory.messages.length > 0;
-        const hasMessagesInTab = tab.terminalItems && tab.terminalItems.length > 0;
-
-        if (!hasMessagesInHistory && !hasMessagesInTab) {
-          // Only delete truly empty chats
-          console.log('🗑️ [TabStore] Deleting empty chat:', tab.data.chatId);
-          useTerminalStore.getState().deleteChat(tab.data.chatId);
-        } else {
-          console.log('✅ [TabStore] Preserving chat with messages:', tab.data.chatId);
-        }
-      }
-    });
+    // Keep all chats in chatHistory (don't delete any)
+    // Chats are only deleted manually by the user from ChatPanel
+    console.log('✅ [TabStore] Preserving all chats in chatHistory');
 
     const newTabs = state.tabs.filter(t =>
       t.workstationId !== workstationId &&
