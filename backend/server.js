@@ -4,6 +4,9 @@ const axios = require('axios');
 const http = require('http');
 const WebSocket = require('ws');
 const os = require('os');
+const path = require('path');
+const fs = require('fs').promises;
+const fsSync = require('fs');
 require('dotenv').config();
 
 // Auto-detect local network IP
@@ -3280,9 +3283,15 @@ async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = nu
         console.error('Error creating repos directory:', err);
     }
 
+    // If no repositoryUrl provided, just read from existing local repo
+    if (!repositoryUrl) {
+        console.log('📂 No repositoryUrl provided, reading from existing local repo');
+        // Skip to reading files at the end
+    }
+
     // Build clone URL with token if provided (for private repos)
     let cloneUrl = repositoryUrl;
-    if (githubToken) {
+    if (repositoryUrl && githubToken) {
         // Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
         cloneUrl = repositoryUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
         console.log('🔑 Using authenticated clone URL');
@@ -3317,6 +3326,10 @@ async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = nu
     }
 
     if (needsClone) {
+        // Can only clone if we have a URL
+        if (!repositoryUrl) {
+            throw new Error('Repository not cloned and no URL provided');
+        }
         // Repository not cloned yet, clone it now
         console.log('📦 Cloning repository:', repositoryUrl);
         console.log('📦 Has token:', !!githubToken);
@@ -3392,6 +3405,22 @@ app.get('/workstation/:projectId/files', async (req, res) => {
             console.log(`✅ Found ${files.length} files in cloned repository`);
             res.json({ success: true, files });
             return;
+        }
+
+        // Check if repo is already cloned locally (even without repositoryUrl)
+        const reposDir = path.join(__dirname, 'cloned_repos');
+        const repoPath = path.join(reposDir, projectId);
+        try {
+            await fs.access(repoPath);
+            // Repo exists locally, read files from it
+            console.log('📂 Found existing cloned repo at:', repoPath);
+            const files = await cloneAndReadRepository(null, projectId, null);
+            console.log(`✅ Found ${files.length} files in existing cloned repository`);
+            res.json({ success: true, files });
+            return;
+        } catch {
+            // Repo not cloned locally, fall through to Firestore
+            console.log('📂 No local repo found, checking Firestore...');
         }
 
         // Fallback to Firestore

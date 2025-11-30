@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated, ActivityIndicator, RefreshControl } from 'react-native';
-import ReanimatedView from 'react-native-reanimated';
-import { useAnimatedStyle, interpolate } from 'react-native-reanimated';
+import Reanimated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -273,7 +272,12 @@ export const GitHubView = ({ tab }: Props) => {
 
   // Toolbar with git actions
   const renderToolbar = () => (
-    <View style={styles.toolbar}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.toolbarScroll}
+      contentContainerStyle={styles.toolbar}
+    >
       <TouchableOpacity
         style={[styles.toolbarBtn, actionLoading === 'fetch' && styles.toolbarBtnLoading]}
         onPress={() => handleGitAction('fetch')}
@@ -282,7 +286,7 @@ export const GitHubView = ({ tab }: Props) => {
         {actionLoading === 'fetch' ? (
           <ActivityIndicator size="small" color={AppColors.primary} />
         ) : (
-          <Ionicons name="cloud-download-outline" size={18} color="#fff" />
+          <Ionicons name="cloud-download-outline" size={16} color="#fff" />
         )}
         <Text style={styles.toolbarBtnText}>Fetch</Text>
       </TouchableOpacity>
@@ -295,7 +299,7 @@ export const GitHubView = ({ tab }: Props) => {
         {actionLoading === 'pull' ? (
           <ActivityIndicator size="small" color={AppColors.primary} />
         ) : (
-          <Ionicons name="arrow-down-outline" size={18} color="#fff" />
+          <Ionicons name="arrow-down-outline" size={16} color="#fff" />
         )}
         <Text style={styles.toolbarBtnText}>Pull</Text>
       </TouchableOpacity>
@@ -308,7 +312,7 @@ export const GitHubView = ({ tab }: Props) => {
         {actionLoading === 'push' ? (
           <ActivityIndicator size="small" color={AppColors.primary} />
         ) : (
-          <Ionicons name="arrow-up-outline" size={18} color="#fff" />
+          <Ionicons name="arrow-up-outline" size={16} color="#fff" />
         )}
         <Text style={styles.toolbarBtnText}>Push</Text>
       </TouchableOpacity>
@@ -316,15 +320,20 @@ export const GitHubView = ({ tab }: Props) => {
       <View style={styles.toolbarDivider} />
 
       <View style={styles.branchIndicator}>
-        <Ionicons name="git-branch" size={16} color={AppColors.primary} />
-        <Text style={styles.branchName}>{currentBranch}</Text>
+        <Ionicons name="git-branch" size={14} color={AppColors.primary} />
+        <Text style={styles.branchName} numberOfLines={1}>{currentBranch}</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 
   // Navigation tabs
   const renderTabs = () => (
-    <View style={styles.navTabs}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.navTabsScroll}
+      contentContainerStyle={styles.navTabs}
+    >
       {[
         { key: 'commits', icon: 'git-commit-outline', label: 'Commits' },
         { key: 'branches', icon: 'git-branch-outline', label: 'Branches' },
@@ -338,7 +347,7 @@ export const GitHubView = ({ tab }: Props) => {
         >
           <Ionicons
             name={item.icon as any}
-            size={16}
+            size={14}
             color={activeSection === item.key ? AppColors.primary : 'rgba(255,255,255,0.5)'}
           />
           <Text style={[styles.navTabText, activeSection === item.key && styles.navTabTextActive]}>
@@ -346,7 +355,7 @@ export const GitHubView = ({ tab }: Props) => {
           </Text>
         </TouchableOpacity>
       ))}
-    </View>
+    </ScrollView>
   );
 
   // Commits list (Fork-style)
@@ -615,7 +624,7 @@ export const GitHubView = ({ tab }: Props) => {
   };
 
   return (
-    <ReanimatedView.default style={[styles.container, { paddingTop: insets.top }, containerAnimatedStyle]}>
+    <Reanimated.View style={[styles.container, { paddingTop: insets.top }, containerAnimatedStyle]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -664,7 +673,7 @@ export const GitHubView = ({ tab }: Props) => {
         onClose={() => setShowAuthModal(false)}
         onAuthenticated={handleAuthenticated}
       />
-    </ReanimatedView.default>
+    </Reanimated.View>
   );
 };
 
@@ -704,24 +713,26 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   // Toolbar
+  toolbarScroll: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
     gap: 6,
   },
   toolbarBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 8,
+    borderRadius: 6,
   },
   toolbarBtnLoading: {
     opacity: 0.6,
@@ -740,32 +751,35 @@ const styles = StyleSheet.create({
   branchIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     marginLeft: 'auto',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
     borderRadius: 6,
+    maxWidth: 120,
   },
   branchName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: AppColors.primary,
   },
   // Nav tabs
-  navTabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 4,
+  navTabsScroll: {
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  navTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    gap: 4,
   },
   navTab: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
+    gap: 4,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
   },
@@ -773,7 +787,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
   },
   navTabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: 'rgba(255,255,255,0.5)',
   },
