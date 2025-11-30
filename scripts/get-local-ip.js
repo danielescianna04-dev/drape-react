@@ -56,7 +56,7 @@ function updateEnvFile(ip) {
   }
 
   // Update or add EXPO_PUBLIC_API_URL
-  const apiUrl = `http://${ip}:3000`;
+  const apiUrl = `http://${ip}:3001`;
   if (envContent.includes('EXPO_PUBLIC_API_URL=')) {
     envContent = envContent.replace(/EXPO_PUBLIC_API_URL=.*/g, `EXPO_PUBLIC_API_URL=${apiUrl}`);
   } else {
@@ -64,7 +64,7 @@ function updateEnvFile(ip) {
   }
 
   // Update or add EXPO_PUBLIC_WS_URL
-  const wsUrl = `ws://${ip}:3000`;
+  const wsUrl = `ws://${ip}:3001`;
   if (envContent.includes('EXPO_PUBLIC_WS_URL=')) {
     envContent = envContent.replace(/EXPO_PUBLIC_WS_URL=.*/g, `EXPO_PUBLIC_WS_URL=${wsUrl}`);
   } else {

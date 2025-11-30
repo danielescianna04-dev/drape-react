@@ -248,11 +248,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         </View>
 
         <TouchableOpacity
-          style={styles.settingsButton}
           activeOpacity={0.7}
           onPress={onSettings}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.6)" />
+          <Ionicons name="settings-outline" size={24} color="rgba(255,255,255,0.5)" />
         </TouchableOpacity>
       </View>
 
@@ -261,63 +261,53 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Quick Actions - 3 tasti sempre visibili */}
+        {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
           <Text style={styles.sectionLabel}>Inizia</Text>
 
-          <View style={styles.quickActionsGrid}>
+          <View style={styles.quickActionsRow}>
             {/* New Project */}
             <TouchableOpacity
               style={styles.actionCard}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
               onPress={onCreateProject}
             >
               <LinearGradient
-                colors={[`${AppColors.primary}20`, `${AppColors.primary}08`]}
+                colors={[AppColors.primary, '#7B6BFF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.actionCardGradient}
               >
-                <View style={[styles.actionIconWrapper, { backgroundColor: `${AppColors.primary}25` }]}>
-                  <Ionicons name="add" size={24} color={AppColors.primary} />
-                </View>
-                <Text style={styles.actionCardTitle}>Nuovo Progetto</Text>
-                <Text style={styles.actionCardSubtitle}>Crea da zero</Text>
+                <Ionicons name="add" size={26} color="#fff" />
+                <Text style={styles.actionCardTitle}>Nuovo</Text>
+                <Text style={styles.actionCardSubtitle}>Crea progetto</Text>
               </LinearGradient>
             </TouchableOpacity>
 
             {/* Import from GitHub */}
             <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.7}
+              style={[styles.actionCard, styles.actionCardDark]}
+              activeOpacity={0.8}
               onPress={onImportProject}
             >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']}
-                style={styles.actionCardGradient}
-              >
-                <View style={[styles.actionIconWrapper, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <Ionicons name="logo-github" size={22} color="#fff" />
-                </View>
-                <Text style={styles.actionCardTitle}>Importa GitHub</Text>
-                <Text style={styles.actionCardSubtitle}>Clona repository</Text>
-              </LinearGradient>
+              <View style={styles.actionCardInner}>
+                <Ionicons name="logo-github" size={24} color="#fff" />
+                <Text style={styles.actionCardTitle}>GitHub</Text>
+                <Text style={styles.actionCardSubtitle}>Clona repo</Text>
+              </View>
             </TouchableOpacity>
 
             {/* Open File */}
             <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.7}
+              style={[styles.actionCard, styles.actionCardDark]}
+              activeOpacity={0.8}
               onPress={handleBrowseFiles}
             >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.02)']}
-                style={styles.actionCardGradient}
-              >
-                <View style={[styles.actionIconWrapper, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <Ionicons name="folder-open-outline" size={22} color="#fff" />
-                </View>
-                <Text style={styles.actionCardTitle}>Apri File</Text>
-                <Text style={styles.actionCardSubtitle}>Dal dispositivo</Text>
-              </LinearGradient>
+              <View style={styles.actionCardInner}>
+                <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
+                <Text style={styles.actionCardTitle}>File</Text>
+                <Text style={styles.actionCardSubtitle}>Apri locale</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -560,14 +550,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
     marginTop: 1,
   },
-  settingsButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   // Scroll
   scrollView: {
     flex: 1,
@@ -588,42 +570,40 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 14,
   },
-  quickActionsGrid: {
+  // Quick Actions Row - compact cards
+  quickActionsRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
   actionCard: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: 14,
     overflow: 'hidden',
+  },
+  actionCardGradient: {
+    padding: 14,
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionCardDark: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
-  actionCardGradient: {
-    paddingVertical: 20,
-    paddingHorizontal: 14,
+  actionCardInner: {
+    padding: 14,
     alignItems: 'center',
-    minHeight: 130,
-  },
-  actionIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+    gap: 8,
   },
   actionCardTitle: {
     fontSize: 13,
     fontWeight: '600',
     color: '#fff',
-    textAlign: 'center',
-    marginBottom: 4,
   },
   actionCardSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
-    textAlign: 'center',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
   },
   // Projects Section
   projectsSection: {

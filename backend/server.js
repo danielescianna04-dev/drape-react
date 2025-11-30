@@ -1620,65 +1620,28 @@ async function executeCommandOnWorkstation(command, workstationId) {
       // Check if this is a static server command (node static-server.js)
       const isStaticServer = command.includes('static-server.js');
 
-      // For static server commands, find an available port and update the command
-      if (isStaticServer) {
-        console.log(`🔍 Static server detected - checking if port ${port} is available...`);
-        const originalPort = port;
-        port = await findAvailablePort(port);
+      // For ALL dev server commands, find an available port dynamically
+      // This prevents port conflicts when running multiple projects
+      console.log(`🔍 Checking if port ${port} is available...`);
+      const originalPort = port;
+      port = await findAvailablePort(port);
 
-        if (port !== originalPort) {
-          console.log(`⚠️  Port ${originalPort} is in use, using port ${port} instead`);
-          // Update the command with the new port
-          execCommand = execCommand.replace(/\b\d{4,5}\b/, port.toString());
+      if (port !== originalPort) {
+        console.log(`⚠️  Port ${originalPort} is in use, using port ${port} instead`);
+        // Update the command with the new port if it contains the original port
+        if (execCommand.includes(originalPort.toString())) {
+          execCommand = execCommand.replace(new RegExp(`\\b${originalPort}\\b`, 'g'), port.toString());
           console.log(`📝 Updated command: ${execCommand}`);
-        } else {
-          console.log(`✅ Port ${port} is available`);
         }
-      }
-
-      // For React Native/Expo projects, clean only the target port (NOT 8081 to avoid killing main app)
-      if (isReactNative && port !== 8081) {
-        try {
-          console.log(`🧹 [React Native] Cleaning target port ${port}...`);
-          const isWindows = process.platform === 'win32';
-          if (isWindows) {
-            await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
-              timeout: 5000,
-              shell: 'cmd.exe'
-            });
-          } else {
-            await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
-          }
-          console.log(`✅ Port ${port} cleanup completed`);
-          // Wait a bit for the port to be fully released
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (err) {
-          console.log(`⚠️  Port cleanup error: ${err.message}`);
-        }
-      }
-
-      // CRITICAL: Never clean ports 3000 (backend) or 8081 (main app) to prevent crashes
-      if (port && port !== 3000 && port !== 8081) {
-        try {
-          console.log(`🧹 Cleaning up port ${port}...`);
-          const isWindows = process.platform === 'win32';
-          if (isWindows) {
-            // Windows: use netstat and taskkill
-            await execAsync(`FOR /F "tokens=5" %P IN ('netstat -ano ^| findstr :${port}') DO taskkill /F /PID %P 2>nul || echo Port ${port} already free`, {
-              timeout: 5000,
-              shell: 'cmd.exe'
-            });
-          } else {
-            // Unix: use lsof and kill
-            await execAsync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { timeout: 5000 });
-          }
-          console.log(`✅ Port ${port} cleanup attempted`);
-        } catch (err) {
-          console.log(`⚠️  Error cleaning port: ${err.message}`);
-        }
+        // Also set PORT environment variable for servers that use it
+        execCommand = `PORT=${port} ${execCommand}`;
+        console.log(`📝 Added PORT env variable: ${execCommand}`);
       } else {
-        console.log(`🛡️  Skipping port cleanup for protected port ${port} (backend or main app)`);
+        console.log(`✅ Port ${port} is available`);
       }
+
+      // No port cleanup needed - we already found an available port dynamically
+      // This avoids accidentally killing other processes
 
       // Initialize fs and path at the beginning
       const fs = require('fs');

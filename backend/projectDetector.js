@@ -63,6 +63,94 @@ function detectProjectType(files, packageJson) {
     };
   }
 
+  // Angular
+  if (packageJson?.dependencies?.['@angular/core'] || files.includes('angular.json')) {
+    return {
+      type: 'angular',
+      defaultPort: 4200,
+      startCommand: 'ng serve --host 0.0.0.0 --port 4200',
+      installCommand: 'npm install',
+      description: 'Angular Application'
+    };
+  }
+
+  // Nuxt.js (Vue meta-framework) - check before Vue
+  if (packageJson?.dependencies?.['nuxt'] || packageJson?.devDependencies?.['nuxt'] || files.includes('nuxt.config.js') || files.includes('nuxt.config.ts')) {
+    return {
+      type: 'nuxt',
+      defaultPort: 3000,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'Nuxt.js Application'
+    };
+  }
+
+  // Remix
+  if (packageJson?.dependencies?.['@remix-run/react'] || packageJson?.devDependencies?.['@remix-run/dev']) {
+    return {
+      type: 'remix',
+      defaultPort: 3000,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'Remix Application'
+    };
+  }
+
+  // Astro
+  if (packageJson?.dependencies?.['astro'] || packageJson?.devDependencies?.['astro'] || files.includes('astro.config.mjs') || files.includes('astro.config.ts')) {
+    return {
+      type: 'astro',
+      defaultPort: 4321,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'Astro Application'
+    };
+  }
+
+  // SolidJS
+  if (packageJson?.dependencies?.['solid-js']) {
+    return {
+      type: 'solid',
+      defaultPort: 3000,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'SolidJS Application'
+    };
+  }
+
+  // Qwik
+  if (packageJson?.dependencies?.['@builder.io/qwik']) {
+    return {
+      type: 'qwik',
+      defaultPort: 5173,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'Qwik Application'
+    };
+  }
+
+  // Svelte (standalone, not via Vite)
+  if (packageJson?.devDependencies?.['svelte'] && !packageJson?.devDependencies?.['vite']) {
+    return {
+      type: 'svelte',
+      defaultPort: 5000,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'Svelte Application'
+    };
+  }
+
+  // SvelteKit
+  if (packageJson?.devDependencies?.['@sveltejs/kit']) {
+    return {
+      type: 'sveltekit',
+      defaultPort: 5173,
+      startCommand: 'npm run dev',
+      installCommand: 'npm install',
+      description: 'SvelteKit Application'
+    };
+  }
+
   // Vite (React/Vue/Svelte with Vite)
   if (files.includes('vite.config.js') || files.includes('vite.config.ts') || packageJson?.devDependencies?.['vite']) {
     return {
@@ -253,6 +341,26 @@ function detectProjectType(files, packageJson) {
       installCommand: 'sbt compile',
       description: 'Scala Application (Play/Akka)',
       buildCommand: 'sbt compile'
+    };
+  }
+
+  // Flutter (check before Dart server-side)
+  if (files.includes('pubspec.yaml') &&
+      (files.some(f => f.includes('lib/main.dart')) || files.includes('flutter'))) {
+    // Check if web platform is enabled (web folder exists)
+    const hasWebSupport = files.some(f => f.includes('web/index.html') || f.includes('web/'));
+
+    return {
+      type: 'flutter',
+      defaultPort: 8080,
+      startCommand: 'flutter run -d web-server --web-port=8080 --web-hostname=0.0.0.0',
+      installCommand: 'flutter pub get',
+      description: 'Flutter Application',
+      buildCommand: 'flutter build web',
+      supportsWebPreview: hasWebSupport,
+      previewNote: hasWebSupport
+        ? 'Web preview available via Flutter Web'
+        : 'This Flutter project does not have web support. Run "flutter create --platforms=web ." to add it.'
     };
   }
 
