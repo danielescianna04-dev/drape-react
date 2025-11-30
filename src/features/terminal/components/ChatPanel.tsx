@@ -38,7 +38,11 @@ export const ChatPanel = ({ onClose }: Props) => {
   // Filter chats by current workspace and search query
   const filteredChats = chatHistory.filter((chat) => {
     const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesWorkspace = !currentWorkstation || chat.repositoryId === currentWorkstation.id;
+    // Show chats that: have no repositoryId (legacy), OR match current project
+    const matchesWorkspace = !currentWorkstation ||
+      !chat.repositoryId || // Legacy chats without repositoryId
+      chat.repositoryId === currentWorkstation.id ||
+      chat.repositoryId === currentWorkstation.projectId;
     return matchesSearch && matchesWorkspace;
   });
 

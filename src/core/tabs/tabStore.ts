@@ -115,10 +115,21 @@ export const useTabStore = create<TabStore>((set) => ({
       console.log(`   - id: "${t.id}", type: "${t.type}", items: ${t.terminalItems?.length || 0}`);
     });
 
-    // Delete chats from terminalStore for each chat tab being removed
+    // Only delete EMPTY chats from terminalStore (preserve chats with messages)
     tabsToRemove.forEach(tab => {
       if (tab.type === 'chat' && tab.data?.chatId) {
-        useTerminalStore.getState().deleteChat(tab.data.chatId);
+        // Check if chat has messages in chatHistory (not just in tab.terminalItems)
+        const chatInHistory = useTerminalStore.getState().chatHistory.find(c => c.id === tab.data.chatId);
+        const hasMessagesInHistory = chatInHistory?.messages && chatInHistory.messages.length > 0;
+        const hasMessagesInTab = tab.terminalItems && tab.terminalItems.length > 0;
+
+        if (!hasMessagesInHistory && !hasMessagesInTab) {
+          // Only delete truly empty chats
+          console.log('🗑️ [TabStore] Deleting empty chat:', tab.data.chatId);
+          useTerminalStore.getState().deleteChat(tab.data.chatId);
+        } else {
+          console.log('✅ [TabStore] Preserving chat with messages:', tab.data.chatId);
+        }
       }
     });
 
