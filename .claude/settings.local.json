@@ -48,7 +48,9 @@
       "Bash(src/features/projects/ProjectsHomeScreen.tsx)",
       "Bash(src/features/projects/CreateProjectScreen.tsx)",
       "Bash(src/features/projects/ProblemScreen.tsx)",
-      "Bash(src/features/projects/AllProjectsScreen.tsx)"
+      "Bash(src/features/projects/AllProjectsScreen.tsx)",
+      "Bash(del:*)",
+      "Bash(timeout /t 10 /nobreak)"
     ],
     "deny": [],
     "ask": []
