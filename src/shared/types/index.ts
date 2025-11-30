@@ -74,6 +74,7 @@ export interface WorkstationInfo {
   createdAt: Date;
   files: any[];
   projectId?: string; // ID del progetto Firebase
+  cloned?: boolean; // Se il progetto è già stato clonato
 }
 
 export interface ProjectFolder {

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Animated, Dimensions } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { AppColors } from '../../shared/theme/colors';
 
@@ -59,11 +61,16 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Skeleton animation
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
 
   const { setWorkstation } = useTerminalStore();
+  const { removeTabsByWorkstation } = useTabStore();
 
   useEffect(() => {
     loadProjects();
@@ -113,26 +120,119 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     onClose();
   };
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleDeleteProject = async (projectId: string, skipConfirm = false) => {
+    const doDelete = async () => {
+      try {
+        console.log('🗑️🗑️🗑️ [AllProjects] === DELETE STARTED ===');
+        console.log('🗑️ [AllProjects] projectId:', projectId);
+
+        // Remove associated tabs first
+        console.log('🗑️ [AllProjects] Removing tabs for workstation...');
+        removeTabsByWorkstation(projectId);
+
+        console.log('🗑️ [AllProjects] Calling workstationService.deleteWorkstation...');
+        await workstationService.deleteWorkstation(projectId);
+
+        console.log('🗑️ [AllProjects] Reloading projects...');
+        loadProjects();
+        console.log('🗑️🗑️🗑️ [AllProjects] === DELETE COMPLETE ===');
+      } catch (error) {
+        console.error('❌ [AllProjects] Error deleting project:', error);
+        Alert.alert('Errore', 'Impossibile eliminare il progetto');
+      }
+    };
+
+    if (skipConfirm) {
+      await doDelete();
+      return;
+    }
+
     Alert.alert(
       'Elimina Progetto',
       'Sei sicuro di voler eliminare questo progetto?',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        { text: 'Elimina', style: 'destructive', onPress: doDelete },
+      ]
+    );
+  };
+
+  const toggleSelection = (projectId: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(projectId)) {
+        newSet.delete(projectId);
+      } else {
+        newSet.add(projectId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === filteredProjects.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredProjects.map(p => p.id)));
+    }
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    Alert.alert(
+      'Elimina Progetti',
+      `Sei sicuro di voler eliminare ${selectedIds.size} progett${selectedIds.size === 1 ? 'o' : 'i'}?`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
           text: 'Elimina',
           style: 'destructive',
           onPress: async () => {
+            setIsDeleting(true);
             try {
-              await workstationService.deleteWorkstation(projectId);
-              loadProjects();
+              for (const id of selectedIds) {
+                // Remove associated tabs first
+                removeTabsByWorkstation(id);
+                await workstationService.deleteWorkstation(id);
+              }
+              await loadProjects();
+              exitSelectionMode();
             } catch (error) {
-              console.error('Error deleting project:', error);
-              Alert.alert('Errore', 'Impossibile eliminare il progetto');
+              console.error('Error deleting projects:', error);
+              Alert.alert('Errore', 'Impossibile eliminare alcuni progetti');
+            } finally {
+              setIsDeleting(false);
             }
           },
         },
       ]
+    );
+  };
+
+  const closeAllSwipeables = (exceptId?: string) => {
+    swipeableRefs.current.forEach((ref, id) => {
+      if (id !== exceptId) {
+        ref?.close();
+      }
+    });
+  };
+
+  const renderRightActions = (projectId: string) => {
+    return (
+      <TouchableOpacity
+        style={styles.swipeDeleteBtn}
+        onPress={() => handleDeleteProject(projectId, true)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="trash-outline" size={22} color="#fff" />
+        <Text style={styles.swipeDeleteText}>Elimina</Text>
+      </TouchableOpacity>
     );
   };
 
@@ -174,16 +274,32 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 
   const renderProjectCard = (project: any) => {
     const langColor = getLanguageColor(project.language);
+    const isSelected = selectedIds.has(project.id);
 
-    return (
+    const cardContent = (
       <TouchableOpacity
-        key={project.id}
-        style={styles.projectCard}
+        style={[styles.projectCard, isSelected && styles.projectCardSelected]}
         activeOpacity={0.7}
-        onPress={() => handleOpenProject(project)}
-        onLongPress={() => handleDeleteProject(project.id)}
+        onPress={() => {
+          if (selectionMode) {
+            toggleSelection(project.id);
+          } else {
+            handleOpenProject(project);
+          }
+        }}
+        onLongPress={() => {
+          if (!selectionMode) {
+            setSelectionMode(true);
+            setSelectedIds(new Set([project.id]));
+          }
+        }}
         delayLongPress={400}
       >
+        {selectionMode && (
+          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+            {isSelected && <Ionicons name="checkmark" size={16} color="#fff" />}
+          </View>
+        )}
         <View style={[styles.projectIcon, { backgroundColor: `${langColor}15` }]}>
           <Ionicons name={getLanguageIcon(project.language) as any} size={24} color={langColor} />
         </View>
@@ -201,14 +317,36 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             )}
           </View>
         </View>
-        <TouchableOpacity
-          style={styles.projectMenuBtn}
-          onPress={() => handleDeleteProject(project.id)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.35)" />
-        </TouchableOpacity>
+        {!selectionMode && (
+          <TouchableOpacity
+            style={styles.projectMenuBtn}
+            onPress={() => handleDeleteProject(project.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.35)" />
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
+    );
+
+    // In selection mode, don't wrap with Swipeable
+    if (selectionMode) {
+      return <View key={project.id}>{cardContent}</View>;
+    }
+
+    return (
+      <Swipeable
+        key={project.id}
+        ref={(ref) => {
+          if (ref) swipeableRefs.current.set(project.id, ref);
+        }}
+        renderRightActions={() => renderRightActions(project.id)}
+        onSwipeableWillOpen={() => closeAllSwipeables(project.id)}
+        overshootRight={false}
+        friction={2}
+      >
+        {cardContent}
+      </Swipeable>
     );
   };
 
@@ -220,15 +358,36 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           <TouchableOpacity
             style={styles.backButton}
             activeOpacity={0.7}
-            onPress={onClose}
+            onPress={selectionMode ? exitSelectionMode : onClose}
           >
-            <Ionicons name="chevron-back" size={22} color="rgba(255,255,255,0.5)" />
+            <Ionicons
+              name={selectionMode ? "close" : "chevron-back"}
+              size={22}
+              color="rgba(255,255,255,0.5)"
+            />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Tutti i Progetti</Text>
+          <Text style={styles.headerTitle}>
+            {selectionMode
+              ? `${selectedIds.size} selezionat${selectedIds.size === 1 ? 'o' : 'i'}`
+              : 'Tutti i Progetti'
+            }
+          </Text>
         </View>
-        <Text style={styles.projectCount}>
-          {loading ? '...' : `${projects.length}`}
-        </Text>
+        {selectionMode ? (
+          <TouchableOpacity onPress={selectAll} activeOpacity={0.7}>
+            <Text style={styles.selectAllText}>
+              {selectedIds.size === filteredProjects.length ? 'Deseleziona' : 'Seleziona tutti'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setSelectionMode(true)}
+            activeOpacity={0.7}
+            style={styles.selectBtn}
+          >
+            <Text style={styles.selectBtnText}>Seleziona</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search */}
@@ -282,8 +441,25 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         )}
 
         {/* Bottom Padding */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: selectionMode ? 120 : 100 }} />
       </ScrollView>
+
+      {/* Selection Action Bar */}
+      {selectionMode && selectedIds.size > 0 && (
+        <View style={styles.selectionBar}>
+          <TouchableOpacity
+            style={[styles.deleteSelectedBtn, isDeleting && styles.deleteSelectedBtnDisabled]}
+            onPress={handleDeleteSelected}
+            disabled={isDeleting}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="trash-outline" size={20} color="#fff" />
+            <Text style={styles.deleteSelectedText}>
+              {isDeleting ? 'Eliminando...' : `Elimina ${selectedIds.size} progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -325,6 +501,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.4)',
   },
+  selectBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  selectBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppColors.primary,
+  },
+  selectAllText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppColors.primary,
+  },
   searchSection: {
     paddingHorizontal: 20,
     paddingBottom: 16,
@@ -357,6 +549,25 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 16,
+  },
+  projectCardSelected: {
+    backgroundColor: `${AppColors.primary}15`,
+    borderWidth: 1,
+    borderColor: `${AppColors.primary}40`,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: AppColors.primary,
+    borderColor: AppColors.primary,
   },
   projectIcon: {
     width: 50,
@@ -451,5 +662,51 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 40,
     lineHeight: 20,
+  },
+  // Swipe delete
+  swipeDeleteBtn: {
+    backgroundColor: '#ff4d4d',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 90,
+    marginBottom: 10,
+    borderRadius: 16,
+    marginLeft: 10,
+  },
+  swipeDeleteText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  // Selection bar
+  selectionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#0C0C0E',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  deleteSelectedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#ff4d4d',
+    paddingVertical: 16,
+    borderRadius: 14,
+  },
+  deleteSelectedBtnDisabled: {
+    opacity: 0.6,
+  },
+  deleteSelectedText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

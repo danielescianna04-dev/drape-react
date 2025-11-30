@@ -50,7 +50,10 @@
       "Bash(src/features/projects/ProblemScreen.tsx)",
       "Bash(src/features/projects/AllProjectsScreen.tsx)",
       "Bash(del:*)",
-      "Bash(timeout /t 10 /nobreak)"
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(git config:*)",
+      "Bash(tasklist:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

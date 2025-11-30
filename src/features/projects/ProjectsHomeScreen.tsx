@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { useTerminalStore } from '../../core/terminal/terminalStore';
 
 interface Props {
   onCreateProject: () => void;
@@ -144,7 +144,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style: 'destructive',
           onPress: async () => {
             try {
-              await workstationService.deleteWorkstation(selectedProject.id);
+              console.log('🗑️🗑️🗑️ [ProjectsHome] === DELETE STARTED ===');
+              console.log('🗑️ [ProjectsHome] projectId:', selectedProject.id);
+              // Use removeWorkstation which handles tabs, globalLog, preview, and backend+Firebase cleanup
+              await useTerminalStore.getState().removeWorkstation(selectedProject.id);
+              console.log('🗑️🗑️🗑️ [ProjectsHome] === DELETE COMPLETE ===');
               handleCloseMenu();
               loadRecentProjects();
             } catch (error) {
@@ -185,29 +189,36 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   const getLanguageColor = (language: string) => {
     const lang = language?.toLowerCase() || '';
-    if (lang.includes('react')) return AppColors.languages.react;
-    if (lang.includes('javascript')) return AppColors.languages.javascript;
-    if (lang.includes('typescript')) return AppColors.languages.typescript;
-    if (lang.includes('python')) return AppColors.languages.python;
-    if (lang.includes('node')) return AppColors.languages.node;
-    if (lang.includes('swift')) return AppColors.languages.swift;
-    if (lang.includes('kotlin')) return AppColors.languages.kotlin;
-    return AppColors.languages.default;
+    if (lang.includes('react')) return '#61DAFB';
+    if (lang.includes('javascript')) return '#F7DF1E';
+    if (lang.includes('typescript')) return '#3178C6';
+    if (lang.includes('python')) return '#3776AB';
+    if (lang.includes('node')) return '#68A063';
+    if (lang.includes('swift')) return '#FA7343';
+    if (lang.includes('kotlin')) return '#7F52FF';
+    return AppColors.primary;
+  };
+
+  // Extract repo info from GitHub URL (owner/repo format)
+  const getRepoInfo = (url?: string) => {
+    if (!url) return null;
+    try {
+      const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (match) {
+        return {
+          owner: match[1],
+          repo: match[2].replace('.git', ''),
+          full: `${match[1]}/${match[2].replace('.git', '')}`
+        };
+      }
+    } catch {
+      return null;
+    }
+    return null;
   };
 
   return (
     <View style={styles.container}>
-      {/* Premium gradient background */}
-      <LinearGradient
-        colors={AppColors.gradient.dark as unknown as string[]}
-        locations={[0, 0.3, 0.7, 1]}
-        style={styles.background}
-      >
-        {/* Subtle glow effects */}
-        <View style={styles.glowTop} />
-        <View style={styles.glowBottom} />
-      </LinearGradient>
-
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -226,7 +237,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           activeOpacity={0.7}
           onPress={handleOpenActionMenu}
         >
-          <Ionicons name="add" size={22} color={AppColors.white.full} />
+          <Ionicons name="add" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -261,6 +272,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             <>
               {recentProjects.map((project) => {
                 const langColor = getLanguageColor(project.language);
+                const repoInfo = getRepoInfo(project.repositoryUrl || project.githubUrl);
                 return (
                   <TouchableOpacity
                     key={project.id}
@@ -270,23 +282,37 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     onLongPress={() => handleOpenMenu(project)}
                     delayLongPress={400}
                   >
-                    <View style={styles.projectIcon}>
-                      <Ionicons name={getLanguageIcon(project.language) as any} size={28} color={langColor} />
+                    <View style={[styles.projectIcon, { backgroundColor: repoInfo ? '#ffffff10' : `${langColor}15` }]}>
+                      {repoInfo ? (
+                        <Ionicons name="logo-github" size={24} color="#fff" />
+                      ) : (
+                        <Ionicons name={getLanguageIcon(project.language) as any} size={24} color={langColor} />
+                      )}
                     </View>
                     <View style={styles.projectInfo}>
                       <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
-                      <View style={styles.projectMetaRow}>
-                        <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
-                        <View style={styles.metaDot} />
-                        <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
-                      </View>
+                      {repoInfo ? (
+                        <View style={styles.projectRepoRow}>
+                          <Text style={styles.projectRepoText} numberOfLines={1}>
+                            {repoInfo.full}
+                          </Text>
+                          <View style={styles.metaDot} />
+                          <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.projectMetaRow}>
+                          <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+                          <View style={styles.metaDot} />
+                          <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
+                        </View>
+                      )}
                     </View>
                     <TouchableOpacity
                       style={styles.projectMenuBtn}
                       onPress={() => handleOpenMenu(project)}
                       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                     >
-                      <Ionicons name="ellipsis-horizontal" size={18} color={AppColors.white.w35} />
+                      <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.35)" />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 );
@@ -305,7 +331,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           ) : (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconContainer}>
-                <Ionicons name="folder-open-outline" size={56} color={AppColors.white.w10} />
+                <Ionicons name="folder-open-outline" size={56} color="rgba(255,255,255,0.1)" />
               </View>
               <Text style={styles.emptyTitle}>Nessun progetto</Text>
               <Text style={styles.emptySubtitle}>Tocca + per creare il tuo primo progetto</Text>
@@ -315,7 +341,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 activeOpacity={0.7}
                 onPress={handleOpenActionMenu}
               >
-                <Ionicons name="add" size={20} color={AppColors.white.full} />
+                <Ionicons name="add" size={20} color="#fff" />
                 <Text style={styles.emptyButtonText}>Crea progetto</Text>
               </TouchableOpacity>
             </View>
@@ -343,10 +369,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             {selectedProject && (
               <>
                 <View style={styles.sheetHeader}>
-                  <View style={styles.sheetProjectIcon}>
+                  <View style={[styles.sheetProjectIcon, { backgroundColor: `${getLanguageColor(selectedProject.language)}15` }]}>
                     <Ionicons
                       name={getLanguageIcon(selectedProject.language) as any}
-                      size={24}
+                      size={20}
                       color={getLanguageColor(selectedProject.language)}
                     />
                   </View>
@@ -362,28 +388,28 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     setTimeout(() => onOpenProject(selectedProject), 300);
                   }}>
                     <View style={styles.sheetActionIcon}>
-                      <Ionicons name="open-outline" size={20} color={AppColors.white.full} />
+                      <Ionicons name="open-outline" size={20} color="#fff" />
                     </View>
                     <Text style={styles.sheetActionText}>Apri</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
                     <View style={styles.sheetActionIcon}>
-                      <Ionicons name="copy-outline" size={20} color={AppColors.white.full} />
+                      <Ionicons name="copy-outline" size={20} color="#fff" />
                     </View>
                     <Text style={styles.sheetActionText}>Duplica</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
                     <View style={styles.sheetActionIcon}>
-                      <Ionicons name="share-outline" size={20} color={AppColors.white.full} />
+                      <Ionicons name="share-outline" size={20} color="#fff" />
                     </View>
                     <Text style={styles.sheetActionText}>Condividi</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
                     <View style={styles.sheetActionIcon}>
-                      <Ionicons name="create-outline" size={20} color={AppColors.white.full} />
+                      <Ionicons name="create-outline" size={20} color="#fff" />
                     </View>
                     <Text style={styles.sheetActionText}>Rinomina</Text>
                   </TouchableOpacity>
@@ -394,7 +420,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                   activeOpacity={0.7}
                   onPress={handleDeleteProject}
                 >
-                  <Ionicons name="trash-outline" size={18} color={AppColors.errorAlt} />
+                  <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
                   <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
                 </TouchableOpacity>
               </>
@@ -434,14 +460,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 setTimeout(onCreateProject, 250);
               }}
             >
-              <View style={[styles.actionSheetIcon, { backgroundColor: AppColors.primaryAlpha.a15 }]}>
+              <View style={[styles.actionSheetIcon, { backgroundColor: `${AppColors.primary}15` }]}>
                 <Ionicons name="add-circle-outline" size={22} color={AppColors.primary} />
               </View>
               <View style={styles.actionSheetItemInfo}>
                 <Text style={styles.actionSheetItemTitle}>Nuovo Progetto</Text>
                 <Text style={styles.actionSheetItemSubtitle}>Inizia da zero</Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={AppColors.white.w15} />
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.15)" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -453,13 +479,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               }}
             >
               <View style={styles.actionSheetIcon}>
-                <Ionicons name="logo-github" size={22} color={AppColors.white.full} />
+                <Ionicons name="logo-github" size={22} color="#fff" />
               </View>
               <View style={styles.actionSheetItemInfo}>
                 <Text style={styles.actionSheetItemTitle}>Importa da GitHub</Text>
                 <Text style={styles.actionSheetItemSubtitle}>Clona una repository</Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={AppColors.white.w15} />
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.15)" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -468,13 +494,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               onPress={handleBrowseFiles}
             >
               <View style={styles.actionSheetIcon}>
-                <Ionicons name="folder-outline" size={22} color={AppColors.white.full} />
+                <Ionicons name="folder-outline" size={22} color="#fff" />
               </View>
               <View style={styles.actionSheetItemInfo}>
                 <Text style={styles.actionSheetItemTitle}>Apri File</Text>
                 <Text style={styles.actionSheetItemSubtitle}>Sfoglia dal dispositivo</Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={AppColors.white.w15} />
+              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.15)" />
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseActionMenu}>
@@ -490,30 +516,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.dark.backgroundAlt,
-  },
-  background: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -100,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primaryAlpha.a08,
-    opacity: 0.6,
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -150,
-    right: -80,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: AppColors.primaryAlpha.a05,
-    opacity: 0.5,
+    backgroundColor: '#0C0C0E',
   },
   // Header
   header: {
@@ -540,12 +543,12 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 18,
     fontWeight: '700',
-    color: AppColors.white.full,
+    color: '#fff',
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: AppColors.white.full,
+    color: '#fff',
   },
   addButton: {
     width: 38,
@@ -574,15 +577,15 @@ const styles = StyleSheet.create({
   sectionIcon: {
     width: 24,
     height: 24,
-    borderRadius: 12,
-    backgroundColor: AppColors.white.w06,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sectionTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: AppColors.white.w50,
+    color: 'rgba(255,255,255,0.5)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -601,48 +604,58 @@ const styles = StyleSheet.create({
   projectCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     marginBottom: 10,
-    backgroundColor: AppColors.dark.surface,
-    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
   },
   projectIcon: {
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   projectInfo: {
     flex: 1,
-    marginLeft: 12,
+    marginLeft: 14,
   },
   projectName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
-    color: AppColors.white.full,
-    marginBottom: 4,
-    letterSpacing: 0.1,
+    color: '#fff',
+    marginBottom: 5,
   },
   projectMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  projectRepoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  projectRepoText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    fontFamily: 'monospace',
+    flex: 1,
+    maxWidth: '60%',
+  },
   projectLang: {
-    fontSize: 12,
-    color: AppColors.white.w50,
-    fontWeight: '500',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.45)',
   },
   metaDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: AppColors.white.w25,
+    backgroundColor: 'rgba(255,255,255,0.25)',
     marginHorizontal: 8,
   },
   projectTime: {
-    fontSize: 12,
-    color: AppColors.white.w35,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.35)',
   },
   projectMenuBtn: {
     width: 32,
@@ -669,17 +682,17 @@ const styles = StyleSheet.create({
   skeletonItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     marginBottom: 10,
-    backgroundColor: AppColors.white.w04,
-    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
   },
   skeletonIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: AppColors.white.w06,
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   skeletonContent: {
     flex: 1,
@@ -690,13 +703,13 @@ const styles = StyleSheet.create({
     width: '55%',
     height: 16,
     borderRadius: 4,
-    backgroundColor: AppColors.white.w06,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   skeletonSubtitle: {
     width: '35%',
     height: 13,
     borderRadius: 3,
-    backgroundColor: AppColors.white.w04,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   // Empty state
   emptyState: {
@@ -710,12 +723,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: AppColors.white.w60,
+    color: 'rgba(255,255,255,0.6)',
     marginBottom: 6,
   },
   emptySubtitle: {
     fontSize: 14,
-    color: AppColors.white.w35,
+    color: 'rgba(255,255,255,0.35)',
     marginBottom: 28,
   },
   emptyButton: {
@@ -724,24 +737,24 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.primary,
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 20,
+    borderRadius: 12,
     gap: 8,
   },
   emptyButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: AppColors.white.full,
+    color: '#fff',
   },
   // Bottom Sheet
   sheetBackdrop: {
-    backgroundColor: AppColors.dark.overlay,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   sheetContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: AppColors.dark.surfaceAlt,
+    backgroundColor: '#1A1A1C',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 40,
@@ -753,7 +766,7 @@ const styles = StyleSheet.create({
   sheetHandleBar: {
     width: 36,
     height: 4,
-    backgroundColor: AppColors.white.w15,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderRadius: 2,
   },
   sheetHeader: {
@@ -762,11 +775,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: AppColors.white.w06,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   sheetProjectIcon: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -777,11 +791,11 @@ const styles = StyleSheet.create({
   sheetProjectName: {
     fontSize: 16,
     fontWeight: '600',
-    color: AppColors.white.full,
+    color: '#fff',
   },
   sheetProjectMeta: {
     fontSize: 13,
-    color: AppColors.white.w40,
+    color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
   },
   sheetActions: {
@@ -790,7 +804,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: AppColors.white.w06,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   sheetActionItem: {
     alignItems: 'center',
@@ -799,15 +813,15 @@ const styles = StyleSheet.create({
   sheetActionIcon: {
     width: 46,
     height: 46,
-    borderRadius: 23,
-    backgroundColor: AppColors.white.w06,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   sheetActionText: {
     fontSize: 12,
     fontWeight: '500',
-    color: AppColors.white.w60,
+    color: 'rgba(255,255,255,0.6)',
   },
   sheetDeleteButton: {
     flexDirection: 'row',
@@ -817,26 +831,26 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginHorizontal: 20,
     marginTop: 12,
-    backgroundColor: AppColors.errorAlpha.a08,
-    borderRadius: 20,
+    backgroundColor: 'rgba(255, 107, 107, 0.08)',
+    borderRadius: 12,
   },
   sheetDeleteText: {
     fontSize: 14,
     fontWeight: '600',
-    color: AppColors.errorAlt,
+    color: '#FF6B6B',
   },
   sheetCancelButton: {
     alignItems: 'center',
     paddingVertical: 14,
     marginHorizontal: 20,
     marginTop: 8,
-    backgroundColor: AppColors.white.w06,
-    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
   },
   sheetCancelText: {
     fontSize: 14,
     fontWeight: '600',
-    color: AppColors.white.w50,
+    color: 'rgba(255,255,255,0.5)',
   },
   // Action Sheet
   actionSheetContainer: {
@@ -844,7 +858,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: AppColors.dark.surfaceAlt,
+    backgroundColor: '#1A1A1C',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: 40,
@@ -852,7 +866,7 @@ const styles = StyleSheet.create({
   actionSheetTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: AppColors.white.w35,
+    color: 'rgba(255,255,255,0.35)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     paddingHorizontal: 20,
@@ -867,8 +881,8 @@ const styles = StyleSheet.create({
   actionSheetIcon: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: AppColors.white.w06,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -879,11 +893,11 @@ const styles = StyleSheet.create({
   actionSheetItemTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: AppColors.white.full,
+    color: '#fff',
   },
   actionSheetItemSubtitle: {
     fontSize: 13,
-    color: AppColors.white.w40,
+    color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
   },
 });

@@ -18,7 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { AppColors } from '../../../shared/theme/colors';
 import { useGitAuthStore } from '../../../core/github/gitAuthStore';
-import { githubTokenService, GitHubAccount } from '../../../core/github/githubTokenService';
+import { githubTokenService } from '../../../core/github/githubTokenService';
+import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -42,7 +43,7 @@ export const GitAuthPopup = () => {
 
   // Debug logging
   console.log('🔐 [GitAuthPopup] Render - showAuthPopup:', showAuthPopup, 'currentRequest:', currentRequest?.reason);
-  const [accounts, setAccounts] = useState<GitHubAccount[]>([]);
+  const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [pat, setPat] = useState('');
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowData | null>(null);
@@ -113,8 +114,10 @@ export const GitAuthPopup = () => {
   const loadAccounts = async () => {
     try {
       setLoadingAccounts(true);
-      const accs = await githubTokenService.getAccounts(userId);
+      // Use gitAccountService (same as Settings screen) for consistency
+      const accs = await gitAccountService.getAccounts(userId);
       setAccounts(accs);
+      console.log('🔐 [GitAuthPopup] Loaded accounts from gitAccountService:', accs.length);
 
       // If no accounts, go directly to options
       if (accs.length === 0) {
@@ -128,10 +131,11 @@ export const GitAuthPopup = () => {
     }
   };
 
-  const handleSelectAccount = async (account: GitHubAccount) => {
+  const handleSelectAccount = async (account: GitAccount) => {
     try {
       setIsLoading(true);
-      const token = await githubTokenService.getToken(account.owner, userId);
+      // Use gitAccountService to get token
+      const token = await gitAccountService.getToken(account, userId);
       if (token) {
         completeAuth(token);
       } else {
@@ -153,8 +157,17 @@ export const GitAuthPopup = () => {
       console.log('✅ [handleAuthSuccess] Validation result:', validation);
       if (validation.valid && validation.username) {
         console.log('✅ [handleAuthSuccess] Saving token for user:', validation.username);
+        // Save to githubTokenService (for auth flow)
         await githubTokenService.saveToken(validation.username, token, userId);
-        console.log('✅ [handleAuthSuccess] Token saved successfully');
+        console.log('✅ [handleAuthSuccess] Token saved to githubTokenService');
+
+        // ALSO save to gitAccountService (for Settings screen)
+        try {
+          await gitAccountService.saveAccount('github', token, userId);
+          console.log('✅ [handleAuthSuccess] Token saved to gitAccountService (for Settings)');
+        } catch (syncErr) {
+          console.warn('⚠️ [handleAuthSuccess] Could not sync to gitAccountService:', syncErr);
+        }
       }
       console.log('✅ [handleAuthSuccess] Calling completeAuth...');
       completeAuth(token);
@@ -279,7 +292,7 @@ export const GitAuthPopup = () => {
               )}
               <View style={styles.accountOptionInfo}>
                 <Text style={styles.accountOptionName}>{account.username}</Text>
-                <Text style={styles.accountOptionMeta}>GitHub</Text>
+                <Text style={styles.accountOptionMeta}>{account.provider === 'github' ? 'GitHub' : account.provider}</Text>
               </View>
               {isLoading ? (
                 <ActivityIndicator size="small" color={AppColors.primary} />

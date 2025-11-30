@@ -1516,8 +1516,26 @@ async function executeCommandOnWorkstation(command, workstationId) {
   const path = require('path');
   const fs = require('fs').promises;
 
-  // Get the repository path
-  const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+  // Get the repository path - handle ws- prefix and case-insensitive matching
+  let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+  // If workstation ID starts with 'ws-', try to find the project folder with case-insensitive matching
+  if (workstationId.startsWith('ws-')) {
+    const projectIdLower = workstationId.substring(3); // Remove 'ws-' prefix
+    const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+    try {
+      const folders = await fs.readdir(clonedReposDir);
+      const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+
+      if (matchingFolder) {
+        repoPath = path.join(clonedReposDir, matchingFolder);
+        console.log(`   Mapped ${workstationId} → ${matchingFolder}`);
+      }
+    } catch (err) {
+      console.error('   Error reading cloned_repos:', err);
+    }
+  }
 
   // Check if repository exists
   try {
@@ -2075,6 +2093,41 @@ function detectPreviewUrl(output, command) {
   return null;
 }
 
+// Check if a repository requires authentication BEFORE importing
+app.post('/repo/check-visibility', async (req, res) => {
+  const { repositoryUrl, githubToken } = req.body;
+
+  console.log('🔍 Checking repo visibility BEFORE import:', repositoryUrl);
+
+  try {
+    const result = await checkIfRepoIsPrivate(repositoryUrl, githubToken);
+
+    if (result.requiresAuth) {
+      console.log('🔒 Repository requires authentication');
+      return res.status(401).json({
+        success: false,
+        requiresAuth: true,
+        isPrivate: result.isPrivate,
+        message: 'Questa repository è privata. È necessario autenticarsi con GitHub.'
+      });
+    }
+
+    console.log('✅ Repository is accessible');
+    return res.json({
+      success: true,
+      requiresAuth: false,
+      isPrivate: result.isPrivate,
+      repoInfo: result.repoInfo
+    });
+  } catch (error) {
+    console.error('❌ Error checking repo visibility:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Workstation create endpoint - Create and auto-clone repository or load personal project
 app.post('/workstation/create', async (req, res) => {
   const { repositoryUrl, userId, projectId, projectType, projectName, githubToken } = req.body;
@@ -2358,16 +2411,140 @@ app.get('/workstation/:id/status', async (req, res) => {
   });
 });
 
-// Workstation delete endpoint
-app.delete('/workstation/:id', async (req, res) => {
-  const { id } = req.params;
+// Check git status for unsaved changes
+app.get('/workstation/:id/git-status', async (req, res) => {
+  let { id } = req.params;
+
+  console.log(`🔍 Checking git status for workstation: ${id}`);
 
   try {
-    // Simulate workstation deletion
+    const fs = require('fs').promises;
+    const path = require('path');
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    // Handle ws- prefix and case-insensitive matching
+    let repoPath = path.join(__dirname, 'cloned_repos', id);
+
+    if (id.startsWith('ws-')) {
+      const projectIdLower = id.substring(3);
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+        }
+      } catch (err) {
+        console.error('   Error reading cloned_repos:', err);
+      }
+    }
+
+    // Check if repository exists
+    try {
+      await fs.access(repoPath);
+    } catch {
+      return res.json({
+        hasUncommittedChanges: false,
+        hasUnpushedCommits: false,
+        message: 'Repository not found locally'
+      });
+    }
+
+    // Check for uncommitted changes
+    let hasUncommittedChanges = false;
+    let uncommittedFiles = [];
+    try {
+      const { stdout: statusOutput } = await execAsync(`cd "${repoPath}" && git status --porcelain`);
+      if (statusOutput.trim()) {
+        hasUncommittedChanges = true;
+        uncommittedFiles = statusOutput.trim().split('\n').map(line => line.trim());
+      }
+    } catch (err) {
+      console.log('   Not a git repository or git error:', err.message);
+    }
+
+    // Check for unpushed commits
+    let hasUnpushedCommits = false;
+    let unpushedCount = 0;
+    try {
+      const { stdout: logOutput } = await execAsync(`cd "${repoPath}" && git log @{u}..HEAD --oneline 2>/dev/null || echo ""`);
+      if (logOutput.trim()) {
+        hasUnpushedCommits = true;
+        unpushedCount = logOutput.trim().split('\n').filter(l => l.trim()).length;
+      }
+    } catch (err) {
+      // No upstream branch or other error - that's ok
+    }
+
+    res.json({
+      hasUncommittedChanges,
+      hasUnpushedCommits,
+      uncommittedFiles,
+      unpushedCount,
+      message: hasUncommittedChanges || hasUnpushedCommits
+        ? 'Ci sono modifiche non salvate su Git'
+        : 'Tutto sincronizzato con Git'
+    });
+  } catch (error) {
+    console.error('Git status error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Workstation delete endpoint - Also deletes cloned repository
+app.delete('/workstation/:id', async (req, res) => {
+  let { id } = req.params;
+  const { force } = req.query; // ?force=true to skip git check
+
+  console.log(`🗑️ Deleting workstation: ${id}, force: ${force}`);
+
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // Handle ws- prefix and case-insensitive matching
+    let repoPath = path.join(__dirname, 'cloned_repos', id);
+    let actualFolderName = id;
+
+    if (id.startsWith('ws-')) {
+      const projectIdLower = id.substring(3);
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+          actualFolderName = matchingFolder;
+        }
+      } catch (err) {
+        console.error('   Error reading cloned_repos:', err);
+      }
+    }
+
+    // Delete the cloned repository folder
+    let folderDeleted = false;
+    try {
+      await fs.access(repoPath);
+      await fs.rm(repoPath, { recursive: true, force: true });
+      folderDeleted = true;
+      console.log(`✅ Deleted cloned repository: ${repoPath}`);
+    } catch (err) {
+      console.log(`⚠️ Repository folder not found or already deleted: ${repoPath}`);
+    }
+
     res.json({
       workstationId: id,
-      status: 'deleting',
-      message: 'Workstation deletion started'
+      status: 'deleted',
+      folderDeleted,
+      message: folderDeleted
+        ? 'Progetto e file locali eliminati'
+        : 'Progetto eliminato (nessun file locale trovato)'
     });
   } catch (error) {
     console.error('Workstation deletion error:', error.message);
@@ -3265,6 +3442,73 @@ app.post('/workstation/git-command', async (req, res) => {
     }
 });
 
+// Helper function to check if a GitHub repository is private
+async function checkIfRepoIsPrivate(repositoryUrl, githubToken = null) {
+    try {
+        // Extract owner and repo from URL
+        // Supports: https://github.com/owner/repo.git or https://github.com/owner/repo
+        const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+        if (!match) {
+            console.log('⚠️ Could not parse GitHub URL, assuming public');
+            return { isPrivate: false, requiresAuth: false };
+        }
+
+        const [, owner, repo] = match;
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+
+        console.log(`🔍 Checking repo visibility: ${owner}/${repo}`);
+
+        // Try to access the repo API
+        const headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'Drape-IDE'
+        };
+
+        // If we have a token, use it
+        if (githubToken) {
+            headers['Authorization'] = `token ${githubToken}`;
+        }
+
+        const response = await axios.get(apiUrl, { headers, timeout: 5000 });
+
+        const isPrivate = response.data.private === true;
+        console.log(`   Repo "${owner}/${repo}" is ${isPrivate ? 'PRIVATE' : 'PUBLIC'}`);
+
+        return {
+            isPrivate,
+            requiresAuth: isPrivate && !githubToken,
+            repoInfo: {
+                name: response.data.name,
+                fullName: response.data.full_name,
+                private: isPrivate,
+                defaultBranch: response.data.default_branch
+            }
+        };
+    } catch (error) {
+        // If 404, repo might be private and we don't have access
+        if (error.response?.status === 404) {
+            console.log('   Repo returned 404 - likely private or does not exist');
+            return {
+                isPrivate: true,
+                requiresAuth: !githubToken,
+                error: 'Repository not found or is private'
+            };
+        }
+        // If 401, token is invalid
+        if (error.response?.status === 401) {
+            console.log('   Invalid or expired token');
+            return {
+                isPrivate: true,
+                requiresAuth: true,
+                error: 'Invalid or expired token'
+            };
+        }
+        console.log('   Error checking repo:', error.message);
+        // On other errors, assume public and try to clone
+        return { isPrivate: false, requiresAuth: false };
+    }
+}
+
 // Helper function to clone and read repository files
 async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = null) {
     const { exec } = require('child_process');
@@ -3287,6 +3531,18 @@ async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = nu
     if (!repositoryUrl) {
         console.log('📂 No repositoryUrl provided, reading from existing local repo');
         // Skip to reading files at the end
+    }
+
+    // CHECK IF REPO IS PRIVATE - Require authentication for private repos
+    if (repositoryUrl) {
+        const repoCheck = await checkIfRepoIsPrivate(repositoryUrl, githubToken);
+
+        if (repoCheck.requiresAuth) {
+            const error = new Error('Questa repository è privata. È necessario autenticarsi con GitHub.');
+            error.requiresAuth = true;
+            error.isPrivate = true;
+            throw error;
+        }
     }
 
     // Build clone URL with token if provided (for private repos)
@@ -3437,13 +3693,23 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     } catch (error) {
         console.error('❌ Error getting files:', error.message);
 
+        // If repository is private and requires authentication
+        if (error.requiresAuth || error.isPrivate) {
+            console.log('🔒 Repository is private - authentication required');
+            res.status(401).json({
+                success: false,
+                error: error.message || 'Repository privata. È necessario autenticarsi con GitHub.',
+                requiresAuth: true,
+                isPrivate: true
+            });
+        }
         // If repository clone failed (private or not found), return error
-        if (error.message.includes('Failed to clone repository')) {
+        else if (error.message.includes('Failed to clone repository')) {
             console.log('⚠️ Clone failed - repository private or not found');
-            res.status(403).json({
+            res.status(401).json({
                 success: false,
                 error: 'Repository is private or not found. Authentication required.',
-                needsAuth: true
+                requiresAuth: true
             });
         } else {
             res.status(500).json({ success: false, error: error.message });

@@ -40,30 +40,52 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  createGitProject: async (repositoryUrl: string) => {
+  createGitProject: async (repositoryUrl: string, githubToken?: string) => {
     const { userId, loadUserProjects } = get();
     set({ isLoading: true });
-    
+
     try {
       console.log('🔗 Creating Git project:', repositoryUrl);
-      
+
+      // STEP 1: Check visibility BEFORE creating anything
+      console.log('🔍 Checking repo visibility before import...');
+      const apiUrl = workstationService.getApiUrl();
+      const visibilityResponse = await fetch(`${apiUrl}/repo/check-visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repositoryUrl, githubToken }),
+      });
+
+      const visibilityData = await visibilityResponse.json();
+
+      if (!visibilityResponse.ok || visibilityData.requiresAuth) {
+        console.log('🔐 Repository requires authentication');
+        set({ isLoading: false });
+        const authError = new Error('Authentication required');
+        (authError as any).requiresAuth = true;
+        (authError as any).repositoryUrl = repositoryUrl;
+        throw authError;
+      }
+
+      console.log('✅ Repository is accessible, proceeding...');
+
       // Save to Firebase
       const project = await workstationService.saveGitProject(repositoryUrl, userId);
       console.log('✅ Git project saved to Firebase:', project);
-      
+
       // Create workstation
-      const workstation = await workstationService.createWorkstationForProject(project);
+      const workstation = await workstationService.createWorkstationForProject(project, githubToken);
       console.log('✅ Workstation created:', workstation);
-      
+
       // Reload projects
       await loadUserProjects();
-      
-      set({ 
+
+      set({
         currentProject: project,
         currentWorkstationId: workstation.workstationId,
-        isLoading: false 
+        isLoading: false
       });
-      
+
     } catch (error) {
       console.error('❌ Failed to create Git project:', error);
       set({ isLoading: false });

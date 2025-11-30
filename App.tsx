@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -10,13 +10,14 @@ import Animated, { FadeIn, FadeOut, SlideInRight } from 'react-native-reanimated
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
-import { GitManagementScreen } from './src/features/projects/GitManagementScreen';
+import { SettingsScreen } from './src/features/settings/SettingsScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
+import { gitAccountService } from './src/core/git/gitAccountService';
 import { requestGitAuth } from './src/core/github/gitAuthStore';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
 import { useTabStore } from './src/core/tabs/tabStore';
@@ -24,10 +25,11 @@ import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 import { FileViewer } from './src/features/terminal/components/FileViewer';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
+import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 
 console.log('App.tsx loaded');
 
-type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects' | 'gitSettings';
+type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -36,8 +38,82 @@ export default function App() {
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
 
-  const { addWorkstation, setWorkstation } = useTerminalStore();
+  const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
+
+  // Track projects currently being cloned to prevent duplicates
+  const cloningProjects = useRef<Set<string>>(new Set());
+
+  // Helper function to check auth BEFORE opening project
+  // Returns token if auth successful, null if cancelled/failed
+  const checkAuthBeforeOpen = async (
+    githubUrl: string,
+    workstationName: string,
+    linkedGithubAccount?: string
+  ): Promise<string | null> => {
+    console.log('🔐🔐🔐 [checkAuthBeforeOpen] START');
+    console.log('🔐 [checkAuthBeforeOpen] githubUrl:', githubUrl);
+    console.log('🔐 [checkAuthBeforeOpen] linkedGithubAccount:', linkedGithubAccount);
+
+    const userId = useTerminalStore.getState().userId || 'anonymous';
+    const match = githubUrl.match(/github\.com\/([^\/]+)\//);
+    const owner = match ? match[1] : 'unknown';
+    const repoName = githubUrl.split('/').pop()?.replace('.git', '') || workstationName;
+
+    console.log('🔐 [checkAuthBeforeOpen] userId:', userId, 'owner:', owner);
+
+    // Check if we have accounts - use gitAccountService (same as Settings screen)
+    const accounts = await gitAccountService.getAccounts(userId);
+    console.log('🔐 [checkAuthBeforeOpen] gitAccountService accounts count:', accounts.length);
+
+    // If NO accounts at all, ALWAYS require auth
+    if (accounts.length === 0) {
+      console.log('🔐🔐🔐 [checkAuthBeforeOpen] NO ACCOUNTS - showing auth popup');
+      try {
+        const token = await requestGitAuth(
+          `Collega un account GitHub per accedere a "${repoName}"`,
+          { repositoryUrl: githubUrl, owner }
+        );
+        console.log('🔐 [checkAuthBeforeOpen] Got token from popup');
+        return token;
+      } catch {
+        console.log('🔐🔐🔐 [checkAuthBeforeOpen] USER CANCELLED - returning null');
+        return null;
+      }
+    }
+
+    // Try to get token for this repository using gitAccountService
+    const tokenResult = await gitAccountService.getTokenForRepo(userId, githubUrl);
+    let token = tokenResult?.token || null;
+
+    console.log('🔐 [checkAuthBeforeOpen] token found via gitAccountService:', !!token);
+
+    // Show popup if:
+    // 1. No token for this owner - need to authenticate
+    // 2. Multiple accounts exist - let user choose
+    const needsAuth = !token;
+    const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
+
+    if (needsAuth || hasMultipleAccounts) {
+      console.log('🔐🔐🔐 [checkAuthBeforeOpen] SHOWING POPUP - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
+      try {
+        token = await requestGitAuth(
+          hasMultipleAccounts
+            ? `Scegli un account per "${repoName}"`
+            : `Autenticazione richiesta per "${repoName}"`,
+          { repositoryUrl: githubUrl, owner }
+        );
+        console.log('🔐 [checkAuthBeforeOpen] Got token from popup');
+        return token;
+      } catch {
+        console.log('🔐🔐🔐 [checkAuthBeforeOpen] USER CANCELLED - returning null');
+        return null;
+      }
+    }
+
+    console.log('🔐 [checkAuthBeforeOpen] Using existing token');
+    return token;
+  };
 
   // Helper function to clone repository with auth popup if needed
   const cloneRepositoryWithAuth = async (
@@ -45,8 +121,17 @@ export default function App() {
     githubUrl: string,
     tabId: string,
     workstationName: string,
-    linkedGithubAccount?: string // Account GitHub già collegato al progetto
+    linkedGithubAccount?: string, // Account GitHub già collegato al progetto
+    preAuthToken?: string | null // Token already obtained from checkAuthBeforeOpen
   ) => {
+    // Prevent duplicate clones for the same project
+    if (cloningProjects.current.has(projectId)) {
+      console.log('🔄 [cloneRepositoryWithAuth] SKIPPING - already cloning:', projectId);
+      return;
+    }
+
+    // Mark as cloning
+    cloningProjects.current.add(projectId);
     console.log('🔄 [cloneRepositoryWithAuth] Starting clone for:', githubUrl);
 
     const userId = useTerminalStore.getState().userId || 'anonymous';
@@ -57,20 +142,72 @@ export default function App() {
     console.log('🔄 [cloneRepositoryWithAuth] userId:', userId, 'owner:', owner);
     console.log('🔄 [cloneRepositoryWithAuth] linkedGithubAccount:', linkedGithubAccount);
 
-    // Check if we have accounts and need to choose
-    const accounts = await githubTokenService.getAccounts(userId);
-
-    // Prima prova con l'account già collegato al progetto
-    let token = linkedGithubAccount
-      ? await githubTokenService.getToken(linkedGithubAccount, userId)
-      : await githubTokenService.getToken(owner, userId);
-
+    // Use pre-authenticated token if provided
+    let token = preAuthToken;
     let usedAccountUsername = linkedGithubAccount || owner;
 
-    console.log('🔄 [cloneRepositoryWithAuth] accounts:', accounts.length, 'hasToken:', !!token);
+    // If no pre-auth token, check if we have one saved
+    if (!token) {
+      // Use gitAccountService (same as Settings screen)
+      const accounts = await gitAccountService.getAccounts(userId);
+      const tokenResult = await gitAccountService.getTokenForRepo(userId, githubUrl);
+      token = tokenResult?.token || null;
 
-    // NON chiedere auth subito - prova prima senza token (per repo pubblici)
-    // L'auth verrà chiesta solo se il clone fallisce con 401
+      console.log('🔄 [cloneRepositoryWithAuth] gitAccountService accounts:', accounts.length, 'hasToken:', !!token);
+
+      // Show popup if:
+      // 1. Multiple accounts exist and no specific token for this owner - let user choose
+      // 2. No token at all - need to authenticate
+      const needsAuth = !token;
+      const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
+
+      if (needsAuth || hasMultipleAccounts) {
+        console.log('🔄 [cloneRepositoryWithAuth] Showing popup - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
+        try {
+          token = await requestGitAuth(
+            hasMultipleAccounts
+              ? `Scegli un account per "${repoName}"`
+              : `Autenticazione richiesta per "${repoName}"`,
+            { repositoryUrl: githubUrl, owner }
+          );
+          console.log('🔄 [cloneRepositoryWithAuth] Got token from popup');
+
+          // Get the username of the account that was authenticated
+          const validation = await githubTokenService.validateToken(token);
+          if (validation.valid && validation.username) {
+            usedAccountUsername = validation.username;
+
+            // Salva l'account GitHub nel progetto
+            console.log('🔗 [cloneRepositoryWithAuth] Saving GitHub account to project:', usedAccountUsername);
+            await workstationService.updateProjectGitHubAccount(projectId, usedAccountUsername);
+          }
+        } catch {
+          // User cancelled
+          console.log('🔄 [cloneRepositoryWithAuth] User cancelled auth');
+          addTerminalItemToStore(tabId, {
+            id: `cancelled-${Date.now()}`,
+            type: 'system',
+            content: 'Autenticazione annullata',
+            timestamp: new Date(),
+          });
+          // Clean up cloning set before returning
+          cloningProjects.current.delete(projectId);
+          return;
+        }
+      }
+    } else {
+      // If we have a pre-auth token, save the account to the project
+      try {
+        const validation = await githubTokenService.validateToken(token);
+        if (validation.valid && validation.username) {
+          usedAccountUsername = validation.username;
+          console.log('🔗 [cloneRepositoryWithAuth] Saving GitHub account to project:', usedAccountUsername);
+          await workstationService.updateProjectGitHubAccount(projectId, usedAccountUsername);
+        }
+      } catch (e) {
+        console.log('⚠️ Could not validate token:', e);
+      }
+    }
 
     addTerminalItemToStore(tabId, {
       id: `loading-${Date.now()}`,
@@ -88,6 +225,9 @@ export default function App() {
       await workstationService.getWorkstationFiles(projectId, githubUrl, token || undefined);
 
       console.log('🔄 [cloneRepositoryWithAuth] Clone successful!');
+
+      // Mark project as cloned in Firebase
+      await workstationService.markProjectAsCloned(projectId);
 
       updateTerminalItemsByType(tabId, 'loading', {
         type: 'system',
@@ -129,6 +269,9 @@ export default function App() {
           // Retry clone with new token
           await workstationService.getWorkstationFiles(projectId, githubUrl, newToken);
 
+          // Mark project as cloned
+          await workstationService.markProjectAsCloned(projectId);
+
           updateTerminalItemsByType(tabId, 'loading', {
             type: 'system',
             content: 'Ritentando con nuove credenziali...'
@@ -156,6 +299,10 @@ export default function App() {
           timestamp: new Date(),
         });
       }
+    } finally {
+      // Remove from cloning set when done (success or failure)
+      cloningProjects.current.delete(projectId);
+      console.log('🔄 [cloneRepositoryWithAuth] Removed from cloning set:', projectId);
     }
   };
 
@@ -169,6 +316,26 @@ export default function App() {
       }
     }
   };
+
+  // Run migration on app startup to sync old accounts to new storage
+  useEffect(() => {
+    const runMigration = async () => {
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      await migrateGitAccounts(userId);
+    };
+    runMigration();
+  }, []);
+
+  // Load chat history from AsyncStorage on app startup
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      console.log('📥 [App] Loading chat history from AsyncStorage...');
+      await useTerminalStore.getState().loadChats();
+      const chatCount = useTerminalStore.getState().chatHistory.length;
+      console.log('✅ [App] Chat history loaded:', chatCount, 'chats');
+    };
+    loadChatHistory();
+  }, []);
 
   useEffect(() => {
     const handleInitialUrl = async () => {
@@ -200,7 +367,7 @@ export default function App() {
   }, []);
 
   const handleImportRepo = async (url: string, newToken?: string) => {
-    console.log('📥 [handleImportRepo] Starting import for:', url);
+    console.log('📥📥📥 [handleImportRepo] START - import for:', url);
     try {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
@@ -214,13 +381,59 @@ export default function App() {
       let githubToken = newToken;
 
       if (!githubToken) {
-        // Per i repo pubblici non serve token - lo chiederemo solo se fallisce con 401
-        // Se abbiamo già un token per questo owner, usalo
-        const existingToken = await githubTokenService.getToken(owner, userId);
-        console.log('📥 [handleImportRepo] hasExistingToken:', !!existingToken);
-        githubToken = existingToken || undefined;
+        // Check if we have accounts - use gitAccountService (same as Settings screen)
+        const accounts = await gitAccountService.getAccounts(userId);
+        console.log('📥 [handleImportRepo] gitAccountService accounts count:', accounts.length);
+
+        // If NO accounts at all, ALWAYS require auth FIRST
+        if (accounts.length === 0) {
+          console.log('📥📥📥 [handleImportRepo] NO ACCOUNTS - showing auth popup');
+          try {
+            setShowImportModal(false);
+            githubToken = await requestGitAuth(
+              `Collega un account GitHub per clonare "${repoName}"`,
+              { repositoryUrl: url, owner }
+            );
+            console.log('📥 [handleImportRepo] Got token from popup');
+          } catch (err) {
+            console.log('📥📥📥 [handleImportRepo] User cancelled auth - STOPPING');
+            setIsImporting(false);
+            return;
+          }
+        } else {
+          // Have accounts - check if we have token for this repo
+          const tokenResult = await gitAccountService.getTokenForRepo(userId, url);
+          const existingToken = tokenResult?.token || null;
+          console.log('📥 [handleImportRepo] hasExistingToken:', !!existingToken);
+
+          if (accounts.length > 1 || !existingToken) {
+            console.log('📥📥📥 [handleImportRepo] Showing auth popup...');
+            try {
+              setShowImportModal(false);
+              githubToken = await requestGitAuth(
+                accounts.length > 1
+                  ? `Scegli un account per clonare "${repoName}"`
+                  : `Autenticazione richiesta per clonare "${repoName}"`,
+                { repositoryUrl: url, owner }
+              );
+              console.log('📥 [handleImportRepo] Got token from popup');
+            } catch (err) {
+              console.log('📥📥📥 [handleImportRepo] User cancelled auth - STOPPING');
+              setIsImporting(false);
+              return;
+            }
+          } else {
+            githubToken = existingToken;
+          }
+        }
       } else {
+        // Save token to both services to keep them in sync
         await githubTokenService.saveToken(owner, githubToken, userId);
+        try {
+          await gitAccountService.saveAccount('github', githubToken, userId);
+        } catch (err) {
+          console.warn('⚠️ Could not sync token to gitAccountService:', err);
+        }
       }
 
       const project = await workstationService.saveGitProject(url, userId);
@@ -242,14 +455,52 @@ export default function App() {
       setWorkstation(workstation);
       setShowImportModal(false);
       setIsImporting(false);
+
+      // DEBUG: Log tab state and global log before clearing
+      const { activeTabId, tabs: tabsBefore } = useTabStore.getState();
+      const { globalTerminalLog: globalLogBefore } = useTerminalStore.getState();
+      console.log('📥📥📥 [IMPORT] === STATE BEFORE CLEAR ===');
+      console.log('📥 [IMPORT] activeTabId:', activeTabId);
+      console.log('📥 [IMPORT] Total tabs:', tabsBefore.length);
+      console.log('📥 [IMPORT] 🌍 globalTerminalLog items:', globalLogBefore.length);
+      tabsBefore.forEach(t => {
+        console.log(`📥 [IMPORT] Tab "${t.id}": ${t.terminalItems?.length || 0} items`);
+      });
+
+      // Clear the current tab BEFORE navigating to avoid showing old items
+      if (activeTabId) {
+        console.log('📥 [IMPORT] Clearing tab:', activeTabId);
+        clearTerminalItems(activeTabId);
+      }
+
+      // ALSO clear the global terminal log!
+      console.log('📥 [IMPORT] 🌍 Clearing globalTerminalLog');
+      clearGlobalTerminalLog();
+
+      // DEBUG: Log state after clearing
+      const { tabs: tabsAfter } = useTabStore.getState();
+      const { globalTerminalLog: globalLogAfter } = useTerminalStore.getState();
+      console.log('📥📥📥 [IMPORT] === STATE AFTER CLEAR ===');
+      console.log('📥 [IMPORT] 🌍 globalTerminalLog items:', globalLogAfter.length);
+      tabsAfter.forEach(t => {
+        console.log(`📥 [IMPORT] Tab "${t.id}": ${t.terminalItems?.length || 0} items`);
+      });
+
       setCurrentScreen('terminal');
 
       // Add loading message to chat and clone repository
       setTimeout(async () => {
-        const { activeTabId, tabs } = useTabStore.getState();
-        const currentTab = tabs.find(t => t.id === activeTabId);
+        const { activeTabId: currentActiveTabId, tabs } = useTabStore.getState();
+        console.log('📥📥📥 [IMPORT] === TAB STATE IN setTimeout ===');
+        console.log('📥 [IMPORT] currentActiveTabId:', currentActiveTabId);
+        tabs.forEach(t => {
+          console.log(`📥 [IMPORT] Tab "${t.id}": ${t.terminalItems?.length || 0} items`);
+        });
+
+        const currentTab = tabs.find(t => t.id === currentActiveTabId);
 
         if (currentTab) {
+
           addTerminalItemToStore(currentTab.id, {
             id: `loading-${Date.now()}`,
             type: 'loading',
@@ -259,6 +510,9 @@ export default function App() {
 
           try {
             await workstationService.getWorkstationFiles(workstation.projectId, url, githubToken || undefined);
+
+            // Mark project as cloned
+            await workstationService.markProjectAsCloned(workstation.projectId);
 
             updateTerminalItemsByType(currentTab.id, 'loading', {
               type: 'system',
@@ -286,6 +540,10 @@ export default function App() {
                 );
                 // Retry clone with new token
                 await workstationService.getWorkstationFiles(workstation.projectId, url, token);
+
+                // Mark project as cloned
+                await workstationService.markProjectAsCloned(workstation.projectId);
+
                 addTerminalItemToStore(currentTab.id, {
                   id: `success-${Date.now()}`,
                   type: 'output',
@@ -360,8 +618,52 @@ export default function App() {
               onCreateProject={() => setCurrentScreen('create')}
               onImportProject={() => setShowImportModal(true)}
               onMyProjects={() => setCurrentScreen('allProjects')}
-              onSettings={() => setCurrentScreen('gitSettings')}
+              onSettings={() => setCurrentScreen('settings')}
               onOpenProject={async (workstation) => {
+                const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
+
+                // For Git projects, check auth BEFORE navigating
+                let authToken: string | null = null;
+                if (githubUrl) {
+                  console.log('🔐 [onOpenProject-Home] Checking auth BEFORE navigation...');
+                  authToken = await checkAuthBeforeOpen(
+                    githubUrl,
+                    workstation.name,
+                    workstation.githubAccountUsername
+                  );
+
+                  // checkAuthBeforeOpen returns null ONLY if auth was required and user cancelled
+                  // (if no auth needed, it returns the existing token)
+                  if (authToken === null) {
+                    console.log('🔐 [onOpenProject-Home] Auth cancelled, not navigating');
+                    return; // Don't navigate - user cancelled auth
+                  }
+                }
+
+                // Auth OK or not a git project - proceed with navigation
+                console.log('✅ [onOpenProject-Home] Auth OK, navigating to terminal...');
+
+                // Check if we're switching to a DIFFERENT project
+                const currentWorkstation = useTerminalStore.getState().currentWorkstation;
+                const isSameProject = currentWorkstation?.id === workstation.id ||
+                                      currentWorkstation?.projectId === workstation.projectId;
+
+                console.log('🔄 [onOpenProject-Home] isSameProject:', isSameProject,
+                  'current:', currentWorkstation?.id, 'new:', workstation.id);
+
+                // Only clear terminal items when switching to a DIFFERENT project
+                if (!isSameProject) {
+                  const { activeTabId: preNavTabId } = useTabStore.getState();
+                  if (preNavTabId) {
+                    console.log('🗑️ [onOpenProject-Home] Different project - clearing tab:', preNavTabId);
+                    clearTerminalItems(preNavTabId);
+                  }
+                  // Also clear global terminal log
+                  clearGlobalTerminalLog();
+                } else {
+                  console.log('✅ [onOpenProject-Home] Same project - preserving chat messages');
+                }
+
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
 
@@ -369,16 +671,30 @@ export default function App() {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
-                  const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
                   if (currentTab && githubUrl) {
-                    clearTerminalItems(currentTab.id);
-                    await cloneRepositoryWithAuth(
-                      workstation.projectId || workstation.id,
-                      githubUrl,
-                      currentTab.id,
-                      workstation.name,
-                      workstation.githubAccountUsername
-                    );
+                    // Check if project is already cloned - skip clone if so
+                    if (workstation.cloned) {
+                      console.log('✅ [onOpenProject-Home] Project already cloned, skipping clone');
+                      // Don't add "loaded" message if same project - just preserve existing chat
+                      if (!isSameProject) {
+                        addTerminalItemToStore(currentTab.id, {
+                          id: `loaded-${Date.now()}`,
+                          type: 'system',
+                          content: `Progetto "${workstation.name}" caricato`,
+                          timestamp: new Date(),
+                        });
+                      }
+                    } else {
+                      // Project not cloned yet - do the clone
+                      await cloneRepositoryWithAuth(
+                        workstation.projectId || workstation.id,
+                        githubUrl,
+                        currentTab.id,
+                        workstation.name,
+                        workstation.githubAccountUsername,
+                        authToken // Pass the pre-authenticated token
+                      );
+                    }
                   }
                 }, 100);
               }}
@@ -469,6 +785,50 @@ export default function App() {
             <AllProjectsScreen
               onClose={() => setCurrentScreen('home')}
               onOpenProject={async (workstation) => {
+                const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
+
+                // For Git projects, check auth BEFORE navigating
+                let authToken: string | null = null;
+                if (githubUrl) {
+                  console.log('🔐 [onOpenProject-All] Checking auth BEFORE navigation...');
+                  authToken = await checkAuthBeforeOpen(
+                    githubUrl,
+                    workstation.name,
+                    workstation.githubAccountUsername
+                  );
+
+                  // checkAuthBeforeOpen returns null ONLY if auth was required and user cancelled
+                  // (if no auth needed, it returns the existing token)
+                  if (authToken === null) {
+                    console.log('🔐 [onOpenProject-All] Auth cancelled, not navigating');
+                    return; // Don't navigate - user cancelled auth
+                  }
+                }
+
+                // Auth OK or not a git project - proceed with navigation
+                console.log('✅ [onOpenProject-All] Auth OK, navigating to terminal...');
+
+                // Check if we're switching to a DIFFERENT project
+                const currentWorkstation = useTerminalStore.getState().currentWorkstation;
+                const isSameProject = currentWorkstation?.id === workstation.id ||
+                                      currentWorkstation?.projectId === workstation.projectId;
+
+                console.log('🔄 [onOpenProject-All] isSameProject:', isSameProject,
+                  'current:', currentWorkstation?.id, 'new:', workstation.id);
+
+                // Only clear terminal items when switching to a DIFFERENT project
+                if (!isSameProject) {
+                  const { activeTabId: preNavTabId } = useTabStore.getState();
+                  if (preNavTabId) {
+                    console.log('🗑️ [onOpenProject-All] Different project - clearing tab:', preNavTabId);
+                    clearTerminalItems(preNavTabId);
+                  }
+                  // Also clear global terminal log
+                  clearGlobalTerminalLog();
+                } else {
+                  console.log('✅ [onOpenProject-All] Same project - preserving chat messages');
+                }
+
                 setWorkstation(workstation);
                 setCurrentScreen('terminal');
 
@@ -476,16 +836,30 @@ export default function App() {
                   const { activeTabId, tabs } = useTabStore.getState();
                   const currentTab = tabs.find(t => t.id === activeTabId);
 
-                  const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
                   if (currentTab && githubUrl) {
-                    clearTerminalItems(currentTab.id);
-                    await cloneRepositoryWithAuth(
-                      workstation.projectId || workstation.id,
-                      githubUrl,
-                      currentTab.id,
-                      workstation.name,
-                      workstation.githubAccountUsername
-                    );
+                    // Check if project is already cloned - skip clone if so
+                    if (workstation.cloned) {
+                      console.log('✅ [onOpenProject-All] Project already cloned, skipping clone');
+                      // Don't add "loaded" message if same project - just preserve existing chat
+                      if (!isSameProject) {
+                        addTerminalItemToStore(currentTab.id, {
+                          id: `loaded-${Date.now()}`,
+                          type: 'system',
+                          content: `Progetto "${workstation.name}" caricato`,
+                          timestamp: new Date(),
+                        });
+                      }
+                    } else {
+                      // Project not cloned yet - do the clone
+                      await cloneRepositoryWithAuth(
+                        workstation.projectId || workstation.id,
+                        githubUrl,
+                        currentTab.id,
+                        workstation.name,
+                        workstation.githubAccountUsername,
+                        authToken // Pass the pre-authenticated token
+                      );
+                    }
                   }
                 }, 100);
               }}
@@ -493,14 +867,14 @@ export default function App() {
           </Animated.View>
         )}
 
-        {currentScreen === 'gitSettings' && (
+        {currentScreen === 'settings' && (
           <Animated.View
-            key="git-settings-screen"
+            key="settings-screen"
             entering={SlideInRight.duration(300)}
             exiting={FadeOut.duration(200)}
             style={{ flex: 1 }}
           >
-            <GitManagementScreen
+            <SettingsScreen
               onClose={() => setCurrentScreen('home')}
             />
           </Animated.View>

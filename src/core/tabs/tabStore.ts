@@ -19,6 +19,8 @@ interface TabStore {
 
   addTab: (tab: Tab) => void;
   removeTab: (id: string) => void;
+  removeTabsByWorkstation: (workstationId: string) => void;
+  resetTabs: () => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
   addTerminalItem: (tabId: string, item: any) => void;
@@ -80,7 +82,87 @@ export const useTabStore = create<TabStore>((set) => ({
       activeTabId: newTabs.length > 0 ? newActiveId : null,
     };
   }),
-  
+
+  removeTabsByWorkstation: (workstationId) => set((state) => {
+    console.log('🗑️🗑️🗑️ [TabStore] === REMOVE TABS BY WORKSTATION ===');
+    console.log('🗑️ [TabStore] workstationId:', workstationId);
+
+    // Extract projectId if workstationId has ws- prefix
+    const projectId = workstationId.startsWith('ws-')
+      ? workstationId.substring(3)
+      : workstationId;
+    console.log('🗑️ [TabStore] projectId (extracted):', projectId);
+
+    // Log all current tabs
+    console.log('🗑️ [TabStore] ALL CURRENT TABS:');
+    state.tabs.forEach(t => {
+      console.log(`   - id: "${t.id}", type: "${t.type}", wsId: "${t.workstationId}", items: ${t.terminalItems?.length || 0}`);
+    });
+
+    // Find all tabs to remove (by workstationId, projectId, or by id containing either)
+    const tabsToRemove = state.tabs.filter(t =>
+      t.workstationId === workstationId ||
+      t.workstationId === projectId ||
+      t.data?.projectId === workstationId ||
+      t.data?.projectId === projectId ||
+      t.id.includes(workstationId) ||
+      t.id.includes(projectId) ||
+      t.id.includes(`ws-${projectId}`)
+    );
+
+    console.log('🗑️ [TabStore] TABS TO REMOVE:', tabsToRemove.length);
+    tabsToRemove.forEach(t => {
+      console.log(`   - id: "${t.id}", type: "${t.type}", items: ${t.terminalItems?.length || 0}`);
+    });
+
+    // Delete chats from terminalStore for each chat tab being removed
+    tabsToRemove.forEach(tab => {
+      if (tab.type === 'chat' && tab.data?.chatId) {
+        useTerminalStore.getState().deleteChat(tab.data.chatId);
+      }
+    });
+
+    const newTabs = state.tabs.filter(t =>
+      t.workstationId !== workstationId &&
+      t.workstationId !== projectId &&
+      t.data?.projectId !== workstationId &&
+      t.data?.projectId !== projectId &&
+      !t.id.includes(workstationId) &&
+      !t.id.includes(projectId) &&
+      !t.id.includes(`ws-${projectId}`)
+    );
+
+    console.log('🗑️ Removed', tabsToRemove.length, 'tabs, remaining:', newTabs.length);
+
+    // If active tab was removed, switch to the first remaining tab
+    let newActiveId = state.activeTabId;
+    if (tabsToRemove.some(t => t.id === state.activeTabId)) {
+      newActiveId = newTabs[0]?.id || null;
+    }
+
+    return {
+      tabs: newTabs,
+      activeTabId: newActiveId,
+    };
+  }),
+
+  resetTabs: () => {
+    console.log('🗑️🗑️🗑️ [TabStore] === RESET TABS TO DEFAULT ===');
+    set({
+      tabs: [
+        {
+          id: 'chat-main',
+          type: 'chat',
+          title: 'Nuova Conversazione',
+          data: { chatId: Date.now().toString() },
+          terminalItems: []
+        }
+      ],
+      activeTabId: 'chat-main',
+    });
+    console.log('🗑️ [TabStore] Tabs reset complete - only chat-main remains');
+  },
+
   setActiveTab: (id) => set({ activeTabId: id }),
 
   updateTab: (id, updates) => set((state) => ({

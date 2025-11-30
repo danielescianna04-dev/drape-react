@@ -3,6 +3,8 @@ import { collection, addDoc, updateDoc, deleteDoc, doc, getDocs } from 'firebase
 import { db } from '../../config/firebase';
 import { ProjectService } from '../firebase/projectService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { workstationService } from '../workstation/workstationService-firebase';
+import { useTabStore } from '../tabs/tabStore';
 import {
   TerminalItem,
   ChatSession,
@@ -277,17 +279,54 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   loadWorkstations: (workstations) => set({ workstations }),
   setProjectFolders: (folders) => set({ projectFolders: folders }),
   removeWorkstation: async (workstationId) => {
-    // Rimuovi da Firestore
-    try {
-      await deleteDoc(doc(db, 'user_projects', workstationId));
-    } catch (error) {
-      console.error('Error deleting from Firestore:', error);
+    console.log('🗑️🗑️🗑️ [TerminalStore] === REMOVE WORKSTATION ===');
+    console.log('🗑️ [TerminalStore] workstationId:', workstationId);
+
+    // Get the workstation to find the correct projectId
+    const state = useTerminalStore.getState();
+    const workstation = state.workstations.find(w => w.id === workstationId);
+
+    // Determine the Firebase document ID (projectId without ws- prefix)
+    let projectIdToDelete = workstationId;
+    if (workstation?.projectId) {
+      projectIdToDelete = workstation.projectId;
+    } else if (workstationId.startsWith('ws-')) {
+      projectIdToDelete = workstationId.substring(3);
     }
-    // Rimuovi dallo store locale
+
+    console.log('🗑️ [TerminalStore] Deleting workstation:', workstationId, '→ projectId:', projectIdToDelete);
+
+    // 1. Reset ALL tabs to default state (since tabs are not properly associated with workstations)
+    console.log('🗑️ [TerminalStore] Resetting all tabs to default...');
+    useTabStore.getState().resetTabs();
+
+    // 2. Clear global terminal log
+    console.log('🗑️ [TerminalStore] Clearing global terminal log...');
+    set({ globalTerminalLog: [] });
+
+    // 3. Stop any running preview
+    console.log('🗑️ [TerminalStore] Stopping preview...');
+    set({
+      previewUrl: null,
+      previewServerStatus: 'stopped',
+      previewServerUrl: null
+    });
+
+    // 4. Delete from backend and Firebase
+    try {
+      await workstationService.deleteProject(projectIdToDelete);
+      console.log('✅ [TerminalStore] Project deleted (backend + Firebase)');
+    } catch (error) {
+      console.error('❌ [TerminalStore] Error deleting project:', error);
+    }
+
+    // 5. Remove from local store
     set((state) => ({
       workstations: state.workstations.filter((w) => w.id !== workstationId),
       currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
     }));
+
+    console.log('🗑️🗑️🗑️ [TerminalStore] === REMOVE WORKSTATION COMPLETE ===');
   },
   addProjectFolder: (folder) =>
     set((state) => ({

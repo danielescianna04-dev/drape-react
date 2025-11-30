@@ -197,6 +197,20 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     detectProject();
   }, [currentWorkstation]);
 
+  // Update preview URL when project type is detected
+  useEffect(() => {
+    if (projectInfo && projectInfo.defaultPort && apiUrl) {
+      // Extract the host from apiUrl (e.g., "http://192.168.1.10:3000" -> "192.168.1.10")
+      const urlMatch = apiUrl.match(/https?:\/\/([^:\/]+)/);
+      if (urlMatch) {
+        const host = urlMatch[1];
+        const newPreviewUrl = `http://${host}:${projectInfo.defaultPort}`;
+        console.log(`🔄 Updating preview URL to: ${newPreviewUrl} (port ${projectInfo.defaultPort})`);
+        setCurrentPreviewUrl(newPreviewUrl);
+      }
+    }
+  }, [projectInfo, apiUrl]);
+
   const checkServerStatus = async () => {
     try {
       console.log(`🔍 Checking server status at: ${currentPreviewUrl}`);

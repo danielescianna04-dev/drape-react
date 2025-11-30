@@ -85,6 +85,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
+  // DEBUG: Log when terminal items change
+  useEffect(() => {
+    console.log('💬💬💬 [ChatPage] === TERMINAL ITEMS UPDATED ===');
+    console.log('💬 [ChatPage] currentTab?.id:', currentTab?.id);
+    console.log('💬 [ChatPage] activeTabId:', activeTabId);
+    console.log('💬 [ChatPage] tabTerminalItems.length:', tabTerminalItems.length);
+    if (tabTerminalItems.length > 0) {
+      console.log('💬 [ChatPage] Items:');
+      tabTerminalItems.forEach((item, i) => {
+        console.log(`   ${i}: type="${item.type}", content="${item.content?.substring(0, 50)}..."`);
+      });
+    }
+  }, [tabTerminalItems, currentTab?.id, activeTabId]);
+
   // Custom input handler that saves to ref immediately (no extra re-renders)
   const handleInputChange = useCallback((text: string) => {
     const previousText = previousInputRef.current;

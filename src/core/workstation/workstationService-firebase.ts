@@ -18,9 +18,15 @@ export interface UserProject {
   lastAccessed: Date;
   workstationId?: string;
   status: 'creating' | 'running' | 'stopped';
+  cloned?: boolean; // Se il progetto è già stato clonato (per evitare clone multipli)
 }
 
 export const workstationService = {
+  // Get API URL for external calls
+  getApiUrl(): string {
+    return API_BASE_URL;
+  },
+
   // Salva progetto Git su Firebase
   async saveGitProject(repositoryUrl: string, userId: string): Promise<UserProject> {
     try {
@@ -169,6 +175,14 @@ export const workstationService = {
     } catch (error: any) {
       console.error('Error getting workstation files:', error);
 
+      // Handle 401 with requiresAuth
+      if (error.response?.status === 401 && error.response?.data?.requiresAuth) {
+        const authError = new Error(error.response?.data?.error || 'Repository privata. È necessario autenticarsi.');
+        (authError as any).requiresAuth = true;
+        (authError as any).isPrivate = error.response?.data?.isPrivate;
+        throw authError;
+      }
+
       // Handle specific error cases with better messages
       if (error.response?.status === 403) {
         throw new Error(error.response?.data?.error || 'Repository is private or not found');
@@ -251,12 +265,29 @@ export const workstationService = {
     }
   },
 
-  // Elimina progetto
+  // Elimina progetto (da Firebase E dal backend)
   async deleteProject(projectId: string): Promise<void> {
     try {
+      // 1. Prima elimina i file clonati dal backend
+      console.log('🗑️🗑️🗑️ [DELETE] Starting delete for projectId:', projectId);
+      console.log('🗑️ [DELETE] API_BASE_URL:', API_BASE_URL);
+      console.log('🗑️ [DELETE] Full URL:', `${API_BASE_URL}/workstation/${projectId}?force=true`);
+
+      try {
+        const response = await axios.delete(`${API_BASE_URL}/workstation/${projectId}?force=true`);
+        console.log('✅ [DELETE] Backend response:', JSON.stringify(response.data));
+      } catch (backendError: any) {
+        // Non bloccare se il backend fallisce (potrebbe non esistere la cartella)
+        console.warn('⚠️ [DELETE] Backend error:', backendError?.response?.data || backendError?.message || backendError);
+      }
+
+      // 2. Poi elimina da Firebase
+      console.log('🗑️ [DELETE] Deleting from Firebase...');
       await deleteDoc(doc(db, COLLECTION, projectId));
+      console.log('✅ [DELETE] Firebase document deleted');
+      console.log('🗑️🗑️🗑️ [DELETE] Complete for projectId:', projectId);
     } catch (error) {
-      console.error('Error deleting project:', error);
+      console.error('❌ [DELETE] Error:', error);
       throw error;
     }
   },
@@ -285,6 +316,20 @@ export const workstationService = {
       console.log('✅ GitHub account unlinked successfully');
     } catch (error) {
       console.error('Error removing project GitHub account:', error);
+      throw error;
+    }
+  },
+
+  // Segna progetto come clonato
+  async markProjectAsCloned(projectId: string): Promise<void> {
+    try {
+      console.log('✓ Marking project as cloned:', projectId);
+      await updateDoc(doc(db, COLLECTION, projectId), {
+        cloned: true,
+      });
+      console.log('✅ Project marked as cloned');
+    } catch (error) {
+      console.error('Error marking project as cloned:', error);
       throw error;
     }
   },
@@ -341,6 +386,7 @@ export const workstationService = {
         githubAccountUsername: project.githubAccountUsername,
         folderId: null,
         projectId: project.id,
+        cloned: project.cloned,
       }));
     } catch (error) {
       console.error('Error getting workstations:', error);

@@ -4,12 +4,12 @@ import Reanimated, { useAnimatedStyle, interpolate } from 'react-native-reanimat
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { githubTokenService, GitHubAccount } from '../../../../core/github/githubTokenService';
+import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { workstationService } from '../../../../core/workstation/workstationService-firebase';
-import { GitHubAuthModal } from '../GitHubAuthModal';
 import { useSidebarOffset } from '../../context/SidebarContext';
 import { config } from '../../../../config/config';
+import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
 
 interface Props {
   tab: any;
@@ -44,11 +44,9 @@ interface GitStatus {
 
 export const GitHubView = ({ tab }: Props) => {
   const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes' | 'account'>('commits');
-  const [linkedAccount, setLinkedAccount] = useState<GitHubAccount | null>(null);
-  const [availableAccounts, setAvailableAccounts] = useState<GitHubAccount[]>([]);
+  const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Git data states
@@ -94,15 +92,8 @@ export const GitHubView = ({ tab }: Props) => {
 
   const loadAccountInfo = async () => {
     try {
-      const allAccounts = await githubTokenService.getAccounts(userId);
-      setAvailableAccounts(allAccounts);
-
-      if (currentWorkstation?.githubAccountUsername) {
-        const linked = allAccounts.find(acc => acc.username === currentWorkstation.githubAccountUsername);
-        setLinkedAccount(linked || null);
-      } else {
-        setLinkedAccount(null);
-      }
+      const accounts = await gitAccountService.getAccounts(userId);
+      setGitAccounts(accounts);
     } catch (error) {
       console.error('Error loading account info:', error);
     } finally {
@@ -150,19 +141,27 @@ export const GitHubView = ({ tab }: Props) => {
   }, [currentWorkstation?.id]);
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
-    if (!currentWorkstation?.id || !linkedAccount) {
-      Alert.alert('Errore', 'Collega un account GitHub per eseguire questa azione');
+    if (!currentWorkstation?.id) {
+      Alert.alert('Errore', 'Nessun progetto aperto');
+      return;
+    }
+
+    // Get token for this repo (auto-detect provider from URL)
+    const repoUrl = currentWorkstation.githubUrl || '';
+    const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl);
+
+    if (!tokenData) {
+      Alert.alert('Errore', 'Collega un account Git per eseguire questa azione');
       return;
     }
 
     setActionLoading(action);
     try {
-      const token = await githubTokenService.getToken(linkedAccount.username, userId);
       const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${tokenData.token}`,
         },
       });
 
@@ -181,78 +180,26 @@ export const GitHubView = ({ tab }: Props) => {
     }
   };
 
-  const handleLinkAccount = async (account: GitHubAccount) => {
-    if (!currentWorkstation?.projectId && !currentWorkstation?.id) {
-      Alert.alert('Errore', 'Nessun progetto selezionato');
-      return;
-    }
-
-    try {
-      const projectId = currentWorkstation.projectId || currentWorkstation.id;
-      await workstationService.updateProjectGitHubAccount(projectId, account.username);
-      setLinkedAccount(account);
-      setShowAccountPicker(false);
-      useTerminalStore.getState().setWorkstation({
-        ...currentWorkstation,
-        githubAccountUsername: account.username,
-      });
-    } catch (error) {
-      Alert.alert('Errore', 'Impossibile collegare l\'account');
-    }
-  };
-
-  const handleUnlinkAccount = () => {
-    if (!currentWorkstation?.projectId && !currentWorkstation?.id) return;
-
+  const handleDeleteAccount = (account: GitAccount) => {
     Alert.alert(
-      'Scollega Account',
-      `Sei sicuro di voler scollegare l'account ${linkedAccount?.username}?`,
+      'Rimuovi Account',
+      `Sei sicuro di voler rimuovere l'account ${account.username}?`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
-          text: 'Scollega',
+          text: 'Rimuovi',
           style: 'destructive',
           onPress: async () => {
-            try {
-              const projectId = currentWorkstation.projectId || currentWorkstation.id;
-              await workstationService.removeProjectGitHubAccount(projectId);
-              setLinkedAccount(null);
-              useTerminalStore.getState().setWorkstation({
-                ...currentWorkstation,
-                githubAccountUsername: undefined,
-              });
-            } catch (error) {
-              Alert.alert('Errore', 'Impossibile scollegare l\'account');
-            }
+            await gitAccountService.deleteAccount(account, userId);
+            loadAccountInfo();
           },
         },
       ]
     );
   };
 
-  const handleAuthenticated = async (token: string) => {
-    setShowAuthModal(false);
-    try {
-      const validation = await githubTokenService.validateToken(token);
-      if (validation.valid && validation.username) {
-        await githubTokenService.saveToken(validation.username, token, userId);
-        await loadAccountInfo();
-
-        if (!linkedAccount && currentWorkstation) {
-          const projectId = currentWorkstation.projectId || currentWorkstation.id;
-          await workstationService.updateProjectGitHubAccount(projectId, validation.username);
-          await loadAccountInfo();
-          useTerminalStore.getState().setWorkstation({
-            ...currentWorkstation,
-            githubAccountUsername: validation.username,
-          });
-        }
-      } else {
-        Alert.alert('Errore', 'Token non valido');
-      }
-    } catch (error) {
-      Alert.alert('Errore', 'Impossibile salvare l\'account');
-    }
+  const getProviderConfig = (provider: string) => {
+    return GIT_PROVIDERS.find(p => p.id === provider);
   };
 
   const formatDate = (date: Date) => {
@@ -528,100 +475,72 @@ export const GitHubView = ({ tab }: Props) => {
     </View>
   );
 
-  // Account section
+  // Account section - Global accounts (multi-provider like Fork)
   const renderAccount = () => (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Account GitHub del progetto</Text>
+      <Text style={styles.sectionTitle}>Account Git Collegati</Text>
 
-      {linkedAccount ? (
-        <View style={styles.linkedAccountCard}>
-          <View style={styles.linkedBadge}>
-            <Ionicons name="link" size={12} color="#00D084" />
-            <Text style={styles.linkedBadgeText}>Collegato</Text>
+      <View style={styles.accountsList}>
+        {gitAccounts.length === 0 ? (
+          <View style={styles.noAccountCard}>
+            <Ionicons name="git-network-outline" size={40} color="rgba(255,255,255,0.2)" />
+            <Text style={styles.noAccountText}>Nessun account collegato</Text>
+            <Text style={styles.noAccountSubtext}>
+              Collega un account per push, pull e accesso ai repository privati
+            </Text>
           </View>
-          <View style={styles.accountCardInner}>
-            {linkedAccount.avatarUrl ? (
-              <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Ionicons name="person" size={24} color="rgba(255,255,255,0.5)" />
+        ) : (
+          gitAccounts.map((account) => {
+            const providerConfig = getProviderConfig(account.provider);
+            return (
+              <View key={account.id} style={styles.accountCard}>
+                <View style={styles.accountCardInner}>
+                  {account.avatarUrl ? (
+                    <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: providerConfig?.color || '#333' }]}>
+                      <Ionicons name={providerConfig?.icon as any || 'person'} size={20} color="#fff" />
+                    </View>
+                  )}
+                  <View style={styles.accountInfo}>
+                    <View style={styles.accountNameRow}>
+                      <Text style={styles.accountName}>{account.username}</Text>
+                      <View style={[styles.providerBadge, { backgroundColor: `${providerConfig?.color}20` }]}>
+                        <Ionicons
+                          name={providerConfig?.icon as any || 'git-branch'}
+                          size={10}
+                          color={providerConfig?.color || '#fff'}
+                        />
+                        <Text style={[styles.providerBadgeText, { color: providerConfig?.color }]}>
+                          {providerConfig?.name || account.provider}
+                        </Text>
+                      </View>
+                    </View>
+                    {account.email && (
+                      <Text style={styles.accountEmail}>{account.email}</Text>
+                    )}
+                  </View>
+                  <TouchableOpacity style={styles.unlinkBtn} onPress={() => handleDeleteAccount(account)}>
+                    <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
+                  </TouchableOpacity>
+                </View>
               </View>
-            )}
-            <View style={styles.accountInfo}>
-              <Text style={styles.accountName}>{linkedAccount.username}</Text>
-              <Text style={styles.accountMeta}>Account per push/pull</Text>
-            </View>
-            <TouchableOpacity style={styles.unlinkBtn} onPress={handleUnlinkAccount}>
-              <Ionicons name="unlink-outline" size={18} color="#ff4d4d" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.noAccountCard}>
-          <Ionicons name="logo-github" size={40} color="rgba(255,255,255,0.2)" />
-          <Text style={styles.noAccountText}>Nessun account collegato</Text>
-          <Text style={styles.noAccountSubtext}>
-            Collega un account per push, pull e accesso ai repository privati
-          </Text>
-          <View style={styles.noAccountButtons}>
-            {availableAccounts.length > 0 && (
-              <TouchableOpacity
-                style={styles.selectAccountBtn}
-                onPress={() => setShowAccountPicker(true)}
-              >
-                <Ionicons name="people-outline" size={16} color={AppColors.primary} />
-                <Text style={styles.selectAccountBtnText}>Scegli</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.addAccountBtn}
-              onPress={() => setShowAuthModal(true)}
-            >
-              <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.addAccountBtnText}>Nuovo</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+            );
+          })
+        )}
+
+        {/* Add Account Button */}
+        <TouchableOpacity
+          style={styles.addAccountBtn}
+          onPress={() => setShowAddAccountModal(true)}
+        >
+          <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
+          <Text style={styles.addAccountBtnText}>Aggiungi Account</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
-  // Account picker overlay
-  const renderAccountPicker = () => {
-    if (!showAccountPicker) return null;
-
-    return (
-      <View style={styles.pickerOverlay}>
-        <View style={styles.pickerCard}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>Scegli un account</Text>
-            <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
-              <Ionicons name="close" size={24} color="rgba(255,255,255,0.6)" />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.pickerList}>
-            {availableAccounts.map((account) => (
-              <TouchableOpacity
-                key={account.id}
-                style={styles.pickerItem}
-                onPress={() => handleLinkAccount(account)}
-              >
-                {account.avatarUrl ? (
-                  <Image source={{ uri: account.avatarUrl }} style={styles.pickerAvatar} />
-                ) : (
-                  <View style={[styles.pickerAvatar, styles.avatarPlaceholder]}>
-                    <Ionicons name="person" size={16} color="rgba(255,255,255,0.5)" />
-                  </View>
-                )}
-                <Text style={styles.pickerItemText}>{account.username}</Text>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
-    );
-  };
 
   return (
     <Reanimated.View style={[styles.container, { paddingTop: insets.top }, containerAnimatedStyle]}>
@@ -631,10 +550,10 @@ export const GitHubView = ({ tab }: Props) => {
           <Ionicons name="logo-github" size={24} color="#fff" />
           <Text style={styles.projectName}>{projectName}</Text>
         </View>
-        {linkedAccount && (
+        {gitAccounts.length > 0 && (
           <View style={styles.headerAccount}>
-            {linkedAccount.avatarUrl ? (
-              <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.headerAvatar} />
+            {gitAccounts[0].avatarUrl ? (
+              <Image source={{ uri: gitAccounts[0].avatarUrl }} style={styles.headerAvatar} />
             ) : (
               <Ionicons name="person-circle" size={28} color="rgba(255,255,255,0.5)" />
             )}
@@ -666,12 +585,10 @@ export const GitHubView = ({ tab }: Props) => {
         {activeSection === 'account' && renderAccount()}
       </ScrollView>
 
-      {renderAccountPicker()}
-
-      <GitHubAuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onAuthenticated={handleAuthenticated}
+      <AddGitAccountModal
+        visible={showAddAccountModal}
+        onClose={() => setShowAddAccountModal(false)}
+        onAccountAdded={loadAccountInfo}
       />
     </Reanimated.View>
   );
@@ -1009,26 +926,14 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   // Account section
-  linkedAccountCard: {
-    backgroundColor: 'rgba(0, 208, 132, 0.08)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 208, 132, 0.2)',
+  accountsList: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
     overflow: 'hidden',
   },
-  linkedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: 'rgba(0, 208, 132, 0.15)',
-  },
-  linkedBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#00D084',
-    textTransform: 'uppercase',
+  accountCard: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   accountCardInner: {
     flexDirection: 'row',
@@ -1049,11 +954,32 @@ const styles = StyleSheet.create({
   accountInfo: {
     flex: 1,
   },
+  accountNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
   accountName: {
     fontSize: 15,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 2,
+  },
+  providerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  providerBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  accountEmail: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
   },
   accountMeta: {
     fontSize: 12,
@@ -1088,39 +1014,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
   },
-  noAccountButtons: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-  },
-  selectAccountBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: AppColors.primary,
-  },
-  selectAccountBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.primary,
-  },
   addAccountBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: AppColors.primary,
-    borderRadius: 8,
+    justifyContent: 'center',
+    gap: 8,
+    padding: 14,
   },
   addAccountBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppColors.primary,
   },
   // Account picker
   pickerOverlay: {

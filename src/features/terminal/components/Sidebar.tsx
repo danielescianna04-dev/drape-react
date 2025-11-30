@@ -9,6 +9,8 @@ import {
   Animated,
   Modal,
   PanResponder,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
@@ -27,9 +29,11 @@ import { FileExplorer } from './FileExplorer';
 import { GitHubAuthModal } from './GitHubAuthModal';
 import { FileViewer } from './FileViewer';
 import { githubTokenService } from '../../../core/github/githubTokenService';
+import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
+import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 
 interface Props {
   onClose: () => void;
@@ -48,7 +52,14 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const slideAnim = useRef(new Animated.Value(-300)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
-  const { addTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
+  // Delete confirmation state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleteWarning, setDeleteWarning] = useState<{ hasChanges: boolean; message: string } | null>(null);
+  const [isCheckingGit, setIsCheckingGit] = useState(false);
+
+  const { addTab, addTerminalItem: addTerminalItemToStore, removeTabsByWorkstation } = useTabStore();
+  const { apiUrl } = useNetworkConfig();
 
   const {
     chatHistory,
@@ -146,40 +157,109 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }).start(() => onClose());
   };
 
-  const handleOpenWorkstation = (ws: any) => {
-    // Add loading message to active tab FIRST
-    const { activeTabId, tabs } = useTabStore.getState();
-    const currentTab = tabs.find(t => t.id === activeTabId);
+  const handleOpenWorkstation = async (ws: any) => {
+    const repoUrl = ws.githubUrl || '';
 
-    if (currentTab) {
-      // Add loading message
-      addTerminalItemToStore(currentTab.id, {
-        id: `loading-${Date.now()}`,
-        type: 'loading',
-        content: 'Cloning repository to workstation',
-        timestamp: new Date(),
-      });
+    // If it's a git project, check auth BEFORE opening
+    if (repoUrl) {
+      console.log('🔍 Checking auth before opening project...');
+
+      // Try to get saved token for this repo
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      let savedToken: string | null = null;
+      try {
+        const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl);
+        savedToken = tokenData?.token || null;
+      } catch (e) {
+        console.log('No saved token found');
+      }
+
+      // Check visibility with the saved token (if any)
+      try {
+        const response = await fetch(`${apiUrl}/repo/check-visibility`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repositoryUrl: repoUrl, githubToken: savedToken }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.requiresAuth) {
+          console.log('🔐 Auth required before opening project');
+          setPendingRepoUrl(repoUrl);
+          setShowAuthModal(true);
+          return; // Don't open project - wait for auth
+        }
+      } catch (error) {
+        console.error('Error checking visibility:', error);
+        // Continue anyway - let FileExplorer handle the error
+      }
     }
 
-    // Close sidebar to show the chat with loading message
-    onClose();
-
-    // After a delay, add success message and optionally open file explorer
-    setTimeout(() => {
-      if (currentTab) {
-        addTerminalItemToStore(currentTab.id, {
-          id: `success-${Date.now()}`,
-          type: 'output',
-          content: `✓ Repository cloned successfully: ${ws.name || 'Project'}`,
-          timestamp: new Date(),
-        });
-      }
-    }, 2000);
+    // Auth OK or not a git project - open it
+    console.log('✅ Auth OK, opening project');
+    setWorkstation(ws);
+    setSelectedProjectId(ws.projectId || ws.id);
+    setSelectedRepoUrl(repoUrl);
   };
 
-  const handleDeleteWorkstation = async (id: string, e: any) => {
+  const handleDeleteWorkstation = async (id: string, e: any, name?: string) => {
     e.stopPropagation();
-    await removeWorkstation(id);
+
+    // Store the target for deletion
+    setDeleteTarget({ id, name: name || 'Progetto' });
+    setIsCheckingGit(true);
+    setShowDeleteModal(true);
+    setDeleteWarning(null);
+
+    // Check git status for unsaved changes
+    try {
+      const response = await fetch(`${apiUrl}/workstation/${id}/git-status`);
+      const data = await response.json();
+
+      if (data.hasUncommittedChanges || data.hasUnpushedCommits) {
+        let warningMsg = '⚠️ Attenzione! ';
+        if (data.hasUncommittedChanges) {
+          warningMsg += `Ci sono ${data.uncommittedFiles?.length || 'alcune'} modifiche non committate. `;
+        }
+        if (data.hasUnpushedCommits) {
+          warningMsg += `Ci sono ${data.unpushedCount || 'alcuni'} commit non pushati su Git.`;
+        }
+        setDeleteWarning({ hasChanges: true, message: warningMsg });
+      } else {
+        setDeleteWarning({ hasChanges: false, message: 'Tutto sincronizzato con Git.' });
+      }
+    } catch (error) {
+      console.log('Could not check git status:', error);
+      setDeleteWarning({ hasChanges: false, message: 'Impossibile verificare lo stato Git.' });
+    } finally {
+      setIsCheckingGit(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      // 1. Remove all tabs associated with this project (including chats)
+      removeTabsByWorkstation(deleteTarget.id);
+
+      // 2. Call backend to delete cloned files
+      await fetch(`${apiUrl}/workstation/${deleteTarget.id}`, {
+        method: 'DELETE'
+      });
+
+      // 3. Remove from local store
+      await removeWorkstation(deleteTarget.id);
+
+      console.log('✅ Project completely deleted:', deleteTarget.id);
+    } catch (error) {
+      console.error('Error deleting workstation:', error);
+    } finally {
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+      setDeleteWarning(null);
+    }
   };
 
   const handleCreateFolder = (name: string) => {
@@ -189,7 +269,28 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const handleImportRepo = async (url: string, token?: string) => {
     try {
       const userId = useTerminalStore.getState().userId || 'anonymous';
-      
+
+      // STEP 1: Check if repo requires authentication BEFORE importing
+      console.log('🔍 Checking repo visibility before import...');
+      const visibilityResponse = await fetch(`${apiUrl}/repo/check-visibility`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repositoryUrl: url, githubToken: token }),
+      });
+
+      const visibilityData = await visibilityResponse.json();
+
+      // If auth required, show modal and STOP - don't proceed with import
+      if (!visibilityResponse.ok || visibilityData.requiresAuth) {
+        console.log('🔐 Repository requires authentication - showing auth modal');
+        setPendingRepoUrl(url);
+        setShowAuthModal(true);
+        setShowImportModal(false);
+        return; // Stop here - don't create workstation
+      }
+
+      console.log('✅ Repository is accessible, proceeding with import...');
+
       // Save token if provided
       if (token) {
         const match = url.match(/github\.com\/([^\/]+)\//);
@@ -197,10 +298,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           await githubTokenService.saveToken(match[1], token, userId);
         }
       }
-      
+
+      // STEP 2: Now safe to create the project and workstation
       const project = await workstationService.saveGitProject(url, userId);
       const wsResult = await workstationService.createWorkstationForProject(project, token);
-      
+
       const workstation = {
         id: wsResult.workstationId || project.id,
         projectId: project.id,
@@ -212,24 +314,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         repositoryUrl: project.repositoryUrl,
         folderId: null,
       };
-      
+
       addWorkstation(workstation);
       setShowImportModal(false);
     } catch (error: any) {
-      console.log('🔴 Import error details:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        requiresAuth: error.response?.data?.requiresAuth,
-        hasToken: !!token
-      });
-      
-      // If 401 and requiresAuth, show auth modal
-      if (error.response?.status === 401 && !token) {
-        console.log('🔐 Opening auth modal for:', url);
-        setPendingRepoUrl(url);
-        setShowAuthModal(true);
-        setShowImportModal(false);
-      }
+      console.log('🔴 Import error:', error.message);
+      console.error('Import failed:', error.response?.data?.message || error.message);
     }
   };
 
@@ -293,6 +383,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 });
                 onClose();
               }}
+              onAuthRequired={(repoUrl) => {
+                console.log('🔐 FileExplorer requires auth for:', repoUrl);
+                setPendingRepoUrl(repoUrl);
+                setShowAuthModal(true);
+              }}
             />
           </View>
         ) : (
@@ -304,6 +399,75 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         )}
       </ScrollView>
     </Animated.View>
+
+    {/* Delete Confirmation Modal */}
+    <Modal
+      visible={showDeleteModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowDeleteModal(false)}
+    >
+      <View style={styles.deleteModalOverlay}>
+        <View style={styles.deleteModalContent}>
+          <View style={styles.deleteModalHeader}>
+            <Ionicons
+              name={deleteWarning?.hasChanges ? "warning" : "trash"}
+              size={32}
+              color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
+            />
+            <Text style={styles.deleteModalTitle}>
+              Elimina "{deleteTarget?.name}"?
+            </Text>
+          </View>
+
+          {isCheckingGit ? (
+            <View style={styles.deleteModalLoading}>
+              <ActivityIndicator size="small" color={AppColors.primary} />
+              <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
+            </View>
+          ) : (
+            <Text style={[
+              styles.deleteModalMessage,
+              deleteWarning?.hasChanges && styles.deleteModalWarning
+            ]}>
+              {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
+            </Text>
+          )}
+
+          {deleteWarning?.hasChanges && !isCheckingGit && (
+            <Text style={styles.deleteModalSubWarning}>
+              Queste modifiche andranno perse se non le salvi prima su Git.
+            </Text>
+          )}
+
+          <View style={styles.deleteModalButtons}>
+            <TouchableOpacity
+              style={styles.deleteModalCancelBtn}
+              onPress={() => {
+                setShowDeleteModal(false);
+                setDeleteTarget(null);
+                setDeleteWarning(null);
+              }}
+            >
+              <Text style={styles.deleteModalCancelText}>Annulla</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.deleteModalDeleteBtn,
+                deleteWarning?.hasChanges && styles.deleteModalDeleteBtnDanger
+              ]}
+              onPress={confirmDelete}
+              disabled={isCheckingGit}
+            >
+              <Text style={styles.deleteModalDeleteText}>
+                {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
 
     <GitHubAuthModal
       visible={showAuthModal}
@@ -491,11 +655,6 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       timestamp: new Date(),
     });
     onClose();
-  };
-
-  const handleDeleteWorkstation = async (id: string, e: any) => {
-    e.stopPropagation();
-    await removeWorkstation(id);
   };
 
   const handleMoveToFolder = (projectId: string, folderId: string | null) => {
@@ -1330,6 +1489,93 @@ const styles = StyleSheet.create({
   compactButtonText: {
     color: AppColors.white.w60,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  // Delete Modal Styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: 'rgba(28, 28, 30, 0.98)',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  deleteModalHeader: {
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  deleteModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  deleteModalLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 16,
+  },
+  deleteModalLoadingText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  deleteModalMessage: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  deleteModalWarning: {
+    color: '#FF6B6B',
+  },
+  deleteModalSubWarning: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  deleteModalCancelBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  deleteModalCancelText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  deleteModalDeleteBtn: {
+    flex: 1,
+    backgroundColor: AppColors.primary,
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  deleteModalDeleteBtnDanger: {
+    backgroundColor: '#FF6B6B',
+  },
+  deleteModalDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 15,
     fontWeight: '600',
   },
 });

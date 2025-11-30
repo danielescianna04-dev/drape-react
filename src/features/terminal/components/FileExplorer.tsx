@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { gitAccountService } from '../../../core/git/gitAccountService';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
 
 interface FileTreeNode {
   name: string;
@@ -16,9 +18,10 @@ interface Props {
   projectId: string;
   repositoryUrl?: string;
   onFileSelect: (path: string) => void;
+  onAuthRequired?: (repoUrl: string) => void;
 }
 
-export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) => {
+export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthRequired }: Props) => {
   const [files, setFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,15 +62,46 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect }: Props) 
     try {
       setLoading(true);
       setError(null);
-      const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl);
+
+      // Get token for this repo (auto-detect provider from URL)
+      let gitToken: string | null = null;
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      try {
+        if (repositoryUrl) {
+          // Try to get token for specific repo provider
+          const tokenData = await gitAccountService.getTokenForRepo(userId, repositoryUrl);
+          if (tokenData) {
+            gitToken = tokenData.token;
+            console.log(`🔐 Using ${tokenData.account.provider} token for:`, tokenData.account.username);
+          }
+        }
+        // Fallback to default account if no provider-specific token
+        if (!gitToken) {
+          const defaultTokenData = await gitAccountService.getDefaultToken(userId);
+          if (defaultTokenData) {
+            gitToken = defaultTokenData.token;
+            console.log(`🔐 Using default ${defaultTokenData.account.provider} token for:`, defaultTokenData.account.username);
+          }
+        }
+      } catch (tokenErr) {
+        console.log('⚠️ Could not get Git token, trying without:', tokenErr);
+      }
+
+      const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl, gitToken || undefined);
       console.log('📂 Files received from backend:', fileList.length);
       console.log('📂 First 10 files:', fileList.slice(0, 10));
       setFiles(fileList);
-      // Success/error messages are handled by App.tsx, not here
     } catch (err: any) {
       console.error('Error loading files:', err);
-      setError(err.message || 'Failed to load files');
-      // Error message is handled by App.tsx
+
+      // Check if authentication is required for private repo
+      if (err.requiresAuth && repositoryUrl && onAuthRequired) {
+        console.log('🔐 Authentication required for private repo');
+        onAuthRequired(repositoryUrl);
+        setError('Repository privata - richiesta autenticazione');
+      } else {
+        setError(err.message || 'Failed to load files');
+      }
     } finally {
       setLoading(false);
     }

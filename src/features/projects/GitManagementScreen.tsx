@@ -10,19 +10,19 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { githubTokenService, GitHubAccount } from '../../core/github/githubTokenService';
+import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { AppColors } from '../../shared/theme/colors';
-import { GitHubAuthModal } from '../terminal/components/GitHubAuthModal';
+import { AddGitAccountModal } from '../settings/components/AddGitAccountModal';
 
 interface Props {
   onClose: () => void;
 }
 
 export const GitManagementScreen = ({ onClose }: Props) => {
-  const [accounts, setAccounts] = useState<GitHubAccount[]>([]);
+  const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   const userId = useTerminalStore.getState().userId || 'anonymous';
@@ -52,7 +52,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const accs = await githubTokenService.getAccounts(userId);
+      const accs = await gitAccountService.getAccounts(userId);
       setAccounts(accs);
     } catch (error) {
       console.error('Error loading accounts:', error);
@@ -61,10 +61,13 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     }
   };
 
-  const handleDeleteAccount = (account: GitHubAccount) => {
+  const handleDeleteAccount = (account: GitAccount) => {
+    const providerConfig = GIT_PROVIDERS.find(p => p.id === account.provider);
+    const providerName = providerConfig?.name || account.provider;
+
     Alert.alert(
       'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username}?`,
+      `Sei sicuro di voler rimuovere l'account ${account.username} (${providerName})?`,
       [
         { text: 'Annulla', style: 'cancel' },
         {
@@ -72,7 +75,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              await githubTokenService.deleteToken(account.owner, userId);
+              await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error) {
               Alert.alert('Errore', 'Impossibile rimuovere l\'account');
@@ -84,23 +87,12 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   };
 
   const handleAddAccount = () => {
-    setShowAuthModal(true);
+    setShowAddModal(true);
   };
 
-  const handleAuthenticated = async (token: string) => {
-    setShowAuthModal(false);
-    try {
-      // Validate token and get user info
-      const validation = await githubTokenService.validateToken(token);
-      if (validation.valid && validation.username) {
-        await githubTokenService.saveToken(validation.username, token, userId);
-        loadAccounts();
-      } else {
-        Alert.alert('Errore', 'Token non valido');
-      }
-    } catch (error) {
-      Alert.alert('Errore', 'Impossibile salvare l\'account');
-    }
+  const handleAccountAdded = () => {
+    setShowAddModal(false);
+    loadAccounts();
   };
 
   const getTimeAgo = (date: Date) => {
@@ -131,31 +123,45 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     );
   };
 
-  const renderAccountCard = (account: GitHubAccount) => (
-    <View key={account.id} style={styles.accountCard}>
-      {account.avatarUrl ? (
-        <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatar, styles.avatarPlaceholder]}>
-          <Ionicons name="person" size={24} color="rgba(255,255,255,0.5)" />
+  const renderAccountCard = (account: GitAccount) => {
+    const providerConfig = GIT_PROVIDERS.find(p => p.id === account.provider);
+    const iconName = providerConfig?.icon || 'git-branch';
+    const providerColor = providerConfig?.color || '#888';
+
+    return (
+      <View key={account.id} style={styles.accountCard}>
+        {account.avatarUrl ? (
+          <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarPlaceholder]}>
+            <Ionicons name="person" size={24} color="rgba(255,255,255,0.5)" />
+          </View>
+        )}
+        <View style={styles.accountInfo}>
+          <View style={styles.accountNameRow}>
+            <Text style={styles.accountName}>{account.username}</Text>
+            <View style={[styles.providerBadge, { backgroundColor: `${providerColor}20` }]}>
+              <Ionicons name={iconName as any} size={10} color={providerColor} />
+              <Text style={[styles.providerBadgeText, { color: providerColor }]}>
+                {providerConfig?.name || account.provider}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.accountMetaRow}>
+            <Ionicons name={iconName as any} size={12} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.accountMeta}>Aggiunto {getTimeAgo(account.addedAt)}</Text>
+          </View>
         </View>
-      )}
-      <View style={styles.accountInfo}>
-        <Text style={styles.accountName}>{account.username}</Text>
-        <View style={styles.accountMetaRow}>
-          <Ionicons name="logo-github" size={12} color="rgba(255,255,255,0.35)" />
-          <Text style={styles.accountMeta}>Aggiunto {getTimeAgo(account.addedAt)}</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.deleteBtn}
+          onPress={() => handleDeleteAccount(account)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={styles.deleteBtn}
-        onPress={() => handleDeleteAccount(account)}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        <Ionicons name="trash-outline" size={18} color="#ff4d4d" />
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -186,7 +192,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
           <Ionicons name="information-circle" size={20} color={AppColors.primary} />
         </View>
         <Text style={styles.infoText}>
-          Collega i tuoi account GitHub per accedere a repository privati e gestire i tuoi progetti.
+          Collega i tuoi account Git (GitHub, GitLab, Bitbucket, Gitea) per accedere a repository privati e gestire i tuoi progetti.
         </Text>
       </View>
 
@@ -208,11 +214,11 @@ export const GitManagementScreen = ({ onClose }: Props) => {
         ) : (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="logo-github" size={48} color="rgba(255,255,255,0.2)" />
+              <Ionicons name="git-branch" size={48} color="rgba(255,255,255,0.2)" />
             </View>
             <Text style={styles.emptyText}>Nessun account collegato</Text>
             <Text style={styles.emptySubtext}>
-              Aggiungi un account GitHub per accedere ai repository privati
+              Aggiungi un account Git per accedere ai repository privati
             </Text>
             <TouchableOpacity
               style={styles.emptyButton}
@@ -228,10 +234,10 @@ export const GitManagementScreen = ({ onClose }: Props) => {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <GitHubAuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onAuthenticated={handleAuthenticated}
+      <AddGitAccountModal
+        visible={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onAccountAdded={handleAccountAdded}
       />
     </View>
   );
@@ -340,11 +346,28 @@ const styles = StyleSheet.create({
   accountInfo: {
     flex: 1,
   },
+  accountNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   accountName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 4,
+  },
+  providerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  providerBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   accountMetaRow: {
     flexDirection: 'row',
