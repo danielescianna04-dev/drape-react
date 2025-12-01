@@ -265,20 +265,21 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     if (!deleteTarget) return;
 
     try {
+      console.log('🗑️ [Sidebar] Starting delete for:', deleteTarget.id);
+
       // 1. Remove all tabs associated with this project (including chats)
       removeTabsByWorkstation(deleteTarget.id);
 
-      // 2. Call backend to delete cloned files
-      await fetch(`${apiUrl}/workstation/${deleteTarget.id}`, {
-        method: 'DELETE'
-      });
+      // 2. Delete from backend AND Firebase using workstationService
+      // This handles both: cloned files on backend + document in Firebase
+      await workstationService.deleteProject(deleteTarget.id);
 
       // 3. Remove from local store
       await removeWorkstation(deleteTarget.id);
 
-      console.log('✅ Project completely deleted:', deleteTarget.id);
+      console.log('✅ [Sidebar] Project completely deleted:', deleteTarget.id);
     } catch (error) {
-      console.error('Error deleting workstation:', error);
+      console.error('❌ [Sidebar] Error deleting workstation:', error);
     } finally {
       setShowDeleteModal(false);
       setDeleteTarget(null);

@@ -324,23 +324,42 @@ export const workstationService = {
   // Elimina progetto (da Firebase E dal backend)
   async deleteProject(projectId: string): Promise<void> {
     try {
-      // 1. Prima elimina i file clonati dal backend
-      console.log('🗑️🗑️🗑️ [DELETE] Starting delete for projectId:', projectId);
-      console.log('🗑️ [DELETE] API_BASE_URL:', API_BASE_URL);
-      console.log('🗑️ [DELETE] Full URL:', `${API_BASE_URL}/workstation/${projectId}?force=true`);
+      // Handle both formats: "projectId" or "ws-projectId"
+      const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
 
-      try {
-        const response = await axios.delete(`${API_BASE_URL}/workstation/${projectId}?force=true`);
-        console.log('✅ [DELETE] Backend response:', JSON.stringify(response.data));
-      } catch (backendError: any) {
-        // Non bloccare se il backend fallisce (potrebbe non esistere la cartella)
-        console.warn('⚠️ [DELETE] Backend error:', backendError?.response?.data || backendError?.message || backendError);
+      console.log('🗑️🗑️🗑️ [DELETE] Starting delete');
+      console.log('🗑️ [DELETE] Original projectId:', projectId);
+      console.log('🗑️ [DELETE] Clean projectId:', cleanProjectId);
+      console.log('🗑️ [DELETE] API_BASE_URL:', API_BASE_URL);
+
+      // 1. Prima elimina i file clonati dal backend (try both IDs)
+      for (const id of [projectId, cleanProjectId]) {
+        try {
+          console.log('🗑️ [DELETE] Trying backend delete for:', id);
+          const response = await axios.delete(`${API_BASE_URL}/workstation/${id}?force=true`);
+          console.log('✅ [DELETE] Backend response for', id, ':', JSON.stringify(response.data));
+        } catch (backendError: any) {
+          console.warn('⚠️ [DELETE] Backend error for', id, ':', backendError?.response?.data || backendError?.message);
+        }
       }
 
-      // 2. Poi elimina da Firebase
-      console.log('🗑️ [DELETE] Deleting from Firebase...');
-      await deleteDoc(doc(db, COLLECTION, projectId));
-      console.log('✅ [DELETE] Firebase document deleted');
+      // 2. Poi elimina da Firebase (use clean ID for Firebase document)
+      console.log('🗑️ [DELETE] Deleting from Firebase collection:', COLLECTION, 'doc:', cleanProjectId);
+      try {
+        await deleteDoc(doc(db, COLLECTION, cleanProjectId));
+        console.log('✅ [DELETE] Firebase document deleted:', cleanProjectId);
+      } catch (fbError: any) {
+        console.error('❌ [DELETE] Firebase error:', fbError);
+        // Also try with original ID just in case
+        if (cleanProjectId !== projectId) {
+          console.log('🗑️ [DELETE] Retrying Firebase delete with original ID:', projectId);
+          await deleteDoc(doc(db, COLLECTION, projectId));
+          console.log('✅ [DELETE] Firebase document deleted with original ID');
+        } else {
+          throw fbError;
+        }
+      }
+
       console.log('🗑️🗑️🗑️ [DELETE] Complete for projectId:', projectId);
     } catch (error) {
       console.error('❌ [DELETE] Error:', error);

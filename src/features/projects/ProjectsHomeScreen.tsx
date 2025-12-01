@@ -167,11 +167,16 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('🗑️ [Home] Deleting project:', selectedProject.id);
+              // Delete from backend AND Firebase
+              await workstationService.deleteProject(selectedProject.id);
+              // Remove from local store
               await useTerminalStore.getState().removeWorkstation(selectedProject.id);
               handleCloseMenu();
               loadRecentProjects();
+              console.log('✅ [Home] Project deleted:', selectedProject.id);
             } catch (error) {
-              console.error('Error deleting project:', error);
+              console.error('❌ [Home] Error deleting project:', error);
               Alert.alert('Errore', 'Impossibile eliminare il progetto');
             }
           },

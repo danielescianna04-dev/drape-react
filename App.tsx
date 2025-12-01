@@ -421,19 +421,182 @@ export default function App() {
       if (!forceCopy) {
         const existingProject = await workstationService.checkExistingProject(url, userId);
         if (existingProject) {
-          console.log('📥 [handleImportRepo] Project already exists:', existingProject.name);
+          console.log('📥 [handleImportRepo] Project already exists:', existingProject.name, 'id:', existingProject.id, 'cloned:', existingProject.cloned);
+
+          // If project exists but is NOT cloned, it's an incomplete import (e.g., auth failed)
+          // Continue with this project instead of showing dialog
+          if (!existingProject.cloned) {
+            console.log('📥 [handleImportRepo] Project not cloned yet - continuing with existing project');
+            // Don't create a new project, use the existing one
+            const project = existingProject;
+
+            let githubToken = newToken;
+            if (!githubToken) {
+              const tokenResult = await gitAccountService.getTokenForRepo(userId, url);
+              githubToken = tokenResult?.token || null;
+            }
+
+            const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
+
+            const workstation = {
+              id: wsResult.workstationId || project.id,
+              projectId: project.id,
+              name: project.name,
+              language: 'Unknown',
+              status: wsResult.status as any,
+              createdAt: project.createdAt,
+              files: [],
+              githubUrl: project.repositoryUrl,
+              folderId: null,
+            };
+
+            addWorkstation(workstation);
+            setWorkstation(workstation);
+            setShowImportModal(false);
+            setIsImporting(false);
+            importInProgress.current = false;
+
+            // Clear state and navigate
+            const { activeTabId: currentActiveTabId } = useTabStore.getState();
+            if (currentActiveTabId) {
+              clearTerminalItems(currentActiveTabId);
+            }
+            clearGlobalTerminalLog();
+            setCurrentScreen('terminal');
+
+            // Clone repository
+            setTimeout(async () => {
+              const { activeTabId, tabs } = useTabStore.getState();
+              const currentTab = tabs.find(t => t.id === activeTabId);
+              const repoName = url.split('/').pop()?.replace('.git', '') || 'repository';
+
+              if (currentTab) {
+                addTerminalItemToStore(currentTab.id, {
+                  id: `loading-${Date.now()}`,
+                  type: 'loading',
+                  content: 'Cloning repository to workstation',
+                  timestamp: new Date(),
+                });
+
+                try {
+                  await workstationService.getWorkstationFiles(workstation.projectId, url, githubToken || undefined);
+                  await workstationService.markProjectAsCloned(workstation.projectId);
+
+                  updateTerminalItemsByType(currentTab.id, 'loading', {
+                    type: 'system',
+                    content: 'Cloning repository to workstation'
+                  });
+
+                  addTerminalItemToStore(currentTab.id, {
+                    id: `success-${Date.now()}`,
+                    type: 'output',
+                    content: `✓ Repository cloned successfully: ${repoName}`,
+                    timestamp: new Date(),
+                  });
+                } catch (err: any) {
+                  updateTerminalItemsByType(currentTab.id, 'loading', {
+                    type: 'system',
+                    content: 'Cloning repository to workstation'
+                  });
+
+                  const isAuthError = err.requiresAuth || err.response?.status === 401;
+                  if (isAuthError) {
+                    try {
+                      const match = url.match(/github\.com\/([^\/]+)\//);
+                      const owner = match ? match[1] : 'unknown';
+                      const token = await requestGitAuth(
+                        `Repository privato. Autenticazione richiesta per "${repoName}"`,
+                        { repositoryUrl: url, owner }
+                      );
+
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `retry-loading-${Date.now()}`,
+                        type: 'loading',
+                        content: 'Ritentando con nuove credenziali...',
+                        timestamp: new Date(),
+                      });
+
+                      await workstationService.getWorkstationFiles(workstation.projectId, url, token);
+                      await workstationService.markProjectAsCloned(workstation.projectId);
+
+                      updateTerminalItemsByType(currentTab.id, 'loading', {
+                        type: 'system',
+                        content: 'Ritentando con nuove credenziali...'
+                      });
+
+                      addTerminalItemToStore(currentTab.id, {
+                        id: `success-${Date.now()}`,
+                        type: 'output',
+                        content: `✓ Repository cloned successfully: ${repoName}`,
+                        timestamp: new Date(),
+                      });
+                    } catch (authErr: any) {
+                      if (authErr.message !== 'User cancelled') {
+                        addTerminalItemToStore(currentTab.id, {
+                          id: `error-${Date.now()}`,
+                          type: 'error',
+                          content: `✗ ${authErr.message || 'Autenticazione fallita'}`,
+                          timestamp: new Date(),
+                        });
+                      } else {
+                        addTerminalItemToStore(currentTab.id, {
+                          id: `cancelled-${Date.now()}`,
+                          type: 'system',
+                          content: 'Autenticazione annullata',
+                          timestamp: new Date(),
+                        });
+                      }
+                    }
+                  } else {
+                    addTerminalItemToStore(currentTab.id, {
+                      id: `error-${Date.now()}`,
+                      type: 'error',
+                      content: `✗ ${err.message || 'Failed to clone repository'}`,
+                      timestamp: new Date(),
+                    });
+                  }
+                }
+              }
+            }, 100);
+
+            return;
+          }
+
+          // Project exists AND is cloned - show dialog
           setIsImporting(false);
           importInProgress.current = false;
           setShowImportModal(false);
 
-          // Ask user if they want to create a copy
+          // Ask user what they want to do
           Alert.alert(
             'Repository già importata',
-            `Hai già un progetto "${existingProject.name}" per questa repository. Vuoi creare una copia?`,
+            `Hai già un progetto "${existingProject.name}" per questa repository.`,
             [
               {
                 text: 'Annulla',
                 style: 'cancel',
+              },
+              {
+                text: 'Apri esistente',
+                onPress: async () => {
+                  // Open the existing project
+                  console.log('📥 [handleImportRepo] Opening existing project:', existingProject.id);
+                  const workstation = {
+                    id: `ws-${existingProject.id.toLowerCase()}`,
+                    projectId: existingProject.id,
+                    name: existingProject.name,
+                    language: 'Unknown',
+                    status: 'running' as const,
+                    createdAt: existingProject.createdAt,
+                    files: [],
+                    githubUrl: existingProject.repositoryUrl,
+                    repositoryUrl: existingProject.repositoryUrl,
+                    folderId: null,
+                    cloned: existingProject.cloned || false,
+                  };
+                  setWorkstation(workstation);
+                  setCurrentScreen('terminal');
+                },
               },
               {
                 text: 'Crea copia',
