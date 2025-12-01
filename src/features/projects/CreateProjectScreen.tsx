@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
+import { useAuthStore } from '../../core/auth/authStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -130,7 +131,12 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
     Keyboard.dismiss();
     setIsCreating(true);
     try {
-      const userId = 'anonymous';
+      const userId = useAuthStore.getState().user?.uid;
+      if (!userId) {
+        Alert.alert('Errore', 'Devi essere loggato per creare un progetto');
+        setIsCreating(false);
+        return;
+      }
       const project = await workstationService.savePersonalProject(projectName, userId);
 
       const workstation = {

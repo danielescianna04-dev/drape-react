@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useAuthStore } from '../../core/auth/authStore';
 import { AppColors } from '../../shared/theme/colors';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
 
@@ -61,7 +62,8 @@ export const SettingsScreen = ({ onClose }: Props) => {
   const [notifications, setNotifications] = useState(true);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
-  const userId = useTerminalStore.getState().userId || 'anonymous';
+  const { user, logout } = useAuthStore();
+  const userId = user?.uid || useTerminalStore.getState().userId || 'anonymous';
 
   useEffect(() => {
     loadAccounts();
@@ -195,6 +197,21 @@ export const SettingsScreen = ({ onClose }: Props) => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.contentContainer}
       >
+        {/* User Profile Section */}
+        {user && (
+          <View style={styles.profileSection}>
+            <View style={styles.profileAvatar}>
+              <Text style={styles.profileAvatarText}>
+                {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
+              </Text>
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
+              <Text style={styles.profileEmail}>{user.email}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Account Git Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -356,10 +373,18 @@ export const SettingsScreen = ({ onClose }: Props) => {
             <SettingItem
               icon="log-out"
               iconColor="#ef4444"
-              title="Esci"
-              onPress={() => Alert.alert('Esci', 'Sei sicuro di voler uscire?', [
+              title="Esci dall'account"
+              subtitle={user?.email || undefined}
+              onPress={() => Alert.alert('Esci', 'Sei sicuro di voler uscire dal tuo account?', [
                 { text: 'Annulla', style: 'cancel' },
-                { text: 'Esci', style: 'destructive', onPress: () => {} },
+                { text: 'Esci', style: 'destructive', onPress: async () => {
+                  try {
+                    await logout();
+                    onClose();
+                  } catch (error) {
+                    Alert.alert('Errore', 'Impossibile effettuare il logout');
+                  }
+                }},
               ])}
               showChevron={false}
             />
@@ -414,6 +439,42 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 24,
+  },
+  // User Profile
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+  },
+  profileAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  profileAvatarText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 2,
+  },
+  profileEmail: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
   },
   sectionHeader: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { db, auth } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import axios from 'axios';
 import { config } from '../../config/config';
@@ -27,11 +27,56 @@ export const workstationService = {
     return API_BASE_URL;
   },
 
-  // Salva progetto Git su Firebase
-  async saveGitProject(repositoryUrl: string, userId: string): Promise<UserProject> {
+  // Check if a project with same repositoryUrl already exists for this user
+  async checkExistingProject(repositoryUrl: string, userId: string): Promise<UserProject | null> {
     try {
-      const repoName = this.getRepositoryName(repositoryUrl);
-      
+      const existingQuery = query(
+        collection(db, COLLECTION),
+        where('userId', '==', userId),
+        where('repositoryUrl', '==', repositoryUrl)
+      );
+      const existingSnapshot = await getDocs(existingQuery);
+
+      if (!existingSnapshot.empty) {
+        const existingDoc = existingSnapshot.docs[0];
+        return {
+          id: existingDoc.id,
+          ...existingDoc.data()
+        } as UserProject;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error checking existing project:', error);
+      return null;
+    }
+  },
+
+  // Count existing projects with same repositoryUrl for this user
+  async countExistingCopies(repositoryUrl: string, userId: string): Promise<number> {
+    try {
+      const existingQuery = query(
+        collection(db, COLLECTION),
+        where('userId', '==', userId),
+        where('repositoryUrl', '==', repositoryUrl)
+      );
+      const existingSnapshot = await getDocs(existingQuery);
+      return existingSnapshot.size;
+    } catch (error) {
+      console.error('Error counting existing copies:', error);
+      return 0;
+    }
+  },
+
+  // Salva progetto Git su Firebase
+  async saveGitProject(repositoryUrl: string, userId: string, copyNumber?: number): Promise<UserProject> {
+    try {
+      let repoName = this.getRepositoryName(repositoryUrl);
+
+      // Add copy number to name if creating a copy
+      if (copyNumber && copyNumber > 0) {
+        repoName = `${repoName} (copia ${copyNumber})`;
+      }
+
       const project: Omit<UserProject, 'id'> = {
         name: repoName,
         type: 'git',
@@ -43,7 +88,8 @@ export const workstationService = {
       };
 
       const docRef = await addDoc(collection(db, COLLECTION), project);
-      
+      console.log('📂 [saveGitProject] Created new project:', docRef.id, 'name:', repoName);
+
       return {
         ...project,
         id: docRef.id
@@ -127,8 +173,13 @@ export const workstationService = {
       }
       
       return result.data;
-    } catch (error) {
-      console.error('Error creating workstation:', error);
+    } catch (error: any) {
+      // Use console.log for expected auth errors (401) to avoid error overlay
+      if (error.response?.status === 401) {
+        console.log('🔐 [createWorkstationForProject] Auth required (401)');
+      } else {
+        console.error('Error creating workstation:', error);
+      }
       throw error;
     }
   },
@@ -173,7 +224,12 @@ export const workstationService = {
         return String(file);
       });
     } catch (error: any) {
-      console.error('Error getting workstation files:', error);
+      // Don't use console.error for expected auth errors to avoid error overlay on phone
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.log('🔐 [getWorkstationFiles] Auth required:', error.response?.status);
+      } else {
+        console.error('Error getting workstation files:', error);
+      }
 
       // Handle 401 with requiresAuth
       if (error.response?.status === 401 && error.response?.data?.requiresAuth) {
@@ -372,7 +428,11 @@ export const workstationService = {
 
   async getWorkstations(): Promise<WorkstationInfo[]> {
     try {
-      const userId = 'anonymous'; // TODO: get from auth
+      const userId = auth.currentUser?.uid;
+      if (!userId) {
+        console.log('⚠️ getWorkstations: No authenticated user');
+        return [];
+      }
       const projects = await this.getUserProjects(userId);
 
       return projects.map(project => ({

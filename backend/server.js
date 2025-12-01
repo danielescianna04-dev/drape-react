@@ -3715,20 +3715,12 @@ app.get('/workstation/:projectId/files', async (req, res) => {
       res.json({ success: true, files });
       return;
     } catch {
-      // Repo not cloned locally, fall through to Firestore
-      console.log('📂 No local repo found, checking Firestore...');
-    }
-
-    // Fallback to Firestore
-    const doc = await db.collection('workstation_files').doc(projectId).get();
-
-    if (doc.exists) {
-      const data = doc.data();
-      console.log(`✅ Found ${data.files.length} files in Firestore`);
-      res.json({ success: true, files: data.files });
-    } else {
-      console.log('⚠️ No files found in Firestore for:', projectId);
-      res.json({ success: true, files: [] });
+      // Repo not cloned locally - return empty array instead of checking Firestore
+      // (Firestore requires Google Cloud credentials which may not be configured)
+      console.log('📂 No local repo found and no repositoryUrl provided');
+      console.log('ℹ️ Returning empty file list (project needs to be cloned first)');
+      res.json({ success: true, files: [], needsClone: true });
+      return;
     }
   } catch (error) {
     console.error('❌ Error getting files:', error.message);

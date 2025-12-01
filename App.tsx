@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { View, ActivityIndicator, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -21,6 +21,8 @@ import { gitAccountService } from './src/core/git/gitAccountService';
 import { requestGitAuth } from './src/core/github/gitAuthStore';
 import { useTerminalStore } from './src/core/terminal/terminalStore';
 import { useTabStore } from './src/core/tabs/tabStore';
+import { useAuthStore } from './src/core/auth/authStore';
+import { AuthScreen } from './src/features/auth/AuthScreen';
 import ChatPage from './src/pages/Chat/ChatPage';
 import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar';
 import { FileViewer } from './src/features/terminal/components/FileViewer';
@@ -29,7 +31,7 @@ import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 
 console.log('App.tsx loaded');
 
-type Screen = 'splash' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings';
+type Screen = 'splash' | 'auth' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -40,9 +42,26 @@ export default function App() {
 
   const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
+  const { user, isInitialized, initialize } = useAuthStore();
 
   // Track projects currently being cloned to prevent duplicates
   const cloningProjects = useRef<Set<string>>(new Set());
+
+  // Track import in progress to prevent double calls
+  const importInProgress = useRef(false);
+
+  // Initialize auth listener on app start
+  useEffect(() => {
+    initialize();
+  }, []);
+
+  // Navigate to home when user logs in
+  useEffect(() => {
+    if (isInitialized && user && currentScreen === 'auth') {
+      console.log('🔐 [App] User authenticated, navigating to home');
+      setCurrentScreen('home');
+    }
+  }, [user, isInitialized, currentScreen]);
 
   // Helper function to check auth BEFORE opening project
   // Returns token if auth successful, null if cancelled/failed
@@ -246,12 +265,13 @@ export default function App() {
         content: 'Cloning repository to workstation'
       });
 
-      // Check if it's an auth error - show popup
+      // Check if it's an auth error - silently show popup (NO error message)
       console.log('🔄 [cloneRepositoryWithAuth] Error:', err.response?.status, err.message);
-      console.log('🔄 [cloneRepositoryWithAuth] Full error:', err);
+      console.log('🔄 [cloneRepositoryWithAuth] requiresAuth:', err.requiresAuth);
 
-      if (err.response?.status === 401) {
-        console.log('🔄 [cloneRepositoryWithAuth] 401 error - showing auth popup...');
+      const isAuthError = err.requiresAuth || err.response?.status === 401;
+      if (isAuthError) {
+        console.log('🔄 [cloneRepositoryWithAuth] Auth error - showing popup silently...');
         try {
           const newToken = await requestGitAuth(
             `Repository privato. Autenticazione richiesta per "${repoName}"`,
@@ -284,12 +304,23 @@ export default function App() {
             timestamp: new Date(),
           });
         } catch (authErr: any) {
-          addTerminalItemToStore(tabId, {
-            id: `error-${Date.now()}`,
-            type: 'error',
-            content: `✗ ${authErr.message || 'Autenticazione annullata'}`,
-            timestamp: new Date(),
-          });
+          // Only show error if user didn't just cancel
+          if (authErr.message !== 'User cancelled') {
+            addTerminalItemToStore(tabId, {
+              id: `error-${Date.now()}`,
+              type: 'error',
+              content: `✗ ${authErr.message || 'Autenticazione fallita'}`,
+              timestamp: new Date(),
+            });
+          } else {
+            // User cancelled - just show a system message, not an error
+            addTerminalItemToStore(tabId, {
+              id: `cancelled-${Date.now()}`,
+              type: 'system',
+              content: 'Autenticazione annullata',
+              timestamp: new Date(),
+            });
+          }
         }
       } else {
         addTerminalItemToStore(tabId, {
@@ -366,8 +397,16 @@ export default function App() {
     };
   }, []);
 
-  const handleImportRepo = async (url: string, newToken?: string) => {
+  const handleImportRepo = async (url: string, newToken?: string, forceCopy?: boolean) => {
+    // Guard against double calls
+    if (importInProgress.current) {
+      console.log('📥 [handleImportRepo] SKIPPING - import already in progress');
+      return;
+    }
+
     console.log('📥📥📥 [handleImportRepo] START - import for:', url);
+    importInProgress.current = true;
+
     try {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
@@ -377,6 +416,37 @@ export default function App() {
       const repoName = url.split('/').pop()?.replace('.git', '') || 'repository';
 
       console.log('📥 [handleImportRepo] userId:', userId, 'owner:', owner, 'repoName:', repoName);
+
+      // Check if a project with this repo already exists (unless forceCopy is true)
+      if (!forceCopy) {
+        const existingProject = await workstationService.checkExistingProject(url, userId);
+        if (existingProject) {
+          console.log('📥 [handleImportRepo] Project already exists:', existingProject.name);
+          setIsImporting(false);
+          importInProgress.current = false;
+          setShowImportModal(false);
+
+          // Ask user if they want to create a copy
+          Alert.alert(
+            'Repository già importata',
+            `Hai già un progetto "${existingProject.name}" per questa repository. Vuoi creare una copia?`,
+            [
+              {
+                text: 'Annulla',
+                style: 'cancel',
+              },
+              {
+                text: 'Crea copia',
+                onPress: () => {
+                  // Re-call with forceCopy=true
+                  handleImportRepo(url, newToken, true);
+                },
+              },
+            ]
+          );
+          return;
+        }
+      }
 
       let githubToken = newToken;
 
@@ -416,7 +486,15 @@ export default function App() {
         }
       }
 
-      const project = await workstationService.saveGitProject(url, userId);
+      // If creating a copy, count existing copies and use next number
+      let copyNumber: number | undefined;
+      if (forceCopy) {
+        const existingCount = await workstationService.countExistingCopies(url, userId);
+        copyNumber = existingCount; // First copy will be "copia 1" (when existingCount=1)
+        console.log('📥 [handleImportRepo] Creating copy #', copyNumber);
+      }
+
+      const project = await workstationService.saveGitProject(url, userId, copyNumber);
       const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
 
       const workstation = {
@@ -435,6 +513,7 @@ export default function App() {
       setWorkstation(workstation);
       setShowImportModal(false);
       setIsImporting(false);
+      importInProgress.current = false;
 
       // DEBUG: Log tab state and global log before clearing
       const { activeTabId, tabs: tabsBefore } = useTabStore.getState();
@@ -511,18 +590,34 @@ export default function App() {
               content: 'Cloning repository to workstation'
             });
 
-            // Check if it's an auth error - show popup
-            if (err.response?.status === 401) {
+            // Check if it's an auth error - silently show popup (NO error message)
+            const isAuthError = err.requiresAuth || err.response?.status === 401;
+            if (isAuthError) {
               try {
                 const token = await requestGitAuth(
                   `Repository privato. Autenticazione richiesta per "${repoName}"`,
                   { repositoryUrl: url, owner }
                 );
+
+                // Show retry loading message
+                addTerminalItemToStore(currentTab.id, {
+                  id: `retry-loading-${Date.now()}`,
+                  type: 'loading',
+                  content: 'Ritentando con nuove credenziali...',
+                  timestamp: new Date(),
+                });
+
                 // Retry clone with new token
                 await workstationService.getWorkstationFiles(workstation.projectId, url, token);
 
                 // Mark project as cloned
                 await workstationService.markProjectAsCloned(workstation.projectId);
+
+                // Update loading to system
+                updateTerminalItemsByType(currentTab.id, 'loading', {
+                  type: 'system',
+                  content: 'Ritentando con nuove credenziali...'
+                });
 
                 addTerminalItemToStore(currentTab.id, {
                   id: `success-${Date.now()}`,
@@ -531,12 +626,23 @@ export default function App() {
                   timestamp: new Date(),
                 });
               } catch (authErr: any) {
-                addTerminalItemToStore(currentTab.id, {
-                  id: `error-${Date.now()}`,
-                  type: 'error',
-                  content: `✗ ${authErr.message || 'Autenticazione annullata'}`,
-                  timestamp: new Date(),
-                });
+                // Only show error if user didn't just cancel
+                if (authErr.message !== 'User cancelled') {
+                  addTerminalItemToStore(currentTab.id, {
+                    id: `error-${Date.now()}`,
+                    type: 'error',
+                    content: `✗ ${authErr.message || 'Autenticazione fallita'}`,
+                    timestamp: new Date(),
+                  });
+                } else {
+                  // User cancelled - just show a system message, not an error
+                  addTerminalItemToStore(currentTab.id, {
+                    id: `cancelled-${Date.now()}`,
+                    type: 'system',
+                    content: 'Autenticazione annullata',
+                    timestamp: new Date(),
+                  });
+                }
               }
             } else {
               addTerminalItemToStore(currentTab.id, {
@@ -551,22 +657,51 @@ export default function App() {
       }, 100);
     } catch (error: any) {
       setIsImporting(false);
-      console.error('Import error:', error.response?.status);
 
-      // If 401, use the new popup system
-      if (error.response?.status === 401 && !newToken) {
+      // If auth error, silently show popup (NO error message, NO console.error)
+      const isAuthError = error.requiresAuth || error.response?.status === 401;
+      if (!isAuthError) {
+        // Only log as error if it's NOT an expected auth error
+        console.error('Import error:', error.response?.status, error.message);
+      } else {
+        console.log('🔐 [handleImportRepo] Auth required, showing popup...');
+      }
+      if (isAuthError && !newToken) {
         setShowImportModal(false);
+        // Reset flag before retry to allow the new call
+        importInProgress.current = false;
         try {
           const token = await requestGitAuth(
             'Repository privato. Autenticazione GitHub richiesta.',
             { repositoryUrl: url, owner: url.match(/github\.com\/([^\/]+)\//)?.[1] }
           );
           // Retry with new token
-          handleImportRepo(url, token);
+          handleImportRepo(url, token, forceCopy);
         } catch (err) {
-          // User cancelled, do nothing
+          // User cancelled, do nothing - no error shown
         }
+      } else {
+        // Reset flag if not retrying
+        importInProgress.current = false;
       }
+    } finally {
+      // Ensure flag is reset even if we forgot somewhere
+      // (Note: will be reset before this in retry cases)
+      if (importInProgress.current) {
+        importInProgress.current = false;
+      }
+    }
+  };
+
+  // Handle splash screen finish - check auth state
+  const handleSplashFinish = () => {
+    if (isInitialized && user) {
+      setCurrentScreen('home');
+    } else if (isInitialized && !user) {
+      setCurrentScreen('auth');
+    } else {
+      // Auth not initialized yet, wait a bit
+      setCurrentScreen('auth');
     }
   };
 
@@ -574,7 +709,33 @@ export default function App() {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-          <SplashScreen onFinish={() => setCurrentScreen('home')} />
+          <SplashScreen onFinish={handleSplashFinish} />
+          <StatusBar style="light" />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // Show auth screen if not logged in
+  if (currentScreen === 'auth' || (!user && isInitialized)) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+          <AuthScreen />
+          <StatusBar style="light" />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // Show loading if auth not initialized
+  if (!isInitialized) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+          <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color="#9B8AFF" />
+          </View>
           <StatusBar style="light" />
         </SafeAreaProvider>
       </GestureHandlerRootView>

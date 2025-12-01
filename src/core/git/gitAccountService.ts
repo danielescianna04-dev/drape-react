@@ -1,7 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { sharedGitAccountService } from './sharedGitAccountService';
+import { collection, doc, setDoc, getDocs, deleteDoc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { encode as btoa, decode as atob } from 'base-64';
 
 // Supported Git providers
 export type GitProvider =
@@ -93,6 +95,28 @@ export interface GitAccount {
 const TOKEN_PREFIX = 'git-token-';
 const ACCOUNTS_KEY = 'git-accounts';
 
+// Simple obfuscation for tokens stored in Firebase
+// Note: This is basic obfuscation, not encryption. Firebase security rules
+// ensure only authenticated users can access their own data.
+const obfuscateToken = (token: string, userId: string): string => {
+  // Base64 encode with userId as salt prefix
+  const saltedToken = `${userId.slice(0, 8)}:${token}`;
+  return btoa(saltedToken);
+};
+
+const deobfuscateToken = (obfuscated: string, userId: string): string | null => {
+  try {
+    const decoded = atob(obfuscated);
+    const prefix = `${userId.slice(0, 8)}:`;
+    if (decoded.startsWith(prefix)) {
+      return decoded.slice(prefix.length);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 export const gitAccountService = {
   getProviderConfig(provider: GitProvider): GitProviderConfig | undefined {
     return GIT_PROVIDERS.find(p => p.id === provider);
@@ -119,28 +143,25 @@ export const gitAccountService = {
         addedAt: new Date(),
       };
 
-      // Save token securely
+      // Save token securely (local device)
       const tokenKey = `${TOKEN_PREFIX}${userId}-${provider}-${userInfo.username}`;
       await SecureStore.setItemAsync(tokenKey, token);
 
-      // Save account to list (local)
+      // Save account to local storage
       await this.addAccountToList(account, userId);
 
-      // Also save to Firebase (shared with other users)
+      // Save account AND token to Firebase (user-specific path)
+      // Token is obfuscated for basic protection
       try {
-        await sharedGitAccountService.saveSharedAccount(
-          provider,
-          userInfo.username,
-          userInfo.avatarUrl,
-          userId,
-          {
-            displayName: userInfo.displayName,
-            email: userInfo.email,
-            serverUrl,
-          }
-        );
+        const obfuscatedToken = obfuscateToken(token, userId);
+        await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), {
+          ...account,
+          addedAt: account.addedAt.toISOString(),
+          encryptedToken: obfuscatedToken,
+        });
+        console.log(`✅ [Firebase] Git account + token saved for user ${userId}:`, account.username);
       } catch (firebaseErr) {
-        console.warn('⚠️ Could not save to shared accounts:', firebaseErr);
+        console.warn('⚠️ Could not save to Firebase:', firebaseErr);
       }
 
       console.log(`✅ ${provider} account saved:`, account.username);
@@ -263,34 +284,38 @@ export const gitAccountService = {
     }
   },
 
-  // Get all accounts: local + shared from Firebase
+  // Get all accounts for this user only (no shared accounts)
   async getAllAccounts(userId: string): Promise<GitAccount[]> {
     try {
-      // Get local accounts (with tokens)
+      // Try to get from Firebase first (user-specific)
+      const firebaseAccounts: GitAccount[] = [];
+      try {
+        const accountsRef = collection(db, 'users', userId, 'git-accounts');
+        const snapshot = await getDocs(accountsRef);
+        snapshot.forEach(doc => {
+          const data = doc.data();
+          firebaseAccounts.push({
+            ...data,
+            id: doc.id,
+            addedAt: new Date(data.addedAt),
+          } as GitAccount);
+        });
+        console.log(`📥 [Firebase] Loaded ${firebaseAccounts.length} git accounts for user ${userId}`);
+      } catch (firebaseErr) {
+        console.warn('⚠️ Could not load from Firebase:', firebaseErr);
+      }
+
+      // Get local accounts as fallback/merge
       const localAccounts = await this.getAccounts(userId);
 
-      // Get shared accounts from Firebase
-      const sharedAccounts = await sharedGitAccountService.getSharedAccounts();
+      // Merge: prefer Firebase accounts, add any local-only accounts
+      const firebaseUsernames = new Set(firebaseAccounts.map(a => `${a.provider}-${a.username}`));
+      const mergedAccounts = [...firebaseAccounts];
 
-      // Merge: use local accounts, add shared accounts that don't exist locally
-      const localUsernames = new Set(localAccounts.map(a => `${a.provider}-${a.username}`));
-
-      const mergedAccounts = [...localAccounts];
-
-      for (const shared of sharedAccounts) {
-        const key = `${shared.provider}-${shared.username}`;
-        if (!localUsernames.has(key)) {
-          // Add shared account (user will need to authenticate to use it)
-          mergedAccounts.push({
-            id: `shared-${shared.id}`,
-            provider: shared.provider,
-            username: shared.username,
-            displayName: shared.displayName,
-            avatarUrl: shared.avatarUrl,
-            email: shared.email,
-            serverUrl: shared.serverUrl,
-            addedAt: shared.addedAt,
-          });
+      for (const local of localAccounts) {
+        const key = `${local.provider}-${local.username}`;
+        if (!firebaseUsernames.has(key)) {
+          mergedAccounts.push(local);
         }
       }
 
@@ -312,7 +337,33 @@ export const gitAccountService = {
   async getToken(account: GitAccount, userId: string): Promise<string | null> {
     const key = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
     try {
-      return await SecureStore.getItemAsync(key);
+      // Try local SecureStore first
+      const localToken = await SecureStore.getItemAsync(key);
+      if (localToken) {
+        return localToken;
+      }
+
+      // If not in local, try to get from Firebase
+      console.log(`🔍 Token not found locally, checking Firebase for ${account.username}...`);
+      const accountId = `${userId}-${account.provider}-${account.username}`;
+      const docRef = doc(db, 'users', userId, 'git-accounts', accountId);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.encryptedToken) {
+          const token = deobfuscateToken(data.encryptedToken, userId);
+          if (token) {
+            // Cache locally for faster access next time
+            await SecureStore.setItemAsync(key, token);
+            console.log(`✅ Token restored from Firebase for ${account.username}`);
+            return token;
+          }
+        }
+      }
+
+      console.log(`⚠️ No token found for ${account.username}`);
+      return null;
     } catch (error) {
       console.error('Error retrieving token:', error);
       return null;
@@ -368,16 +419,25 @@ export const gitAccountService = {
 
   async deleteAccount(account: GitAccount, userId: string): Promise<void> {
     try {
-      // Delete token
+      // Delete token from secure store
       const key = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
       await SecureStore.deleteItemAsync(key);
 
-      // Remove from accounts list
+      // Remove from local accounts list
       const accounts = await this.getAccounts(userId);
       const filtered = accounts.filter(
         a => !(a.provider === account.provider && a.username === account.username)
       );
       await AsyncStorage.setItem(`${ACCOUNTS_KEY}-${userId}`, JSON.stringify(filtered));
+
+      // Delete from Firebase (user-specific path)
+      try {
+        const accountId = `${userId}-${account.provider}-${account.username}`;
+        await deleteDoc(doc(db, 'users', userId, 'git-accounts', accountId));
+        console.log(`✅ [Firebase] Git account deleted for user ${userId}`);
+      } catch (firebaseErr) {
+        console.warn('⚠️ Could not delete from Firebase:', firebaseErr);
+      }
 
       console.log(`✅ Account deleted: ${account.provider}/${account.username}`);
     } catch (error) {
@@ -392,6 +452,53 @@ export const gitAccountService = {
       return true;
     } catch {
       return false;
+    }
+  },
+
+  // Sync all accounts and tokens from Firebase to local storage
+  // Call this when user logs in to restore their accounts on new device
+  async syncFromFirebase(userId: string): Promise<void> {
+    try {
+      console.log(`🔄 Syncing Git accounts from Firebase for user ${userId}...`);
+      const accountsRef = collection(db, 'users', userId, 'git-accounts');
+      const snapshot = await getDocs(accountsRef);
+
+      const accounts: GitAccount[] = [];
+      let tokensRestored = 0;
+
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        const account: GitAccount = {
+          id: docSnap.id,
+          provider: data.provider,
+          username: data.username,
+          displayName: data.displayName,
+          avatarUrl: data.avatarUrl,
+          email: data.email,
+          serverUrl: data.serverUrl,
+          addedAt: new Date(data.addedAt),
+        };
+        accounts.push(account);
+
+        // Restore token to local SecureStore
+        if (data.encryptedToken) {
+          const token = deobfuscateToken(data.encryptedToken, userId);
+          if (token) {
+            const key = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
+            await SecureStore.setItemAsync(key, token);
+            tokensRestored++;
+          }
+        }
+      }
+
+      // Save accounts to local AsyncStorage
+      if (accounts.length > 0) {
+        await AsyncStorage.setItem(`${ACCOUNTS_KEY}-${userId}`, JSON.stringify(accounts));
+      }
+
+      console.log(`✅ Synced ${accounts.length} accounts, restored ${tokensRestored} tokens from Firebase`);
+    } catch (error) {
+      console.error('Error syncing from Firebase:', error);
     }
   },
 };

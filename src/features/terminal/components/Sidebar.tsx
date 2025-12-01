@@ -44,11 +44,27 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [selectedRepoUrl, setSelectedRepoUrl] = useState('');
+
+  // Get currentWorkstation from store to initialize state
+  const currentWorkstationFromStore = useTerminalStore(state => state.currentWorkstation);
+
+  // Initialize selectedProjectId and selectedRepoUrl from currentWorkstation if available
+  // This ensures they're set correctly even on initial mount (not just on change)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
+    if (currentWorkstationFromStore) {
+      return currentWorkstationFromStore.projectId || currentWorkstationFromStore.id || null;
+    }
+    return null;
+  });
+  const [selectedRepoUrl, setSelectedRepoUrl] = useState(() => {
+    if (currentWorkstationFromStore) {
+      return currentWorkstationFromStore.repositoryUrl || currentWorkstationFromStore.githubUrl || '';
+    }
+    return '';
+  });
   const slideAnim = useRef(new Animated.Value(-300)).current;
   const panX = useRef(new Animated.Value(0)).current;
 
@@ -137,15 +153,23 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   // Auto-open current project if exists - always sync with currentWorkstation
   useEffect(() => {
+    console.log('📂 Sidebar: useEffect triggered, currentWorkstation:', currentWorkstation ? currentWorkstation.id : 'null');
+
     if (currentWorkstation) {
       const projectId = currentWorkstation.projectId || currentWorkstation.id;
-      const repoUrl = currentWorkstation.repositoryUrl || '';
+      // Check both repositoryUrl and githubUrl as the URL can be stored in either
+      const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl || '';
 
       // Always update the selected project and repo URL when currentWorkstation changes
       setSelectedProjectId(projectId);
       setSelectedRepoUrl(repoUrl);
 
       console.log('📂 Sidebar: synced with currentWorkstation', { projectId, repoUrl });
+    } else {
+      // Clear selection when no workstation is set
+      console.log('📂 Sidebar: no currentWorkstation, clearing selection');
+      setSelectedProjectId(null);
+      setSelectedRepoUrl('');
     }
   }, [currentWorkstation]);
 
@@ -322,6 +346,9 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       console.error('Import failed:', error.response?.data?.message || error.message);
     }
   };
+
+  // Debug: log render state
+  console.log('📂 Sidebar RENDER - selectedProjectId:', selectedProjectId, 'currentWorkstation:', currentWorkstation?.id);
 
   return (
     <>
