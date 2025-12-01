@@ -127,28 +127,34 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
       <GestureDetector gesture={sidebarSwipeGesture}>
         <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
-          <IconButton iconName="grid-outline" size={24} color={AppColors.icon.default} onPress={() => setActivePanel(null)} isActive={activePanel === null || activePanel === 'multitasking'} activeColor={AppColors.primary} accessibilityLabel="Tabs view" />
-          <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
-          <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
-          <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={activePanel === 'preview'} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
+          {/* Top icons */}
+          <View style={styles.topIcons}>
+            <IconButton iconName="grid-outline" size={24} color={AppColors.icon.default} onPress={() => setActivePanel(null)} isActive={activePanel === null || activePanel === 'multitasking'} activeColor={AppColors.primary} accessibilityLabel="Tabs view" />
+            <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
+            <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
+            <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={activePanel === 'preview'} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
+          </View>
 
-          <View style={{ height: 40 }} />
+          {/* Center section with wheel - lowered */}
+          <View style={styles.centerSection}>
+            <View style={{ height: 60 }} />
+            <VerticalIconSwitcher
+              icons={[
+                { name: 'grid-outline', action: () => setActivePanel(null) },
+                { name: 'folder-outline', action: () => togglePanel('files') },
+                { name: 'terminal-outline', action: handleTerminalClick },
+                { name: 'git-branch-outline', action: handleGitClick },
+                { name: 'settings-outline', action: () => togglePanel('settings') },
+              ]}
+              onIconChange={() => { }}
+            />
+          </View>
 
-          <VerticalIconSwitcher
-            icons={[
-              { name: 'grid-outline', action: () => setActivePanel(null) },
-              { name: 'folder-outline', action: () => togglePanel('files') },
-              { name: 'terminal-outline', action: handleTerminalClick },
-              { name: 'git-branch-outline', action: handleGitClick },
-              { name: 'settings-outline', action: () => togglePanel('settings') },
-            ]}
-            onIconChange={() => { }}
-          />
-
-          <View style={{ height: 20 }} />
-
-          <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
-          <IconButton iconName="settings" size={24} color={AppColors.icon.default} onPress={() => togglePanel('settings')} isActive={activePanel === 'settings'} activeColor={AppColors.primary} accessibilityLabel="Settings panel" />
+          {/* Bottom icons - always at bottom */}
+          <View style={styles.bottomIcons}>
+            <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
+            <IconButton iconName="settings" size={24} color={AppColors.icon.default} onPress={() => togglePanel('settings')} isActive={activePanel === 'settings'} activeColor={AppColors.primary} accessibilityLabel="Settings panel" />
+          </View>
         </Animated.View>
       </GestureDetector>
 
@@ -200,6 +206,17 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     zIndex: 1001,
     alignItems: 'center',
+  },
+  topIcons: {
+    alignItems: 'center',
+  },
+  centerSection: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  bottomIcons: {
+    alignItems: 'center',
+    paddingBottom: 10,
   },
   edgeSwipeArea: {
     position: 'absolute',
