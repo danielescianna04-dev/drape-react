@@ -57,7 +57,7 @@ interface TerminalState {
   terminalItems: TerminalItem[];
   isLoading: boolean;
   hasInteracted: boolean;
-  
+
   // Chat
   chatHistory: ChatSession[];
   chatFolders: ChatFolder[];
@@ -65,7 +65,7 @@ interface TerminalState {
   currentChatTitle: string | null;
   searchQuery: string;
   filteredChats: ChatSession[];
-  
+
   // GitHub
   isGitHubConnected: boolean;
   isConnectingToGitHub: boolean;
@@ -75,14 +75,14 @@ interface TerminalState {
   selectedRepository: GitHubRepository | null;
   gitHubUser: GitHubUser | null;
   showGitHubSidebar: boolean;
-  
+
   // Workstation
   currentWorkstation: WorkstationInfo | null;
   workstations: WorkstationInfo[];
   projectFolders: ProjectFolder[];
   isCreatingWorkstation: boolean;
   userId: string | null;
-  
+
   // UI State
   selectedModel: string;
   isTerminalMode: boolean;
@@ -93,12 +93,12 @@ interface TerminalState {
   previewServerUrl: string | null; // The actual running server URL
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
-  
+
   // Autocomplete
   autocompleteOptions: AutocompleteOption[];
   showAutocomplete: boolean;
   selectedAutocompleteIndex: number;
-  
+
   // Actions
   addTerminalItem: (item: TerminalItem) => void;
   addGlobalTerminalLog: (item: TerminalItem) => void;
@@ -181,7 +181,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   autocompleteOptions: [],
   showAutocomplete: false,
   selectedAutocompleteIndex: -1,
-  
+
   // Actions
   addTerminalItem: (item) =>
     set((state) => ({
@@ -207,7 +207,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   executeCommand: async (command: string, workstationId?: string) => {
     // Implementazione gestita da useTerminalExecutor
   },
-      
+
   clearTerminal: () => set({ terminalItems: [], hasInteracted: false }),
   setLoading: (loading) => set({ isLoading: loading }),
   setHasInteracted: (value) => set({ hasInteracted: value }),
@@ -270,11 +270,27 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setGitHubRepositories: (repos) => set({ gitHubRepositories: repos }),
   setSelectedRepository: (repo) => set({ selectedRepository: repo }),
   setShowGitHubSidebar: (show) => set({ showGitHubSidebar: show }),
-  setWorkstation: (workstation) => set({ currentWorkstation: workstation }),
+  setWorkstation: (workstation) =>
+    set((state) => {
+      // If switching to a different workstation (or clearing it), reset preview state
+      if (state.currentWorkstation?.id !== workstation?.id) {
+        return {
+          currentWorkstation: workstation,
+          previewUrl: null,
+          previewServerStatus: 'stopped',
+          previewServerUrl: null,
+        };
+      }
+      return { currentWorkstation: workstation };
+    }),
   addWorkstation: (workstation) =>
     set((state) => ({
       workstations: [...state.workstations, workstation],
       currentWorkstation: workstation,
+      // Reset preview state for the new workstation
+      previewUrl: null,
+      previewServerStatus: 'stopped',
+      previewServerUrl: null,
     })),
   loadWorkstations: (workstations) => set({ workstations }),
   setProjectFolders: (folders) => set({ projectFolders: folders }),
@@ -355,16 +371,16 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((state) => {
       const rootProjects = state.workstations.filter((w) => !w.folderId);
       const otherProjects = state.workstations.filter((w) => w.folderId);
-      
+
       const draggedIndex = rootProjects.findIndex((w) => w.id === draggedId);
       const targetIndex = rootProjects.findIndex((w) => w.id === targetId);
-      
+
       if (draggedIndex === -1 || targetIndex === -1) return state;
-      
+
       const newRootProjects = [...rootProjects];
       const [removed] = newRootProjects.splice(draggedIndex, 1);
       newRootProjects.splice(targetIndex, 0, removed);
-      
+
       return { workstations: [...newRootProjects, ...otherProjects] };
     }),
   setSelectedModel: (model) => set({ selectedModel: model }),

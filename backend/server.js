@@ -73,18 +73,18 @@ const admin = require('firebase-admin');
 
 // Import Claude Code-style helpers
 const {
-    isDuplicateRequest,
-    summarizeMessages,
-    createSystemBlocks,
-    handleAPIError,
-    trackRequest,
-    getTelemetry,
-    getCachedToolResult,
-    setCachedToolResult,
-    pruneMessages,
-    getAdaptiveContextSize,
-    trackUserCost,
-    getUserCostStats
+  isDuplicateRequest,
+  summarizeMessages,
+  createSystemBlocks,
+  handleAPIError,
+  trackRequest,
+  getTelemetry,
+  getCachedToolResult,
+  setCachedToolResult,
+  pruneMessages,
+  getAdaptiveContextSize,
+  trackUserCost,
+  getUserCostStats
 } = require('./claude-helpers');
 
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
@@ -113,9 +113,9 @@ const auth = new GoogleAuth({
 });
 
 // Initialize Vertex AI
-const vertex_ai = new VertexAI({ 
-  project: PROJECT_ID, 
-  location: LOCATION 
+const vertex_ai = new VertexAI({
+  project: PROJECT_ID,
+  location: LOCATION
 });
 
 // Middleware
@@ -223,14 +223,14 @@ app.get('/user-costs/:userId', (req, res) => {
 app.post('/containers/start', async (req, res) => {
   try {
     const { projectId, language } = req.body;
-    
+
     console.log('Starting container:', { projectId, language });
-    
+
     // Simulate container startup
     setTimeout(() => {
       console.log(`Container ${projectId} started`);
     }, 2000);
-    
+
     res.json({
       success: true,
       containerId: `container-${projectId}`,
@@ -238,7 +238,7 @@ app.post('/containers/start', async (req, res) => {
       webUrl: `http://localhost:${3000 + Math.floor(Math.random() * 1000)}`,
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
     console.error('Container start error:', error);
     res.status(500).json({
@@ -251,16 +251,16 @@ app.post('/containers/start', async (req, res) => {
 app.post('/containers/stop', async (req, res) => {
   try {
     const { containerId } = req.body;
-    
+
     console.log('Stopping container:', containerId);
-    
+
     res.json({
       success: true,
       containerId: containerId,
       status: 'stopped',
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
     console.error('Container stop error:', error);
     res.status(500).json({
@@ -389,26 +389,26 @@ const anthropic = new Anthropic({
 
 // AI Chat endpoint - Using Claude 3.5 Sonnet with native tool calling
 app.post('/ai/chat', async (req, res) => {
-    const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
-    // Use Claude Sonnet 4.0 (latest model)
-    // Note: Model IDs available depend on API tier
-    const model = 'claude-sonnet-4-20250514';
+  const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
+  // Use Claude Sonnet 4.0 (latest model)
+  // Note: Model IDs available depend on API tier
+  const model = 'claude-sonnet-4-20250514';
 
-    if (!prompt) {
-        return res.status(400).json({ error: 'Prompt is required' });
-    }
+  if (!prompt) {
+    return res.status(400).json({ error: 'Prompt is required' });
+  }
 
-    // 🚀 OPTIMIZATION 5: Request deduplication (like Claude Code)
-    // Prevent duplicate requests within 2 seconds
-    const sessionId = workstationId || projectId || 'default';
-    if (isDuplicateRequest(sessionId, prompt)) {
-        console.log('⚠️ Duplicate request detected - ignoring');
-        return res.status(429).json({ error: 'Duplicate request - please wait' });
-    }
+  // 🚀 OPTIMIZATION 5: Request deduplication (like Claude Code)
+  // Prevent duplicate requests within 2 seconds
+  const sessionId = workstationId || projectId || 'default';
+  if (isDuplicateRequest(sessionId, prompt)) {
+    console.log('⚠️ Duplicate request detected - ignoring');
+    return res.status(429).json({ error: 'Duplicate request - please wait' });
+  }
 
-    try {
-        // Build system message with project context and tool capabilities
-        let systemMessage = `Sei un assistente AI esperto di programmazione.
+  try {
+    // Build system message with project context and tool capabilities
+    let systemMessage = `Sei un assistente AI esperto di programmazione.
 
 IMPORTANTE: Rispondi SEMPRE in italiano corretto e fluente. Usa grammatica italiana perfetta, evita errori di ortografia e usa un tono professionale ma amichevole.
 
@@ -464,768 +464,768 @@ REGOLE D'ORO:
 3. NO formattazione markdown complessa
 4. Testo fluido e scorrevole`;
 
-        if (context) {
-            systemMessage += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
-            if (context.repositoryUrl) {
-                systemMessage += `\n- Repository: ${context.repositoryUrl}`;
+    if (context) {
+      systemMessage += `\n\nContesto Progetto:\n- Nome: ${context.projectName}\n- Linguaggio: ${context.language}`;
+      if (context.repositoryUrl) {
+        systemMessage += `\n- Repository: ${context.repositoryUrl}`;
+      }
+
+      systemMessage += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+      systemMessage += '🔍 ESPLORAZIONE AUTONOMA DEL CODEBASE (Claude Code Style)\n';
+      systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+      systemMessage += '🚨🚨🚨 REGOLA FONDAMENTALE - LEGGI ATTENTAMENTE! 🚨🚨🚨\n\n';
+      systemMessage += '❌ VIETATO rispondere a domande esplorative senza aver letto ALMENO 10 FILE!\n';
+      systemMessage += '❌ VIETATO basarti solo su package.json e glob!\n';
+      systemMessage += '❌ VIETATO fermarti dopo i primi 3 tool calls!\n';
+      systemMessage += '⚡ OBBLIGO: USA MULTIPLI TOOL CONTEMPORANEAMENTE! Non usare UN tool per volta!\n';
+      systemMessage += '⚡ ESEMPIO: Invece di chiamare read_file 5 volte separate, chiamale tutte insieme!\n\n';
+      systemMessage += '✅ OBBLIGO: Per domande come "Cosa fa questa applicazione?", DEVI:\n';
+      systemMessage += '   1. Leggere package.json ✓\n';
+      systemMessage += '   2. Fare glob per trovare file ✓\n';
+      systemMessage += '   3. Leggere App.tsx (OBBLIGATORIO!)\n';
+      systemMessage += '   4. Cercare e leggere ALMENO 3-5 file Service\n';
+      systemMessage += '   5. Leggere backend/server.js se esiste\n';
+      systemMessage += '   6. Leggere almeno 3 componenti principali\n';
+      systemMessage += '   7. Esplorare le feature più importanti\n';
+      systemMessage += '   → MINIMO 10 FILE LETTI prima di rispondere!\n\n';
+      systemMessage += '⚠️ Se non leggi abbastanza file, la tua risposta sarà INCOMPLETA e SUPERFICIALE!\n\n';
+
+      systemMessage += '🚨 COMPORTAMENTO VISIBILE - MOSTRA PROGRESSO SENZA SPIEGARE TUTTO:\n\n';
+      systemMessage += '✅ OBBLIGO: Dopo OGNI tool call, scrivi SOLO 5-8 PAROLE per dire cosa hai trovato\n';
+      systemMessage += '✅ NON spiegare i dettagli del file! Dì solo COSA hai trovato, non COME funziona\n';
+      systemMessage += '✅ Usa emoji: 📂 🔍 ✅ 🔧 💡\n';
+      systemMessage += '✅ Risposta DETTAGLIATA solo ALLA FINE, dopo aver esplorato tutto!\n\n';
+      systemMessage += '❌ VIETATO scrivere paragrafi lunghi DURANTE l\'esplorazione!\n';
+      systemMessage += '❌ VIETATO spiegare cosa contiene ogni file!\n';
+      systemMessage += '✅ PERMESSO: brevi indicatori di progresso tipo "Trovato servizio AI", "Letto config"\n\n';
+      systemMessage += '❌ ESEMPIO SBAGLIATO (silenzioso):\n';
+      systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+      systemMessage += 'Tu: "Esplorerò il codebase."\n';
+      systemMessage += 'Tu: [Chiama read_file(package.json)]\n';
+      systemMessage += '[Sistema mostra contenuto]\n';
+      systemMessage += 'Tu: [Chiama glob_files(**/*.ts)] <- ❌ NESSUN COMMENTO!\n';
+      systemMessage += '[Sistema mostra file]\n';
+      systemMessage += 'Tu: [Chiama read_file(App.tsx)] <- ❌ NESSUN COMMENTO!\n';
+      systemMessage += '👆 VIETATO! L\'utente non vede cosa stai pensando!\n\n';
+      systemMessage += '✅ ESEMPIO CORRETTO (visibile MA conciso):\n';
+      systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+      systemMessage += 'Tu: "📂 Esploro il codebase"\n';
+      systemMessage += 'Tu: [Chiama read_file(package.json)]\n';
+      systemMessage += '[Sistema mostra contenuto]\n';
+      systemMessage += 'Tu: "✅ React Native + Expo"\n';
+      systemMessage += 'Tu: [Chiama glob_files(**/*.ts)]\n';
+      systemMessage += '[Sistema mostra file]\n';
+      systemMessage += 'Tu: "🔍 25 file TS trovati"\n';
+      systemMessage += 'Tu: [Chiama read_file(App.tsx)]\n';
+      systemMessage += '[Sistema mostra App.tsx]\n';
+      systemMessage += 'Tu: "💡 È un IDE mobile"\n';
+      systemMessage += 'Tu: [read_file(aiService.ts)]\n';
+      systemMessage += 'Tu: "🤖 Integrazione AI trovata"\n';
+      systemMessage += '... più tool calls con commenti BREVI (5-8 parole) ...\n';
+      systemMessage += 'Tu: "Ecco la sintesi completa: [RISPOSTA DETTAGLIATA QUI]"\n\n';
+      systemMessage += '⚠️ DURANTE l\'esplorazione: max 5-8 parole per commento\n';
+      systemMessage += '⚠️ ALLA FINE: risposta completa e dettagliata\n\n';
+      systemMessage += '🎯 REGOLA D\'ORO: Brief comment → Tool call → Brief comment → Tool call → ...\n';
+      systemMessage += '1. Commento iniziale (1 riga)\n';
+      systemMessage += '2. Tool call\n';
+      systemMessage += '3. Breve commento su cosa hai trovato (1-2 righe)\n';
+      systemMessage += '4. Ripeti tool call + commento\n';
+      systemMessage += '5. Sintesi finale completa\n\n';
+
+      systemMessage += '📋 DOMANDE ESPLORATIVE (richiedono esplorazione automatica):\n';
+      systemMessage += '• "Cosa fa questa applicazione?"\n';
+      systemMessage += '• "Come funziona il sistema di autenticazione?"\n';
+      systemMessage += '• "Quali API sono disponibili?"\n';
+      systemMessage += '• "Qual è l\'architettura del progetto?"\n';
+      systemMessage += '• "Dove viene gestito X?"\n';
+      systemMessage += '• "Come è strutturato il codice?"\n';
+      systemMessage += '• Qualsiasi domanda che richiede comprensione del codebase\n\n';
+
+      systemMessage += '🎯 PROCESSO DI ESPLORAZIONE (esegui SEMPRE questi step):\n\n';
+
+      systemMessage += '1️⃣ STEP 1 - Esplora la struttura base (USA I TOOL SUBITO!):\n';
+      systemMessage += '   a) Leggi package.json per capire dipendenze e nome progetto\n';
+      systemMessage += '      → read_file(package.json)\n';
+      systemMessage += '   b) Trova tutti i file TypeScript/JavaScript:\n';
+      systemMessage += '      → glob_files(**/*.ts)\n';
+      systemMessage += '      → glob_files(**/*.tsx)\n';
+      systemMessage += '      → glob_files(**/*.js)\n\n';
+
+      systemMessage += '2️⃣ STEP 2 - Analizza entry points e servizi core (APPROFONDISCI!):\n';
+      systemMessage += '   a) Leggi il file principale (App.tsx, index.ts, main.ts, ecc.)\n';
+      systemMessage += '      → read_file(App.tsx) o read_file(src/index.ts)\n';
+      systemMessage += '   b) Cerca e leggi servizi importanti:\n';
+      systemMessage += '      → search_in_files(Service) per trovare servizi\n';
+      systemMessage += '      → read_file() sui file di servizio trovati (leggi ALMENO 3-5 servizi!)\n';
+      systemMessage += '   c) Se esiste un backend, leggilo:\n';
+      systemMessage += '      → glob_files(backend/**/*.js)\n';
+      systemMessage += '      → read_file(backend/server.js) o simile\n';
+      systemMessage += '   d) Esplora componenti e features importanti:\n';
+      systemMessage += '      → list_files(src/features) per vedere le feature disponibili\n';
+      systemMessage += '      → read_file() sui componenti principali di ogni feature\n';
+      systemMessage += '   e) Cerca pattern e funzionalità chiave:\n';
+      systemMessage += '      → search_in_files(API) per trovare chiamate API\n';
+      systemMessage += '      → search_in_files(auth) per trovare autenticazione\n';
+      systemMessage += '      → search_in_files(database) per trovare database logic\n\n';
+
+      systemMessage += '3️⃣ STEP 3 - Analizza configurazioni:\n';
+      systemMessage += '   → read_file(src/config/config.ts) se esiste\n';
+      systemMessage += '   → search_in_files(apiUrl) per trovare configurazioni\n\n';
+
+      systemMessage += '4️⃣ STEP 4 - Aggrega e sintetizza:\n';
+      systemMessage += '   Dopo aver raccolto i dati, fornisci una risposta strutturata basata\n';
+      systemMessage += '   ESCLUSIVAMENTE su ciò che hai trovato nel codice reale.\n\n';
+
+      systemMessage += '💡 ESEMPIO COMPLETO di risposta a "Cosa fa questa applicazione?":\n\n';
+      systemMessage += 'User: "Cosa fa questa applicazione?"\n';
+      systemMessage += 'Tu: "📂 Inizio ad esplorare il progetto..."\n';
+      systemMessage += 'Tu: [chiama read_file(package.json)]\n';
+      systemMessage += '[Sistema mostra package.json]\n';
+      systemMessage += 'Tu: "✅ È un progetto React Native con Expo. Cerco i file TypeScript..."\n';
+      systemMessage += 'Tu: [chiama glob_files(**/*.ts)]\n';
+      systemMessage += '[Sistema mostra 25 file]\n';
+      systemMessage += 'Tu: "🔍 Trovati 25 file TS. Leggo App.tsx per capire la struttura..."\n';
+      systemMessage += 'Tu: [chiama read_file(App.tsx)]\n';
+      systemMessage += '[Sistema mostra App.tsx con 334 righe]\n';
+      systemMessage += 'Tu: "💡 Ho visto che gestisce navigazione e tabs. Cerco i servizi principali..."\n';
+      systemMessage += 'Tu: [chiama search_in_files(Service)]\n';
+      systemMessage += '[Sistema mostra file con "Service"]\n';
+      systemMessage += 'Tu: "📋 Trovati aiService, workstationService, githubService. Leggo aiService..."\n';
+      systemMessage += 'Tu: [chiama read_file(src/core/ai/aiService.ts)]\n';
+      systemMessage += '[Sistema mostra aiService.ts]\n';
+      systemMessage += 'Tu: "🤖 Vedo chiamate AI per chat. Controllo il backend..."\n';
+      systemMessage += 'Tu: [chiama read_file(backend/server.js)]\n';
+      systemMessage += '[Sistema mostra server.js]\n';
+      systemMessage += 'Tu: "🔧 Backend usa Gemini 2.0 Flash. Ora sintetizzo tutto..."\n\n';
+      systemMessage += 'Tu: "Ecco l\'analisi completa:\n\nQuesta applicazione è un IDE mobile AI-powered chiamato Drape...\n';
+      systemMessage += '[descrizione completa dettagliata basata su TUTTI i file letti]"\n\n';
+      systemMessage += '⚡ NOTA CRITICA: Nell\'esempio sopra, ci sono SEMPRE brevi commenti tra i tool calls\n';
+      systemMessage += 'per far vedere all\'utente il progresso dell\'esplorazione!\n\n';
+
+      systemMessage += '❌ ERRORI DA EVITARE:\n';
+      systemMessage += '• NON rispondere senza prima esplorare il codice\n';
+      systemMessage += '• NON basarti solo sul nome del progetto o su supposizioni\n';
+      systemMessage += '• NON limitarti a leggere 1-2 file - esplora in modo completo\n';
+      systemMessage += '• NON dire "non ho accesso al codice" - HAI gli strumenti!\n';
+      systemMessage += '• ❌❌❌ VIETATO ASSOLUTO: NON FARE MAI ESEMPI/DEMO DI TOOL CALLS!\n';
+      systemMessage += '• ❌❌❌ NON scrivere "Ecco come usare i tool:" o spiegare i tool!\n';
+      systemMessage += '• ❌❌❌ DOPO l\'esplorazione scrivi SOLO la sintesi, NON esempi di tool!\n\n';
+
+      systemMessage += '✅ QUANDO PUOI RISPONDERE DIRETTAMENTE (senza esplorazione):\n';
+      systemMessage += '• Domande teoriche di programmazione ("Come funziona async/await?")\n';
+      systemMessage += '• Richieste di creazione di nuovo codice senza contesto esistente\n';
+      systemMessage += '• Conversazione generale non legata al codebase\n\n';
+
+      systemMessage += '\n\n🔧 STRUMENTI DISPONIBILI (come Claude Code):\n\n';
+      systemMessage += '1. read_file(path)\n';
+      systemMessage += '   → Leggi il contenuto di un file\n';
+      systemMessage += '   → Esempio: read_file(src/app.js)\n\n';
+
+      systemMessage += '2. edit_file(path, oldString, newString) ⭐ PREFERISCI QUESTO!\n';
+      systemMessage += '   → Modifica file esistente con search & replace\n';
+      systemMessage += '   → Esempio: edit_file(app.js, "const x = 1", "const x = 2")\n';
+      systemMessage += '   → ✅ Veloce, preciso, diff automatico\n';
+      systemMessage += '   → ✅ Non devi riscrivere tutto il file!\n';
+      systemMessage += '   → ⚠️ La stringa oldString DEVE esistere esattamente nel file\n';
+      systemMessage += '   → ⚠️ FUNZIONA SOLO SU FILE ESISTENTI - verifica con read_file() prima!\n';
+      systemMessage += '   → 🚫 Se read_file() fallisce → USA write_file() invece\n\n';
+
+      systemMessage += '3. write_file(path, content)\n';
+      systemMessage += '   → Crea NUOVI file o riscrive completamente file esistenti\n';
+      systemMessage += '   → ⚠️ SOVRASCRIVE tutto il contenuto!\n';
+      systemMessage += '   → Usa solo per: file nuovi, refactoring completo\n';
+      systemMessage += '   → ✅ Se un file NON esiste ancora, USA QUESTO!\n';
+      systemMessage += '   → Esempio: write_file(new.js, "console.log(\'hello\')")\n\n';
+
+      systemMessage += '4. list_files(directory)\n';
+      systemMessage += '   → Elenca file in una directory\n';
+      systemMessage += '   → Esempio: list_files(.)\n\n';
+
+      systemMessage += '5. search_in_files(pattern)\n';
+      systemMessage += '   → Cerca pattern nei file del progetto\n';
+      systemMessage += '   → Esempio: search_in_files(home)\n\n';
+
+      systemMessage += '6. execute_command(command)\n';
+      systemMessage += '   → Esegui comando bash nel progetto\n';
+      systemMessage += '   → Esempio: execute_command(npm install)\n\n';
+
+      systemMessage += '💡 QUANDO USARE OGNI TOOL:\n';
+      systemMessage += '• File ESISTE e vuoi modificarlo → edit_file() ⭐\n';
+      systemMessage += '• File NON ESISTE ancora → write_file() ✅\n';
+      systemMessage += '• Aggiungere/modificare righe → edit_file() ⭐ (solo se file esiste!)\n';
+      systemMessage += '• Cambiare una funzione → edit_file() ⭐ (solo se file esiste!)\n';
+      systemMessage += '• Creare file nuovo → write_file() ✅\n';
+      systemMessage += '• Refactoring completo → write_file()\n\n';
+      systemMessage += '⚠️ IMPORTANTE - Come usare gli strumenti:\n';
+      systemMessage += '1. PRIMA annuncia cosa stai per fare (es: "Leggo il file deploy_now.md")\n';
+      systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri\n';
+      systemMessage += '   → Esempio CORRETTO: search_in_files(home)\n';
+      systemMessage += '   → ❌ NON usare markdown: ```bash\\nsearch_in_files(home)\\n```\n';
+      systemMessage += '   → ❌ NON usare comandi shell diretti come: grep -r "home" .\n';
+      systemMessage += '   → ✅ USA SOLO: search_in_files(home)\n';
+      systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato\n';
+      systemMessage += '4. NON mostrare mai il contenuto completo del file, il sistema lo mostrerà\n';
+      systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
+      systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+      systemMessage += '📖 ESEMPI DI UTILIZZO:\n';
+      systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+
+      systemMessage += 'Esempio 1: GLOB + READ ⭐ (quando non conosci il path esatto)\n';
+      systemMessage += 'Utente: "Leggi il file deploy.txt"\n';
+      systemMessage += 'Tu: "Cerco prima il file"\n';
+      systemMessage += 'Tu: glob_files(**/deploy.txt)\n';
+      systemMessage += '[Sistema mostra: Found 1 file(s): deploy.txt]\n';
+      systemMessage += 'Tu: "Ora leggo"\n';
+      systemMessage += 'Tu: read_file(deploy.txt)\n';
+      systemMessage += 'Tu: "Il file contiene le istruzioni"\n\n';
+
+      systemMessage += 'Esempio 2: READ diretto (solo se conosci GIÀ il path completo)\n';
+      systemMessage += 'Utente: "Leggi src/app.js"\n';
+      systemMessage += 'Tu: read_file(src/app.js)\n\n';
+
+      systemMessage += 'Esempio 3: GLOB per trovare file TypeScript\n';
+      systemMessage += 'Utente: "Mostrami tutti i file TypeScript"\n';
+      systemMessage += 'Tu: glob_files(**/*.ts)\n';
+      systemMessage += '[Sistema mostra: Found 15 file(s)]\n\n';
+
+      systemMessage += 'Esempio 4: EDIT ⭐ (PREFERITO per modifiche)\n';
+      systemMessage += 'Utente: "Aggiungi Leon alla fine del file deploy.txt"\n';
+      systemMessage += 'Tu: "Leggo prima il file"\n';
+      systemMessage += 'Tu: read_file(deploy.txt)\n';
+      systemMessage += '[Sistema mostra in READ format il contenuto: "Il file contiene istruzioni"]\n';
+      systemMessage += 'Tu: "Ora aggiungo Leon alla fine usando edit_file"\n';
+      systemMessage += 'Tu: edit_file(deploy.txt, Il file contiene istruzioni, Il file contiene istruzioni\\nLeon)\n';
+      systemMessage += '       ↑↑↑ COPIA ESATTAMENTE IL TESTO CHE HAI LETTO (non riassumere!)\n';
+      systemMessage += 'Tu: "✅ Aggiunto Leon"\n\n';
+
+      systemMessage += 'Esempio 3: WRITE (solo per file nuovi)\n';
+      systemMessage += 'Utente: "Crea un file config.json"\n';
+      systemMessage += 'Tu: "Creo il file config.json"\n';
+      systemMessage += 'Tu: write_file(config.json, {\\"version\\": \\"1.0\\"})\n';
+      systemMessage += 'Tu: "✅ File creato"\n\n';
+
+      systemMessage += '⚠️ REGOLE CRITICHE:\n\n';
+      systemMessage += '📍 GLOB (quando NON conosci il path):\n';
+      systemMessage += '1. Se l\'utente chiede "leggi deploy.txt" → USA glob_files(**/deploy.txt) PRIMA\n';
+      systemMessage += '2. Se l\'utente chiede "trova tutti i file .ts" → USA glob_files(**/*.ts)\n';
+      systemMessage += '3. Dopo glob, usa il path trovato per read_file()\n\n';
+
+      systemMessage += '✏️ EDIT (per modificare file):\n';
+      systemMessage += '1. SEMPRE chiama read_file() PRIMA di edit_file()\n';
+      systemMessage += '2. Se read_file() FALLISCE (file non esiste) → USA write_file() invece!\n';
+      systemMessage += '3. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
+      systemMessage += '4. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
+      systemMessage += '5. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
+      systemMessage += '🎯 WORKFLOW CORRETTO:\n';
+      systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
+    }
+
+    // Define tools for Claude native function calling (converted from Gemini format)
+    const tools = [
+      {
+        name: 'read_file',
+        description: 'Leggi il contenuto di un file nel progetto',
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+              description: 'Il path del file da leggere'
             }
-
-            systemMessage += '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-            systemMessage += '🔍 ESPLORAZIONE AUTONOMA DEL CODEBASE (Claude Code Style)\n';
-            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
-
-            systemMessage += '🚨🚨🚨 REGOLA FONDAMENTALE - LEGGI ATTENTAMENTE! 🚨🚨🚨\n\n';
-            systemMessage += '❌ VIETATO rispondere a domande esplorative senza aver letto ALMENO 10 FILE!\n';
-            systemMessage += '❌ VIETATO basarti solo su package.json e glob!\n';
-            systemMessage += '❌ VIETATO fermarti dopo i primi 3 tool calls!\n';
-            systemMessage += '⚡ OBBLIGO: USA MULTIPLI TOOL CONTEMPORANEAMENTE! Non usare UN tool per volta!\n';
-            systemMessage += '⚡ ESEMPIO: Invece di chiamare read_file 5 volte separate, chiamale tutte insieme!\n\n';
-            systemMessage += '✅ OBBLIGO: Per domande come "Cosa fa questa applicazione?", DEVI:\n';
-            systemMessage += '   1. Leggere package.json ✓\n';
-            systemMessage += '   2. Fare glob per trovare file ✓\n';
-            systemMessage += '   3. Leggere App.tsx (OBBLIGATORIO!)\n';
-            systemMessage += '   4. Cercare e leggere ALMENO 3-5 file Service\n';
-            systemMessage += '   5. Leggere backend/server.js se esiste\n';
-            systemMessage += '   6. Leggere almeno 3 componenti principali\n';
-            systemMessage += '   7. Esplorare le feature più importanti\n';
-            systemMessage += '   → MINIMO 10 FILE LETTI prima di rispondere!\n\n';
-            systemMessage += '⚠️ Se non leggi abbastanza file, la tua risposta sarà INCOMPLETA e SUPERFICIALE!\n\n';
-
-            systemMessage += '🚨 COMPORTAMENTO VISIBILE - MOSTRA PROGRESSO SENZA SPIEGARE TUTTO:\n\n';
-            systemMessage += '✅ OBBLIGO: Dopo OGNI tool call, scrivi SOLO 5-8 PAROLE per dire cosa hai trovato\n';
-            systemMessage += '✅ NON spiegare i dettagli del file! Dì solo COSA hai trovato, non COME funziona\n';
-            systemMessage += '✅ Usa emoji: 📂 🔍 ✅ 🔧 💡\n';
-            systemMessage += '✅ Risposta DETTAGLIATA solo ALLA FINE, dopo aver esplorato tutto!\n\n';
-            systemMessage += '❌ VIETATO scrivere paragrafi lunghi DURANTE l\'esplorazione!\n';
-            systemMessage += '❌ VIETATO spiegare cosa contiene ogni file!\n';
-            systemMessage += '✅ PERMESSO: brevi indicatori di progresso tipo "Trovato servizio AI", "Letto config"\n\n';
-            systemMessage += '❌ ESEMPIO SBAGLIATO (silenzioso):\n';
-            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
-            systemMessage += 'Tu: "Esplorerò il codebase."\n';
-            systemMessage += 'Tu: [Chiama read_file(package.json)]\n';
-            systemMessage += '[Sistema mostra contenuto]\n';
-            systemMessage += 'Tu: [Chiama glob_files(**/*.ts)] <- ❌ NESSUN COMMENTO!\n';
-            systemMessage += '[Sistema mostra file]\n';
-            systemMessage += 'Tu: [Chiama read_file(App.tsx)] <- ❌ NESSUN COMMENTO!\n';
-            systemMessage += '👆 VIETATO! L\'utente non vede cosa stai pensando!\n\n';
-            systemMessage += '✅ ESEMPIO CORRETTO (visibile MA conciso):\n';
-            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
-            systemMessage += 'Tu: "📂 Esploro il codebase"\n';
-            systemMessage += 'Tu: [Chiama read_file(package.json)]\n';
-            systemMessage += '[Sistema mostra contenuto]\n';
-            systemMessage += 'Tu: "✅ React Native + Expo"\n';
-            systemMessage += 'Tu: [Chiama glob_files(**/*.ts)]\n';
-            systemMessage += '[Sistema mostra file]\n';
-            systemMessage += 'Tu: "🔍 25 file TS trovati"\n';
-            systemMessage += 'Tu: [Chiama read_file(App.tsx)]\n';
-            systemMessage += '[Sistema mostra App.tsx]\n';
-            systemMessage += 'Tu: "💡 È un IDE mobile"\n';
-            systemMessage += 'Tu: [read_file(aiService.ts)]\n';
-            systemMessage += 'Tu: "🤖 Integrazione AI trovata"\n';
-            systemMessage += '... più tool calls con commenti BREVI (5-8 parole) ...\n';
-            systemMessage += 'Tu: "Ecco la sintesi completa: [RISPOSTA DETTAGLIATA QUI]"\n\n';
-            systemMessage += '⚠️ DURANTE l\'esplorazione: max 5-8 parole per commento\n';
-            systemMessage += '⚠️ ALLA FINE: risposta completa e dettagliata\n\n';
-            systemMessage += '🎯 REGOLA D\'ORO: Brief comment → Tool call → Brief comment → Tool call → ...\n';
-            systemMessage += '1. Commento iniziale (1 riga)\n';
-            systemMessage += '2. Tool call\n';
-            systemMessage += '3. Breve commento su cosa hai trovato (1-2 righe)\n';
-            systemMessage += '4. Ripeti tool call + commento\n';
-            systemMessage += '5. Sintesi finale completa\n\n';
-
-            systemMessage += '📋 DOMANDE ESPLORATIVE (richiedono esplorazione automatica):\n';
-            systemMessage += '• "Cosa fa questa applicazione?"\n';
-            systemMessage += '• "Come funziona il sistema di autenticazione?"\n';
-            systemMessage += '• "Quali API sono disponibili?"\n';
-            systemMessage += '• "Qual è l\'architettura del progetto?"\n';
-            systemMessage += '• "Dove viene gestito X?"\n';
-            systemMessage += '• "Come è strutturato il codice?"\n';
-            systemMessage += '• Qualsiasi domanda che richiede comprensione del codebase\n\n';
-
-            systemMessage += '🎯 PROCESSO DI ESPLORAZIONE (esegui SEMPRE questi step):\n\n';
-
-            systemMessage += '1️⃣ STEP 1 - Esplora la struttura base (USA I TOOL SUBITO!):\n';
-            systemMessage += '   a) Leggi package.json per capire dipendenze e nome progetto\n';
-            systemMessage += '      → read_file(package.json)\n';
-            systemMessage += '   b) Trova tutti i file TypeScript/JavaScript:\n';
-            systemMessage += '      → glob_files(**/*.ts)\n';
-            systemMessage += '      → glob_files(**/*.tsx)\n';
-            systemMessage += '      → glob_files(**/*.js)\n\n';
-
-            systemMessage += '2️⃣ STEP 2 - Analizza entry points e servizi core (APPROFONDISCI!):\n';
-            systemMessage += '   a) Leggi il file principale (App.tsx, index.ts, main.ts, ecc.)\n';
-            systemMessage += '      → read_file(App.tsx) o read_file(src/index.ts)\n';
-            systemMessage += '   b) Cerca e leggi servizi importanti:\n';
-            systemMessage += '      → search_in_files(Service) per trovare servizi\n';
-            systemMessage += '      → read_file() sui file di servizio trovati (leggi ALMENO 3-5 servizi!)\n';
-            systemMessage += '   c) Se esiste un backend, leggilo:\n';
-            systemMessage += '      → glob_files(backend/**/*.js)\n';
-            systemMessage += '      → read_file(backend/server.js) o simile\n';
-            systemMessage += '   d) Esplora componenti e features importanti:\n';
-            systemMessage += '      → list_files(src/features) per vedere le feature disponibili\n';
-            systemMessage += '      → read_file() sui componenti principali di ogni feature\n';
-            systemMessage += '   e) Cerca pattern e funzionalità chiave:\n';
-            systemMessage += '      → search_in_files(API) per trovare chiamate API\n';
-            systemMessage += '      → search_in_files(auth) per trovare autenticazione\n';
-            systemMessage += '      → search_in_files(database) per trovare database logic\n\n';
-
-            systemMessage += '3️⃣ STEP 3 - Analizza configurazioni:\n';
-            systemMessage += '   → read_file(src/config/config.ts) se esiste\n';
-            systemMessage += '   → search_in_files(apiUrl) per trovare configurazioni\n\n';
-
-            systemMessage += '4️⃣ STEP 4 - Aggrega e sintetizza:\n';
-            systemMessage += '   Dopo aver raccolto i dati, fornisci una risposta strutturata basata\n';
-            systemMessage += '   ESCLUSIVAMENTE su ciò che hai trovato nel codice reale.\n\n';
-
-            systemMessage += '💡 ESEMPIO COMPLETO di risposta a "Cosa fa questa applicazione?":\n\n';
-            systemMessage += 'User: "Cosa fa questa applicazione?"\n';
-            systemMessage += 'Tu: "📂 Inizio ad esplorare il progetto..."\n';
-            systemMessage += 'Tu: [chiama read_file(package.json)]\n';
-            systemMessage += '[Sistema mostra package.json]\n';
-            systemMessage += 'Tu: "✅ È un progetto React Native con Expo. Cerco i file TypeScript..."\n';
-            systemMessage += 'Tu: [chiama glob_files(**/*.ts)]\n';
-            systemMessage += '[Sistema mostra 25 file]\n';
-            systemMessage += 'Tu: "🔍 Trovati 25 file TS. Leggo App.tsx per capire la struttura..."\n';
-            systemMessage += 'Tu: [chiama read_file(App.tsx)]\n';
-            systemMessage += '[Sistema mostra App.tsx con 334 righe]\n';
-            systemMessage += 'Tu: "💡 Ho visto che gestisce navigazione e tabs. Cerco i servizi principali..."\n';
-            systemMessage += 'Tu: [chiama search_in_files(Service)]\n';
-            systemMessage += '[Sistema mostra file con "Service"]\n';
-            systemMessage += 'Tu: "📋 Trovati aiService, workstationService, githubService. Leggo aiService..."\n';
-            systemMessage += 'Tu: [chiama read_file(src/core/ai/aiService.ts)]\n';
-            systemMessage += '[Sistema mostra aiService.ts]\n';
-            systemMessage += 'Tu: "🤖 Vedo chiamate AI per chat. Controllo il backend..."\n';
-            systemMessage += 'Tu: [chiama read_file(backend/server.js)]\n';
-            systemMessage += '[Sistema mostra server.js]\n';
-            systemMessage += 'Tu: "🔧 Backend usa Gemini 2.0 Flash. Ora sintetizzo tutto..."\n\n';
-            systemMessage += 'Tu: "Ecco l\'analisi completa:\n\nQuesta applicazione è un IDE mobile AI-powered chiamato Drape...\n';
-            systemMessage += '[descrizione completa dettagliata basata su TUTTI i file letti]"\n\n';
-            systemMessage += '⚡ NOTA CRITICA: Nell\'esempio sopra, ci sono SEMPRE brevi commenti tra i tool calls\n';
-            systemMessage += 'per far vedere all\'utente il progresso dell\'esplorazione!\n\n';
-
-            systemMessage += '❌ ERRORI DA EVITARE:\n';
-            systemMessage += '• NON rispondere senza prima esplorare il codice\n';
-            systemMessage += '• NON basarti solo sul nome del progetto o su supposizioni\n';
-            systemMessage += '• NON limitarti a leggere 1-2 file - esplora in modo completo\n';
-            systemMessage += '• NON dire "non ho accesso al codice" - HAI gli strumenti!\n';
-            systemMessage += '• ❌❌❌ VIETATO ASSOLUTO: NON FARE MAI ESEMPI/DEMO DI TOOL CALLS!\n';
-            systemMessage += '• ❌❌❌ NON scrivere "Ecco come usare i tool:" o spiegare i tool!\n';
-            systemMessage += '• ❌❌❌ DOPO l\'esplorazione scrivi SOLO la sintesi, NON esempi di tool!\n\n';
-
-            systemMessage += '✅ QUANDO PUOI RISPONDERE DIRETTAMENTE (senza esplorazione):\n';
-            systemMessage += '• Domande teoriche di programmazione ("Come funziona async/await?")\n';
-            systemMessage += '• Richieste di creazione di nuovo codice senza contesto esistente\n';
-            systemMessage += '• Conversazione generale non legata al codebase\n\n';
-
-            systemMessage += '\n\n🔧 STRUMENTI DISPONIBILI (come Claude Code):\n\n';
-            systemMessage += '1. read_file(path)\n';
-            systemMessage += '   → Leggi il contenuto di un file\n';
-            systemMessage += '   → Esempio: read_file(src/app.js)\n\n';
-
-            systemMessage += '2. edit_file(path, oldString, newString) ⭐ PREFERISCI QUESTO!\n';
-            systemMessage += '   → Modifica file esistente con search & replace\n';
-            systemMessage += '   → Esempio: edit_file(app.js, "const x = 1", "const x = 2")\n';
-            systemMessage += '   → ✅ Veloce, preciso, diff automatico\n';
-            systemMessage += '   → ✅ Non devi riscrivere tutto il file!\n';
-            systemMessage += '   → ⚠️ La stringa oldString DEVE esistere esattamente nel file\n';
-            systemMessage += '   → ⚠️ FUNZIONA SOLO SU FILE ESISTENTI - verifica con read_file() prima!\n';
-            systemMessage += '   → 🚫 Se read_file() fallisce → USA write_file() invece\n\n';
-
-            systemMessage += '3. write_file(path, content)\n';
-            systemMessage += '   → Crea NUOVI file o riscrive completamente file esistenti\n';
-            systemMessage += '   → ⚠️ SOVRASCRIVE tutto il contenuto!\n';
-            systemMessage += '   → Usa solo per: file nuovi, refactoring completo\n';
-            systemMessage += '   → ✅ Se un file NON esiste ancora, USA QUESTO!\n';
-            systemMessage += '   → Esempio: write_file(new.js, "console.log(\'hello\')")\n\n';
-
-            systemMessage += '4. list_files(directory)\n';
-            systemMessage += '   → Elenca file in una directory\n';
-            systemMessage += '   → Esempio: list_files(.)\n\n';
-
-            systemMessage += '5. search_in_files(pattern)\n';
-            systemMessage += '   → Cerca pattern nei file del progetto\n';
-            systemMessage += '   → Esempio: search_in_files(home)\n\n';
-
-            systemMessage += '6. execute_command(command)\n';
-            systemMessage += '   → Esegui comando bash nel progetto\n';
-            systemMessage += '   → Esempio: execute_command(npm install)\n\n';
-
-            systemMessage += '💡 QUANDO USARE OGNI TOOL:\n';
-            systemMessage += '• File ESISTE e vuoi modificarlo → edit_file() ⭐\n';
-            systemMessage += '• File NON ESISTE ancora → write_file() ✅\n';
-            systemMessage += '• Aggiungere/modificare righe → edit_file() ⭐ (solo se file esiste!)\n';
-            systemMessage += '• Cambiare una funzione → edit_file() ⭐ (solo se file esiste!)\n';
-            systemMessage += '• Creare file nuovo → write_file() ✅\n';
-            systemMessage += '• Refactoring completo → write_file()\n\n';
-            systemMessage += '⚠️ IMPORTANTE - Come usare gli strumenti:\n';
-            systemMessage += '1. PRIMA annuncia cosa stai per fare (es: "Leggo il file deploy_now.md")\n';
-            systemMessage += '2. POI chiama lo strumento scrivendo SOLO il nome e i parametri\n';
-            systemMessage += '   → Esempio CORRETTO: search_in_files(home)\n';
-            systemMessage += '   → ❌ NON usare markdown: ```bash\\nsearch_in_files(home)\\n```\n';
-            systemMessage += '   → ❌ NON usare comandi shell diretti come: grep -r "home" .\n';
-            systemMessage += '   → ✅ USA SOLO: search_in_files(home)\n';
-            systemMessage += '3. DOPO che lo strumento ha restituito il risultato, spiega cosa hai trovato\n';
-            systemMessage += '4. NON mostrare mai il contenuto completo del file, il sistema lo mostrerà\n';
-            systemMessage += '5. NON ripetere il contenuto che hai letto, commenta solo cosa contiene\n\n';
-            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-            systemMessage += '📖 ESEMPI DI UTILIZZO:\n';
-            systemMessage += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
-
-            systemMessage += 'Esempio 1: GLOB + READ ⭐ (quando non conosci il path esatto)\n';
-            systemMessage += 'Utente: "Leggi il file deploy.txt"\n';
-            systemMessage += 'Tu: "Cerco prima il file"\n';
-            systemMessage += 'Tu: glob_files(**/deploy.txt)\n';
-            systemMessage += '[Sistema mostra: Found 1 file(s): deploy.txt]\n';
-            systemMessage += 'Tu: "Ora leggo"\n';
-            systemMessage += 'Tu: read_file(deploy.txt)\n';
-            systemMessage += 'Tu: "Il file contiene le istruzioni"\n\n';
-
-            systemMessage += 'Esempio 2: READ diretto (solo se conosci GIÀ il path completo)\n';
-            systemMessage += 'Utente: "Leggi src/app.js"\n';
-            systemMessage += 'Tu: read_file(src/app.js)\n\n';
-
-            systemMessage += 'Esempio 3: GLOB per trovare file TypeScript\n';
-            systemMessage += 'Utente: "Mostrami tutti i file TypeScript"\n';
-            systemMessage += 'Tu: glob_files(**/*.ts)\n';
-            systemMessage += '[Sistema mostra: Found 15 file(s)]\n\n';
-
-            systemMessage += 'Esempio 4: EDIT ⭐ (PREFERITO per modifiche)\n';
-            systemMessage += 'Utente: "Aggiungi Leon alla fine del file deploy.txt"\n';
-            systemMessage += 'Tu: "Leggo prima il file"\n';
-            systemMessage += 'Tu: read_file(deploy.txt)\n';
-            systemMessage += '[Sistema mostra in READ format il contenuto: "Il file contiene istruzioni"]\n';
-            systemMessage += 'Tu: "Ora aggiungo Leon alla fine usando edit_file"\n';
-            systemMessage += 'Tu: edit_file(deploy.txt, Il file contiene istruzioni, Il file contiene istruzioni\\nLeon)\n';
-            systemMessage += '       ↑↑↑ COPIA ESATTAMENTE IL TESTO CHE HAI LETTO (non riassumere!)\n';
-            systemMessage += 'Tu: "✅ Aggiunto Leon"\n\n';
-
-            systemMessage += 'Esempio 3: WRITE (solo per file nuovi)\n';
-            systemMessage += 'Utente: "Crea un file config.json"\n';
-            systemMessage += 'Tu: "Creo il file config.json"\n';
-            systemMessage += 'Tu: write_file(config.json, {\\"version\\": \\"1.0\\"})\n';
-            systemMessage += 'Tu: "✅ File creato"\n\n';
-
-            systemMessage += '⚠️ REGOLE CRITICHE:\n\n';
-            systemMessage += '📍 GLOB (quando NON conosci il path):\n';
-            systemMessage += '1. Se l\'utente chiede "leggi deploy.txt" → USA glob_files(**/deploy.txt) PRIMA\n';
-            systemMessage += '2. Se l\'utente chiede "trova tutti i file .ts" → USA glob_files(**/*.ts)\n';
-            systemMessage += '3. Dopo glob, usa il path trovato per read_file()\n\n';
-
-            systemMessage += '✏️ EDIT (per modificare file):\n';
-            systemMessage += '1. SEMPRE chiama read_file() PRIMA di edit_file()\n';
-            systemMessage += '2. Se read_file() FALLISCE (file non esiste) → USA write_file() invece!\n';
-            systemMessage += '3. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
-            systemMessage += '4. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
-            systemMessage += '5. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
-            systemMessage += '🎯 WORKFLOW CORRETTO:\n';
-            systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
+          },
+          required: ['filePath']
         }
-
-        // Define tools for Claude native function calling (converted from Gemini format)
-        const tools = [
-            {
-                name: 'read_file',
-                description: 'Leggi il contenuto di un file nel progetto',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        filePath: {
-                            type: 'string',
-                            description: 'Il path del file da leggere'
-                        }
-                    },
-                    required: ['filePath']
-                }
+      },
+      {
+        name: 'write_file',
+        description: 'Crea un nuovo file o sovrascrive completamente un file esistente',
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+              description: 'Il path del file da creare/sovrascrivere'
             },
-            {
-                name: 'write_file',
-                description: 'Crea un nuovo file o sovrascrive completamente un file esistente',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        filePath: {
-                            type: 'string',
-                            description: 'Il path del file da creare/sovrascrivere'
-                        },
-                        content: {
-                            type: 'string',
-                            description: 'Il contenuto completo del file'
-                        }
-                    },
-                    required: ['filePath', 'content']
-                }
-            },
-            {
-                name: 'edit_file',
-                description: 'Modifica un file esistente con search & replace. Il file DEVE esistere.',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        filePath: {
-                            type: 'string',
-                            description: 'Il path del file da modificare'
-                        },
-                        oldString: {
-                            type: 'string',
-                            description: 'Il testo esatto da cercare e sostituire'
-                        },
-                        newString: {
-                            type: 'string',
-                            description: 'Il nuovo testo con cui sostituire oldString'
-                        }
-                    },
-                    required: ['filePath', 'oldString', 'newString']
-                }
-            },
-            {
-                name: 'list_files',
-                description: 'Elenca i file in una directory',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        directory: {
-                            type: 'string',
-                            description: 'La directory da elencare (es: "." per root)'
-                        }
-                    },
-                    required: ['directory']
-                }
-            },
-            {
-                name: 'glob_files',
-                description: 'Cerca file usando pattern glob (es: "**/*.ts" per tutti i file TypeScript, "**/deploy*" per file che iniziano con deploy)',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        pattern: {
-                            type: 'string',
-                            description: 'Il pattern glob da cercare (es: "**/*.ts", "**/*.js", "**/package.json")'
-                        }
-                    },
-                    required: ['pattern']
-                }
-            },
-            {
-                name: 'search_in_files',
-                description: 'Cerca un pattern di testo all\'interno dei file del progetto (come grep)',
-                input_schema: {
-                    type: 'object',
-                    properties: {
-                        pattern: {
-                            type: 'string',
-                            description: 'Il pattern di testo da cercare nei file (es: "Service", "API", "auth")'
-                        }
-                    },
-                    required: ['pattern']
-                }
+            content: {
+              type: 'string',
+              description: 'Il contenuto completo del file'
             }
-        ];
+          },
+          required: ['filePath', 'content']
+        }
+      },
+      {
+        name: 'edit_file',
+        description: 'Modifica un file esistente con search & replace. Il file DEVE esistere.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: {
+              type: 'string',
+              description: 'Il path del file da modificare'
+            },
+            oldString: {
+              type: 'string',
+              description: 'Il testo esatto da cercare e sostituire'
+            },
+            newString: {
+              type: 'string',
+              description: 'Il nuovo testo con cui sostituire oldString'
+            }
+          },
+          required: ['filePath', 'oldString', 'newString']
+        }
+      },
+      {
+        name: 'list_files',
+        description: 'Elenca i file in una directory',
+        input_schema: {
+          type: 'object',
+          properties: {
+            directory: {
+              type: 'string',
+              description: 'La directory da elencare (es: "." per root)'
+            }
+          },
+          required: ['directory']
+        }
+      },
+      {
+        name: 'glob_files',
+        description: 'Cerca file usando pattern glob (es: "**/*.ts" per tutti i file TypeScript, "**/deploy*" per file che iniziano con deploy)',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: {
+              type: 'string',
+              description: 'Il pattern glob da cercare (es: "**/*.ts", "**/*.js", "**/package.json")'
+            }
+          },
+          required: ['pattern']
+        }
+      },
+      {
+        name: 'search_in_files',
+        description: 'Cerca un pattern di testo all\'interno dei file del progetto (come grep)',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: {
+              type: 'string',
+              description: 'Il pattern di testo da cercare nei file (es: "Service", "API", "auth")'
+            }
+          },
+          required: ['pattern']
+        }
+      }
+    ];
 
-        // Build conversation history for Claude (convert from simple string array to Claude format)
-        // 🚀 OPTIMIZATION 1: Limit context window + Message Summarization (like Claude Code does)
-        // 🚀 OPTIMIZATION 10 & 11: Adaptive Context + Smart Pruning (like Claude Code)
-        const MAX_HISTORY_MESSAGES = 20;
+    // Build conversation history for Claude (convert from simple string array to Claude format)
+    // 🚀 OPTIMIZATION 1: Limit context window + Message Summarization (like Claude Code does)
+    // 🚀 OPTIMIZATION 10 & 11: Adaptive Context + Smart Pruning (like Claude Code)
+    const MAX_HISTORY_MESSAGES = 20;
 
-        // Adaptive context size based on prompt type
-        const adaptiveMaxMessages = getAdaptiveContextSize(prompt, conversationHistory);
+    // Adaptive context size based on prompt type
+    const adaptiveMaxMessages = getAdaptiveContextSize(prompt, conversationHistory);
 
-        const limitedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
+    const limitedHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
 
-        const messages = [];
+    const messages = [];
 
-        // Convert history to message objects
-        const historyMessages = [];
-        for (let i = 0; i < limitedHistory.length; i++) {
-            historyMessages.push({
-                role: i % 2 === 0 ? 'user' : 'assistant',
-                content: limitedHistory[i]
+    // Convert history to message objects
+    const historyMessages = [];
+    for (let i = 0; i < limitedHistory.length; i++) {
+      historyMessages.push({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: limitedHistory[i]
+      });
+    }
+
+    // Apply smart pruning with relevance scoring (better than summarization)
+    const optimizedMessages = pruneMessages(historyMessages, prompt, adaptiveMaxMessages);
+    messages.push(...optimizedMessages);
+
+    // Add current user message
+    messages.push({
+      role: 'user',
+      content: prompt
+    });
+
+    // Set headers for SSE streaming
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    // Helper function to execute tool calls (compatible with both Gemini and Claude)
+    async function executeTool(name, args) {
+      const axios = require('axios');
+
+      // 🚀 OPTIMIZATION 9: Tool Result Caching (like Claude Code)
+      // Check cache first for read-only operations
+      if (['read_file', 'list_files', 'glob_files', 'search_in_files'].includes(name)) {
+        const cachedResult = getCachedToolResult(name, args);
+        if (cachedResult) {
+          return cachedResult;
+        }
+      }
+
+      try {
+        let result;
+        switch (name) {
+          case 'read_file':
+            const readRes = await axios.post(`http://localhost:${PORT}/workstation/read-file`, {
+              projectId: projectId,
+              filePath: args.filePath
             });
+            result = readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
+            // Cache the result
+            if (readRes.data.success) {
+              setCachedToolResult(name, args, result);
+            }
+            return result;
+
+          case 'write_file':
+            const writeRes = await axios.post(`http://localhost:${PORT}/workstation/write-file`, {
+              projectId: projectId,
+              filePath: args.filePath,
+              content: args.content
+            });
+            return writeRes.data.success ? `File ${args.filePath} scritto con successo` : `Error: ${writeRes.data.error}`;
+
+          case 'edit_file':
+            const editRes = await axios.post(`http://localhost:${PORT}/workstation/edit-file`, {
+              projectId: projectId,
+              filePath: args.filePath,
+              oldString: args.oldString,
+              newString: args.newString
+            });
+            if (editRes.data.success) {
+              // Return the diff if available, otherwise return success message
+              return editRes.data.diffInfo?.diff || `File ${args.filePath} modificato con successo`;
+            } else {
+              return `Error: ${editRes.data.error}`;
+            }
+
+          case 'list_files':
+            const listRes = await axios.post(`http://localhost:${PORT}/workstation/list-directory`, {
+              projectId: projectId,
+              directory: args.directory
+            });
+            result = listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
+            if (listRes.data.success) {
+              setCachedToolResult(name, args, result);
+            }
+            return result;
+
+          case 'glob_files':
+            const globRes = await axios.post(`http://localhost:${PORT}/workstation/glob-files`, {
+              projectId: projectId,
+              pattern: args.pattern
+            });
+            if (globRes.data.success) {
+              const files = globRes.data.files || [];
+              const fileCount = files.length;
+              const fileList = files.join('\n');
+              result = `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
+              setCachedToolResult(name, args, result);
+              return result;
+            } else {
+              return `Error: ${globRes.data.error}`;
+            }
+
+          case 'search_in_files':
+            const searchRes = await axios.post(`http://localhost:${PORT}/workstation/search-files`, {
+              projectId: projectId,
+              pattern: args.pattern
+            });
+            if (searchRes.data.success) {
+              const results = searchRes.data.results || [];
+              const matchCount = results.length;
+              const resultList = results.slice(0, 20).map(r => `${r.file}:${r.line}: ${r.content}`).join('\n');
+              const truncated = matchCount > 20 ? `\n... (showing first 20 of ${matchCount} matches)` : '';
+              result = `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
+              setCachedToolResult(name, args, result);
+              return result;
+            } else {
+              return `Error: ${searchRes.data.error}`;
+            }
+
+          default:
+            return `Error: Unknown function ${name}`;
+        }
+      } catch (error) {
+        return `Error executing ${name}: ${error.message}`;
+      }
+    }
+
+    // Create Claude streaming session with tool support
+    let currentMessages = [...messages];
+
+    // Main streaming loop to handle tool calls
+    let continueLoop = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+
+    while (continueLoop) {
+      continueLoop = false;
+
+      try {
+        // 🚀 OPTIMIZATION 2 & 4: Prompt Caching with graceful fallback (like Claude Code)
+        // Try caching first, fallback to simple string if not supported
+        let systemBlocks;
+        let usedCache = false;
+
+        try {
+          systemBlocks = createSystemBlocks(systemMessage, true); // Try with caching
+          usedCache = true;
+        } catch (cacheError) {
+          console.log('⚠️ Prompt caching not supported, using fallback');
+          systemBlocks = createSystemBlocks(systemMessage, false); // Fallback to string
         }
 
-        // Apply smart pruning with relevance scoring (better than summarization)
-        const optimizedMessages = pruneMessages(historyMessages, prompt, adaptiveMaxMessages);
-        messages.push(...optimizedMessages);
-
-        // Add current user message
-        messages.push({
-            role: 'user',
-            content: prompt
+        // Start Claude streaming
+        const stream = anthropic.messages.stream({
+          model: model,
+          max_tokens: 8192,
+          system: systemBlocks,
+          messages: currentMessages,
+          tools: tools,
+          temperature: 0.7
         });
 
-        // Set headers for SSE streaming
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
+        // Track tool calls detected during streaming (for UI only)
+        const toolCallsForUI = [];
 
-        // Helper function to execute tool calls (compatible with both Gemini and Claude)
-        async function executeTool(name, args) {
-            const axios = require('axios');
+        // Handle streaming events
+        for await (const event of stream) {
+          // Text delta - stream to client
+          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
+          }
 
-            // 🚀 OPTIMIZATION 9: Tool Result Caching (like Claude Code)
-            // Check cache first for read-only operations
-            if (['read_file', 'list_files', 'glob_files', 'search_in_files'].includes(name)) {
-                const cachedResult = getCachedToolResult(name, args);
-                if (cachedResult) {
-                    return cachedResult;
+          // Tool use started - send to frontend for UI (but don't execute yet!)
+          if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+            const toolUse = event.content_block;
+            console.log('🔧 Tool call detected (streaming):', toolUse.name, '- params empty:', JSON.stringify(toolUse.input));
+
+            // Stream function call to frontend for UI (EXCEPT for glob_files and search_in_files)
+            // NOTE: At this point, toolUse.input is still empty {}!
+            if (toolUse.name !== 'glob_files' && toolUse.name !== 'search_in_files') {
+              res.write(`data: ${JSON.stringify({
+                functionCall: {
+                  name: toolUse.name,
+                  args: toolUse.input // This will be empty {} during streaming
                 }
+              })}\n\n`);
             }
 
+            // Store tool ID for tracking (DO NOT execute yet!)
+            toolCallsForUI.push({
+              id: toolUse.id,
+              name: toolUse.name
+            });
+          }
+        }
+
+        // After streaming completes, get the final message with complete tool parameters
+        const finalMessage = await stream.finalMessage();
+
+        // 📊 Log token usage and cache hits + Track telemetry (like Claude Code)
+        const usage = finalMessage.usage;
+        const toolUseBlocks = finalMessage.content.filter(block => block.type === 'tool_use');
+
+        if (usage) {
+          const cacheHit = usage.cache_read_input_tokens || 0;
+          const cacheSavings = (cacheHit * 0.00003).toFixed(4); // $0.03 per 1M tokens
+          console.log(`📊 Token usage: Input=${usage.input_tokens}, Cache=${cacheHit} (saved $${cacheSavings}), Output=${usage.output_tokens}`);
+
+          // Track in telemetry
+          trackRequest({
+            tokens: {
+              input: usage.input_tokens || 0,
+              output: usage.output_tokens || 0,
+              cached: cacheHit
+            },
+            tools: toolUseBlocks.map(t => t.name)
+          });
+
+          // 🚀 OPTIMIZATION 12: Cost Budgeting & Alerts (like Claude Code)
+          const userCostData = trackUserCost(sessionId, {
+            input: usage.input_tokens || 0,
+            output: usage.output_tokens || 0,
+            cached: cacheHit
+          });
+          console.log(`💰 User ${sessionId} total cost: $${userCostData.total.toFixed(4)} over ${userCostData.requests} requests`);
+        }
+
+        // Now execute tools with complete parameters from finalMessage
+        const toolsUsed = [];
+
+        if (toolUseBlocks.length > 0) {
+          console.log(`✅ Streaming complete. Executing ${toolUseBlocks.length} tool(s) with complete parameters...`);
+
+          // 🚀 OPTIMIZATION 13: Parallel Tool Execution (like Claude Code)
+          // Execute all tools in parallel instead of sequentially
+          const startTime = Date.now();
+
+          const toolPromises = toolUseBlocks.map(async (toolUse) => {
+            console.log('🔧 Executing tool:', toolUse.name, 'with params:', JSON.stringify(toolUse.input));
+
             try {
-                let result;
-                switch (name) {
-                    case 'read_file':
-                        const readRes = await axios.post(`http://localhost:${PORT}/workstation/read-file`, {
-                            projectId: projectId,
-                            filePath: args.filePath
-                        });
-                        result = readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
-                        // Cache the result
-                        if (readRes.data.success) {
-                            setCachedToolResult(name, args, result);
-                        }
-                        return result;
+              const toolResult = await executeTool(toolUse.name, toolUse.input);
+              console.log('✅ Tool result:', toolResult.substring(0, 200));
 
-                    case 'write_file':
-                        const writeRes = await axios.post(`http://localhost:${PORT}/workstation/write-file`, {
-                            projectId: projectId,
-                            filePath: args.filePath,
-                            content: args.content
-                        });
-                        return writeRes.data.success ? `File ${args.filePath} scritto con successo` : `Error: ${writeRes.data.error}`;
-
-                    case 'edit_file':
-                        const editRes = await axios.post(`http://localhost:${PORT}/workstation/edit-file`, {
-                            projectId: projectId,
-                            filePath: args.filePath,
-                            oldString: args.oldString,
-                            newString: args.newString
-                        });
-                        if (editRes.data.success) {
-                            // Return the diff if available, otherwise return success message
-                            return editRes.data.diffInfo?.diff || `File ${args.filePath} modificato con successo`;
-                        } else {
-                            return `Error: ${editRes.data.error}`;
-                        }
-
-                    case 'list_files':
-                        const listRes = await axios.post(`http://localhost:${PORT}/workstation/list-directory`, {
-                            projectId: projectId,
-                            directory: args.directory
-                        });
-                        result = listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
-                        if (listRes.data.success) {
-                            setCachedToolResult(name, args, result);
-                        }
-                        return result;
-
-                    case 'glob_files':
-                        const globRes = await axios.post(`http://localhost:${PORT}/workstation/glob-files`, {
-                            projectId: projectId,
-                            pattern: args.pattern
-                        });
-                        if (globRes.data.success) {
-                            const files = globRes.data.files || [];
-                            const fileCount = files.length;
-                            const fileList = files.join('\n');
-                            result = `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
-                            setCachedToolResult(name, args, result);
-                            return result;
-                        } else {
-                            return `Error: ${globRes.data.error}`;
-                        }
-
-                    case 'search_in_files':
-                        const searchRes = await axios.post(`http://localhost:${PORT}/workstation/search-files`, {
-                            projectId: projectId,
-                            pattern: args.pattern
-                        });
-                        if (searchRes.data.success) {
-                            const results = searchRes.data.results || [];
-                            const matchCount = results.length;
-                            const resultList = results.slice(0, 20).map(r => `${r.file}:${r.line}: ${r.content}`).join('\n');
-                            const truncated = matchCount > 20 ? `\n... (showing first 20 of ${matchCount} matches)` : '';
-                            result = `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
-                            setCachedToolResult(name, args, result);
-                            return result;
-                        } else {
-                            return `Error: ${searchRes.data.error}`;
-                        }
-
-                    default:
-                        return `Error: Unknown function ${name}`;
-                }
+              return {
+                success: true,
+                id: toolUse.id,
+                name: toolUse.name,
+                input: toolUse.input,
+                result: toolResult
+              };
             } catch (error) {
-                return `Error executing ${name}: ${error.message}`;
+              console.error(`❌ Tool ${toolUse.name} failed:`, error.message);
+              return {
+                success: false,
+                id: toolUse.id,
+                name: toolUse.name,
+                input: toolUse.input,
+                result: `Error executing ${toolUse.name}: ${error.message}`
+              };
             }
+          });
+
+          // Wait for all tools to complete in parallel
+          const toolResults = await Promise.all(toolPromises);
+          const executionTime = Date.now() - startTime;
+
+          console.log(`⚡ All ${toolResults.length} tools executed in ${executionTime}ms (parallel execution)`);
+
+          // 🚀 OPTIMIZATION 15: Batch Tool Results (reduce SSE overhead)
+          // Send all tool results in a single SSE message instead of multiple
+          const batchedResults = toolResults.map(toolData => ({
+            name: toolData.name,
+            args: toolData.input,
+            result: toolData.result
+          }));
+
+          // Stream all results in a single batch
+          res.write(`data: ${JSON.stringify({
+            toolResultsBatch: batchedResults,
+            executionTime: `${executionTime}ms`,
+            count: batchedResults.length
+          })}\n\n`);
+
+          // Store tool use for next iteration
+          for (const toolData of toolResults) {
+            toolsUsed.push(toolData);
+          }
         }
 
-        // Create Claude streaming session with tool support
-        let currentMessages = [...messages];
+        // If tools were used, continue the conversation with tool results
+        if (toolsUsed.length > 0) {
 
-        // Main streaming loop to handle tool calls
-        let continueLoop = true;
-        let retryCount = 0;
-        const MAX_RETRIES = 3;
+          // Build the assistant's message with tool uses
+          const assistantMessage = {
+            role: 'assistant',
+            content: finalMessage.content
+          };
 
-        while (continueLoop) {
-            continueLoop = false;
+          // Build user message with tool results
+          const toolResultsMessage = {
+            role: 'user',
+            content: toolsUsed.map(tool => ({
+              type: 'tool_result',
+              tool_use_id: tool.id,
+              content: tool.result
+            }))
+          };
 
-            try {
-                // 🚀 OPTIMIZATION 2 & 4: Prompt Caching with graceful fallback (like Claude Code)
-                // Try caching first, fallback to simple string if not supported
-                let systemBlocks;
-                let usedCache = false;
+          // Add to messages and continue loop
+          currentMessages.push(assistantMessage);
+          currentMessages.push(toolResultsMessage);
+          continueLoop = true;
 
-                try {
-                    systemBlocks = createSystemBlocks(systemMessage, true); // Try with caching
-                    usedCache = true;
-                } catch (cacheError) {
-                    console.log('⚠️ Prompt caching not supported, using fallback');
-                    systemBlocks = createSystemBlocks(systemMessage, false); // Fallback to string
-                }
-
-                // Start Claude streaming
-                const stream = anthropic.messages.stream({
-                    model: model,
-                    max_tokens: 8192,
-                    system: systemBlocks,
-                    messages: currentMessages,
-                    tools: tools,
-                    temperature: 0.7
-                });
-
-            // Track tool calls detected during streaming (for UI only)
-            const toolCallsForUI = [];
-
-            // Handle streaming events
-            for await (const event of stream) {
-                // Text delta - stream to client
-                if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-                    res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
-                }
-
-                // Tool use started - send to frontend for UI (but don't execute yet!)
-                if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
-                    const toolUse = event.content_block;
-                    console.log('🔧 Tool call detected (streaming):', toolUse.name, '- params empty:', JSON.stringify(toolUse.input));
-
-                    // Stream function call to frontend for UI (EXCEPT for glob_files and search_in_files)
-                    // NOTE: At this point, toolUse.input is still empty {}!
-                    if (toolUse.name !== 'glob_files' && toolUse.name !== 'search_in_files') {
-                        res.write(`data: ${JSON.stringify({
-                            functionCall: {
-                                name: toolUse.name,
-                                args: toolUse.input // This will be empty {} during streaming
-                            }
-                        })}\n\n`);
-                    }
-
-                    // Store tool ID for tracking (DO NOT execute yet!)
-                    toolCallsForUI.push({
-                        id: toolUse.id,
-                        name: toolUse.name
-                    });
-                }
-            }
-
-            // After streaming completes, get the final message with complete tool parameters
-            const finalMessage = await stream.finalMessage();
-
-            // 📊 Log token usage and cache hits + Track telemetry (like Claude Code)
-            const usage = finalMessage.usage;
-            const toolUseBlocks = finalMessage.content.filter(block => block.type === 'tool_use');
-
-            if (usage) {
-                const cacheHit = usage.cache_read_input_tokens || 0;
-                const cacheSavings = (cacheHit * 0.00003).toFixed(4); // $0.03 per 1M tokens
-                console.log(`📊 Token usage: Input=${usage.input_tokens}, Cache=${cacheHit} (saved $${cacheSavings}), Output=${usage.output_tokens}`);
-
-                // Track in telemetry
-                trackRequest({
-                    tokens: {
-                        input: usage.input_tokens || 0,
-                        output: usage.output_tokens || 0,
-                        cached: cacheHit
-                    },
-                    tools: toolUseBlocks.map(t => t.name)
-                });
-
-                // 🚀 OPTIMIZATION 12: Cost Budgeting & Alerts (like Claude Code)
-                const userCostData = trackUserCost(sessionId, {
-                    input: usage.input_tokens || 0,
-                    output: usage.output_tokens || 0,
-                    cached: cacheHit
-                });
-                console.log(`💰 User ${sessionId} total cost: $${userCostData.total.toFixed(4)} over ${userCostData.requests} requests`);
-            }
-
-            // Now execute tools with complete parameters from finalMessage
-            const toolsUsed = [];
-
-            if (toolUseBlocks.length > 0) {
-                console.log(`✅ Streaming complete. Executing ${toolUseBlocks.length} tool(s) with complete parameters...`);
-
-                // 🚀 OPTIMIZATION 13: Parallel Tool Execution (like Claude Code)
-                // Execute all tools in parallel instead of sequentially
-                const startTime = Date.now();
-
-                const toolPromises = toolUseBlocks.map(async (toolUse) => {
-                    console.log('🔧 Executing tool:', toolUse.name, 'with params:', JSON.stringify(toolUse.input));
-
-                    try {
-                        const toolResult = await executeTool(toolUse.name, toolUse.input);
-                        console.log('✅ Tool result:', toolResult.substring(0, 200));
-
-                        return {
-                            success: true,
-                            id: toolUse.id,
-                            name: toolUse.name,
-                            input: toolUse.input,
-                            result: toolResult
-                        };
-                    } catch (error) {
-                        console.error(`❌ Tool ${toolUse.name} failed:`, error.message);
-                        return {
-                            success: false,
-                            id: toolUse.id,
-                            name: toolUse.name,
-                            input: toolUse.input,
-                            result: `Error executing ${toolUse.name}: ${error.message}`
-                        };
-                    }
-                });
-
-                // Wait for all tools to complete in parallel
-                const toolResults = await Promise.all(toolPromises);
-                const executionTime = Date.now() - startTime;
-
-                console.log(`⚡ All ${toolResults.length} tools executed in ${executionTime}ms (parallel execution)`);
-
-                // 🚀 OPTIMIZATION 15: Batch Tool Results (reduce SSE overhead)
-                // Send all tool results in a single SSE message instead of multiple
-                const batchedResults = toolResults.map(toolData => ({
-                    name: toolData.name,
-                    args: toolData.input,
-                    result: toolData.result
-                }));
-
-                // Stream all results in a single batch
-                res.write(`data: ${JSON.stringify({
-                    toolResultsBatch: batchedResults,
-                    executionTime: `${executionTime}ms`,
-                    count: batchedResults.length
-                })}\n\n`);
-
-                // Store tool use for next iteration
-                for (const toolData of toolResults) {
-                    toolsUsed.push(toolData);
-                }
-            }
-
-            // If tools were used, continue the conversation with tool results
-            if (toolsUsed.length > 0) {
-
-                // Build the assistant's message with tool uses
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: finalMessage.content
-                };
-
-                // Build user message with tool results
-                const toolResultsMessage = {
-                    role: 'user',
-                    content: toolsUsed.map(tool => ({
-                        type: 'tool_result',
-                        tool_use_id: tool.id,
-                        content: tool.result
-                    }))
-                };
-
-                // Add to messages and continue loop
-                currentMessages.push(assistantMessage);
-                currentMessages.push(toolResultsMessage);
-                continueLoop = true;
-
-                // Reset retry count after successful tool execution
-                retryCount = 0;
-            } else {
-                // No tools used - reset retry count
-                retryCount = 0;
-            }
-
-            // 🚀 OPTIMIZATION 3 & 6: Granular error handling with retry (like Claude Code)
-            } catch (streamError) {
-                // Classify error type with granular error handler
-                const errorInfo = handleAPIError(streamError);
-
-                console.log(`❌ ${errorInfo.type} error:`, errorInfo.technicalDetails);
-
-                // Track error in telemetry
-                trackRequest({ error: errorInfo });
-
-                // Retry logic for retryable errors
-                if (errorInfo.shouldRetry && retryCount < MAX_RETRIES) {
-                    retryCount++;
-                    // Exponential backoff: 2s, 4s, 8s
-                    const waitTime = Math.pow(2, retryCount) * 1000;
-
-                    console.log(`⏳ ${errorInfo.type} - Retry ${retryCount}/${MAX_RETRIES} in ${waitTime/1000}s...`);
-
-                    // Send user-friendly error message to frontend
-                    res.write(`data: ${JSON.stringify({
-                        text: `\n${errorInfo.userMessage}\nRiprovo (${retryCount}/${MAX_RETRIES}) tra ${waitTime/1000}s...\n`
-                    })}\n\n`);
-
-                    // Wait before retrying
-                    await new Promise(resolve => setTimeout(resolve, waitTime));
-
-                    // Retry - continue the loop
-                    continueLoop = true;
-                    continue;
-                } else {
-                    // Not retryable or max retries exceeded
-                    if (retryCount >= MAX_RETRIES) {
-                        console.log(`❌ Max retries (${MAX_RETRIES}) exceeded`);
-                        res.write(`data: ${JSON.stringify({
-                            text: `\n❌ Tentativi esauriti dopo ${MAX_RETRIES} retry. ${errorInfo.userMessage}\n`
-                        })}\n\n`);
-                    } else {
-                        res.write(`data: ${JSON.stringify({
-                            text: `\n${errorInfo.userMessage}\n`
-                        })}\n\n`);
-                    }
-                    throw streamError;
-                }
-            }
+          // Reset retry count after successful tool execution
+          retryCount = 0;
+        } else {
+          // No tools used - reset retry count
+          retryCount = 0;
         }
 
-        // Send done signal
+        // 🚀 OPTIMIZATION 3 & 6: Granular error handling with retry (like Claude Code)
+      } catch (streamError) {
+        // Classify error type with granular error handler
+        const errorInfo = handleAPIError(streamError);
+
+        console.log(`❌ ${errorInfo.type} error:`, errorInfo.technicalDetails);
+
+        // Track error in telemetry
+        trackRequest({ error: errorInfo });
+
+        // Retry logic for retryable errors
+        if (errorInfo.shouldRetry && retryCount < MAX_RETRIES) {
+          retryCount++;
+          // Exponential backoff: 2s, 4s, 8s
+          const waitTime = Math.pow(2, retryCount) * 1000;
+
+          console.log(`⏳ ${errorInfo.type} - Retry ${retryCount}/${MAX_RETRIES} in ${waitTime / 1000}s...`);
+
+          // Send user-friendly error message to frontend
+          res.write(`data: ${JSON.stringify({
+            text: `\n${errorInfo.userMessage}\nRiprovo (${retryCount}/${MAX_RETRIES}) tra ${waitTime / 1000}s...\n`
+          })}\n\n`);
+
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+
+          // Retry - continue the loop
+          continueLoop = true;
+          continue;
+        } else {
+          // Not retryable or max retries exceeded
+          if (retryCount >= MAX_RETRIES) {
+            console.log(`❌ Max retries (${MAX_RETRIES}) exceeded`);
+            res.write(`data: ${JSON.stringify({
+              text: `\n❌ Tentativi esauriti dopo ${MAX_RETRIES} retry. ${errorInfo.userMessage}\n`
+            })}\n\n`);
+          } else {
+            res.write(`data: ${JSON.stringify({
+              text: `\n${errorInfo.userMessage}\n`
+            })}\n\n`);
+          }
+          throw streamError;
+        }
+      }
+    }
+
+    // Send done signal
+    res.write('data: [DONE]\n\n');
+    res.end();
+
+  } catch (error) {
+    console.error('AI Chat error:', error.response?.data || error.message);
+
+    const errorMessage = error.response?.data?.error?.message || error.message;
+
+    // Check if headers have already been sent (streaming started)
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: errorMessage
+      });
+    } else {
+      // Headers already sent, stream error message instead
+      try {
+        res.write(`data: ${JSON.stringify({ text: `\n\n❌ Error: ${errorMessage}` })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
-
-    } catch (error) {
-        console.error('AI Chat error:', error.response?.data || error.message);
-
-        const errorMessage = error.response?.data?.error?.message || error.message;
-
-        // Check if headers have already been sent (streaming started)
-        if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                error: errorMessage
-            });
-        } else {
-            // Headers already sent, stream error message instead
-            try {
-                res.write(`data: ${JSON.stringify({ text: `\n\n❌ Error: ${errorMessage}` })}\n\n`);
-                res.write('data: [DONE]\n\n');
-                res.end();
-            } catch (streamError) {
-                console.error('Error sending error message to stream:', streamError);
-                // Connection might be already closed, ignore
-            }
-        }
+      } catch (streamError) {
+        console.error('Error sending error message to stream:', streamError);
+        // Connection might be already closed, ignore
+      }
     }
+  }
 });
 
 // Terminal execute endpoint - Execute commands on workstation
@@ -1274,19 +1274,21 @@ app.post('/terminal/execute', async (req, res) => {
 
       // For dev server commands, do health check to verify it's actually running
       const isDevServerCommand = command.includes('start') ||
-                                 command.includes('serve') ||
-                                 command.includes('dev') ||
-                                 command.includes('run');
+        command.includes('serve') ||
+        command.includes('dev') ||
+        command.includes('run');
 
       if (isDevServerCommand && output.exitCode === 0) {
         console.log('🔍 Performing health check on server...');
 
-        // Expo/React Native servers take longer to start, increase attempts and delay
+        // Expo/React Native and React servers take longer to start, increase attempts and delay
         const isExpo = command.includes('expo');
-        const maxAttempts = isExpo ? 30 : 15;  // 30 attempts for Expo (30 seconds)
-        const delayMs = isExpo ? 1000 : 1000;   // 1 second between attempts
+        const isReact = command.includes('react-scripts') || command.includes('npm start');
+        const needsMoreTime = isExpo || isReact;
+        const maxAttempts = needsMoreTime ? 45 : 15;  // 45 attempts for React/Expo (45 seconds)
+        const delayMs = 1000;   // 1 second between attempts
 
-        console.log(`⏱️  Health check config: ${maxAttempts} attempts, ${delayMs}ms delay ${isExpo ? '(Expo mode)' : ''}`);
+        console.log(`⏱️  Health check config: ${maxAttempts} attempts, ${delayMs}ms delay ${isExpo ? '(Expo mode)' : isReact ? '(React mode)' : ''}`);
 
         // Always do health check in production mode
         healthCheckResult = await healthCheckUrl(previewUrl, maxAttempts, delayMs);
@@ -1778,6 +1780,49 @@ async function executeCommandOnWorkstation(command, workstationId) {
         }
       }
 
+      // Check if node_modules exists for ANY JS project (not just React Native)
+      // This applies to: React, Vue, Angular, Next.js, Svelte, etc.
+      const packageJsonPath = path.join(repoPath, 'package.json');
+      const nodeModulesPath = path.join(repoPath, 'node_modules');
+
+      // Only check for JS projects that have package.json
+      if (fs.existsSync(packageJsonPath)) {
+        let needsInstall = false;
+        try {
+          await fsPromises.access(nodeModulesPath);
+          console.log('✅ node_modules exists');
+        } catch {
+          console.log('📦 node_modules not found, installing dependencies...');
+          needsInstall = true;
+        }
+
+        if (needsInstall) {
+          try {
+            console.log('⏳ Running npm install...');
+            console.log('   This may take several minutes for large projects...');
+            await execAsync('npm install', {
+              cwd: repoPath,
+              timeout: 600000, // 10 minutes for install
+              maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
+            });
+            console.log('✅ Dependencies installed successfully');
+          } catch (installErr) {
+            console.error('❌ Failed to install dependencies:', installErr.message);
+            if (installErr.killed) {
+              console.error('   Installation was killed (likely timeout)');
+            }
+            if (installErr.code) {
+              console.error('   Exit code:', installErr.code);
+            }
+            return {
+              stdout: '',
+              stderr: `Failed to install dependencies: ${installErr.message}`,
+              exitCode: 1
+            };
+          }
+        }
+      }
+
       // Start ALL dev servers in background (non-blocking) - applies to ALL project types!
       // This includes: React, Vue, Next.js, Python static servers, PHP, Rails, etc.
       const { spawn } = require('child_process');
@@ -1790,26 +1835,57 @@ async function executeCommandOnWorkstation(command, workstationId) {
         ...process.env,
         HOST: '0.0.0.0',                      // For webpack-dev-server (Expo Web)
         WDS_SOCKET_HOST: '0.0.0.0',           // For webpack HMR socket
-        EXPO_DEVTOOLS_LISTEN_ADDRESS: '0.0.0.0'  // For Expo Metro (fallback)
+        EXPO_DEVTOOLS_LISTEN_ADDRESS: '0.0.0.0',  // For Expo Metro (fallback)
+        SKIP_PREFLIGHT_CHECK: 'true',         // Skip Create React App dependency checks
+        BROWSER: 'none',                      // Don't open browser automatically
+        NODE_OPTIONS: '--openssl-legacy-provider'  // Fix for older react-scripts with Node 17+
       };
 
       console.log('🌐 Spawn environment variables set:', {
         HOST: spawnEnv.HOST,
         WDS_SOCKET_HOST: spawnEnv.WDS_SOCKET_HOST,
-        EXPO_DEVTOOLS_LISTEN_ADDRESS: spawnEnv.EXPO_DEVTOOLS_LISTEN_ADDRESS
+        EXPO_DEVTOOLS_LISTEN_ADDRESS: spawnEnv.EXPO_DEVTOOLS_LISTEN_ADDRESS,
+        SKIP_PREFLIGHT_CHECK: spawnEnv.SKIP_PREFLIGHT_CHECK,
+        BROWSER: spawnEnv.BROWSER,
+        NODE_OPTIONS: spawnEnv.NODE_OPTIONS
       });
       console.log('💻 Final command to execute:', execCommand);
 
       const serverProcess = spawn(shell, [shellArg, execCommand], {
         cwd: repoPath,
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
         env: spawnEnv
       });
 
+      // Log spawn errors for debugging
+      serverProcess.on('error', (err) => {
+        console.error('❌ Spawn error:', err.message);
+      });
+
+      // Log process output for debugging (first few seconds)
+      let outputBuffer = '';
+      let errorBuffer = '';
+
+      if (serverProcess.stdout) {
+        serverProcess.stdout.on('data', (data) => {
+          outputBuffer += data.toString();
+          if (outputBuffer.length < 2000) {
+            console.log('📤 Process output:', data.toString().trim());
+          }
+        });
+      }
+
+      if (serverProcess.stderr) {
+        serverProcess.stderr.on('data', (data) => {
+          errorBuffer += data.toString();
+          console.log('⚠️  Process stderr:', data.toString().trim());
+        });
+      }
+
       serverProcess.unref(); // Allow parent to exit independently
 
-      console.log('✅ Dev server started in background');
+      console.log('✅ Dev server started in background (PID:', serverProcess.pid, ')');
       return {
         stdout: `> Starting development server...\n\nLocal:   http://localhost:${port}\nNetwork: http://0.0.0.0:${port}\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
         stderr: '',
@@ -1892,7 +1968,7 @@ async function checkIfReactNative(repoPath) {
     const devDeps = packageJson.devDependencies || {};
 
     const isRN = deps['react-native'] || devDeps['react-native'] ||
-                 deps['expo'] || devDeps['expo'];
+      deps['expo'] || devDeps['expo'];
 
     if (isRN) {
       console.log('📱 Detected React Native/Expo project');
@@ -1945,7 +2021,7 @@ function convertToPublicUrl(localUrl, workstationId) {
     // In production: replace localhost with workstation's public hostname
     // Example: http://localhost:3000 -> https://workstation-abc123-3000.run.app
     const publicHost = process.env.WORKSTATION_PUBLIC_HOST ||
-                      `${workstationId}-${port}.${LOCATION}.run.app`;
+      `${workstationId}-${port}.${LOCATION}.run.app`;
 
     return `https://${publicHost}${pathname}${search}${hash}`;
   } catch (error) {
@@ -2035,8 +2111,8 @@ function detectPreviewUrl(output, command) {
           }
 
           url = url.replace('localhost', localIp)
-                   .replace('127.0.0.1', localIp)
-                   .replace('0.0.0.0', localIp);
+            .replace('127.0.0.1', localIp)
+            .replace('0.0.0.0', localIp);
           console.log(`🔗 Replacing localhost with detected IP: ${url}`);
         }
       }
@@ -2094,9 +2170,9 @@ app.post('/repo/check-visibility', async (req, res) => {
 // Workstation create endpoint - Create and auto-clone repository or load personal project
 app.post('/workstation/create', async (req, res) => {
   const { repositoryUrl, userId, projectId, projectType, projectName, githubToken } = req.body;
-  
+
   console.log('🚀 Creating workstation for:', projectType === 'git' ? repositoryUrl : projectName);
-  
+
   try {
     const workstationId = `ws-${projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
     console.log('Workstation ID:', workstationId);
@@ -2109,13 +2185,13 @@ app.post('/workstation/create', async (req, res) => {
         if (repoMatch) {
           const [, owner, repo] = repoMatch;
           console.log(`📦 Fetching files from GitHub: ${owner}/${repo}`);
-          
+
           const headers = { 'User-Agent': 'Drape-App' };
           if (githubToken) {
             headers['Authorization'] = `Bearer ${githubToken}`;
             console.log('🔐 Using GitHub token for authentication');
           }
-          
+
           // Try main branch first, then master
           let githubResponse;
           try {
@@ -2130,18 +2206,18 @@ app.post('/workstation/create', async (req, res) => {
               { headers }
             );
           }
-          
+
           files = githubResponse.data.tree
             .filter(item => item.type === 'blob')
             .map(item => item.path)
-            .filter(path => 
-              !path.includes('node_modules/') && 
+            .filter(path =>
+              !path.includes('node_modules/') &&
               !path.startsWith('.git/') &&
               !path.includes('/dist/') &&
               !path.includes('/build/')
             )
             .slice(0, 500);
-          
+
           console.log(`✅ Found ${files.length} files from GitHub`);
         }
       } catch (error) {
@@ -2191,7 +2267,7 @@ app.post('/workstation/create', async (req, res) => {
             requiresAuth: true
           });
         }
-        
+
         // Use basic structure as fallback
         files = [
           'README.md',
@@ -2202,7 +2278,7 @@ app.post('/workstation/create', async (req, res) => {
         ];
         console.log('📝 Using fallback file structure');
       }
-      
+
       // Always store files in Firestore (even if fallback)
       try {
         await db.collection('workstation_files').doc(projectId).set({
@@ -2212,9 +2288,10 @@ app.post('/workstation/create', async (req, res) => {
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log(`💾 Saved ${files.length} files to Firestore`);
-        } catch (error) {
-          console.error('⚠️ Error saving files to Firestore:', error); // Log the full error object
-        }    }
+      } catch (error) {
+        console.error('⚠️ Error saving files to Firestore:', error); // Log the full error object
+      }
+    }
 
     res.json({
       workstationId,
@@ -2227,7 +2304,7 @@ app.post('/workstation/create', async (req, res) => {
     console.error('❌ Error:', error.response?.data || error.message);
     res.status(500).json({
       error: error.message,
-      details: error.response?.data 
+      details: error.response?.data
     });
   }
 });
@@ -2339,10 +2416,10 @@ async function setupPersonalProject(projectName, workstationId, userId, projectI
   console.log(`   Workstation: ${workstationId}`);
   console.log(`   User: ${userId}`);
   console.log(`   Project ID: ${projectId}`);
-  
+
   // Simulate checking if project exists in Cloud Storage
   const projectExists = Math.random() > 0.5; // Random for simulation
-  
+
   if (projectExists) {
     console.log('📥 Loading existing project from Cloud Storage...');
     return {
@@ -2363,7 +2440,7 @@ async function setupPersonalProject(projectName, workstationId, userId, projectI
 // Workstation status endpoint
 app.get('/workstation/:id/status', async (req, res) => {
   const { id } = req.params;
-  
+
   // Simulate workstation status
   res.json({
     workstationId: id,
@@ -2617,8 +2694,8 @@ function parseEnvFile(content) {
       const comment = trimmed.substring(1).trim();
       // Skip common header comments
       if (!comment.toLowerCase().includes('environment') &&
-          !comment.toLowerCase().includes('last updated') &&
-          !comment.toLowerCase().includes('auto-generated')) {
+        !comment.toLowerCase().includes('last updated') &&
+        !comment.toLowerCase().includes('auto-generated')) {
         currentDescription = comment;
       }
       return;
@@ -2648,1091 +2725,1091 @@ function parseEnvFile(content) {
 }
 
 app.post('/workstation/list-files', async (req, res) => {
-    const { workstationId } = req.body;
-    
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        
-        // List files in workstation (assuming it's accessible via gcloud)
-        const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="find /workspace -type f -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.json' | head -50"`);
-        
-        const files = stdout.trim().split('\n').filter(f => f);
-        
-        res.json({ success: true, files });
-    } catch (error) {
-        console.error('List files error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+  const { workstationId } = req.body;
+
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    // List files in workstation (assuming it's accessible via gcloud)
+    const { stdout } = await execAsync(`gcloud workstations ssh ${workstationId} --command="find /workspace -type f -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.json' | head -50"`);
+
+    const files = stdout.trim().split('\n').filter(f => f);
+
+    res.json({ success: true, files });
+  } catch (error) {
+    console.error('List files error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Read file content from cloned repository
 app.post('/workstation/read-file', async (req, res) => {
-    const { projectId, filePath } = req.body;
+  const { projectId, filePath } = req.body;
+
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const fullPath = path.join(repoPath, filePath);
+
+    console.log('📖 Reading file:', fullPath);
+
+    // Check if file exists, try with common extensions if not found
+    let actualFilePath = fullPath;
+    let fileFound = false;
 
     try {
-        const fs = require('fs').promises;
-        const path = require('path');
+      await fs.access(fullPath);
+      fileFound = true;
+    } catch {
+      // Try common extensions
+      const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-        const fullPath = path.join(repoPath, filePath);
-
-        console.log('📖 Reading file:', fullPath);
-
-        // Check if file exists, try with common extensions if not found
-        let actualFilePath = fullPath;
-        let fileFound = false;
-
+      for (const ext of commonExtensions) {
+        const pathWithExt = fullPath + ext;
         try {
-            await fs.access(fullPath);
-            fileFound = true;
-        } catch {
-            // Try common extensions
-            const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
-
-            for (const ext of commonExtensions) {
-                const pathWithExt = fullPath + ext;
-                try {
-                    await fs.access(pathWithExt);
-                    actualFilePath = pathWithExt;
-                    fileFound = true;
-                    console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
-                    break;
-                } catch (e) {
-                    // Continue to next extension
-                }
-            }
+          await fs.access(pathWithExt);
+          actualFilePath = pathWithExt;
+          fileFound = true;
+          console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
+          break;
+        } catch (e) {
+          // Continue to next extension
         }
-
-        if (!fileFound) {
-            return res.status(404).json({ success: false, error: 'File not found' });
-        }
-
-        const content = await fs.readFile(actualFilePath, 'utf8');
-
-        // Return both content and the actual file path found
-        res.json({
-            success: true,
-            content,
-            actualFilePath: path.basename(actualFilePath) // Return only filename, not full path
-        });
-    } catch (error) {
-        console.error('Read file error:', error);
-        res.status(500).json({ success: false, error: error.message });
+      }
     }
+
+    if (!fileFound) {
+      return res.status(404).json({ success: false, error: 'File not found' });
+    }
+
+    const content = await fs.readFile(actualFilePath, 'utf8');
+
+    // Return both content and the actual file path found
+    res.json({
+      success: true,
+      content,
+      actualFilePath: path.basename(actualFilePath) // Return only filename, not full path
+    });
+  } catch (error) {
+    console.error('Read file error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Write/modify file in cloned repository
 app.post('/workstation/write-file', async (req, res) => {
-    const { projectId, filePath, content } = req.body;
+  const { projectId, filePath, content } = req.body;
 
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const fullPath = path.join(repoPath, filePath);
+
+    console.log('✍️  Writing file:', fullPath);
+
+    // Unescape special characters (\n, \t, etc.) from AI response
+    let unescapedContent = content
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, "'")
+      .replace(/\\\\/g, '\\');
+
+    // Read original content if file exists (for diff)
+    let originalContent = '';
+    let diffInfo = null;
     try {
-        const fs = require('fs').promises;
-        const path = require('path');
+      originalContent = await fs.readFile(fullPath, 'utf8');
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-        const fullPath = path.join(repoPath, filePath);
+      // Generate simple diff with context
+      const oldLines = originalContent.split('\n');
+      const newLines = unescapedContent.split('\n');
 
-        console.log('✍️  Writing file:', fullPath);
+      // Find all differences and collect them
+      let diffLines = [];
+      let addedCount = 0;
+      let removedCount = 0;
+      let lastDiffIndex = -10; // Track last change to group nearby changes
 
-        // Unescape special characters (\n, \t, etc.) from AI response
-        let unescapedContent = content
-            .replace(/\\n/g, '\n')
-            .replace(/\\t/g, '\t')
-            .replace(/\\r/g, '\r')
-            .replace(/\\"/g, '"')
-            .replace(/\\'/g, "'")
-            .replace(/\\\\/g, '\\');
+      for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+        const oldLine = oldLines[i];
+        const newLine = newLines[i];
 
-        // Read original content if file exists (for diff)
-        let originalContent = '';
-        let diffInfo = null;
-        try {
-            originalContent = await fs.readFile(fullPath, 'utf8');
+        if (oldLine !== newLine) {
+          // If this change is far from the last one, add separator
+          if (i - lastDiffIndex > 11 && diffLines.length > 0) {
+            diffLines.push('...');
+          }
 
-            // Generate simple diff with context
-            const oldLines = originalContent.split('\n');
-            const newLines = unescapedContent.split('\n');
+          // Show 5 lines of context before (if not already shown)
+          const contextStart = Math.max(0, i - 5);
+          const contextEnd = i;
 
-            // Find all differences and collect them
-            let diffLines = [];
-            let addedCount = 0;
-            let removedCount = 0;
-            let lastDiffIndex = -10; // Track last change to group nearby changes
-
-            for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-                const oldLine = oldLines[i];
-                const newLine = newLines[i];
-
-                if (oldLine !== newLine) {
-                    // If this change is far from the last one, add separator
-                    if (i - lastDiffIndex > 11 && diffLines.length > 0) {
-                        diffLines.push('...');
-                    }
-
-                    // Show 5 lines of context before (if not already shown)
-                    const contextStart = Math.max(0, i - 5);
-                    const contextEnd = i;
-
-                    for (let j = contextStart; j < contextEnd; j++) {
-                        // Only add if not already in diffLines
-                        const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
-                        if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
-                            diffLines.push(`  ${contextLine}`);
-                        }
-                    }
-
-                    // Show removed line (if exists)
-                    if (oldLine !== undefined && newLine !== oldLine) {
-                        diffLines.push(`- ${oldLine}`);
-                        removedCount++;
-                    }
-
-                    // Show added line (if exists)
-                    if (newLine !== undefined && newLine !== oldLine) {
-                        diffLines.push(`+ ${newLine}`);
-                        addedCount++;
-                    }
-
-                    // Show 5 lines of context after
-                    const afterStart = i + 1;
-                    const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
-
-                    for (let j = afterStart; j < afterEnd; j++) {
-                        const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
-                        if (oldLines[j] === newLines[j]) {
-                            diffLines.push(`  ${contextLine}`);
-                        } else {
-                            // More changes ahead, don't add context yet
-                            break;
-                        }
-                    }
-
-                    lastDiffIndex = i;
-                }
+          for (let j = contextStart; j < contextEnd; j++) {
+            // Only add if not already in diffLines
+            const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+            if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
+              diffLines.push(`  ${contextLine}`);
             }
+          }
 
-            // Limit to 30 lines for preview (show more context)
-            if (diffLines.length > 30) {
-                diffLines = diffLines.slice(0, 30);
-                diffLines.push('...');
-                diffLines.push(`(${diffLines.length - 30} more lines)`);
+          // Show removed line (if exists)
+          if (oldLine !== undefined && newLine !== oldLine) {
+            diffLines.push(`- ${oldLine}`);
+            removedCount++;
+          }
+
+          // Show added line (if exists)
+          if (newLine !== undefined && newLine !== oldLine) {
+            diffLines.push(`+ ${newLine}`);
+            addedCount++;
+          }
+
+          // Show 5 lines of context after
+          const afterStart = i + 1;
+          const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
+
+          for (let j = afterStart; j < afterEnd; j++) {
+            const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+            if (oldLines[j] === newLines[j]) {
+              diffLines.push(`  ${contextLine}`);
+            } else {
+              // More changes ahead, don't add context yet
+              break;
             }
+          }
 
-            diffInfo = {
-                added: addedCount,
-                removed: removedCount,
-                diff: diffLines.join('\n')
-            };
-        } catch (readError) {
-            // File doesn't exist, it's a new file - show first 10 lines
-            const newLines = unescapedContent.split('\n');
-            const preview = newLines.slice(0, 10).map(line => `+ ${line}`).join('\n');
-            diffInfo = {
-                added: newLines.length,
-                removed: 0,
-                diff: preview + (newLines.length > 10 ? `\n...\n(${newLines.length - 10} more lines)` : '')
-            };
+          lastDiffIndex = i;
         }
+      }
 
-        // Create directory if it doesn't exist
-        const dir = path.dirname(fullPath);
-        await fs.mkdir(dir, { recursive: true });
+      // Limit to 30 lines for preview (show more context)
+      if (diffLines.length > 30) {
+        diffLines = diffLines.slice(0, 30);
+        diffLines.push('...');
+        diffLines.push(`(${diffLines.length - 30} more lines)`);
+      }
 
-        await fs.writeFile(fullPath, unescapedContent, 'utf8');
-
-        res.json({
-            success: true,
-            message: 'File written successfully',
-            diffInfo: diffInfo
-        });
-    } catch (error) {
-        console.error('Write file error:', error);
-        res.status(500).json({ success: false, error: error.message });
+      diffInfo = {
+        added: addedCount,
+        removed: removedCount,
+        diff: diffLines.join('\n')
+      };
+    } catch (readError) {
+      // File doesn't exist, it's a new file - show first 10 lines
+      const newLines = unescapedContent.split('\n');
+      const preview = newLines.slice(0, 10).map(line => `+ ${line}`).join('\n');
+      diffInfo = {
+        added: newLines.length,
+        removed: 0,
+        diff: preview + (newLines.length > 10 ? `\n...\n(${newLines.length - 10} more lines)` : '')
+      };
     }
+
+    // Create directory if it doesn't exist
+    const dir = path.dirname(fullPath);
+    await fs.mkdir(dir, { recursive: true });
+
+    await fs.writeFile(fullPath, unescapedContent, 'utf8');
+
+    res.json({
+      success: true,
+      message: 'File written successfully',
+      diffInfo: diffInfo
+    });
+  } catch (error) {
+    console.error('Write file error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Edit file using search & replace (like Claude Code)
 app.post('/workstation/edit-file', async (req, res) => {
-    const { projectId, filePath, oldString, newString } = req.body;
+  const { projectId, filePath, oldString, newString } = req.body;
+
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const fullPath = path.join(repoPath, filePath);
+
+    console.log('✏️  Editing file:', fullPath);
+    console.log('🔍 Searching for:', oldString.substring(0, 100) + (oldString.length > 100 ? '...' : ''));
+
+    // Unescape special characters in both strings
+    const unescapeString = (str) => str
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, "'")
+      .replace(/\\\\/g, '\\');
+
+    const unescapedOld = unescapeString(oldString);
+    const unescapedNew = unescapeString(newString);
+
+    // Read current file content
+    let originalContent;
+    let actualFilePath = fullPath;
 
     try {
-        const fs = require('fs').promises;
-        const path = require('path');
+      originalContent = await fs.readFile(fullPath, 'utf8');
+    } catch (readError) {
+      // If file not found, try common extensions
+      const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
+      let found = false;
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-        const fullPath = path.join(repoPath, filePath);
-
-        console.log('✏️  Editing file:', fullPath);
-        console.log('🔍 Searching for:', oldString.substring(0, 100) + (oldString.length > 100 ? '...' : ''));
-
-        // Unescape special characters in both strings
-        const unescapeString = (str) => str
-            .replace(/\\n/g, '\n')
-            .replace(/\\t/g, '\t')
-            .replace(/\\r/g, '\r')
-            .replace(/\\"/g, '"')
-            .replace(/\\'/g, "'")
-            .replace(/\\\\/g, '\\');
-
-        const unescapedOld = unescapeString(oldString);
-        const unescapedNew = unescapeString(newString);
-
-        // Read current file content
-        let originalContent;
-        let actualFilePath = fullPath;
-
+      for (const ext of commonExtensions) {
+        const pathWithExt = fullPath + ext;
         try {
-            originalContent = await fs.readFile(fullPath, 'utf8');
-        } catch (readError) {
-            // If file not found, try common extensions
-            const commonExtensions = ['.txt', '.md', '.json', '.js', '.ts', '.jsx', '.tsx', '.css', '.html', '.sh', '.yml', '.yaml'];
-            let found = false;
-
-            for (const ext of commonExtensions) {
-                const pathWithExt = fullPath + ext;
-                try {
-                    originalContent = await fs.readFile(pathWithExt, 'utf8');
-                    actualFilePath = pathWithExt;
-                    found = true;
-                    console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
-                    break;
-                } catch (e) {
-                    // Continue to next extension
-                }
-            }
-
-            if (!found) {
-                return res.status(404).json({
-                    success: false,
-                    error: 'File not found. Use write_file() to create new files.',
-                    filePath: filePath
-                });
-            }
+          originalContent = await fs.readFile(pathWithExt, 'utf8');
+          actualFilePath = pathWithExt;
+          found = true;
+          console.log(`✅ Found file with extension: ${path.basename(pathWithExt)}`);
+          break;
+        } catch (e) {
+          // Continue to next extension
         }
+      }
 
-        // Check if old string exists in file
-        let stringToReplace = unescapedOld;
-        let fuzzyMatchUsed = false;
-
-        if (!originalContent.includes(unescapedOld)) {
-            // Try fuzzy matching - normalize whitespace and case
-            const normalize = (str) => str.toLowerCase().replace(/\s+/g, ' ').trim();
-            const normalizedSearch = normalize(unescapedOld);
-
-            // Split file into lines and find similar content
-            const lines = originalContent.split('\n');
-            let bestMatch = null;
-            let bestMatchScore = 0;
-
-            for (let i = 0; i < lines.length; i++) {
-                const lineContent = lines.slice(i, Math.min(i + 10, lines.length)).join('\n');
-                const normalizedLine = normalize(lineContent);
-
-                // Calculate similarity (simple approach - check if normalized versions match)
-                if (normalizedLine.includes(normalizedSearch)) {
-                    bestMatch = lineContent.substring(0, unescapedOld.length + 50);
-                    bestMatchScore = 1;
-                    break;
-                }
-            }
-
-            if (bestMatch && bestMatchScore > 0.8) {
-                console.log('✨ Using fuzzy match instead of exact match');
-                stringToReplace = bestMatch.substring(0, unescapedOld.length);
-                fuzzyMatchUsed = true;
-            } else {
-                return res.status(400).json({
-                    success: false,
-                    error: 'String not found in file',
-                    suggestion: 'Read the file first with read_file() to see the exact content',
-                    searchedFor: unescapedOld.substring(0, 200),
-                    filePreview: originalContent.substring(0, 500)
-                });
-            }
-        }
-
-        // Replace old string with new string
-        const newContent = originalContent.replace(stringToReplace, unescapedNew);
-
-        // Generate diff
-        const oldLines = originalContent.split('\n');
-        const newLines = newContent.split('\n');
-
-        let diffLines = [];
-        let addedCount = 0;
-        let removedCount = 0;
-        let lastDiffIndex = -10;
-
-        for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-            const oldLine = oldLines[i];
-            const newLine = newLines[i];
-
-            if (oldLine !== newLine) {
-                if (i - lastDiffIndex > 11 && diffLines.length > 0) {
-                    diffLines.push('...');
-                }
-
-                const contextStart = Math.max(0, i - 5);
-                const contextEnd = i;
-
-                for (let j = contextStart; j < contextEnd; j++) {
-                    const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
-                    if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
-                        diffLines.push(`  ${contextLine}`);
-                    }
-                }
-
-                if (oldLine !== undefined && newLine !== oldLine) {
-                    diffLines.push(`- ${oldLine}`);
-                    removedCount++;
-                }
-
-                if (newLine !== undefined && newLine !== oldLine) {
-                    diffLines.push(`+ ${newLine}`);
-                    addedCount++;
-                }
-
-                const afterStart = i + 1;
-                const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
-
-                for (let j = afterStart; j < afterEnd; j++) {
-                    const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
-                    if (oldLines[j] === newLines[j]) {
-                        diffLines.push(`  ${contextLine}`);
-                    } else {
-                        break;
-                    }
-                }
-
-                lastDiffIndex = i;
-            }
-        }
-
-        if (diffLines.length > 30) {
-            diffLines = diffLines.slice(0, 30);
-            diffLines.push('...');
-            diffLines.push(`(${diffLines.length - 30} more lines)`);
-        }
-
-        const diffInfo = {
-            added: addedCount,
-            removed: removedCount,
-            diff: diffLines.join('\n')
-        };
-
-        // Write the modified content
-        await fs.writeFile(actualFilePath, newContent, 'utf8');
-
-        console.log('✅ File edited successfully');
-        console.log(`📊 Changes: +${addedCount} -${removedCount}`);
-
-        res.json({
-            success: true,
-            message: 'File edited successfully',
-            diffInfo: diffInfo
+      if (!found) {
+        return res.status(404).json({
+          success: false,
+          error: 'File not found. Use write_file() to create new files.',
+          filePath: filePath
         });
-    } catch (error) {
-        console.error('Edit file error:', error);
-        res.status(500).json({ success: false, error: error.message });
+      }
     }
+
+    // Check if old string exists in file
+    let stringToReplace = unescapedOld;
+    let fuzzyMatchUsed = false;
+
+    if (!originalContent.includes(unescapedOld)) {
+      // Try fuzzy matching - normalize whitespace and case
+      const normalize = (str) => str.toLowerCase().replace(/\s+/g, ' ').trim();
+      const normalizedSearch = normalize(unescapedOld);
+
+      // Split file into lines and find similar content
+      const lines = originalContent.split('\n');
+      let bestMatch = null;
+      let bestMatchScore = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const lineContent = lines.slice(i, Math.min(i + 10, lines.length)).join('\n');
+        const normalizedLine = normalize(lineContent);
+
+        // Calculate similarity (simple approach - check if normalized versions match)
+        if (normalizedLine.includes(normalizedSearch)) {
+          bestMatch = lineContent.substring(0, unescapedOld.length + 50);
+          bestMatchScore = 1;
+          break;
+        }
+      }
+
+      if (bestMatch && bestMatchScore > 0.8) {
+        console.log('✨ Using fuzzy match instead of exact match');
+        stringToReplace = bestMatch.substring(0, unescapedOld.length);
+        fuzzyMatchUsed = true;
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'String not found in file',
+          suggestion: 'Read the file first with read_file() to see the exact content',
+          searchedFor: unescapedOld.substring(0, 200),
+          filePreview: originalContent.substring(0, 500)
+        });
+      }
+    }
+
+    // Replace old string with new string
+    const newContent = originalContent.replace(stringToReplace, unescapedNew);
+
+    // Generate diff
+    const oldLines = originalContent.split('\n');
+    const newLines = newContent.split('\n');
+
+    let diffLines = [];
+    let addedCount = 0;
+    let removedCount = 0;
+    let lastDiffIndex = -10;
+
+    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+      const oldLine = oldLines[i];
+      const newLine = newLines[i];
+
+      if (oldLine !== newLine) {
+        if (i - lastDiffIndex > 11 && diffLines.length > 0) {
+          diffLines.push('...');
+        }
+
+        const contextStart = Math.max(0, i - 5);
+        const contextEnd = i;
+
+        for (let j = contextStart; j < contextEnd; j++) {
+          const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+          if (oldLines[j] === newLines[j] && !diffLines.some(line => line === `  ${contextLine}`)) {
+            diffLines.push(`  ${contextLine}`);
+          }
+        }
+
+        if (oldLine !== undefined && newLine !== oldLine) {
+          diffLines.push(`- ${oldLine}`);
+          removedCount++;
+        }
+
+        if (newLine !== undefined && newLine !== oldLine) {
+          diffLines.push(`+ ${newLine}`);
+          addedCount++;
+        }
+
+        const afterStart = i + 1;
+        const afterEnd = Math.min(i + 6, Math.max(oldLines.length, newLines.length));
+
+        for (let j = afterStart; j < afterEnd; j++) {
+          const contextLine = newLines[j] !== undefined ? newLines[j] : oldLines[j];
+          if (oldLines[j] === newLines[j]) {
+            diffLines.push(`  ${contextLine}`);
+          } else {
+            break;
+          }
+        }
+
+        lastDiffIndex = i;
+      }
+    }
+
+    if (diffLines.length > 30) {
+      diffLines = diffLines.slice(0, 30);
+      diffLines.push('...');
+      diffLines.push(`(${diffLines.length - 30} more lines)`);
+    }
+
+    const diffInfo = {
+      added: addedCount,
+      removed: removedCount,
+      diff: diffLines.join('\n')
+    };
+
+    // Write the modified content
+    await fs.writeFile(actualFilePath, newContent, 'utf8');
+
+    console.log('✅ File edited successfully');
+    console.log(`📊 Changes: +${addedCount} -${removedCount}`);
+
+    res.json({
+      success: true,
+      message: 'File edited successfully',
+      diffInfo: diffInfo
+    });
+  } catch (error) {
+    console.error('Edit file error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // List files in directory
 app.post('/workstation/list-directory', async (req, res) => {
-    const { projectId, directory = '.' } = req.body;
+  const { projectId, directory = '.' } = req.body;
 
-    try {
-        const fs = require('fs').promises;
-        const path = require('path');
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-        const fullPath = path.join(repoPath, directory);
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const fullPath = path.join(repoPath, directory);
 
-        console.log('📁 Listing directory:', fullPath);
+    console.log('📁 Listing directory:', fullPath);
 
-        const entries = await fs.readdir(fullPath, { withFileTypes: true });
-        const files = entries.map(entry => ({
-            name: entry.name,
-            type: entry.isDirectory() ? 'directory' : 'file',
-            path: path.join(directory, entry.name)
-        }));
+    const entries = await fs.readdir(fullPath, { withFileTypes: true });
+    const files = entries.map(entry => ({
+      name: entry.name,
+      type: entry.isDirectory() ? 'directory' : 'file',
+      path: path.join(directory, entry.name)
+    }));
 
-        res.json({ success: true, files });
-    } catch (error) {
-        console.error('List directory error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+    res.json({ success: true, files });
+  } catch (error) {
+    console.error('List directory error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Glob files - search for files using glob patterns
 app.post('/workstation/glob-files', async (req, res) => {
-    const { projectId, pattern } = req.body;
+  const { projectId, pattern } = req.body;
 
-    try {
-        const { glob } = require('glob');
-        const path = require('path');
+  try {
+    const { glob } = require('glob');
+    const path = require('path');
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
 
-        console.log('🔍 Glob search for pattern:', pattern, 'in', repoPath);
+    console.log('🔍 Glob search for pattern:', pattern, 'in', repoPath);
 
-        // Use glob to find matching files
-        const files = await glob(pattern, {
-            cwd: repoPath,
-            ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**'],
-            nodir: true // Only return files, not directories
-        });
+    // Use glob to find matching files
+    const files = await glob(pattern, {
+      cwd: repoPath,
+      ignore: ['node_modules/**', '.git/**', 'dist/**', 'build/**', '.next/**'],
+      nodir: true // Only return files, not directories
+    });
 
-        console.log(`Found ${files.length} files matching pattern: ${pattern}`);
+    console.log(`Found ${files.length} files matching pattern: ${pattern}`);
 
-        res.json({ success: true, files });
-    } catch (error) {
-        console.error('Glob search error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+    res.json({ success: true, files });
+  } catch (error) {
+    console.error('Glob search error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Search in files
 app.post('/workstation/search-files', async (req, res) => {
-    const { projectId, pattern } = req.body;
+  const { projectId, pattern } = req.body;
 
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        const path = require('path');
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    const path = require('path');
 
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
 
-        console.log('🔍 Searching for:', pattern, 'in', repoPath);
+    console.log('🔍 Searching for:', pattern, 'in', repoPath);
 
-        // Use grep to search
-        const { stdout } = await execAsync(`cd "${repoPath}" && grep -r -n "${pattern}" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.json" . || true`);
+    // Use grep to search
+    const { stdout } = await execAsync(`cd "${repoPath}" && grep -r -n "${pattern}" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.json" . || true`);
 
-        const results = stdout.split('\n').filter(line => line.trim()).map(line => {
-            const [file, ...rest] = line.split(':');
-            return { file, match: rest.join(':') };
-        });
+    const results = stdout.split('\n').filter(line => line.trim()).map(line => {
+      const [file, ...rest] = line.split(':');
+      return { file, match: rest.join(':') };
+    });
 
-        res.json({ success: true, results });
-    } catch (error) {
-        console.error('Search files error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('Search files error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Execute bash command in repository
 app.post('/workstation/execute-command', async (req, res) => {
-    const { projectId, command } = req.body;
+  const { projectId, command } = req.body;
 
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    const path = require('path');
+
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+    console.log('💻 Executing command:', command);
+    console.log('📂 In directory:', repoPath);
+
+    // Security: validate that repoPath exists
+    const fs = require('fs').promises;
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        const path = require('path');
-
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-
-        console.log('💻 Executing command:', command);
-        console.log('📂 In directory:', repoPath);
-
-        // Security: validate that repoPath exists
-        const fs = require('fs').promises;
-        try {
-            await fs.access(repoPath);
-        } catch {
-            return res.status(404).json({
-                success: false,
-                error: 'Project directory not found'
-            });
-        }
-
-        // Add HOST=0.0.0.0 for dev server commands to allow network access
-        let execCommand = command;
-        const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop/.test(command);
-
-        if (isDevServerCommand) {
-            console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
-            execCommand = `HOST=0.0.0.0 ${command}`;
-        }
-
-        // Execute command with timeout (30 seconds)
-        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${execCommand}`, {
-            timeout: 30000,
-            maxBuffer: 1024 * 1024 * 10 // 10MB buffer
-        });
-
-        const output = stdout.trim();
-        const errorOutput = stderr.trim();
-
-        console.log('✅ Command executed successfully');
-        if (output) console.log('📤 Output:', output.substring(0, 200));
-        if (errorOutput) console.log('⚠️ Stderr:', errorOutput.substring(0, 200));
-
-        res.json({
-            success: true,
-            stdout: output,
-            stderr: errorOutput,
-            exitCode: 0
-        });
-    } catch (error) {
-        console.error('Command execution error:', error);
-
-        // Extract stdout/stderr from error if available
-        const stdout = error.stdout ? error.stdout.toString().trim() : '';
-        const stderr = error.stderr ? error.stderr.toString().trim() : '';
-        const exitCode = error.code || 1;
-
-        res.json({
-            success: false,
-            stdout: stdout,
-            stderr: stderr || error.message,
-            exitCode: exitCode
-        });
+      await fs.access(repoPath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        error: 'Project directory not found'
+      });
     }
+
+    // Add HOST=0.0.0.0 for dev server commands to allow network access
+    let execCommand = command;
+    const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop/.test(command);
+
+    if (isDevServerCommand) {
+      console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
+      execCommand = `HOST=0.0.0.0 ${command}`;
+    }
+
+    // Execute command with timeout (30 seconds)
+    const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${execCommand}`, {
+      timeout: 30000,
+      maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+    });
+
+    const output = stdout.trim();
+    const errorOutput = stderr.trim();
+
+    console.log('✅ Command executed successfully');
+    if (output) console.log('📤 Output:', output.substring(0, 200));
+    if (errorOutput) console.log('⚠️ Stderr:', errorOutput.substring(0, 200));
+
+    res.json({
+      success: true,
+      stdout: output,
+      stderr: errorOutput,
+      exitCode: 0
+    });
+  } catch (error) {
+    console.error('Command execution error:', error);
+
+    // Extract stdout/stderr from error if available
+    const stdout = error.stdout ? error.stdout.toString().trim() : '';
+    const stderr = error.stderr ? error.stderr.toString().trim() : '';
+    const exitCode = error.code || 1;
+
+    res.json({
+      success: false,
+      stdout: stdout,
+      stderr: stderr || error.message,
+      exitCode: exitCode
+    });
+  }
 });
 
 // Edit multiple files atomically
 app.post('/workstation/edit-multiple-files', async (req, res) => {
-    const { projectId, edits } = req.body;
+  const { projectId, edits } = req.body;
 
-    try {
-        const fs = require('fs').promises;
-        const path = require('path');
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
 
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
 
-        console.log('📝 Editing multiple files:', edits.length, 'files');
+    console.log('📝 Editing multiple files:', edits.length, 'files');
 
-        const results = [];
-        const backups = [];
+    const results = [];
+    const backups = [];
 
-        // Prima fase: backup di tutti i file
-        for (const edit of edits) {
-            const fullPath = path.join(repoPath, edit.filePath);
-            try {
-                const originalContent = await fs.readFile(fullPath, 'utf8');
-                backups.push({ filePath: edit.filePath, content: originalContent });
-            } catch (error) {
-                // File non esiste, nessun backup necessario
-                backups.push({ filePath: edit.filePath, content: null });
-            }
-        }
-
-        // Seconda fase: applica tutte le modifiche
-        try {
-            for (let i = 0; i < edits.length; i++) {
-                const edit = edits[i];
-                const fullPath = path.join(repoPath, edit.filePath);
-
-                if (edit.type === 'write') {
-                    await fs.writeFile(fullPath, edit.content, 'utf8');
-                    results.push({
-                        filePath: edit.filePath,
-                        success: true,
-                        type: 'write',
-                        lines: edit.content.split('\n').length
-                    });
-                } else if (edit.type === 'edit') {
-                    const originalContent = backups[i].content;
-                    if (!originalContent) {
-                        throw new Error(`File ${edit.filePath} not found for edit`);
-                    }
-                    const newContent = originalContent.replace(edit.oldString, edit.newString);
-                    await fs.writeFile(fullPath, newContent, 'utf8');
-                    results.push({
-                        filePath: edit.filePath,
-                        success: true,
-                        type: 'edit'
-                    });
-                }
-            }
-
-            console.log(`✅ Successfully edited ${results.length} files`);
-
-            res.json({
-                success: true,
-                results: results,
-                totalFiles: edits.length
-            });
-        } catch (error) {
-            // Rollback: ripristina tutti i file dal backup
-            console.error('❌ Error during multi-file edit, rolling back:', error.message);
-            for (const backup of backups) {
-                if (backup.content !== null) {
-                    const fullPath = path.join(repoPath, backup.filePath);
-                    await fs.writeFile(fullPath, backup.content, 'utf8');
-                }
-            }
-            throw error;
-        }
-    } catch (error) {
-        console.error('Multi-file edit error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            rolledBack: true
-        });
+    // Prima fase: backup di tutti i file
+    for (const edit of edits) {
+      const fullPath = path.join(repoPath, edit.filePath);
+      try {
+        const originalContent = await fs.readFile(fullPath, 'utf8');
+        backups.push({ filePath: edit.filePath, content: originalContent });
+      } catch (error) {
+        // File non esiste, nessun backup necessario
+        backups.push({ filePath: edit.filePath, content: null });
+      }
     }
+
+    // Seconda fase: applica tutte le modifiche
+    try {
+      for (let i = 0; i < edits.length; i++) {
+        const edit = edits[i];
+        const fullPath = path.join(repoPath, edit.filePath);
+
+        if (edit.type === 'write') {
+          await fs.writeFile(fullPath, edit.content, 'utf8');
+          results.push({
+            filePath: edit.filePath,
+            success: true,
+            type: 'write',
+            lines: edit.content.split('\n').length
+          });
+        } else if (edit.type === 'edit') {
+          const originalContent = backups[i].content;
+          if (!originalContent) {
+            throw new Error(`File ${edit.filePath} not found for edit`);
+          }
+          const newContent = originalContent.replace(edit.oldString, edit.newString);
+          await fs.writeFile(fullPath, newContent, 'utf8');
+          results.push({
+            filePath: edit.filePath,
+            success: true,
+            type: 'edit'
+          });
+        }
+      }
+
+      console.log(`✅ Successfully edited ${results.length} files`);
+
+      res.json({
+        success: true,
+        results: results,
+        totalFiles: edits.length
+      });
+    } catch (error) {
+      // Rollback: ripristina tutti i file dal backup
+      console.error('❌ Error during multi-file edit, rolling back:', error.message);
+      for (const backup of backups) {
+        if (backup.content !== null) {
+          const fullPath = path.join(repoPath, backup.filePath);
+          await fs.writeFile(fullPath, backup.content, 'utf8');
+        }
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error('Multi-file edit error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      rolledBack: true
+    });
+  }
 });
 
 // Read multiple files at once - for whole file context
 app.post('/workstation/read-multiple-files', async (req, res) => {
-    const { projectId, filePaths } = req.body;
+  const { projectId, filePaths } = req.body;
 
-    try {
-        const fs = require('fs').promises;
-        const path = require('path');
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
 
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
 
-        console.log('📚 Reading multiple files:', filePaths);
+    console.log('📚 Reading multiple files:', filePaths);
 
-        const results = [];
+    const results = [];
 
-        for (const filePath of filePaths) {
-            const fullPath = path.join(repoPath, filePath);
+    for (const filePath of filePaths) {
+      const fullPath = path.join(repoPath, filePath);
 
-            try {
-                const content = await fs.readFile(fullPath, 'utf8');
-                results.push({
-                    filePath: filePath,
-                    success: true,
-                    content: content,
-                    lines: content.split('\n').length
-                });
-            } catch (error) {
-                results.push({
-                    filePath: filePath,
-                    success: false,
-                    error: error.message
-                });
-            }
-        }
-
-        const successCount = results.filter(r => r.success).length;
-        console.log(`✅ Read ${successCount}/${filePaths.length} files successfully`);
-
-        res.json({
-            success: true,
-            results: results,
-            totalFiles: filePaths.length,
-            successCount: successCount
+      try {
+        const content = await fs.readFile(fullPath, 'utf8');
+        results.push({
+          filePath: filePath,
+          success: true,
+          content: content,
+          lines: content.split('\n').length
         });
-    } catch (error) {
-        console.error('Read multiple files error:', error);
-        res.status(500).json({ success: false, error: error.message });
+      } catch (error) {
+        results.push({
+          filePath: filePath,
+          success: false,
+          error: error.message
+        });
+      }
     }
+
+    const successCount = results.filter(r => r.success).length;
+    console.log(`✅ Read ${successCount}/${filePaths.length} files successfully`);
+
+    res.json({
+      success: true,
+      results: results,
+      totalFiles: filePaths.length,
+      successCount: successCount
+    });
+  } catch (error) {
+    console.error('Read multiple files error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Git command execution with formatted output
 app.post('/workstation/git-command', async (req, res) => {
-    const { projectId, gitCommand } = req.body;
+  const { projectId, gitCommand } = req.body;
 
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    const path = require('path');
+
+    // Remove ws- prefix if present
+    const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+    const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
+
+    console.log('🔧 Executing git command:', gitCommand);
+    console.log('📂 In directory:', repoPath);
+
+    // Security: validate that repoPath exists
+    const fs = require('fs').promises;
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-        const path = require('path');
-
-        // Remove ws- prefix if present
-        const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-        const repoPath = path.join(__dirname, 'cloned_repos', cleanProjectId);
-
-        console.log('🔧 Executing git command:', gitCommand);
-        console.log('📂 In directory:', repoPath);
-
-        // Security: validate that repoPath exists
-        const fs = require('fs').promises;
-        try {
-            await fs.access(repoPath);
-        } catch {
-            return res.status(404).json({
-                success: false,
-                error: 'Project directory not found'
-            });
-        }
-
-        // Execute git command
-        const { stdout, stderr } = await execAsync(`cd "${repoPath}" && git ${gitCommand}`, {
-            timeout: 30000,
-            maxBuffer: 1024 * 1024 * 10
-        });
-
-        const output = stdout.trim();
-        const errorOutput = stderr.trim();
-
-        console.log('✅ Git command executed successfully');
-        if (output) console.log('📤 Output:', output.substring(0, 200));
-
-        res.json({
-            success: true,
-            stdout: output,
-            stderr: errorOutput,
-            exitCode: 0
-        });
-    } catch (error) {
-        console.error('Git command error:', error);
-
-        const stdout = error.stdout ? error.stdout.toString().trim() : '';
-        const stderr = error.stderr ? error.stderr.toString().trim() : '';
-        const exitCode = error.code || 1;
-
-        res.json({
-            success: false,
-            stdout: stdout,
-            stderr: stderr || error.message,
-            exitCode: exitCode
-        });
+      await fs.access(repoPath);
+    } catch {
+      return res.status(404).json({
+        success: false,
+        error: 'Project directory not found'
+      });
     }
+
+    // Execute git command
+    const { stdout, stderr } = await execAsync(`cd "${repoPath}" && git ${gitCommand}`, {
+      timeout: 30000,
+      maxBuffer: 1024 * 1024 * 10
+    });
+
+    const output = stdout.trim();
+    const errorOutput = stderr.trim();
+
+    console.log('✅ Git command executed successfully');
+    if (output) console.log('📤 Output:', output.substring(0, 200));
+
+    res.json({
+      success: true,
+      stdout: output,
+      stderr: errorOutput,
+      exitCode: 0
+    });
+  } catch (error) {
+    console.error('Git command error:', error);
+
+    const stdout = error.stdout ? error.stdout.toString().trim() : '';
+    const stderr = error.stderr ? error.stderr.toString().trim() : '';
+    const exitCode = error.code || 1;
+
+    res.json({
+      success: false,
+      stdout: stdout,
+      stderr: stderr || error.message,
+      exitCode: exitCode
+    });
+  }
 });
 
 // Helper function to check if a GitHub repository is private
 async function checkIfRepoIsPrivate(repositoryUrl, githubToken = null) {
-    try {
-        // Extract owner and repo from URL
-        // Supports: https://github.com/owner/repo.git or https://github.com/owner/repo
-        const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
-        if (!match) {
-            console.log('⚠️ Could not parse GitHub URL, assuming public');
-            return { isPrivate: false, requiresAuth: false };
-        }
-
-        const [, owner, repo] = match;
-        const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
-
-        console.log(`🔍 Checking repo visibility: ${owner}/${repo}`);
-
-        // Try to access the repo API
-        const headers = {
-            'Accept': 'application/vnd.github.v3+json',
-            'User-Agent': 'Drape-IDE'
-        };
-
-        // If we have a token, use it
-        if (githubToken) {
-            headers['Authorization'] = `token ${githubToken}`;
-        }
-
-        const response = await axios.get(apiUrl, { headers, timeout: 5000 });
-
-        const isPrivate = response.data.private === true;
-        console.log(`   Repo "${owner}/${repo}" is ${isPrivate ? 'PRIVATE' : 'PUBLIC'}`);
-
-        return {
-            isPrivate,
-            requiresAuth: isPrivate && !githubToken,
-            repoInfo: {
-                name: response.data.name,
-                fullName: response.data.full_name,
-                private: isPrivate,
-                defaultBranch: response.data.default_branch
-            }
-        };
-    } catch (error) {
-        // If 404, repo might be private and we don't have access
-        if (error.response?.status === 404) {
-            console.log('   Repo returned 404 - likely private or does not exist');
-            return {
-                isPrivate: true,
-                requiresAuth: !githubToken,
-                error: 'Repository not found or is private'
-            };
-        }
-        // If 401, token is invalid
-        if (error.response?.status === 401) {
-            console.log('   Invalid or expired token');
-            return {
-                isPrivate: true,
-                requiresAuth: true,
-                error: 'Invalid or expired token'
-            };
-        }
-        console.log('   Error checking repo:', error.message);
-        // On other errors, assume public and try to clone
-        return { isPrivate: false, requiresAuth: false };
+  try {
+    // Extract owner and repo from URL
+    // Supports: https://github.com/owner/repo.git or https://github.com/owner/repo
+    const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+    if (!match) {
+      console.log('⚠️ Could not parse GitHub URL, assuming public');
+      return { isPrivate: false, requiresAuth: false };
     }
+
+    const [, owner, repo] = match;
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+
+    console.log(`🔍 Checking repo visibility: ${owner}/${repo}`);
+
+    // Try to access the repo API
+    const headers = {
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'Drape-IDE'
+    };
+
+    // If we have a token, use it
+    if (githubToken) {
+      headers['Authorization'] = `token ${githubToken}`;
+    }
+
+    const response = await axios.get(apiUrl, { headers, timeout: 5000 });
+
+    const isPrivate = response.data.private === true;
+    console.log(`   Repo "${owner}/${repo}" is ${isPrivate ? 'PRIVATE' : 'PUBLIC'}`);
+
+    return {
+      isPrivate,
+      requiresAuth: isPrivate && !githubToken,
+      repoInfo: {
+        name: response.data.name,
+        fullName: response.data.full_name,
+        private: isPrivate,
+        defaultBranch: response.data.default_branch
+      }
+    };
+  } catch (error) {
+    // If 404, repo might be private and we don't have access
+    if (error.response?.status === 404) {
+      console.log('   Repo returned 404 - likely private or does not exist');
+      return {
+        isPrivate: true,
+        requiresAuth: !githubToken,
+        error: 'Repository not found or is private'
+      };
+    }
+    // If 401, token is invalid
+    if (error.response?.status === 401) {
+      console.log('   Invalid or expired token');
+      return {
+        isPrivate: true,
+        requiresAuth: true,
+        error: 'Invalid or expired token'
+      };
+    }
+    console.log('   Error checking repo:', error.message);
+    // On other errors, assume public and try to clone
+    return { isPrivate: false, requiresAuth: false };
+  }
 }
 
 // Helper function to clone and read repository files
 async function cloneAndReadRepository(repositoryUrl, projectId, githubToken = null) {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-    const fs = require('fs').promises;
-    const path = require('path');
+  const { exec } = require('child_process');
+  const { promisify } = require('util');
+  const execAsync = promisify(exec);
+  const fs = require('fs').promises;
+  const path = require('path');
 
-    const reposDir = path.join(__dirname, 'cloned_repos');
-    const repoPath = path.join(reposDir, projectId);
+  const reposDir = path.join(__dirname, 'cloned_repos');
+  const repoPath = path.join(reposDir, projectId);
 
-    // Create repos directory if it doesn't exist
-    try {
-        await fs.mkdir(reposDir, { recursive: true });
-    } catch (err) {
-        console.error('Error creating repos directory:', err);
+  // Create repos directory if it doesn't exist
+  try {
+    await fs.mkdir(reposDir, { recursive: true });
+  } catch (err) {
+    console.error('Error creating repos directory:', err);
+  }
+
+  // If no repositoryUrl provided, just read from existing local repo
+  if (!repositoryUrl) {
+    console.log('📂 No repositoryUrl provided, reading from existing local repo');
+    // Skip to reading files at the end
+  }
+
+  // CHECK IF REPO IS PRIVATE - Require authentication for private repos
+  if (repositoryUrl) {
+    const repoCheck = await checkIfRepoIsPrivate(repositoryUrl, githubToken);
+
+    if (repoCheck.requiresAuth) {
+      const error = new Error('Questa repository è privata. È necessario autenticarsi con GitHub.');
+      error.requiresAuth = true;
+      error.isPrivate = true;
+      throw error;
     }
+  }
 
-    // If no repositoryUrl provided, just read from existing local repo
+  // Build clone URL with token if provided (for private repos)
+  let cloneUrl = repositoryUrl;
+  if (repositoryUrl && githubToken) {
+    // Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
+    cloneUrl = repositoryUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+    console.log('🔑 Using authenticated clone URL');
+  }
+
+  // Check if repository is already cloned AND has files
+  let needsClone = false;
+  try {
+    await fs.access(repoPath);
+    // Folder exists, check if it has files (not just .git)
+    const entries = await fs.readdir(repoPath);
+    const hasFiles = entries.some(e => e !== '.git');
+    if (hasFiles) {
+      console.log('✅ Repository already cloned at:', repoPath);
+      // If we have a token, do a git pull to ensure latest
+      if (githubToken) {
+        try {
+          console.log('🔄 Pulling latest changes...');
+          await execAsync(`cd "${repoPath}" && git pull`);
+        } catch (pullError) {
+          console.log('⚠️ Pull failed, but repo exists:', pullError.message);
+        }
+      }
+    } else {
+      console.log('📂 Folder exists but is empty, re-cloning...');
+      // Remove empty folder
+      await fs.rm(repoPath, { recursive: true, force: true });
+      needsClone = true;
+    }
+  } catch {
+    needsClone = true;
+  }
+
+  if (needsClone) {
+    // Can only clone if we have a URL
     if (!repositoryUrl) {
-        console.log('📂 No repositoryUrl provided, reading from existing local repo');
-        // Skip to reading files at the end
+      throw new Error('Repository not cloned and no URL provided');
     }
-
-    // CHECK IF REPO IS PRIVATE - Require authentication for private repos
-    if (repositoryUrl) {
-        const repoCheck = await checkIfRepoIsPrivate(repositoryUrl, githubToken);
-
-        if (repoCheck.requiresAuth) {
-            const error = new Error('Questa repository è privata. È necessario autenticarsi con GitHub.');
-            error.requiresAuth = true;
-            error.isPrivate = true;
-            throw error;
-        }
-    }
-
-    // Build clone URL with token if provided (for private repos)
-    let cloneUrl = repositoryUrl;
-    if (repositoryUrl && githubToken) {
-        // Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
-        cloneUrl = repositoryUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-        console.log('🔑 Using authenticated clone URL');
-    }
-
-    // Check if repository is already cloned AND has files
-    let needsClone = false;
+    // Repository not cloned yet, clone it now
+    console.log('📦 Cloning repository:', repositoryUrl);
+    console.log('📦 Has token:', !!githubToken);
     try {
-        await fs.access(repoPath);
-        // Folder exists, check if it has files (not just .git)
-        const entries = await fs.readdir(repoPath);
-        const hasFiles = entries.some(e => e !== '.git');
-        if (hasFiles) {
-            console.log('✅ Repository already cloned at:', repoPath);
-            // If we have a token, do a git pull to ensure latest
-            if (githubToken) {
-                try {
-                    console.log('🔄 Pulling latest changes...');
-                    await execAsync(`cd "${repoPath}" && git pull`);
-                } catch (pullError) {
-                    console.log('⚠️ Pull failed, but repo exists:', pullError.message);
-                }
-            }
+      await execAsync(`git clone ${cloneUrl} "${repoPath}"`);
+      console.log('✅ Repository cloned successfully');
+    } catch (cloneError) {
+      console.error('❌ Error cloning repository:', cloneError.message);
+      throw new Error(`Failed to clone repository: ${cloneError.message}`);
+    }
+  }
+
+  // Read files from the cloned repository (RECURSIVE)
+  // NOTE: Only returns files, not directories. Directories are implicit in the file paths.
+  async function readDirectory(dirPath, basePath = '') {
+    const files = [];
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        // Skip .git directory and node_modules
+        if (entry.name === '.git' || entry.name === 'node_modules') continue;
+
+        const fullPath = path.join(dirPath, entry.name);
+        const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+          // DON'T add the directory itself, just recurse into it
+          // The directory structure is implicit in the file paths
+          const subFiles = await readDirectory(fullPath, relativePath);
+          files.push(...subFiles);
         } else {
-            console.log('📂 Folder exists but is empty, re-cloning...');
-            // Remove empty folder
-            await fs.rm(repoPath, { recursive: true, force: true });
-            needsClone = true;
+          // Only add files
+          files.push({
+            name: entry.name,
+            type: 'file',
+            path: relativePath
+          });
         }
-    } catch {
-        needsClone = true;
+      }
+    } catch (err) {
+      console.error('Error reading directory:', err);
     }
 
-    if (needsClone) {
-        // Can only clone if we have a URL
-        if (!repositoryUrl) {
-            throw new Error('Repository not cloned and no URL provided');
-        }
-        // Repository not cloned yet, clone it now
-        console.log('📦 Cloning repository:', repositoryUrl);
-        console.log('📦 Has token:', !!githubToken);
-        try {
-            await execAsync(`git clone ${cloneUrl} "${repoPath}"`);
-            console.log('✅ Repository cloned successfully');
-        } catch (cloneError) {
-            console.error('❌ Error cloning repository:', cloneError.message);
-            throw new Error(`Failed to clone repository: ${cloneError.message}`);
-        }
-    }
+    return files;
+  }
 
-    // Read files from the cloned repository (RECURSIVE)
-    // NOTE: Only returns files, not directories. Directories are implicit in the file paths.
-    async function readDirectory(dirPath, basePath = '') {
-        const files = [];
-        try {
-            const entries = await fs.readdir(dirPath, { withFileTypes: true });
-
-            for (const entry of entries) {
-                // Skip .git directory and node_modules
-                if (entry.name === '.git' || entry.name === 'node_modules') continue;
-
-                const fullPath = path.join(dirPath, entry.name);
-                const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
-
-                if (entry.isDirectory()) {
-                    // DON'T add the directory itself, just recurse into it
-                    // The directory structure is implicit in the file paths
-                    const subFiles = await readDirectory(fullPath, relativePath);
-                    files.push(...subFiles);
-                } else {
-                    // Only add files
-                    files.push({
-                        name: entry.name,
-                        type: 'file',
-                        path: relativePath
-                    });
-                }
-            }
-        } catch (err) {
-            console.error('Error reading directory:', err);
-        }
-
-        return files;
-    }
-
-    return await readDirectory(repoPath);
+  return await readDirectory(repoPath);
 }
 
 // Get project files from workstation
 app.get('/workstation/:projectId/files', async (req, res) => {
-    let { projectId } = req.params;
-    const { repositoryUrl } = req.query;
+  let { projectId } = req.params;
+  const { repositoryUrl } = req.query;
 
-    // Get GitHub token from Authorization header
-    const authHeader = req.headers.authorization;
-    const githubToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+  // Get GitHub token from Authorization header
+  const authHeader = req.headers.authorization;
+  const githubToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
-    // Remove ws- prefix if present
-    if (projectId.startsWith('ws-')) {
-        projectId = projectId.substring(3);
+  // Remove ws- prefix if present
+  if (projectId.startsWith('ws-')) {
+    projectId = projectId.substring(3);
+  }
+
+  try {
+    console.log('📂 Getting files for project:', projectId);
+    console.log('🔗 Repository URL:', repositoryUrl);
+    console.log('🔑 Has GitHub token:', !!githubToken);
+
+    // If repositoryUrl is provided, clone and read from local filesystem
+    if (repositoryUrl) {
+      const files = await cloneAndReadRepository(repositoryUrl, projectId, githubToken);
+      console.log(`✅ Found ${files.length} files in cloned repository`);
+      res.json({ success: true, files });
+      return;
     }
 
+    // Check if repo is already cloned locally (even without repositoryUrl)
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
     try {
-        console.log('📂 Getting files for project:', projectId);
-        console.log('🔗 Repository URL:', repositoryUrl);
-        console.log('🔑 Has GitHub token:', !!githubToken);
-
-        // If repositoryUrl is provided, clone and read from local filesystem
-        if (repositoryUrl) {
-            const files = await cloneAndReadRepository(repositoryUrl, projectId, githubToken);
-            console.log(`✅ Found ${files.length} files in cloned repository`);
-            res.json({ success: true, files });
-            return;
-        }
-
-        // Check if repo is already cloned locally (even without repositoryUrl)
-        const reposDir = path.join(__dirname, 'cloned_repos');
-        const repoPath = path.join(reposDir, projectId);
-        try {
-            await fs.access(repoPath);
-            // Repo exists locally, read files from it
-            console.log('📂 Found existing cloned repo at:', repoPath);
-            const files = await cloneAndReadRepository(null, projectId, null);
-            console.log(`✅ Found ${files.length} files in existing cloned repository`);
-            res.json({ success: true, files });
-            return;
-        } catch {
-            // Repo not cloned locally, fall through to Firestore
-            console.log('📂 No local repo found, checking Firestore...');
-        }
-
-        // Fallback to Firestore
-        const doc = await db.collection('workstation_files').doc(projectId).get();
-
-        if (doc.exists) {
-            const data = doc.data();
-            console.log(`✅ Found ${data.files.length} files in Firestore`);
-            res.json({ success: true, files: data.files });
-        } else {
-            console.log('⚠️ No files found in Firestore for:', projectId);
-            res.json({ success: true, files: [] });
-        }
-    } catch (error) {
-        console.error('❌ Error getting files:', error.message);
-
-        // If repository is private and requires authentication
-        if (error.requiresAuth || error.isPrivate) {
-            console.log('🔒 Repository is private - authentication required');
-            res.status(401).json({
-                success: false,
-                error: error.message || 'Repository privata. È necessario autenticarsi con GitHub.',
-                requiresAuth: true,
-                isPrivate: true
-            });
-        }
-        // If repository clone failed (private or not found), return error
-        else if (error.message.includes('Failed to clone repository')) {
-            console.log('⚠️ Clone failed - repository private or not found');
-            res.status(401).json({
-                success: false,
-                error: 'Repository is private or not found. Authentication required.',
-                requiresAuth: true
-            });
-        } else {
-            res.status(500).json({ success: false, error: error.message });
-        }
+      await fs.access(repoPath);
+      // Repo exists locally, read files from it
+      console.log('📂 Found existing cloned repo at:', repoPath);
+      const files = await cloneAndReadRepository(null, projectId, null);
+      console.log(`✅ Found ${files.length} files in existing cloned repository`);
+      res.json({ success: true, files });
+      return;
+    } catch {
+      // Repo not cloned locally, fall through to Firestore
+      console.log('📂 No local repo found, checking Firestore...');
     }
+
+    // Fallback to Firestore
+    const doc = await db.collection('workstation_files').doc(projectId).get();
+
+    if (doc.exists) {
+      const data = doc.data();
+      console.log(`✅ Found ${data.files.length} files in Firestore`);
+      res.json({ success: true, files: data.files });
+    } else {
+      console.log('⚠️ No files found in Firestore for:', projectId);
+      res.json({ success: true, files: [] });
+    }
+  } catch (error) {
+    console.error('❌ Error getting files:', error.message);
+
+    // If repository is private and requires authentication
+    if (error.requiresAuth || error.isPrivate) {
+      console.log('🔒 Repository is private - authentication required');
+      res.status(401).json({
+        success: false,
+        error: error.message || 'Repository privata. È necessario autenticarsi con GitHub.',
+        requiresAuth: true,
+        isPrivate: true
+      });
+    }
+    // If repository clone failed (private or not found), return error
+    else if (error.message.includes('Failed to clone repository')) {
+      console.log('⚠️ Clone failed - repository private or not found');
+      res.status(401).json({
+        success: false,
+        error: 'Repository is private or not found. Authentication required.',
+        requiresAuth: true
+      });
+    } else {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
 });
 
 /**
  * Get file content from cloned repository
  */
 app.get('/workstation/:projectId/file-content', async (req, res) => {
-    const { projectId } = req.params;
-    const { filePath, repositoryUrl } = req.query;
+  const { projectId } = req.params;
+  const { filePath, repositoryUrl } = req.query;
 
-    try {
-        console.log('📄 [FILE-CONTENT] Request received:');
-        console.log('   - projectId:', projectId);
-        console.log('   - filePath:', filePath);
-        console.log('   - repositoryUrl:', repositoryUrl);
+  try {
+    console.log('📄 [FILE-CONTENT] Request received:');
+    console.log('   - projectId:', projectId);
+    console.log('   - filePath:', filePath);
+    console.log('   - repositoryUrl:', repositoryUrl);
 
-        if (!filePath) {
-            console.log('❌ [FILE-CONTENT] Error: File path is required');
-            return res.status(400).json({ success: false, error: 'File path is required' });
-        }
-
-        // Ensure repository is cloned
-        const reposDir = path.join(__dirname, 'cloned_repos');
-        const repoPath = path.join(reposDir, projectId);
-        console.log('📂 [FILE-CONTENT] Checking repo path:', repoPath);
-
-        // Check if repo exists, clone if not
-        try {
-            await fs.access(repoPath);
-            console.log('✅ [FILE-CONTENT] Repository directory exists');
-        } catch {
-            console.log('⚠️  [FILE-CONTENT] Repository directory not found');
-            if (repositoryUrl) {
-                console.log('📦 [FILE-CONTENT] Attempting to clone repository...');
-                await cloneAndReadRepository(repositoryUrl, projectId);
-                console.log('✅ [FILE-CONTENT] Repository cloned successfully');
-            } else {
-                console.log('❌ [FILE-CONTENT] No repositoryUrl provided, returning 404');
-                return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
-            }
-        }
-
-        // Read file content
-        const fullFilePath = path.join(repoPath, filePath);
-        console.log('📄 [FILE-CONTENT] Reading file from:', fullFilePath);
-
-        const content = await fs.readFile(fullFilePath, 'utf-8');
-
-        console.log(`✅ [FILE-CONTENT] File content loaded: ${filePath} (${content.length} bytes)`);
-        res.json({ success: true, content, filePath });
-
-    } catch (error) {
-        console.error('❌ [FILE-CONTENT] Error:', error.message);
-        console.error('   Stack:', error.stack);
-        res.status(500).json({ success: false, error: error.message });
+    if (!filePath) {
+      console.log('❌ [FILE-CONTENT] Error: File path is required');
+      return res.status(400).json({ success: false, error: 'File path is required' });
     }
+
+    // Ensure repository is cloned
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
+    console.log('📂 [FILE-CONTENT] Checking repo path:', repoPath);
+
+    // Check if repo exists, clone if not
+    try {
+      await fs.access(repoPath);
+      console.log('✅ [FILE-CONTENT] Repository directory exists');
+    } catch {
+      console.log('⚠️  [FILE-CONTENT] Repository directory not found');
+      if (repositoryUrl) {
+        console.log('📦 [FILE-CONTENT] Attempting to clone repository...');
+        await cloneAndReadRepository(repositoryUrl, projectId);
+        console.log('✅ [FILE-CONTENT] Repository cloned successfully');
+      } else {
+        console.log('❌ [FILE-CONTENT] No repositoryUrl provided, returning 404');
+        return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
+      }
+    }
+
+    // Read file content
+    const fullFilePath = path.join(repoPath, filePath);
+    console.log('📄 [FILE-CONTENT] Reading file from:', fullFilePath);
+
+    const content = await fs.readFile(fullFilePath, 'utf-8');
+
+    console.log(`✅ [FILE-CONTENT] File content loaded: ${filePath} (${content.length} bytes)`);
+    res.json({ success: true, content, filePath });
+
+  } catch (error) {
+    console.error('❌ [FILE-CONTENT] Error:', error.message);
+    console.error('   Stack:', error.stack);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ==================== GIT OPERATIONS ====================
@@ -3743,390 +3820,806 @@ const { execSync, exec } = require('child_process');
  * Get git status, commits, and branches for a project
  */
 app.get('/git/status/:projectId', async (req, res) => {
-    let { projectId } = req.params;
+  let { projectId } = req.params;
 
-    // Remove ws- prefix if present
-    if (projectId.startsWith('ws-')) {
-        projectId = projectId.substring(3);
-    }
+  // Remove ws- prefix if present
+  if (projectId.startsWith('ws-')) {
+    projectId = projectId.substring(3);
+  }
 
-    const reposDir = path.join(__dirname, 'cloned_repos');
-    const repoPath = path.join(reposDir, projectId);
+  const reposDir = path.join(__dirname, 'cloned_repos');
+  const repoPath = path.join(reposDir, projectId);
 
+  try {
+    // Check if repo exists
+    await fs.access(repoPath);
+
+    // Check if it's a git repo
+    const gitDir = path.join(repoPath, '.git');
     try {
-        // Check if repo exists
-        await fs.access(repoPath);
-
-        // Check if it's a git repo
-        const gitDir = path.join(repoPath, '.git');
-        try {
-            await fs.access(gitDir);
-        } catch {
-            return res.json({ isGitRepo: false });
-        }
-
-        // Get current branch
-        let currentBranch = 'main';
-        try {
-            currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
-        } catch (e) {
-            console.log('Could not get current branch:', e.message);
-        }
-
-        // Get commits (last 50)
-        let commits = [];
-        try {
-            const logOutput = execSync(
-                'git log --pretty=format:"%H|%h|%s|%an|%ae|%ai" -50',
-                { cwd: repoPath, encoding: 'utf-8' }
-            );
-            if (logOutput.trim()) {
-                commits = logOutput.trim().split('\n').map((line, index) => {
-                    const [hash, shortHash, message, author, authorEmail, date] = line.split('|');
-                    return {
-                        hash,
-                        shortHash,
-                        message,
-                        author,
-                        authorEmail,
-                        date: new Date(date),
-                        isHead: index === 0,
-                        branch: index === 0 ? currentBranch : undefined
-                    };
-                });
-            }
-        } catch (e) {
-            console.log('Could not get commits:', e.message);
-        }
-
-        // Get branches
-        let branches = [];
-        try {
-            const branchOutput = execSync('git branch -a', { cwd: repoPath, encoding: 'utf-8' });
-            const branchLines = branchOutput.trim().split('\n');
-            branches = branchLines.map(line => {
-                const isCurrent = line.startsWith('*');
-                const name = line.replace(/^\*?\s*/, '').trim();
-                const isRemote = name.startsWith('remotes/');
-                return {
-                    name: isRemote ? name.replace('remotes/', '') : name,
-                    isCurrent,
-                    isRemote
-                };
-            }).filter(b => !b.name.includes('HEAD'));
-
-            // Get ahead/behind for current branch
-            try {
-                const trackingOutput = execSync(`git rev-list --left-right --count origin/${currentBranch}...HEAD`, { cwd: repoPath, encoding: 'utf-8' });
-                const [behind, ahead] = trackingOutput.trim().split('\t').map(Number);
-                const currentBranchObj = branches.find(b => b.isCurrent);
-                if (currentBranchObj) {
-                    currentBranchObj.ahead = ahead;
-                    currentBranchObj.behind = behind;
-                }
-            } catch (e) {
-                // No tracking branch or other error
-            }
-        } catch (e) {
-            console.log('Could not get branches:', e.message);
-        }
-
-        // Get status (staged, modified, untracked)
-        let status = { staged: [], modified: [], untracked: [], deleted: [] };
-        try {
-            const statusOutput = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
-            if (statusOutput.trim()) {
-                statusOutput.trim().split('\n').forEach(line => {
-                    const code = line.substring(0, 2);
-                    const file = line.substring(3);
-
-                    if (code[0] === 'A' || code[0] === 'M' || code[0] === 'D') {
-                        status.staged.push(file);
-                    }
-                    if (code[1] === 'M') {
-                        status.modified.push(file);
-                    }
-                    if (code === '??') {
-                        status.untracked.push(file);
-                    }
-                    if (code[1] === 'D') {
-                        status.deleted.push(file);
-                    }
-                });
-            }
-        } catch (e) {
-            console.log('Could not get status:', e.message);
-        }
-
-        res.json({
-            isGitRepo: true,
-            currentBranch,
-            commits,
-            branches,
-            status
-        });
-
-    } catch (error) {
-        console.error('❌ Git status error:', error.message);
-        res.json({ isGitRepo: false, error: error.message });
+      await fs.access(gitDir);
+    } catch {
+      return res.json({ isGitRepo: false });
     }
+
+    // Get current branch
+    let currentBranch = 'main';
+    try {
+      currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+    } catch (e) {
+      console.log('Could not get current branch:', e.message);
+    }
+
+    // Get commits (last 50)
+    let commits = [];
+    try {
+      const logOutput = execSync(
+        'git log --pretty=format:"%H|%h|%s|%an|%ae|%ai" -50',
+        { cwd: repoPath, encoding: 'utf-8' }
+      );
+      if (logOutput.trim()) {
+        commits = logOutput.trim().split('\n').map((line, index) => {
+          const [hash, shortHash, message, author, authorEmail, date] = line.split('|');
+          return {
+            hash,
+            shortHash,
+            message,
+            author,
+            authorEmail,
+            date: new Date(date),
+            isHead: index === 0,
+            branch: index === 0 ? currentBranch : undefined
+          };
+        });
+      }
+    } catch (e) {
+      console.log('Could not get commits:', e.message);
+    }
+
+    // Get branches
+    let branches = [];
+    try {
+      const branchOutput = execSync('git branch -a', { cwd: repoPath, encoding: 'utf-8' });
+      const branchLines = branchOutput.trim().split('\n');
+      branches = branchLines.map(line => {
+        const isCurrent = line.startsWith('*');
+        const name = line.replace(/^\*?\s*/, '').trim();
+        const isRemote = name.startsWith('remotes/');
+        return {
+          name: isRemote ? name.replace('remotes/', '') : name,
+          isCurrent,
+          isRemote
+        };
+      }).filter(b => !b.name.includes('HEAD'));
+
+      // Get ahead/behind for current branch
+      try {
+        const trackingOutput = execSync(`git rev-list --left-right --count origin/${currentBranch}...HEAD`, { cwd: repoPath, encoding: 'utf-8' });
+        const [behind, ahead] = trackingOutput.trim().split('\t').map(Number);
+        const currentBranchObj = branches.find(b => b.isCurrent);
+        if (currentBranchObj) {
+          currentBranchObj.ahead = ahead;
+          currentBranchObj.behind = behind;
+        }
+      } catch (e) {
+        // No tracking branch or other error
+      }
+    } catch (e) {
+      console.log('Could not get branches:', e.message);
+    }
+
+    // Get status (staged, modified, untracked)
+    let status = { staged: [], modified: [], untracked: [], deleted: [] };
+    try {
+      const statusOutput = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
+      if (statusOutput.trim()) {
+        statusOutput.trim().split('\n').forEach(line => {
+          const code = line.substring(0, 2);
+          const file = line.substring(3);
+
+          if (code[0] === 'A' || code[0] === 'M' || code[0] === 'D') {
+            status.staged.push(file);
+          }
+          if (code[1] === 'M') {
+            status.modified.push(file);
+          }
+          if (code === '??') {
+            status.untracked.push(file);
+          }
+          if (code[1] === 'D') {
+            status.deleted.push(file);
+          }
+        });
+      }
+    } catch (e) {
+      console.log('Could not get status:', e.message);
+    }
+
+    res.json({
+      isGitRepo: true,
+      currentBranch,
+      commits,
+      branches,
+      status
+    });
+
+  } catch (error) {
+    console.error('❌ Git status error:', error.message);
+    res.json({ isGitRepo: false, error: error.message });
+  }
 });
 
 /**
  * Git fetch
  */
 app.post('/git/fetch/:projectId', async (req, res) => {
-    let { projectId } = req.params;
-    const authHeader = req.headers.authorization;
-    const githubToken = authHeader?.replace('Bearer ', '');
+  let { projectId } = req.params;
+  const authHeader = req.headers.authorization;
+  const githubToken = authHeader?.replace('Bearer ', '');
 
-    if (projectId.startsWith('ws-')) {
-        projectId = projectId.substring(3);
+  if (projectId.startsWith('ws-')) {
+    projectId = projectId.substring(3);
+  }
+
+  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+  try {
+    await fs.access(repoPath);
+
+    // Configure git with token if provided
+    if (githubToken) {
+      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      if (remoteUrl.includes('github.com')) {
+        const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+        execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
+      }
     }
 
-    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+    // Fetch
+    execSync('git fetch --all', { cwd: repoPath, encoding: 'utf-8' });
 
-    try {
-        await fs.access(repoPath);
-
-        // Configure git with token if provided
-        if (githubToken) {
-            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-            if (remoteUrl.includes('github.com')) {
-                const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-                execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-            }
-        }
-
-        // Fetch
-        execSync('git fetch --all', { cwd: repoPath, encoding: 'utf-8' });
-
-        // Reset remote URL to remove token
-        if (githubToken) {
-            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-            const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-            execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-        }
-
-        res.json({ success: true, message: 'Fetch completed' });
-    } catch (error) {
-        console.error('❌ Git fetch error:', error.message);
-        res.json({ success: false, message: error.message });
+    // Reset remote URL to remove token
+    if (githubToken) {
+      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
     }
+
+    res.json({ success: true, message: 'Fetch completed' });
+  } catch (error) {
+    console.error('❌ Git fetch error:', error.message);
+    res.json({ success: false, message: error.message });
+  }
 });
 
 /**
  * Git pull
  */
 app.post('/git/pull/:projectId', async (req, res) => {
-    let { projectId } = req.params;
-    const authHeader = req.headers.authorization;
-    const githubToken = authHeader?.replace('Bearer ', '');
+  let { projectId } = req.params;
+  const authHeader = req.headers.authorization;
+  const githubToken = authHeader?.replace('Bearer ', '');
 
-    if (projectId.startsWith('ws-')) {
-        projectId = projectId.substring(3);
+  if (projectId.startsWith('ws-')) {
+    projectId = projectId.substring(3);
+  }
+
+  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+  try {
+    await fs.access(repoPath);
+
+    // Configure git with token if provided
+    if (githubToken) {
+      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      if (remoteUrl.includes('github.com')) {
+        const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+        execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
+      }
     }
 
-    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+    // Pull
+    const output = execSync('git pull', { cwd: repoPath, encoding: 'utf-8' });
 
-    try {
-        await fs.access(repoPath);
-
-        // Configure git with token if provided
-        if (githubToken) {
-            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-            if (remoteUrl.includes('github.com')) {
-                const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-                execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-            }
-        }
-
-        // Pull
-        const output = execSync('git pull', { cwd: repoPath, encoding: 'utf-8' });
-
-        // Reset remote URL to remove token
-        if (githubToken) {
-            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-            const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-            execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-        }
-
-        res.json({ success: true, message: 'Pull completed', output });
-    } catch (error) {
-        console.error('❌ Git pull error:', error.message);
-        res.json({ success: false, message: error.message });
+    // Reset remote URL to remove token
+    if (githubToken) {
+      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+      execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
     }
+
+    res.json({ success: true, message: 'Pull completed', output });
+  } catch (error) {
+    console.error('❌ Git pull error:', error.message);
+    res.json({ success: false, message: error.message });
+  }
 });
 
 /**
  * Git push
  */
 app.post('/git/push/:projectId', async (req, res) => {
-    let { projectId } = req.params;
-    const authHeader = req.headers.authorization;
-    const githubToken = authHeader?.replace('Bearer ', '');
+  let { projectId } = req.params;
+  const authHeader = req.headers.authorization;
+  const githubToken = authHeader?.replace('Bearer ', '');
 
-    if (projectId.startsWith('ws-')) {
-        projectId = projectId.substring(3);
+  if (projectId.startsWith('ws-')) {
+    projectId = projectId.substring(3);
+  }
+
+  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+
+  try {
+    await fs.access(repoPath);
+
+    if (!githubToken) {
+      return res.json({ success: false, message: 'GitHub token required for push' });
     }
 
-    const repoPath = path.join(__dirname, 'cloned_repos', projectId);
-
-    try {
-        await fs.access(repoPath);
-
-        if (!githubToken) {
-            return res.json({ success: false, message: 'GitHub token required for push' });
-        }
-
-        // Configure git with token
-        const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-        if (remoteUrl.includes('github.com')) {
-            const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-            execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-        }
-
-        // Push
-        const output = execSync('git push', { cwd: repoPath, encoding: 'utf-8' });
-
-        // Reset remote URL to remove token
-        const currentUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-        const cleanUrl = currentUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-        execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-
-        res.json({ success: true, message: 'Push completed', output });
-    } catch (error) {
-        console.error('❌ Git push error:', error.message);
-        res.json({ success: false, message: error.message });
+    // Configure git with token
+    const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+    if (remoteUrl.includes('github.com')) {
+      const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
+      execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
     }
+
+    // Push
+    const output = execSync('git push', { cwd: repoPath, encoding: 'utf-8' });
+
+    // Reset remote URL to remove token
+    const currentUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
+    const cleanUrl = currentUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
+    execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
+
+    res.json({ success: true, message: 'Push completed', output });
+  } catch (error) {
+    console.error('❌ Git push error:', error.message);
+    res.json({ success: false, message: error.message });
+  }
 });
 
 /**
  * Save file content to cloned repository
  */
 app.post('/workstation/:projectId/file-content', async (req, res) => {
-    const { projectId } = req.params;
-    const { filePath, content, repositoryUrl } = req.body;
+  const { projectId } = req.params;
+  const { filePath, content, repositoryUrl } = req.body;
 
-    try {
-        console.log('💾 Saving file:', filePath);
+  try {
+    console.log('💾 Saving file:', filePath);
 
-        if (!filePath || content === undefined) {
-            return res.status(400).json({ success: false, error: 'File path and content are required' });
-        }
-
-        const reposDir = path.join(__dirname, 'cloned_repos');
-        const repoPath = path.join(reposDir, projectId);
-
-        // Check if repo exists
-        try {
-            await fs.access(repoPath);
-        } catch {
-            if (repositoryUrl) {
-                console.log('📦 Repository not found, cloning first...');
-                await cloneAndReadRepository(repositoryUrl, projectId);
-            } else {
-                return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
-            }
-        }
-
-        // Write file content
-        const fullFilePath = path.join(repoPath, filePath);
-
-        // Ensure directory exists
-        const dir = path.dirname(fullFilePath);
-        await fs.mkdir(dir, { recursive: true });
-
-        await fs.writeFile(fullFilePath, content, 'utf-8');
-
-        console.log(`✅ File saved: ${filePath} (${content.length} bytes)`);
-        res.json({ success: true, filePath, size: content.length });
-
-    } catch (error) {
-        console.error('❌ Error saving file:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+    if (!filePath || content === undefined) {
+      return res.status(400).json({ success: false, error: 'File path and content are required' });
     }
+
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
+
+    // Check if repo exists
+    try {
+      await fs.access(repoPath);
+    } catch {
+      if (repositoryUrl) {
+        console.log('📦 Repository not found, cloning first...');
+        await cloneAndReadRepository(repositoryUrl, projectId);
+      } else {
+        return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
+      }
+    }
+
+    // Write file content
+    const fullFilePath = path.join(repoPath, filePath);
+
+    // Ensure directory exists
+    const dir = path.dirname(fullFilePath);
+    await fs.mkdir(dir, { recursive: true });
+
+    await fs.writeFile(fullFilePath, content, 'utf-8');
+
+    console.log(`✅ File saved: ${filePath} (${content.length} bytes)`);
+    res.json({ success: true, filePath, size: content.length });
+
+  } catch (error) {
+    console.error('❌ Error saving file:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Search in files - grep-like functionality
 app.get('/workstation/:projectId/search', async (req, res) => {
-    try {
-        const { projectId } = req.params;
-        const { query, repositoryUrl } = req.query;
+  try {
+    const { projectId } = req.params;
+    const { query, repositoryUrl } = req.query;
 
-        if (!query) {
-            return res.status(400).json({ success: false, error: 'Search query is required' });
-        }
-
-        const reposDir = path.join(__dirname, 'cloned_repos');
-        const repoPath = path.join(reposDir, projectId);
-
-        // Check if repo exists
-        try {
-            await fs.access(repoPath);
-        } catch {
-            if (repositoryUrl) {
-                console.log('📦 Repository not found, cloning first...');
-                await cloneAndReadRepository(repositoryUrl, projectId);
-            } else {
-                return res.status(404).json({ success: false, error: 'Repository not found' });
-            }
-        }
-
-        // Search in files using grep-like approach
-        const results = [];
-        const searchQuery = query.toLowerCase();
-
-        async function searchInDirectory(dir, relativePath = '') {
-            const entries = await fs.readdir(dir, { withFileTypes: true });
-
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-
-                // Skip node_modules, .git, and other common directories
-                if (entry.isDirectory()) {
-                    if (!['node_modules', '.git', 'dist', 'build', '.next', 'coverage'].includes(entry.name)) {
-                        await searchInDirectory(fullPath, relPath);
-                    }
-                } else if (entry.isFile()) {
-                    // Only search in text files (skip binaries, images, etc.)
-                    const ext = path.extname(entry.name).toLowerCase();
-                    const textExtensions = ['.js', '.jsx', '.ts', '.tsx', '.json', '.txt', '.md', '.html', '.css', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h'];
-
-                    if (textExtensions.includes(ext)) {
-                        try {
-                            const content = await fs.readFile(fullPath, 'utf-8');
-                            const lines = content.split('\n');
-
-                            lines.forEach((line, lineNumber) => {
-                                if (line.toLowerCase().includes(searchQuery)) {
-                                    results.push({
-                                        file: relPath,
-                                        line: lineNumber + 1,
-                                        content: line.trim(),
-                                        match: query
-                                    });
-                                }
-                            });
-                        } catch (err) {
-                            // Skip files that can't be read as text
-                            console.log(`⚠️ Skipping ${relPath}: ${err.message}`);
-                        }
-                    }
-                }
-            }
-        }
-
-        await searchInDirectory(repoPath);
-
-        console.log(`🔍 Search completed: "${query}" - ${results.length} matches found`);
-        res.json({ success: true, query, results, count: results.length });
-
-    } catch (error) {
-        console.error('❌ Error searching files:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+    if (!query) {
+      return res.status(400).json({ success: false, error: 'Search query is required' });
     }
+
+    const reposDir = path.join(__dirname, 'cloned_repos');
+    const repoPath = path.join(reposDir, projectId);
+
+    // Check if repo exists
+    try {
+      await fs.access(repoPath);
+    } catch {
+      if (repositoryUrl) {
+        console.log('📦 Repository not found, cloning first...');
+        await cloneAndReadRepository(repositoryUrl, projectId);
+      } else {
+        return res.status(404).json({ success: false, error: 'Repository not found' });
+      }
+    }
+
+    // Search in files using grep-like approach
+    const results = [];
+    const searchQuery = query.toLowerCase();
+
+    async function searchInDirectory(dir, relativePath = '') {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+        // Skip node_modules, .git, and other common directories
+        if (entry.isDirectory()) {
+          if (!['node_modules', '.git', 'dist', 'build', '.next', 'coverage'].includes(entry.name)) {
+            await searchInDirectory(fullPath, relPath);
+          }
+        } else if (entry.isFile()) {
+          // Only search in text files (skip binaries, images, etc.)
+          const ext = path.extname(entry.name).toLowerCase();
+          const textExtensions = ['.js', '.jsx', '.ts', '.tsx', '.json', '.txt', '.md', '.html', '.css', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h'];
+
+          if (textExtensions.includes(ext)) {
+            try {
+              const content = await fs.readFile(fullPath, 'utf-8');
+              const lines = content.split('\n');
+
+              lines.forEach((line, lineNumber) => {
+                if (line.toLowerCase().includes(searchQuery)) {
+                  results.push({
+                    file: relPath,
+                    line: lineNumber + 1,
+                    content: line.trim(),
+                    match: query
+                  });
+                }
+              });
+            } catch (err) {
+              // Skip files that can't be read as text
+              console.log(`⚠️ Skipping ${relPath}: ${err.message}`);
+            }
+          }
+        }
+      }
+    }
+
+    await searchInDirectory(repoPath);
+
+    console.log(`🔍 Search completed: "${query}" - ${results.length} matches found`);
+    res.json({ success: true, query, results, count: results.length });
+
+  } catch (error) {
+    console.error('❌ Error searching files:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================
+// AI-POWERED PREVIEW SYSTEM
+// ============================================
+
+// Cache for AI-detected project commands (avoids re-calling AI)
+const projectCommandsCache = new Map();
+
+/**
+ * Get directory tree structure (for AI analysis)
+ */
+async function getProjectTree(repoPath, maxDepth = 3) {
+  const tree = [];
+
+  async function walkDir(dir, depth = 0, prefix = '') {
+    if (depth > maxDepth) return;
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      const filtered = entries.filter(e =>
+        !['node_modules', '.git', 'dist', 'build', '.next', '.expo', '__pycache__', 'venv', '.venv', 'coverage', '.cache'].includes(e.name)
+      );
+
+      for (const entry of filtered) {
+        const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+          tree.push({ type: 'dir', path: relativePath });
+          await walkDir(path.join(dir, entry.name), depth + 1, relativePath);
+        } else {
+          tree.push({ type: 'file', path: relativePath });
+        }
+      }
+    } catch (err) {
+      console.error(`Error reading ${dir}:`, err.message);
+    }
+  }
+
+  await walkDir(repoPath);
+  return tree;
+}
+
+/**
+ * Read specific files from project
+ */
+async function readProjectFiles(repoPath, filePaths) {
+  const contents = {};
+
+  for (const filePath of filePaths) {
+    try {
+      const fullPath = path.join(repoPath, filePath);
+      const content = await fs.readFile(fullPath, 'utf-8');
+      // Limit file size to avoid token overflow
+      contents[filePath] = content.length > 10000
+        ? content.substring(0, 10000) + '\n... (truncated)'
+        : content;
+    } catch (err) {
+      contents[filePath] = `[Error reading file: ${err.message}]`;
+    }
+  }
+
+  return contents;
+}
+
+/**
+ * Call Groq AI API
+ */
+async function callGroqAI(messages, options = {}) {
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+
+  if (!GROQ_API_KEY) {
+    throw new Error('GROQ_API_KEY not configured');
+  }
+
+  const response = await axios.post(
+    'https://api.groq.com/openai/v1/chat/completions',
+    {
+      model: options.model || 'llama-3.3-70b-versatile',
+      messages,
+      temperature: options.temperature || 0.3,
+      max_tokens: options.maxTokens || 1000,
+      response_format: options.json ? { type: 'json_object' } : undefined
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000
+    }
+  );
+
+  return response.data.choices[0].message.content;
+}
+
+/**
+ * AI-powered project analysis - Step 1: Get file list to read
+ */
+async function aiSelectFilesToRead(tree) {
+  const treeText = tree.map(e => `${e.type === 'dir' ? '📁' : '📄'} ${e.path}`).join('\n');
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a project analyzer. Given a file tree, identify which files to read to understand how to run the project.
+
+Return ONLY a JSON object with this exact format:
+{"files": ["file1.json", "README.md", "etc..."]}
+
+Focus on:
+- Package managers: package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, build.gradle, Gemfile, etc.
+- README files
+- Config files: vite.config.*, next.config.*, angular.json, etc.
+- Docker files if present
+- Main entry points if obvious
+
+Select maximum 5-7 most important files. DO NOT select source code files (*.js, *.ts, *.py in src/ folders).`
+    },
+    {
+      role: 'user',
+      content: `Project structure:\n${treeText}`
+    }
+  ];
+
+  const response = await callGroqAI(messages, { json: true, temperature: 0.1 });
+  const parsed = JSON.parse(response);
+  return parsed.files || [];
+}
+
+/**
+ * AI-powered project analysis - Step 2: Determine commands
+ */
+async function aiDetermineCommands(tree, fileContents) {
+  const treeText = tree.slice(0, 50).map(e => `${e.type === 'dir' ? '📁' : '📄'} ${e.path}`).join('\n');
+
+  const filesText = Object.entries(fileContents)
+    .map(([path, content]) => `=== ${path} ===\n${content}`)
+    .join('\n\n');
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a DevOps expert. Analyze the project and determine how to run it.
+
+Return ONLY a JSON object with this exact format:
+{
+  "projectType": "string describing the project type",
+  "installCommand": "command to install dependencies (or null if not needed)",
+  "startCommand": "command to start the dev server",
+  "port": 3000,
+  "needsInstall": true,
+  "notes": "any important notes"
+}
+
+Rules:
+- ALWAYS use npm (not yarn, not pnpm) for Node.js projects: "npm install" and "npm run <script>" or "npm start"
+- For Node.js: check "scripts" in package.json for "dev", "start", "serve" commands
+- For Python: look for requirements.txt, setup.py, pyproject.toml
+- For Expo/React Native: use "npx expo start --web --port 8081"
+- Default ports: React 3000, Vite 5173, Next.js 3000, Expo 8081, Django 8000, Flask 5000
+- If you see a Makefile or Dockerfile, consider those
+- Be specific with commands, include flags if needed
+- IMPORTANT: Never use yarn or pnpm, always use npm`
+    },
+    {
+      role: 'user',
+      content: `Project structure (partial):\n${treeText}\n\nFile contents:\n${filesText}`
+    }
+  ];
+
+  const response = await callGroqAI(messages, { json: true, temperature: 0.1, maxTokens: 500 });
+  return JSON.parse(response);
+}
+
+/**
+ * Main endpoint: AI-powered preview start
+ */
+app.post('/preview/start', async (req, res) => {
+  const startTime = Date.now();
+
+  try {
+    const { workstationId, forceRefresh } = req.body;
+
+    if (!workstationId) {
+      return res.status(400).json({ success: false, error: 'workstationId is required' });
+    }
+
+    console.log(`\n🚀 Starting AI-powered preview for: ${workstationId}`);
+
+    // Resolve repo path
+    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    if (workstationId.startsWith('ws-')) {
+      const projectIdLower = workstationId.substring(3);
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+        }
+      } catch (err) {
+        console.error('Error reading cloned_repos:', err);
+      }
+    }
+
+    // Check repo exists
+    try {
+      await fs.access(repoPath);
+    } catch {
+      // If repo doesn't exist but we have a URL, try to clone it
+      const { repositoryUrl } = req.body;
+      if (repositoryUrl) {
+        console.log(`📦 Repository not found, cloning from ${repositoryUrl}...`);
+        try {
+          await cloneAndReadRepository(repositoryUrl, workstationId);
+          // Re-check access after clone
+          await fs.access(repoPath);
+        } catch (cloneError) {
+          console.error('❌ Clone failed:', cloneError);
+          return res.status(500).json({ success: false, error: `Failed to clone repository: ${cloneError.message}` });
+        }
+      } else {
+        return res.status(404).json({ success: false, error: 'Project not found' });
+      }
+    }
+
+    console.log(`📁 Repository path: ${repoPath}`);
+
+    // Check cache first (unless force refresh)
+    const cacheKey = repoPath;
+    let commands = null;
+
+    if (!forceRefresh && projectCommandsCache.has(cacheKey)) {
+      commands = projectCommandsCache.get(cacheKey);
+      console.log('📦 Using cached commands');
+    } else {
+      // Step 1: Get project tree
+      console.log('🌳 Reading project structure...');
+      const tree = await getProjectTree(repoPath);
+      console.log(`   Found ${tree.length} entries`);
+
+      // Step 2: AI selects files to read
+      console.log('🤖 AI selecting files to analyze...');
+      const filesToRead = await aiSelectFilesToRead(tree);
+      console.log(`   Selected: ${filesToRead.join(', ')}`);
+
+      // Step 3: Read selected files
+      console.log('📖 Reading selected files...');
+      const fileContents = await readProjectFiles(repoPath, filesToRead);
+
+      // Step 4: AI determines commands
+      console.log('🧠 AI analyzing project...');
+      commands = await aiDetermineCommands(tree, fileContents);
+      console.log(`   Project type: ${commands.projectType}`);
+      console.log(`   Install: ${commands.installCommand}`);
+      console.log(`   Start: ${commands.startCommand}`);
+      console.log(`   Port: ${commands.port}`);
+
+      // Cache the result
+      projectCommandsCache.set(cacheKey, commands);
+    }
+
+    // Step 5: Run install if needed
+    if (commands.needsInstall && commands.installCommand) {
+      console.log(`📦 Running install: ${commands.installCommand}`);
+
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        await execAsync(commands.installCommand, {
+          cwd: repoPath,
+          timeout: 120000, // 2 minute timeout for install
+          maxBuffer: 10 * 1024 * 1024
+        });
+        console.log('✅ Install completed');
+      } catch (installError) {
+        console.error('⚠️ Install warning:', installError.message);
+        // Continue anyway - install might have partially succeeded
+      }
+    }
+
+    // Step 6: Find available port
+    let port = commands.port || 3000;
+    port = await findAvailablePort(port);
+    console.log(`🔌 Using port: ${port}`);
+
+    // Step 7: Prepare and execute start command
+    let startCommand = commands.startCommand;
+
+    // Update port in command if different
+    if (port !== commands.port) {
+      // Replace port in various formats
+      startCommand = startCommand.replace(/--port[=\s]\d+/, `--port ${port}`);
+      startCommand = startCommand.replace(/PORT=\d+/, `PORT=${port}`);
+      startCommand = startCommand.replace(/:(\d{4,5})\b/, `:${port}`);
+
+      // If no port found in command, prepend PORT env var
+      if (!startCommand.includes(port.toString())) {
+        startCommand = `PORT=${port} ${startCommand}`;
+      }
+    }
+
+    // Add HOST=0.0.0.0 for network access
+    if (!startCommand.includes('HOST=') && !startCommand.includes('--host')) {
+      if (startCommand.includes('expo')) {
+        startCommand = `${startCommand} --host lan`;
+      } else {
+        startCommand = `HOST=0.0.0.0 ${startCommand}`;
+      }
+    }
+
+    console.log(`🚀 Executing: ${startCommand}`);
+
+    // Start the server in background using exec (more compatible with npm)
+    const { exec } = require('child_process');
+    const serverProcess = exec(startCommand, {
+      cwd: repoPath,
+      env: {
+        ...process.env,
+        HOST: '0.0.0.0',
+        PORT: port.toString(),
+        SKIP_PREFLIGHT_CHECK: 'true',  // Skip CRA dependency check (avoids conflicts with parent node_modules)
+        BROWSER: 'none',  // Don't open browser automatically
+        NODE_OPTIONS: '--openssl-legacy-provider'  // Fix for Node.js 17+ with old webpack
+      },
+      maxBuffer: 10 * 1024 * 1024
+    });
+
+    // Log server output for debugging
+    serverProcess.stdout?.on('data', (data) => {
+      console.log(`[Server] ${data.toString().trim()}`);
+    });
+    serverProcess.stderr?.on('data', (data) => {
+      console.log(`[Server Error] ${data.toString().trim()}`);
+    });
+    serverProcess.on('error', (err) => {
+      console.error(`[Server Process Error] ${err.message}`);
+    });
+
+    // Step 8: Health check
+    const previewUrl = `http://${LOCAL_IP}:${port}`;
+    console.log(`🏥 Health checking: ${previewUrl}`);
+
+    const maxAttempts = 45;
+    let healthy = false;
+    let attempts = 0;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      attempts++;
+      await new Promise(r => setTimeout(r, 1000));
+
+      try {
+        const healthResponse = await axios.get(previewUrl, { timeout: 3000 });
+        if (healthResponse.status < 500) {
+          healthy = true;
+          console.log(`✅ Server ready after ${attempts} attempts`);
+          break;
+        }
+      } catch (err) {
+        // Server not ready yet
+        if (i % 10 === 0) {
+          console.log(`   Attempt ${attempts}...`);
+        }
+      }
+    }
+
+    const totalTime = Date.now() - startTime;
+    console.log(`⏱️ Total time: ${totalTime}ms`);
+
+    res.json({
+      success: true,
+      previewUrl,
+      port,
+      serverReady: healthy,
+      projectType: commands.projectType,
+      commands: {
+        install: commands.installCommand,
+        start: commands.startCommand
+      },
+      timing: {
+        totalMs: totalTime,
+        cached: projectCommandsCache.has(cacheKey) && !req.body.forceRefresh
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Preview start error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data || null
+    });
+  }
+});
+
+/**
+ * Clear preview commands cache for a project
+ */
+app.post('/preview/clear-cache', (req, res) => {
+  const { workstationId } = req.body;
+
+  if (workstationId) {
+    const repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+    projectCommandsCache.delete(repoPath);
+    console.log(`🗑️ Cache cleared for: ${workstationId}`);
+  } else {
+    projectCommandsCache.clear();
+    console.log('🗑️ All preview cache cleared');
+  }
+
+  res.json({ success: true });
 });
 
 /**
@@ -4134,9 +4627,9 @@ app.get('/workstation/:projectId/search', async (req, res) => {
  * Streams messages to WebSocket client (replaces SSE res.write)
  */
 function wsWrite(ws, data) {
-    if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(data));
-    }
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
 }
 
 // OPTIMIZATION 16: WebSocket Server (instead of app.listen for HTTP only)
@@ -4160,11 +4653,11 @@ wss.on('connection', (ws) => {
 
         // Create a pseudo-response object that uses WebSocket instead of SSE
         const wsResponse = {
-            write: (data) => wsWrite(ws, JSON.parse(data.substring(6))), // Remove "data: " prefix
-            end: () => wsWrite(ws, { type: 'done' }),
-            setHeader: () => {}, // No-op for WebSocket
-            status: () => wsResponse,
-            json: (data) => wsWrite(ws, { type: 'error', ...data })
+          write: (data) => wsWrite(ws, JSON.parse(data.substring(6))), // Remove "data: " prefix
+          end: () => wsWrite(ws, { type: 'done' }),
+          setHeader: () => { }, // No-op for WebSocket
+          status: () => wsResponse,
+          json: (data) => wsWrite(ws, { type: 'error', ...data })
         };
 
         // Reuse existing /ai/chat logic by passing our WebSocket pseudo-response

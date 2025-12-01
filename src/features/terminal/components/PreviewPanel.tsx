@@ -148,53 +148,19 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     };
   }, [currentPreviewUrl, serverStatus]);
 
-  // Detect project type on mount
+  // Set default project info on mount
+  // Actual detection is done by AI when user clicks Play
   useEffect(() => {
-    const detectProject = async () => {
-      try {
-        // Use workstation ID from store to detect project type
-        if (!currentWorkstation?.id) {
-          console.log('No workstation ID, using default detection');
-          const info: ProjectInfo = {
-            type: 'unknown',
-            defaultPort: 3000,
-            startCommand: 'npm start',
-            installCommand: 'npm install',
-            description: 'Unknown Project Type'
-          };
-          setProjectInfo(info);
-          return;
-        }
-
-        console.log('Detecting project type for workstation:', currentWorkstation.id);
-
-        // Call backend API to detect project type
-        const response = await fetch(
-          `${apiUrl}/workstation/${currentWorkstation.id}/detect-project`
-        );
-
-        if (!response.ok) {
-          throw new Error(`Detection failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('✅ Project type detected:', data.projectInfo);
-        setProjectInfo(data.projectInfo);
-      } catch (error) {
-        console.error('Failed to detect project type:', error);
-        // Fallback to default
-        const info: ProjectInfo = {
-          type: 'unknown',
-          defaultPort: 3000,
-          startCommand: 'npm start',
-          installCommand: 'npm install',
-          description: 'Unknown Project Type'
-        };
-        setProjectInfo(info);
-      }
-    };
-
-    detectProject();
+    if (!projectInfo) {
+      // Set placeholder info - real info comes from AI when starting
+      setProjectInfo({
+        type: 'detecting',
+        defaultPort: 3000,
+        startCommand: '',
+        installCommand: '',
+        description: 'Click Play to detect and start'
+      });
+    }
   }, [currentWorkstation]);
 
   // Update preview URL when project type is detected
@@ -244,34 +210,32 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   };
 
   const handleStartServer = async () => {
-    if (!projectInfo) return;
+    if (!currentWorkstation?.id) {
+      logError('No workstation selected', 'preview');
+      return;
+    }
 
     setIsStarting(true);
-    setStartingMessage('Preparazione ambiente...');
+    setStartingMessage('Analisi del progetto...');
 
-    // Log the technical command to global terminal (for developers)
-    logCommand(projectInfo.startCommand, 'preview');
-    logSystem(`Starting server for ${currentWorkstation?.name || 'project'}...`, 'preview');
+    logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
     try {
-      setStartingMessage('Avvio del server...');
-      console.log('Starting server with command:', projectInfo.startCommand);
-      console.log('Current workstation:', currentWorkstation);
-      console.log('Workstation ID to send:', currentWorkstation?.id);
-
-      // Call backend API to execute the start command
-      // Use longer timeout for Expo start (can take up to 40 seconds with health check)
+      // Call new AI-powered preview endpoint
+      // This endpoint handles everything: detection, install, start, health check
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout (includes install)
 
-      const response = await fetch(`${apiUrl}${config.endpoints.terminal}`, {
+      console.log('🚀 Calling /preview/start for workstation:', currentWorkstation.id);
+
+      const response = await fetch(`${apiUrl}/preview/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          command: projectInfo.startCommand,
-          workstationId: currentWorkstation?.id, // Use workstation ID from store
+          workstationId: currentWorkstation.id,
+          repositoryUrl: currentWorkstation.repositoryUrl,
         }),
         signal: controller.signal,
       });
@@ -279,72 +243,52 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Server responded with status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server responded with status: ${response.status}`);
       }
 
-      setStartingMessage('Quasi pronto...');
       const result = await response.json();
-      console.log('📋 Server start result:', JSON.stringify(result, null, 2));
+      console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
 
-      // If there's a preview URL in the response, update our preview URL
-      if (result.previewUrl) {
-        console.log('🔗 Preview URL detected:', result.previewUrl);
-        setStartingMessage('Connessione in corso...');
-        setCurrentPreviewUrl(result.previewUrl); // Update the URL to check
-      } else {
-        console.log('⚠️ No preview URL in response');
+      // Update project info from AI detection
+      if (result.projectType) {
+        setProjectInfo({
+          type: result.projectType,
+          defaultPort: result.port,
+          startCommand: result.commands?.start || 'npm start',
+          installCommand: result.commands?.install || 'npm install',
+          description: result.projectType
+        });
       }
 
-      // NEW: Backend now does health check and tells us if server is ready
-      // This is production-ready: backend polls the server until it's verified running
+      // Update preview URL
+      if (result.previewUrl) {
+        console.log('🔗 Preview URL:', result.previewUrl);
+        setCurrentPreviewUrl(result.previewUrl);
+      }
+
+      // Check if server is ready
       if (result.serverReady) {
-        console.log('✅ Server is verified running by backend health check!');
-        if (result.healthCheck) {
-          console.log(`   Health check passed after ${result.healthCheck.attempts} attempts`);
-          console.log(`   URL checked: ${result.healthCheck.url}`);
-        }
-        // Log success to global terminal (technical for developers)
-        logOutput(`Server started successfully at ${result.previewUrl || currentPreviewUrl}`, 'preview', 0);
+        console.log('✅ Server is running!');
+        console.log(`   Project type: ${result.projectType}`);
+        console.log(`   Time: ${result.timing?.totalMs}ms`);
+        console.log(`   Cached: ${result.timing?.cached}`);
+
+        logOutput(`Server started at ${result.previewUrl}`, 'preview', 0);
+        logSystem(`Project: ${result.projectType} | Port: ${result.port}`, 'preview');
         setServerStatus('running');
-      } else if (result.previewUrl) {
-        // If we have a preview URL, try checking - server might be running even with exitCode != 0
-        // This handles static servers that exit the spawning process but stay running
-        console.log('🔍 Preview URL found, starting health checks...');
-        console.log(`   Exit code: ${result.exitCode}`);
-        console.log(`   Preview URL: ${result.previewUrl}`);
-        // Log to terminal (technical for developers)
+      } else {
+        // Server started but health check didn't pass yet
+        console.log('⏳ Server starting, health check pending...');
         logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
         setServerStatus('checking');
-        // Give server a moment to fully start, then check
-        setTimeout(() => checkServerStatus(), 500);
-      } else if (result.exitCode === 0) {
-        // Fallback: If exitCode is 0 but serverReady is false, start checking
-        console.log('⚠️ Server command executed but not verified ready');
-        console.log(`   Exit code: ${result.exitCode}`);
-        console.log(`   Preview URL: ${result.previewUrl || 'none'}`);
-        console.log(`   Server ready: ${result.serverReady}`);
-        if (result.healthCheck) {
-          console.log(`   Health check result: ${JSON.stringify(result.healthCheck)}`);
-        }
-        console.log('   Starting local health checks...');
-        // Log to terminal
-        logSystem('Waiting for server to start...', 'preview');
-        setServerStatus('checking');
-        checkServerStatus();
-      } else {
-        // Command failed and no preview URL
-        console.log('❌ Server command failed');
-        console.log(`   Exit code: ${result.exitCode}`);
-        console.log(`   Error output: ${result.error}`);
-        // Log error to global terminal
-        logError(`Server failed to start: ${result.error || 'Unknown error'}`, 'preview');
-        setServerStatus('stopped');
+        // Start local health checks
+        setTimeout(() => checkServerStatus(), 1000);
       }
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Failed to start server:', error);
-      // Log error to global terminal
-      logError(`Failed to start server: ${error.message || 'Connection error'}`, 'preview');
-      // Show error state
+      logError(`Failed to start: ${error.message || 'Connection error'}`, 'preview');
       setServerStatus('stopped');
     } finally {
       setIsStarting(false);
@@ -662,183 +606,183 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             style={StyleSheet.absoluteFill}
           />
 
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={insets.top}
-        >
-          {/* Header - Only show when server is running */}
-          {serverStatus === 'running' && (
-            <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-              <View style={styles.headerRow}>
-                {/* Close */}
-                <TouchableOpacity
-                  onPress={handleClose}
-                  style={styles.closeButton}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
-                </TouchableOpacity>
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={insets.top}
+          >
+            {/* Header - Only show when server is running */}
+            {serverStatus === 'running' && (
+              <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+                <View style={styles.headerRow}>
+                  {/* Close */}
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={styles.closeButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
+                  </TouchableOpacity>
 
-                {/* URL Bar - centered */}
-                <View style={styles.urlBar}>
-                  <View style={[
-                    styles.statusIndicator,
-                    { backgroundColor: '#00D084' }
-                  ]} />
-                  <Text style={styles.urlText} numberOfLines={1}>
-                    {currentPreviewUrl ? currentPreviewUrl.replace(/^https?:\/\//, '') : 'localhost'}
-                  </Text>
-                </View>
-
-                {/* Refresh */}
-                <TouchableOpacity
-                  onPress={handleRefresh}
-                  style={styles.refreshButton}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* WebView Preview or Start Screen */}
-          <View style={styles.webViewContainer}>
-          {serverStatus === 'stopped' ? (
-            // Server not running - Device mockup style with ChatPage background
-            <View style={styles.startScreen}>
-              {/* ChatPage gradient background */}
-              <LinearGradient
-                colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
-                locations={[0, 0.3, 0.7, 1]}
-                style={StyleSheet.absoluteFill}
-              >
-                <View style={styles.glowTop} />
-                <View style={styles.glowBottom} />
-              </LinearGradient>
-
-              {/* Close button top right */}
-              <TouchableOpacity
-                onPress={handleClose}
-                style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
-              </TouchableOpacity>
-
-              {/* iPhone 15 Pro style mockup */}
-              <View style={styles.iphoneMockup}>
-                {/* Status bar area - beside Dynamic Island */}
-                <View style={styles.statusBarArea}>
-                  {/* Time - left of Dynamic Island */}
-                  <Text style={styles.fakeTime}>9:41</Text>
-
-                  {/* Dynamic Island - center */}
-                  <View style={styles.dynamicIsland} />
-
-                  {/* Icons - right of Dynamic Island */}
-                  <View style={styles.fakeStatusIcons}>
-                    <Ionicons name="wifi" size={10} color="#fff" />
-                    <Ionicons name="battery-full" size={10} color="#fff" />
+                  {/* URL Bar - centered */}
+                  <View style={styles.urlBar}>
+                    <View style={[
+                      styles.statusIndicator,
+                      { backgroundColor: '#00D084' }
+                    ]} />
+                    <Text style={styles.urlText} numberOfLines={1}>
+                      {currentPreviewUrl ? currentPreviewUrl.replace(/^https?:\/\//, '') : 'localhost'}
+                    </Text>
                   </View>
+
+                  {/* Refresh */}
+                  <TouchableOpacity
+                    onPress={handleRefresh}
+                    style={styles.refreshButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
+                  </TouchableOpacity>
                 </View>
+              </View>
+            )}
 
-                {/* Screen content - fake app UI */}
-                <View style={styles.iphoneScreen}>
+            {/* WebView Preview or Start Screen */}
+            <View style={styles.webViewContainer}>
+              {serverStatus === 'stopped' ? (
+                // Server not running - Device mockup style with ChatPage background
+                <View style={styles.startScreen}>
+                  {/* ChatPage gradient background */}
+                  <LinearGradient
+                    colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={StyleSheet.absoluteFill}
+                  >
+                    <View style={styles.glowTop} />
+                    <View style={styles.glowBottom} />
+                  </LinearGradient>
 
-                  {/* Fake app content */}
-                  <View style={styles.fakeAppContent}>
-                    {/* Header */}
-                    <View style={styles.fakeHeader}>
-                      <View style={styles.fakeAvatar} />
-                      <View style={styles.fakeHeaderText}>
-                        <View style={[styles.fakeLine, { width: 80 }]} />
-                        <View style={[styles.fakeLine, { width: 50, opacity: 0.5 }]} />
+                  {/* Close button top right */}
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
+                  </TouchableOpacity>
+
+                  {/* iPhone 15 Pro style mockup */}
+                  <View style={styles.iphoneMockup}>
+                    {/* Status bar area - beside Dynamic Island */}
+                    <View style={styles.statusBarArea}>
+                      {/* Time - left of Dynamic Island */}
+                      <Text style={styles.fakeTime}>9:41</Text>
+
+                      {/* Dynamic Island - center */}
+                      <View style={styles.dynamicIsland} />
+
+                      {/* Icons - right of Dynamic Island */}
+                      <View style={styles.fakeStatusIcons}>
+                        <Ionicons name="wifi" size={10} color="#fff" />
+                        <Ionicons name="battery-full" size={10} color="#fff" />
                       </View>
                     </View>
 
-                    {/* Cards */}
-                    <View style={styles.fakeCard}>
-                      <View style={styles.fakeCardImage} />
-                      <View style={[styles.fakeLine, { width: '70%', marginTop: 8 }]} />
-                      <View style={[styles.fakeLine, { width: '40%', opacity: 0.5 }]} />
+                    {/* Screen content - fake app UI */}
+                    <View style={styles.iphoneScreen}>
+
+                      {/* Fake app content */}
+                      <View style={styles.fakeAppContent}>
+                        {/* Header */}
+                        <View style={styles.fakeHeader}>
+                          <View style={styles.fakeAvatar} />
+                          <View style={styles.fakeHeaderText}>
+                            <View style={[styles.fakeLine, { width: 80 }]} />
+                            <View style={[styles.fakeLine, { width: 50, opacity: 0.5 }]} />
+                          </View>
+                        </View>
+
+                        {/* Cards */}
+                        <View style={styles.fakeCard}>
+                          <View style={styles.fakeCardImage} />
+                          <View style={[styles.fakeLine, { width: '70%', marginTop: 8 }]} />
+                          <View style={[styles.fakeLine, { width: '40%', opacity: 0.5 }]} />
+                        </View>
+
+                        <View style={[styles.fakeCard, { opacity: 0.6 }]}>
+                          <View style={styles.fakeCardImage} />
+                          <View style={[styles.fakeLine, { width: '60%', marginTop: 8 }]} />
+                        </View>
+                      </View>
+
+                      {/* Home indicator */}
+                      <View style={styles.homeIndicator} />
                     </View>
 
-                    <View style={[styles.fakeCard, { opacity: 0.6 }]}>
-                      <View style={styles.fakeCardImage} />
-                      <View style={[styles.fakeLine, { width: '60%', marginTop: 8 }]} />
-                    </View>
+                    {/* Side buttons */}
+                    <View style={styles.iphoneSideButton} />
+                    <View style={styles.iphoneVolumeUp} />
+                    <View style={styles.iphoneVolumeDown} />
                   </View>
 
-                  {/* Home indicator */}
-                  <View style={styles.homeIndicator} />
+                  {/* Bottom section */}
+                  <View style={styles.startBottomSection}>
+                    <TouchableOpacity
+                      style={[styles.startButton, isStarting && styles.startButtonDisabled]}
+                      onPress={handleStartServer}
+                      disabled={isStarting}
+                      activeOpacity={0.7}
+                    >
+                      {isStarting ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Ionicons name="play" size={20} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                    {/* Status message during startup */}
+                    {isStarting && startingMessage && (
+                      <View style={styles.startingMessageContainer}>
+                        <Text style={styles.startingMessage}>{startingMessage}</Text>
+                      </View>
+                    )}
+                    {!isStarting && projectInfo && (
+                      <Text style={styles.projectTypeText}>
+                        {projectInfo.description || projectInfo.type}
+                      </Text>
+                    )}
+                  </View>
                 </View>
-
-                {/* Side buttons */}
-                <View style={styles.iphoneSideButton} />
-                <View style={styles.iphoneVolumeUp} />
-                <View style={styles.iphoneVolumeDown} />
-              </View>
-
-              {/* Bottom section */}
-              <View style={styles.startBottomSection}>
-                <TouchableOpacity
-                  style={[styles.startButton, isStarting && styles.startButtonDisabled]}
-                  onPress={handleStartServer}
-                  disabled={isStarting}
-                  activeOpacity={0.7}
-                >
-                  {isStarting ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons name="play" size={20} color="#FFFFFF" />
-                  )}
-                </TouchableOpacity>
-                {/* Status message during startup */}
-                {isStarting && startingMessage && (
-                  <View style={styles.startingMessageContainer}>
-                    <Text style={styles.startingMessage}>{startingMessage}</Text>
-                  </View>
-                )}
-                {!isStarting && projectInfo && (
-                  <Text style={styles.projectTypeText}>
-                    {projectInfo.description || projectInfo.type}
-                  </Text>
-                )}
-              </View>
-            </View>
-          ) : serverStatus === 'checking' ? (
-            // Checking server status
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={AppColors.primary} />
-              <Text style={styles.loadingText}>Connessione al server...</Text>
-            </View>
-          ) : (
-            // Server running - show WebView
-            <>
-              {isLoading && (
+              ) : serverStatus === 'checking' ? (
+                // Checking server status
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={AppColors.primary} />
-                  <Text style={styles.loadingText}>Caricamento anteprima...</Text>
+                  <Text style={styles.loadingText}>Connessione al server...</Text>
                 </View>
-              )}
-              <WebView
-                ref={webViewRef}
-                source={{ uri: currentPreviewUrl }}
-                style={styles.webView}
-                onLoadStart={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.log('🔵 WebView load start:', nativeEvent.url);
-                  setIsLoading(true);
-                }}
-                onLoadEnd={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.log('✅ WebView load end:', nativeEvent.url);
+              ) : (
+                // Server running - show WebView
+                <>
+                  {isLoading && (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="large" color={AppColors.primary} />
+                      <Text style={styles.loadingText}>Caricamento anteprima...</Text>
+                    </View>
+                  )}
+                  <WebView
+                    ref={webViewRef}
+                    source={{ uri: currentPreviewUrl }}
+                    style={styles.webView}
+                    onLoadStart={(syntheticEvent) => {
+                      const { nativeEvent } = syntheticEvent;
+                      console.log('🔵 WebView load start:', nativeEvent.url);
+                      setIsLoading(true);
+                    }}
+                    onLoadEnd={(syntheticEvent) => {
+                      const { nativeEvent } = syntheticEvent;
+                      console.log('✅ WebView load end:', nativeEvent.url);
 
-                  // Inject error listener and check content
-                  setTimeout(() => {
-                    webViewRef.current?.injectJavaScript(`
+                      // Inject error listener and check content
+                      setTimeout(() => {
+                        webViewRef.current?.injectJavaScript(`
                       // Capture all errors
                       window.addEventListener('error', (e) => {
                         window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -883,107 +827,107 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       }
                       true;
                     `);
-                  }, 2000);
+                      }, 2000);
 
-                  setIsLoading(false);
-                }}
-                onLoadProgress={({ nativeEvent }) => {
-                  console.log('⏳ WebView progress:', nativeEvent.progress);
-                }}
-                onNavigationStateChange={(navState) => {
-                  console.log('🧭 Navigation state:', navState.url, navState.loading);
-                  setCanGoBack(navState.canGoBack);
-                  setCanGoForward(navState.canGoForward);
-                }}
-                onMessage={(event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
+                      setIsLoading(false);
+                    }}
+                    onLoadProgress={({ nativeEvent }) => {
+                      console.log('⏳ WebView progress:', nativeEvent.progress);
+                    }}
+                    onNavigationStateChange={(navState) => {
+                      console.log('🧭 Navigation state:', navState.url, navState.loading);
+                      setCanGoBack(navState.canGoBack);
+                      setCanGoForward(navState.canGoForward);
+                    }}
+                    onMessage={(event) => {
+                      try {
+                        const data = JSON.parse(event.nativeEvent.data);
 
-                    if (data.type === 'PAGE_INFO') {
-                      console.log('📄 Page info:', data);
-                      console.log(`   Has content: ${data.hasContent}`);
-                      console.log(`   Root children: ${data.rootChildren}`);
-                      console.log(`   Background: ${data.backgroundColor}`);
-                      console.log(`   Ready state: ${data.readyState}`);
-                      console.log(`   Has bundle: ${data.hasBundle}`);
-                      console.log(`   Scripts:`, data.scripts);
-                    }
-
-                    if (data.type === 'JS_ERROR') {
-                      console.error('🔴 JavaScript Error in WebView:');
-                      console.error(`   Message: ${data.message}`);
-                      console.error(`   File: ${data.filename}:${data.lineno}:${data.colno}`);
-                    }
-
-                    if (data.type === 'CONSOLE_ERROR') {
-                      console.error('🟠 Console Error in WebView:', data.args);
-                    }
-
-                    if (data.type === 'ELEMENT_SELECTED') {
-                      console.log('Element selected:', data.element);
-
-                      // Create element selector string
-                      let elementSelector = `<${data.element.tag}>`;
-                      if (data.element.id) {
-                        elementSelector = `<${data.element.tag}#${data.element.id}>`;
-                      } else if (data.element.className) {
-                        const classes = data.element.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
-                        if (classes.length > 0) {
-                          elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                        if (data.type === 'PAGE_INFO') {
+                          console.log('📄 Page info:', data);
+                          console.log(`   Has content: ${data.hasContent}`);
+                          console.log(`   Root children: ${data.rootChildren}`);
+                          console.log(`   Background: ${data.backgroundColor}`);
+                          console.log(`   Ready state: ${data.readyState}`);
+                          console.log(`   Has bundle: ${data.hasBundle}`);
+                          console.log(`   Scripts:`, data.scripts);
                         }
+
+                        if (data.type === 'JS_ERROR') {
+                          console.error('🔴 JavaScript Error in WebView:');
+                          console.error(`   Message: ${data.message}`);
+                          console.error(`   File: ${data.filename}:${data.lineno}:${data.colno}`);
+                        }
+
+                        if (data.type === 'CONSOLE_ERROR') {
+                          console.error('🟠 Console Error in WebView:', data.args);
+                        }
+
+                        if (data.type === 'ELEMENT_SELECTED') {
+                          console.log('Element selected:', data.element);
+
+                          // Create element selector string
+                          let elementSelector = `<${data.element.tag}>`;
+                          if (data.element.id) {
+                            elementSelector = `<${data.element.tag}#${data.element.id}>`;
+                          } else if (data.element.className) {
+                            const classes = data.element.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                            if (classes.length > 0) {
+                              elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                            }
+                          }
+
+                          // Store selected element as attachment-like object
+                          const elementText = data.element.text?.trim() ? data.element.text.substring(0, 40) + (data.element.text.length > 40 ? '...' : '') : '';
+                          setSelectedElement({
+                            selector: elementSelector,
+                            text: elementText
+                          });
+
+                          // Focus input
+                          inputRef.current?.focus();
+
+                          // Disable inspect mode UI button (but keep overlay visible for 2s as handled by JS)
+                          setIsInspectMode(false);
+
+                          // Note: Don't call __inspectorCleanup here - let the JS setTimeout handle it
+                          // This keeps the selection visible for 2 seconds before auto-cleanup
+                        }
+                      } catch (error) {
+                        console.error('Error parsing WebView message:', error);
                       }
-
-                      // Store selected element as attachment-like object
-                      const elementText = data.element.text?.trim() ? data.element.text.substring(0, 40) + (data.element.text.length > 40 ? '...' : '') : '';
-                      setSelectedElement({
-                        selector: elementSelector,
-                        text: elementText
-                      });
-
-                      // Focus input
-                      inputRef.current?.focus();
-
-                      // Disable inspect mode UI button (but keep overlay visible for 2s as handled by JS)
-                      setIsInspectMode(false);
-
-                      // Note: Don't call __inspectorCleanup here - let the JS setTimeout handle it
-                      // This keeps the selection visible for 2 seconds before auto-cleanup
-                    }
-                  } catch (error) {
-                    console.error('Error parsing WebView message:', error);
-                  }
-                }}
-                onError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.error('❌ WebView error:', nativeEvent);
-                  console.error('   Description:', nativeEvent.description);
-                  console.error('   Code:', nativeEvent.code);
-                  setServerStatus('stopped');
-                }}
-                onHttpError={(syntheticEvent) => {
-                  const { nativeEvent } = syntheticEvent;
-                  console.error('🔴 WebView HTTP error:', nativeEvent.statusCode);
-                  console.error('   URL:', nativeEvent.url);
-                }}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                startInLoadingState={true}
-                scalesPageToFit={true}
-                bounces={false}
-                mixedContentMode="always"
-                allowsInlineMediaPlayback={true}
-                mediaPlaybackRequiresUserAction={false}
-                originWhitelist={['*']}
-                // Performance optimizations for smooth sidebar animation
-                renderToHardwareTextureAndroid={true}
-                shouldRasterizeIOS={true}
-                cacheEnabled={true}
-                cacheMode="LOAD_CACHE_ELSE_NETWORK"
-              />
-            </>
-          )}
-          </View>
-        </KeyboardAvoidingView>
+                    }}
+                    onError={(syntheticEvent) => {
+                      const { nativeEvent } = syntheticEvent;
+                      console.error('❌ WebView error:', nativeEvent);
+                      console.error('   Description:', nativeEvent.description);
+                      console.error('   Code:', nativeEvent.code);
+                      setServerStatus('stopped');
+                    }}
+                    onHttpError={(syntheticEvent) => {
+                      const { nativeEvent } = syntheticEvent;
+                      console.error('🔴 WebView HTTP error:', nativeEvent.statusCode);
+                      console.error('   URL:', nativeEvent.url);
+                    }}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    startInLoadingState={true}
+                    scalesPageToFit={true}
+                    bounces={false}
+                    mixedContentMode="always"
+                    allowsInlineMediaPlayback={true}
+                    mediaPlaybackRequiresUserAction={false}
+                    originWhitelist={['*']}
+                    // Performance optimizations for smooth sidebar animation
+                    renderToHardwareTextureAndroid={true}
+                    shouldRasterizeIOS={true}
+                    cacheEnabled={true}
+                    cacheMode="LOAD_CACHE_ELSE_NETWORK"
+                  />
+                </>
+              )}
+            </View>
+          </KeyboardAvoidingView>
 
           {/* Animated FAB / Input Box - Only show when server is running */}
           {serverStatus === 'running' && (
