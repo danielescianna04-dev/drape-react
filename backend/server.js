@@ -4511,11 +4511,31 @@ app.post('/preview/start', async (req, res) => {
       }
     }
 
-    // Add HOST=0.0.0.0 for network access
+    // Add HOST=0.0.0.0 for network access - framework-specific handling
     if (!startCommand.includes('HOST=') && !startCommand.includes('--host')) {
       if (startCommand.includes('expo')) {
+        // Expo uses --host lan for LAN access
         startCommand = `${startCommand} --host lan`;
+      } else if (startCommand.includes('ng serve') || commands.projectType === 'Angular') {
+        // Angular CLI requires --host flag
+        startCommand = `${startCommand} --host 0.0.0.0`;
+      } else if (startCommand.includes('vue-cli-service serve') || commands.projectType === 'Vue') {
+        // Vue CLI also uses --host flag
+        startCommand = `${startCommand} --host 0.0.0.0`;
+      } else if (startCommand.includes('vite') || commands.projectType === 'Vite') {
+        // Vite uses --host flag
+        startCommand = `${startCommand} --host 0.0.0.0`;
+      } else if (startCommand.includes('flask run') || commands.projectType === 'Flask') {
+        // Flask uses --host flag
+        startCommand = `${startCommand} --host 0.0.0.0`;
+      } else if (startCommand.includes('python') && startCommand.includes('manage.py runserver')) {
+        // Django uses 0.0.0.0:port format
+        startCommand = startCommand.replace(/runserver/, `runserver 0.0.0.0:${port}`);
+      } else if (startCommand.includes('rails') && startCommand.includes('server')) {
+        // Rails uses -b flag for binding
+        startCommand = `${startCommand} -b 0.0.0.0`;
       } else {
+        // Default: use HOST environment variable (works for most Node.js frameworks)
         startCommand = `HOST=0.0.0.0 ${startCommand}`;
       }
     }
