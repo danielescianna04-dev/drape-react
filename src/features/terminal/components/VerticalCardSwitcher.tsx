@@ -7,6 +7,7 @@ import Animated, {
   interpolate,
   useAnimatedReaction,
   runOnJS,
+  SharedValue,
 } from 'react-native-reanimated';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 
@@ -23,7 +24,7 @@ const CardView = memo(({
 }: {
   tab: Tab;
   index: number;
-  scrollPosition: Animated.SharedValue<number>;
+  scrollPosition: SharedValue<number>;
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
 }) => {
   const animatedStyle = useAnimatedStyle(() => {
@@ -93,9 +94,9 @@ const CardView = memo(({
 interface Props {
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
   onClose: () => void;
-  trackpadTranslation?: Animated.SharedValue<number>;
-  isTrackpadActive?: Animated.SharedValue<boolean>;
-  skipZoomAnimation?: Animated.SharedValue<boolean>;
+  trackpadTranslation?: SharedValue<number>;
+  isTrackpadActive?: SharedValue<boolean>;
+  skipZoomAnimation?: SharedValue<boolean>;
   onGestureEnd?: () => void;
 }
 
@@ -107,8 +108,9 @@ export const VerticalCardSwitcher = ({
   skipZoomAnimation,
 }: Props) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
-  const scrollPosition = useSharedValue(0);
   const activeIndex = tabs.findIndex(t => t.id === activeTabId);
+  // Initialize with correct position to avoid entry animation
+  const scrollPosition = useSharedValue(activeIndex * SCREEN_HEIGHT);
   const zoomScale = useSharedValue(1); // For exit animation
 
   // Apple-style smooth spring config

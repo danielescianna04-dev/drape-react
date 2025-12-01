@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, TextInput, Platform } from 'react-native';
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android') {
+  if (UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
+}
 
 interface FileTreeNode {
   name: string;
@@ -110,15 +117,16 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const getFileIcon = (filename: string) => {
     const ext = filename.split('.').pop()?.toLowerCase();
     const iconMap: { [key: string]: { icon: string; color: string } } = {
-      js: { icon: 'logo-javascript', color: AppColors.icon.default },
-      jsx: { icon: 'logo-react', color: AppColors.icon.default },
-      ts: { icon: 'logo-javascript', color: AppColors.icon.default },
-      tsx: { icon: 'logo-react', color: AppColors.icon.default },
-      py: { icon: 'logo-python', color: AppColors.icon.default },
-      html: { icon: 'logo-html5', color: AppColors.icon.default },
-      css: { icon: 'logo-css3', color: AppColors.icon.default },
-      json: { icon: 'code-working', color: AppColors.icon.default },
-      md: { icon: 'document-text', color: AppColors.icon.default },
+      js: { icon: 'logo-javascript', color: '#F7DF1E' },
+      jsx: { icon: 'logo-react', color: '#61DAFB' },
+      ts: { icon: 'logo-javascript', color: '#3178C6' },
+      tsx: { icon: 'logo-react', color: '#61DAFB' },
+      py: { icon: 'logo-python', color: '#3776AB' },
+      html: { icon: 'logo-html5', color: '#E34F26' },
+      css: { icon: 'logo-css3', color: '#1572B6' },
+      json: { icon: 'code-working', color: '#F2C037' },
+      md: { icon: 'document-text', color: '#FFFFFF' },
+      gitignore: { icon: 'logo-git', color: '#F05032' },
     };
     return iconMap[ext || ''] || { icon: 'document-outline', color: AppColors.icon.default };
   };
@@ -149,7 +157,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     return [];
   };
 
-  const buildFileTree = (): FileTreeNode[] => {
+  const buildFileTree = useMemo((): FileTreeNode[] => {
     const root: FileTreeNode[] = [];
     const folderMap = new Map<string, FileTreeNode>();
 
@@ -203,9 +211,10 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     };
 
     return sortNodes(root);
-  };
+  }, [files, searchQuery, searchMode, searchResults]);
 
   const toggleFolder = (folder: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(folder)) {
       newExpanded.delete(folder);
@@ -234,12 +243,10 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   if (files.length === 0) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>No files</Text>
+        <Text style={styles.emptyText}>Nessun file</Text>
       </View>
     );
   }
-
-  const fileTree = buildFileTree();
 
   const renderNode = (node: FileTreeNode, depth: number = 0): React.ReactNode => {
     if (node.type === 'file') {
@@ -267,7 +274,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
             onFileSelect(node.path); // Keep for backward compatibility
           }}
-          activeOpacity={0.8}
+          activeOpacity={0.6}
         >
           <Ionicons name={icon as any} size={16} color={color} style={styles.fileIcon} />
           <Text style={styles.fileName} numberOfLines={1}>{node.name}</Text>
@@ -282,7 +289,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         <TouchableOpacity
           style={[styles.folderItem, { paddingLeft: 8 + depth * 16 }]}
           onPress={() => toggleFolder(node.path)}
-          activeOpacity={0.8}
+          activeOpacity={0.7}
         >
           <Ionicons
             name={isExpanded ? 'chevron-down' : 'chevron-forward'}
@@ -300,7 +307,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         </TouchableOpacity>
 
         {isExpanded && node.children && (
-          <View>
+          <View style={styles.childrenContainer}>
             {node.children.map(child => renderNode(child, depth + 1))}
           </View>
         )}
@@ -317,7 +324,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         return (
           <View style={styles.searchResultsContainer}>
             <ActivityIndicator size="large" color={AppColors.primary} />
-            <Text style={styles.searchingText}>Searching...</Text>
+            <Text style={styles.searchingText}>Ricerca in corso...</Text>
           </View>
         );
       }
@@ -326,7 +333,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         return (
           <View style={styles.searchResultsContainer}>
             <Ionicons name="search-outline" size={48} color={AppColors.white.w25} />
-            <Text style={styles.noResultsText}>No results found</Text>
+            <Text style={styles.noResultsText}>Nessun risultato trovato</Text>
           </View>
         );
       }
@@ -341,15 +348,9 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       }, {} as Record<string, typeof searchResults>);
 
       return (
-        <ScrollView
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-          scrollEventThrottle={16}
-          nestedScrollEnabled={true}
-        >
+        <View style={styles.resultsList}>
           <Text style={styles.resultsCount}>
-            {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} in {Object.keys(resultsByFile).length} file{Object.keys(resultsByFile).length !== 1 ? 's' : ''}
+            {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
           </Text>
 
           {Object.entries(resultsByFile).map(([filePath, results]) => {
@@ -399,21 +400,15 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
               </View>
             );
           })}
-        </ScrollView>
+        </View>
       );
     }
 
     // Name search - show as before
     return (
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        bounces={true}
-        scrollEventThrottle={16}
-        nestedScrollEnabled={true}
-      >
-        {fileTree.map(node => renderNode(node, 0))}
-      </ScrollView>
+      <View style={styles.resultsList}>
+        {buildFileTree.map(node => renderNode(node, 0))}
+      </View>
     );
   };
 
@@ -429,7 +424,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           )}
           <TextInput
             style={styles.searchInput}
-            placeholder="Search..."
+            placeholder="Cerca..."
             placeholderTextColor={AppColors.white.w25}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -455,13 +450,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         </View>
       </View>
 
-      {/* Results or File Tree */}
+      {/* Results or File Tree - NO INTERNAL SCROLLVIEW */}
       {searchQuery.trim() && searchMode === 'content' ? (
         renderSearchResults()
       ) : (
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          {fileTree.map(node => renderNode(node, 0))}
-        </ScrollView>
+        <View style={styles.treeContainer}>
+          {buildFileTree.map(node => renderNode(node, 0))}
+        </View>
       )}
     </View>
   );
@@ -499,37 +494,10 @@ const styles = StyleSheet.create({
     padding: 4,
     marginLeft: 4,
   },
-  searchModeContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  searchModeButton: {
-    flex: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: AppColors.dark.surface,
-    alignItems: 'center',
-  },
-  searchModeButtonActive: {
-    backgroundColor: AppColors.primary,
-  },
-  searchModeText: {
-    fontSize: 12,
-    color: AppColors.white.w60,
-    fontWeight: '500',
-  },
-  searchModeTextActive: {
-    color: AppColors.white.full,
-  },
-  scrollView: {
-    flex: 1,
-  },
   centerContainer: {
-    flex: 1,
+    padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
   },
   errorText: {
     fontSize: 12,
@@ -539,44 +507,52 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: AppColors.white.w40,
   },
+  treeContainer: {
+    paddingBottom: 20,
+  },
+  resultsList: {
+    paddingBottom: 20,
+  },
   fileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6, // Increased for better touch target
     paddingHorizontal: 8,
   },
   fileIcon: {
-    marginRight: 6,
+    marginRight: 8,
   },
   fileName: {
     fontSize: 13,
-    color: AppColors.white.w60,
+    color: AppColors.white.w80, // Slightly brighter
     flex: 1,
   },
   folderItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6, // Increased for better touch target
     paddingHorizontal: 8,
   },
   chevron: {
-    marginRight: 2,
+    marginRight: 4,
   },
   folderIcon: {
-    marginRight: 6,
+    marginRight: 8,
   },
   folderName: {
     fontSize: 13,
-    color: AppColors.white.w60,
+    color: AppColors.white.w80,
     fontWeight: '500',
     flex: 1,
   },
+  childrenContainer: {
+    overflow: 'hidden', // Important for LayoutAnimation
+  },
   // VS Code style search results
   searchResultsContainer: {
-    flex: 1,
+    padding: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 40,
   },
   searchingText: {
     marginTop: 16,

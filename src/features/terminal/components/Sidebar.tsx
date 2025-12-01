@@ -343,146 +343,146 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           }
         ]}
       >
-      <View style={StyleSheet.absoluteFill}>
-        <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }} />
-      </View>
-      <View style={styles.header} {...panResponder.panHandlers}>
-        <Text style={styles.headerTitle}>Files</Text>
-        <IconButton
-          iconName="close"
-          size={20}
-          color={AppColors.white.w40}
-          onPress={handleClose}
-          accessibilityLabel="Chiudi sidebar"
-        />
-      </View>
-
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        bounces={true}
-        scrollEventThrottle={16}
-        contentContainerStyle={{ flexGrow: 1 }}
-        nestedScrollEnabled={true}
-      >
-        {selectedProjectId ? (
-          <View style={styles.fileExplorerContainer}>
-            <FileExplorer
-              projectId={selectedProjectId}
-              repositoryUrl={selectedRepoUrl}
-              onFileSelect={(path) => {
-                addTab({
-                  id: `file-${selectedProjectId}-${path}`,
-                  type: 'file',
-                  title: path.split('/').pop() || 'File',
-                  data: {
-                    projectId: selectedProjectId,
-                    filePath: path,
-                    repositoryUrl: selectedRepoUrl,
-                  }
-                });
-                onClose();
-              }}
-              onAuthRequired={(repoUrl) => {
-                console.log('🔐 FileExplorer requires auth for:', repoUrl);
-                setPendingRepoUrl(repoUrl);
-                setShowAuthModal(true);
-              }}
-            />
-          </View>
-        ) : (
-          <EmptyState
-            icon="folder-open-outline"
-            title="Nessun progetto aperto"
-            subtitle="Apri un progetto dalla Home per vedere i file"
+        <View style={StyleSheet.absoluteFill}>
+          <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }} />
+        </View>
+        <View style={styles.header} {...panResponder.panHandlers}>
+          <Text style={styles.headerTitle}>Files</Text>
+          <IconButton
+            iconName="close"
+            size={20}
+            color={AppColors.white.w40}
+            onPress={handleClose}
+            accessibilityLabel="Chiudi sidebar"
           />
-        )}
-      </ScrollView>
-    </Animated.View>
+        </View>
 
-    {/* Delete Confirmation Modal */}
-    <Modal
-      visible={showDeleteModal}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={() => setShowDeleteModal(false)}
-    >
-      <View style={styles.deleteModalOverlay}>
-        <View style={styles.deleteModalContent}>
-          <View style={styles.deleteModalHeader}>
-            <Ionicons
-              name={deleteWarning?.hasChanges ? "warning" : "trash"}
-              size={32}
-              color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
-            />
-            <Text style={styles.deleteModalTitle}>
-              Elimina "{deleteTarget?.name}"?
-            </Text>
-          </View>
-
-          {isCheckingGit ? (
-            <View style={styles.deleteModalLoading}>
-              <ActivityIndicator size="small" color={AppColors.primary} />
-              <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          bounces={true}
+          scrollEventThrottle={16}
+          contentContainerStyle={{ flexGrow: 1 }}
+          nestedScrollEnabled={true}
+        >
+          {selectedProjectId ? (
+            <View style={styles.fileExplorerContainer}>
+              <FileExplorer
+                projectId={selectedProjectId}
+                repositoryUrl={selectedRepoUrl}
+                onFileSelect={(path) => {
+                  addTab({
+                    id: `file-${selectedProjectId}-${path}`,
+                    type: 'file',
+                    title: path.split('/').pop() || 'File',
+                    data: {
+                      projectId: selectedProjectId,
+                      filePath: path,
+                      repositoryUrl: selectedRepoUrl,
+                    }
+                  });
+                  onClose();
+                }}
+                onAuthRequired={(repoUrl) => {
+                  console.log('🔐 FileExplorer requires auth for:', repoUrl);
+                  setPendingRepoUrl(repoUrl);
+                  setShowAuthModal(true);
+                }}
+              />
             </View>
           ) : (
-            <Text style={[
-              styles.deleteModalMessage,
-              deleteWarning?.hasChanges && styles.deleteModalWarning
-            ]}>
-              {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
-            </Text>
+            <EmptyState
+              icon="folder-open-outline"
+              title="Nessun progetto aperto"
+              subtitle="Apri un progetto dalla Home per vedere i file"
+            />
           )}
+        </ScrollView>
+      </Animated.View>
 
-          {deleteWarning?.hasChanges && !isCheckingGit && (
-            <Text style={styles.deleteModalSubWarning}>
-              Queste modifiche andranno perse se non le salvi prima su Git.
-            </Text>
-          )}
-
-          <View style={styles.deleteModalButtons}>
-            <TouchableOpacity
-              style={styles.deleteModalCancelBtn}
-              onPress={() => {
-                setShowDeleteModal(false);
-                setDeleteTarget(null);
-                setDeleteWarning(null);
-              }}
-            >
-              <Text style={styles.deleteModalCancelText}>Annulla</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.deleteModalDeleteBtn,
-                deleteWarning?.hasChanges && styles.deleteModalDeleteBtnDanger
-              ]}
-              onPress={confirmDelete}
-              disabled={isCheckingGit}
-            >
-              <Text style={styles.deleteModalDeleteText}>
-                {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteModalHeader}>
+              <Ionicons
+                name={deleteWarning?.hasChanges ? "warning" : "trash"}
+                size={32}
+                color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
+              />
+              <Text style={styles.deleteModalTitle}>
+                Elimina "{deleteTarget?.name}"?
               </Text>
-            </TouchableOpacity>
+            </View>
+
+            {isCheckingGit ? (
+              <View style={styles.deleteModalLoading}>
+                <ActivityIndicator size="small" color={AppColors.primary} />
+                <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
+              </View>
+            ) : (
+              <Text style={[
+                styles.deleteModalMessage,
+                deleteWarning?.hasChanges && styles.deleteModalWarning
+              ]}>
+                {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
+              </Text>
+            )}
+
+            {deleteWarning?.hasChanges && !isCheckingGit && (
+              <Text style={styles.deleteModalSubWarning}>
+                Queste modifiche andranno perse se non le salvi prima su Git.
+              </Text>
+            )}
+
+            <View style={styles.deleteModalButtons}>
+              <TouchableOpacity
+                style={styles.deleteModalCancelBtn}
+                onPress={() => {
+                  setShowDeleteModal(false);
+                  setDeleteTarget(null);
+                  setDeleteWarning(null);
+                }}
+              >
+                <Text style={styles.deleteModalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.deleteModalDeleteBtn,
+                  deleteWarning?.hasChanges && styles.deleteModalDeleteBtnDanger
+                ]}
+                onPress={confirmDelete}
+                disabled={isCheckingGit}
+              >
+                <Text style={styles.deleteModalDeleteText}>
+                  {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
 
-    <GitHubAuthModal
-      visible={showAuthModal}
-      repositoryUrl={pendingRepoUrl}
-      onAuthenticate={async (token) => {
-        setShowAuthModal(false);
-        await handleImportRepo(pendingRepoUrl, token);
-        setPendingRepoUrl('');
-      }}
-      onCancel={() => {
-        setShowAuthModal(false);
-        setPendingRepoUrl('');
-      }}
-    />
-    </>  );
+      <GitHubAuthModal
+        visible={showAuthModal}
+        repositoryUrl={pendingRepoUrl}
+        onAuthenticate={async (token) => {
+          setShowAuthModal(false);
+          await handleImportRepo(pendingRepoUrl, token);
+          setPendingRepoUrl('');
+        }}
+        onCancel={() => {
+          setShowAuthModal(false);
+          setPendingRepoUrl('');
+        }}
+      />
+    </>);
 };
 
 const ChatList = ({ chats }: any) => {
@@ -543,20 +543,20 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
             onPress={() => onSelectRepo(repo)}
           >
             <View style={styles.repoHeader}>
-              <Ionicons 
-                name={repo.private ? 'lock-closed' : 'logo-github'} 
-                size={16} 
-                color={AppColors.primary} 
+              <Ionicons
+                name={repo.private ? 'lock-closed' : 'logo-github'}
+                size={16}
+                color={AppColors.primary}
               />
               <Text style={styles.repoName} numberOfLines={1}>{repo.name}</Text>
             </View>
-            
+
             {repo.description && (
               <Text style={styles.repoDescription} numberOfLines={2}>
                 {repo.description}
               </Text>
             )}
-            
+
             <View style={styles.repoMeta}>
               {repo.language && (
                 <View style={styles.repoMetaItem}>
@@ -581,13 +581,13 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ projectId: string } | null>(null);
-  
-  const { 
-    workstations, 
-    addWorkstation, 
-    setWorkstation, 
+
+  const {
+    workstations,
+    addWorkstation,
+    setWorkstation,
     removeWorkstation,
-    projectFolders, 
+    projectFolders,
     addProjectFolder,
     toggleFolderExpanded,
     removeProjectFolder,
@@ -614,7 +614,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       console.log('🔵 Processing repo URL...');
       const repoName = String(repoUrl || '').split('/').pop()?.replace('.git', '') || 'Imported';
       console.log('🔵 Repo name:', repoName);
-      
+
       const newWorkstation = {
         id: 'ws-' + Date.now(),
         name: String(repoName),
@@ -626,7 +626,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
         folderId: null,
       };
       console.log('🔵 New workstation:', newWorkstation);
-      
+
       console.log('🔵 Adding workstation...');
       addWorkstation(newWorkstation);
       console.log('🔵 Workstation added successfully');
@@ -708,7 +708,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
       />
 
       <View style={styles.actionButtonsContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.compactButton}
           onPress={() => setShowNewProjectModal(true)}
         >
@@ -716,7 +716,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
           <Text style={styles.compactButtonText}>Nuovo</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.compactButton}
           onPress={() => setShowImportModal(true)}
         >
@@ -724,7 +724,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
           <Text style={styles.compactButtonText}>Importa</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.compactButton}
           onPress={() => setShowNewFolderModal(true)}
         >
@@ -753,8 +753,8 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
               {workstations
                 .filter((w) => w.folderId === folder.id)
                 .map((ws) => (
-                  <TouchableOpacity 
-                    key={ws.id} 
+                  <TouchableOpacity
+                    key={ws.id}
                     style={styles.projectItemInFolder}
                     onPress={() => handleOpenWorkstation(ws)}
                   >
@@ -773,8 +773,8 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
           {workstations
             .filter((w) => !w.folderId)
             .map((ws) => (
-              <TouchableOpacity 
-                key={ws.id} 
+              <TouchableOpacity
+                key={ws.id}
                 style={styles.projectItem}
                 onPress={() => handleOpenWorkstation(ws)}
               >
@@ -797,15 +797,15 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
           animationType="fade"
           onRequestClose={() => setContextMenu(null)}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.contextMenuOverlay}
             activeOpacity={1}
             onPress={() => setContextMenu(null)}
           >
             <View style={styles.contextMenu}>
               <Text style={styles.contextMenuTitle}>Sposta in:</Text>
-              
-              <TouchableOpacity 
+
+              <TouchableOpacity
                 style={styles.contextMenuItem}
                 onPress={() => handleMoveToFolder(contextMenu.projectId, null)}
               >
@@ -814,7 +814,7 @@ const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTe
               </TouchableOpacity>
 
               {projectFolders.map((folder) => (
-                <TouchableOpacity 
+                <TouchableOpacity
                   key={folder.id}
                   style={styles.contextMenuItem}
                   onPress={() => handleMoveToFolder(contextMenu.projectId, folder.id)}
@@ -1447,7 +1447,6 @@ const styles = StyleSheet.create({
   },
   fileExplorerContainer: {
     flex: 1,
-    paddingHorizontal: 12,
   },
   fileViewerContainer: {
     flex: 1,
