@@ -10,6 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { githubTokenService, GitHubAccount } from '../../core/github/githubTokenService';
 import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -25,6 +26,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   const [loading, setLoading] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
 
   const userId = useTerminalStore.getState().userId || 'anonymous';
 
@@ -181,7 +183,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity
             style={styles.backButton}
@@ -215,7 +217,7 @@ export const GitManagementScreen = ({ onClose }: Props) => {
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={[styles.contentContainer, { paddingBottom: insets.bottom + 20 }]}
       >
         {loading ? (
           <>
@@ -245,8 +247,6 @@ export const GitManagementScreen = ({ onClose }: Props) => {
             </TouchableOpacity>
           </View>
         )}
-
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       <GitHubAuthModal
@@ -267,7 +267,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
   },

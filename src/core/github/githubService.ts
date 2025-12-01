@@ -33,6 +33,29 @@ export interface GitHubUser {
   public_repos: number;
 }
 
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  author: {
+    name: string;
+    email: string;
+    date: Date;
+    avatar_url?: string;
+    login?: string;
+  };
+  committer: {
+    name: string;
+    email: string;
+    date: Date;
+  };
+  url: string;
+  stats?: {
+    additions: number;
+    deletions: number;
+    total: number;
+  };
+}
+
 // Storage adapter
 const storage = {
   async getItem(key: string): Promise<string | null> {
@@ -190,6 +213,111 @@ class GitHubService {
   async logout(): Promise<void> {
     await storage.deleteItem(TOKEN_KEY);
     await storage.deleteItem(USER_KEY);
+  }
+
+  // Fetch commits for a repository
+  async fetchCommits(repoUrl: string, token?: string, page = 1, perPage = 30): Promise<GitHubCommit[]> {
+    try {
+      // Extract owner/repo from URL
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (!match) {
+        console.error('Invalid GitHub URL:', repoUrl);
+        return [];
+      }
+      const owner = match[1];
+      const repo = match[2].replace('.git', '');
+
+      // Use provided token or stored token
+      const authToken = token || await this.getStoredToken();
+
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+
+      const response = await axios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
+        headers,
+        params: {
+          page,
+          per_page: perPage,
+        },
+      });
+
+      const commits: GitHubCommit[] = response.data.map((commit: any) => ({
+        sha: commit.sha,
+        message: commit.commit.message,
+        author: {
+          name: commit.commit.author.name,
+          email: commit.commit.author.email,
+          date: new Date(commit.commit.author.date),
+          avatar_url: commit.author?.avatar_url,
+          login: commit.author?.login,
+        },
+        committer: {
+          name: commit.commit.committer.name,
+          email: commit.commit.committer.email,
+          date: new Date(commit.commit.committer.date),
+        },
+        url: commit.html_url,
+      }));
+
+      return commits;
+    } catch (error: any) {
+      console.error('Fetch commits error:', error);
+      if (error.response?.status === 404) {
+        throw new Error('Repository non trovato o privato');
+      }
+      throw error;
+    }
+  }
+
+  // Fetch commit details including files changed
+  async fetchCommitDetails(repoUrl: string, sha: string, token?: string): Promise<GitHubCommit & { files: any[] }> {
+    try {
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (!match) {
+        throw new Error('Invalid GitHub URL');
+      }
+      const owner = match[1];
+      const repo = match[2].replace('.git', '');
+
+      const authToken = token || await this.getStoredToken();
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+
+      const response = await axios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits/${sha}`, {
+        headers,
+      });
+
+      return {
+        sha: response.data.sha,
+        message: response.data.commit.message,
+        author: {
+          name: response.data.commit.author.name,
+          email: response.data.commit.author.email,
+          date: new Date(response.data.commit.author.date),
+          avatar_url: response.data.author?.avatar_url,
+          login: response.data.author?.login,
+        },
+        committer: {
+          name: response.data.commit.committer.name,
+          email: response.data.commit.committer.email,
+          date: new Date(response.data.commit.committer.date),
+        },
+        url: response.data.html_url,
+        stats: response.data.stats,
+        files: response.data.files || [],
+      };
+    } catch (error) {
+      console.error('Fetch commit details error:', error);
+      throw error;
+    }
   }
 }
 

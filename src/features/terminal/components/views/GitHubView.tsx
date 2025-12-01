@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated, ActivityIndicator, RefreshControl, Linking } from 'react-native';
 import Reanimated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../../shared/theme/colors';
@@ -10,6 +10,10 @@ import { workstationService } from '../../../../core/workstation/workstationServ
 import { useSidebarOffset } from '../../context/SidebarContext';
 import { config } from '../../../../config/config';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
+import { githubService, GitHubCommit } from '../../../../core/github/githubService';
+
+// Tab bar height constant
+const TAB_BAR_HEIGHT = 44;
 
 interface Props {
   tab: any;
@@ -21,9 +25,12 @@ interface GitCommit {
   message: string;
   author: string;
   authorEmail: string;
+  authorAvatar?: string;
+  authorLogin?: string;
   date: Date;
   isHead: boolean;
   branch?: string;
+  url?: string;
 }
 
 interface GitBranch {
@@ -43,11 +50,14 @@ interface GitStatus {
 }
 
 export const GitHubView = ({ tab }: Props) => {
-  const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes' | 'account'>('commits');
+  const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>('commits');
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
+  const [linkedAccount, setLinkedAccount] = useState<GitAccount | null>(null);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState<'checking' | 'write' | 'read' | 'none' | null>(null);
 
   // Git data states
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -94,10 +104,115 @@ export const GitHubView = ({ tab }: Props) => {
     try {
       const accounts = await gitAccountService.getAccounts(userId);
       setGitAccounts(accounts);
+
+      // Check if there's a linked account for this repo
+      const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+      if (repoUrl) {
+        // First check if project has a linked GitHub account username
+        const linkedUsername = currentWorkstation?.githubAccountUsername;
+        if (linkedUsername) {
+          const linked = accounts.find(a => a.username === linkedUsername);
+          if (linked) {
+            setLinkedAccount(linked);
+            checkAccountPermissions(linked, repoUrl);
+          }
+        } else {
+          // Try to auto-detect from token service
+          const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
+          if (tokenResult) {
+            const linked = accounts.find(a => a.username === tokenResult.username);
+            if (linked) {
+              setLinkedAccount(linked);
+              checkAccountPermissions(linked, repoUrl);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error loading account info:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Check if account has write permissions on repo
+  const checkAccountPermissions = async (account: GitAccount, repoUrl: string) => {
+    setPermissionStatus('checking');
+    try {
+      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (!match) {
+        setPermissionStatus('none');
+        return;
+      }
+      const owner = match[1];
+      const repo = match[2].replace('.git', '');
+
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          Authorization: `Bearer ${account.accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Check permissions
+        if (data.permissions?.push || data.permissions?.admin) {
+          setPermissionStatus('write');
+        } else {
+          setPermissionStatus('read');
+        }
+      } else if (response.status === 404) {
+        setPermissionStatus('none');
+      } else {
+        setPermissionStatus('read');
+      }
+    } catch (error) {
+      console.error('Error checking permissions:', error);
+      setPermissionStatus('none');
+    }
+  };
+
+  // Link an account to this repo
+  const handleLinkAccount = async (account: GitAccount) => {
+    setLinkedAccount(account);
+    setShowAccountPicker(false);
+
+    // Save to project
+    if (currentWorkstation?.projectId || currentWorkstation?.id) {
+      try {
+        await workstationService.updateProjectGitHubAccount(
+          currentWorkstation.projectId || currentWorkstation.id,
+          account.username
+        );
+      } catch (error) {
+        console.error('Error saving linked account:', error);
+      }
+    }
+
+    // Check permissions
+    const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+    if (repoUrl) {
+      checkAccountPermissions(account, repoUrl);
+    }
+
+    // Reload git data with new account
+    loadGitData();
+  };
+
+  // Unlink account from repo
+  const handleUnlinkAccount = async () => {
+    setLinkedAccount(null);
+    setPermissionStatus(null);
+
+    if (currentWorkstation?.projectId || currentWorkstation?.id) {
+      try {
+        await workstationService.removeProjectGitHubAccount(
+          currentWorkstation.projectId || currentWorkstation.id
+        );
+      } catch (error) {
+        console.error('Error removing linked account:', error);
+      }
     }
   };
 
@@ -106,28 +221,92 @@ export const GitHubView = ({ tab }: Props) => {
 
     setGitLoading(true);
     try {
+      // First try to get local git data from backend
       const response = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
       const data = await response.json();
 
       if (data.isGitRepo) {
         setIsGitRepo(true);
-        setCommits(data.commits || []);
         setBranches(data.branches || []);
         setGitStatus(data.status || null);
         setCurrentBranch(data.currentBranch || 'main');
-      } else {
-        setIsGitRepo(false);
+      }
+
+      // Also fetch commits from GitHub API if we have a repository URL
+      const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
+      if (repoUrl && repoUrl.includes('github.com')) {
+        try {
+          // Get token for this repo
+          const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
+          const token = tokenResult?.token;
+
+          // Fetch commits from GitHub
+          const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 50);
+
+          // Transform to our GitCommit format
+          const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
+            hash: c.sha,
+            shortHash: c.sha.substring(0, 7),
+            message: c.message,
+            author: c.author.name,
+            authorEmail: c.author.email,
+            authorAvatar: c.author.avatar_url,
+            authorLogin: c.author.login,
+            date: c.author.date,
+            isHead: index === 0,
+            branch: index === 0 ? currentBranch : undefined,
+            url: c.url,
+          }));
+
+          setCommits(transformedCommits);
+          setIsGitRepo(true);
+        } catch (githubError) {
+          console.error('Error fetching GitHub commits:', githubError);
+          // Use local commits if GitHub fails
+          if (data.commits) {
+            setCommits(data.commits);
+          }
+        }
+      } else if (data.commits) {
+        setCommits(data.commits);
       }
     } catch (error) {
       console.error('Error loading git data:', error);
-      // If endpoint doesn't exist, show mock data
-      setIsGitRepo(true);
-      setCommits([
-        { hash: 'abc123def456', shortHash: 'abc123d', message: 'Initial commit', author: 'Developer', authorEmail: 'dev@example.com', date: new Date(), isHead: true, branch: 'main' },
-      ]);
-      setBranches([
-        { name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 },
-      ]);
+      // If endpoint doesn't exist, try GitHub API directly
+      const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+      if (repoUrl && repoUrl.includes('github.com')) {
+        try {
+          const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
+          const token = tokenResult?.token;
+          const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 50);
+
+          const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
+            hash: c.sha,
+            shortHash: c.sha.substring(0, 7),
+            message: c.message,
+            author: c.author.name,
+            authorEmail: c.author.email,
+            authorAvatar: c.author.avatar_url,
+            authorLogin: c.author.login,
+            date: c.author.date,
+            isHead: index === 0,
+            branch: index === 0 ? 'main' : undefined,
+            url: c.url,
+          }));
+
+          setCommits(transformedCommits);
+          setIsGitRepo(true);
+          setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
+        } catch (githubError) {
+          console.error('Error fetching GitHub commits:', githubError);
+          setIsGitRepo(true);
+          setCommits([]);
+        }
+      } else {
+        setIsGitRepo(true);
+        setCommits([]);
+        setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
+      }
     } finally {
       setGitLoading(false);
     }
@@ -216,96 +395,213 @@ export const GitHubView = ({ tab }: Props) => {
   };
 
   const projectName = currentWorkstation?.name || 'Progetto';
+  const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
 
-  // Toolbar with git actions
-  const renderToolbar = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.toolbarScroll}
-      contentContainerStyle={styles.toolbar}
-    >
-      <TouchableOpacity
-        style={[styles.toolbarBtn, actionLoading === 'fetch' && styles.toolbarBtnLoading]}
-        onPress={() => handleGitAction('fetch')}
-        disabled={!!actionLoading}
-      >
-        {actionLoading === 'fetch' ? (
-          <ActivityIndicator size="small" color={AppColors.primary} />
-        ) : (
-          <Ionicons name="cloud-download-outline" size={16} color="#fff" />
-        )}
-        <Text style={styles.toolbarBtnText}>Fetch</Text>
-      </TouchableOpacity>
+  // Get repo info from URL
+  const getRepoInfo = () => {
+    if (!repoUrl) return null;
+    const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+    if (match) {
+      return { owner: match[1], repo: match[2].replace('.git', '') };
+    }
+    return null;
+  };
 
-      <TouchableOpacity
-        style={[styles.toolbarBtn, actionLoading === 'pull' && styles.toolbarBtnLoading]}
-        onPress={() => handleGitAction('pull')}
-        disabled={!!actionLoading}
-      >
-        {actionLoading === 'pull' ? (
-          <ActivityIndicator size="small" color={AppColors.primary} />
-        ) : (
-          <Ionicons name="arrow-down-outline" size={16} color="#fff" />
-        )}
-        <Text style={styles.toolbarBtnText}>Pull</Text>
-      </TouchableOpacity>
+  const repoInfo = getRepoInfo();
 
-      <TouchableOpacity
-        style={[styles.toolbarBtn, actionLoading === 'push' && styles.toolbarBtnLoading]}
-        onPress={() => handleGitAction('push')}
-        disabled={!!actionLoading}
-      >
-        {actionLoading === 'push' ? (
-          <ActivityIndicator size="small" color={AppColors.primary} />
-        ) : (
-          <Ionicons name="arrow-up-outline" size={16} color="#fff" />
-        )}
-        <Text style={styles.toolbarBtnText}>Push</Text>
-      </TouchableOpacity>
+  // Compact header with account selector
+  const renderHeader = () => (
+    <View style={styles.compactHeader}>
+      <View style={styles.headerRow}>
+        <View style={styles.repoInfo}>
+          <Ionicons name="git-branch" size={18} color={AppColors.primary} />
+          <View style={styles.repoTextContainer}>
+            <Text style={styles.repoName} numberOfLines={1}>{projectName}</Text>
+            {repoInfo && (
+              <Text style={styles.repoPath} numberOfLines={1}>{repoInfo.owner}/{repoInfo.repo}</Text>
+            )}
+          </View>
+        </View>
 
-      <View style={styles.toolbarDivider} />
-
-      <View style={styles.branchIndicator}>
-        <Ionicons name="git-branch" size={14} color={AppColors.primary} />
-        <Text style={styles.branchName} numberOfLines={1}>{currentBranch}</Text>
-      </View>
-    </ScrollView>
-  );
-
-  // Navigation tabs
-  const renderTabs = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.navTabsScroll}
-      contentContainerStyle={styles.navTabs}
-    >
-      {[
-        { key: 'commits', icon: 'git-commit-outline', label: 'Commits' },
-        { key: 'branches', icon: 'git-branch-outline', label: 'Branches' },
-        { key: 'changes', icon: 'document-text-outline', label: 'Changes' },
-        { key: 'account', icon: 'person-outline', label: 'Account' },
-      ].map((item) => (
+        {/* Account Selector */}
         <TouchableOpacity
-          key={item.key}
-          style={[styles.navTab, activeSection === item.key && styles.navTabActive]}
-          onPress={() => setActiveSection(item.key as any)}
+          style={styles.accountSelector}
+          onPress={() => setShowAccountPicker(true)}
         >
-          <Ionicons
-            name={item.icon as any}
-            size={14}
-            color={activeSection === item.key ? AppColors.primary : 'rgba(255,255,255,0.5)'}
-          />
-          <Text style={[styles.navTabText, activeSection === item.key && styles.navTabTextActive]}>
-            {item.label}
-          </Text>
+          {linkedAccount ? (
+            <>
+              {linkedAccount.avatarUrl ? (
+                <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.accountAvatar} />
+              ) : (
+                <View style={[styles.accountAvatar, styles.accountAvatarPlaceholder]}>
+                  <Ionicons name="person" size={12} color="#fff" />
+                </View>
+              )}
+              <Text style={styles.accountName} numberOfLines={1}>{linkedAccount.username}</Text>
+              {permissionStatus === 'checking' ? (
+                <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 4 }} />
+              ) : permissionStatus === 'write' ? (
+                <View style={styles.permBadgeWrite}>
+                  <Ionicons name="checkmark" size={10} color="#00D084" />
+                </View>
+              ) : permissionStatus === 'read' ? (
+                <View style={styles.permBadgeRead}>
+                  <Ionicons name="eye" size={10} color="#f59e0b" />
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Ionicons name="person-add-outline" size={14} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.accountPlaceholder}>Collega account</Text>
+            </>
+          )}
+          <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
         </TouchableOpacity>
-      ))}
-    </ScrollView>
+      </View>
+
+      {/* Branch and Actions Row */}
+      <View style={styles.actionsRow}>
+        <View style={styles.branchPill}>
+          <Ionicons name="git-branch" size={12} color={AppColors.primary} />
+          <Text style={styles.branchText}>{currentBranch}</Text>
+        </View>
+
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            style={[styles.actionBtn, actionLoading === 'fetch' && styles.actionBtnLoading]}
+            onPress={() => handleGitAction('fetch')}
+            disabled={!!actionLoading || !linkedAccount}
+          >
+            {actionLoading === 'fetch' ? (
+              <ActivityIndicator size="small" color={AppColors.primary} />
+            ) : (
+              <Ionicons name="cloud-download-outline" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, actionLoading === 'pull' && styles.actionBtnLoading]}
+            onPress={() => handleGitAction('pull')}
+            disabled={!!actionLoading || !linkedAccount}
+          >
+            {actionLoading === 'pull' ? (
+              <ActivityIndicator size="small" color={AppColors.primary} />
+            ) : (
+              <Ionicons name="arrow-down" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.pushBtn, actionLoading === 'push' && styles.actionBtnLoading]}
+            onPress={() => handleGitAction('push')}
+            disabled={!!actionLoading || !linkedAccount || permissionStatus !== 'write'}
+          >
+            {actionLoading === 'push' ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="arrow-up" size={14} color={linkedAccount && permissionStatus === 'write' ? '#fff' : 'rgba(255,255,255,0.3)'} />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Tabs - inline */}
+      <View style={styles.tabsRow}>
+        {[
+          { key: 'commits', label: 'Commits' },
+          { key: 'branches', label: 'Branch' },
+          { key: 'changes', label: 'Changes' },
+        ].map((item) => (
+          <TouchableOpacity
+            key={item.key}
+            style={[styles.tabItem, activeSection === item.key && styles.tabItemActive]}
+            onPress={() => setActiveSection(item.key as any)}
+          >
+            <Text style={[styles.tabText, activeSection === item.key && styles.tabTextActive]}>
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
   );
 
-  // Commits list (Fork-style)
+  // Account picker modal
+  const renderAccountPicker = () => (
+    <View style={styles.pickerOverlay}>
+      <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowAccountPicker(false)} />
+      <View style={styles.pickerCard}>
+        <View style={styles.pickerHeader}>
+          <Text style={styles.pickerTitle}>Seleziona Account</Text>
+          <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
+            <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.pickerList}>
+          {linkedAccount && (
+            <TouchableOpacity
+              style={styles.pickerItem}
+              onPress={handleUnlinkAccount}
+            >
+              <View style={[styles.pickerItemAvatar, { backgroundColor: 'rgba(255,77,77,0.1)' }]}>
+                <Ionicons name="unlink" size={16} color="#ff4d4d" />
+              </View>
+              <Text style={[styles.pickerItemText, { color: '#ff4d4d' }]}>Scollega account</Text>
+            </TouchableOpacity>
+          )}
+
+          {gitAccounts.map((account) => {
+            const providerConfig = getProviderConfig(account.provider);
+            const isLinked = linkedAccount?.id === account.id;
+            return (
+              <TouchableOpacity
+                key={account.id}
+                style={[styles.pickerItem, isLinked && styles.pickerItemSelected]}
+                onPress={() => handleLinkAccount(account)}
+              >
+                {account.avatarUrl ? (
+                  <Image source={{ uri: account.avatarUrl }} style={styles.pickerItemAvatar} />
+                ) : (
+                  <View style={[styles.pickerItemAvatar, { backgroundColor: providerConfig?.color || '#333' }]}>
+                    <Ionicons name={providerConfig?.icon as any || 'person'} size={16} color="#fff" />
+                  </View>
+                )}
+                <View style={styles.pickerItemInfo}>
+                  <Text style={styles.pickerItemText}>{account.username}</Text>
+                  <Text style={styles.pickerItemProvider}>{providerConfig?.name || account.provider}</Text>
+                </View>
+                {isLinked && (
+                  <Ionicons name="checkmark-circle" size={18} color={AppColors.primary} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+
+          <TouchableOpacity
+            style={styles.pickerItem}
+            onPress={() => {
+              setShowAccountPicker(false);
+              setShowAddAccountModal(true);
+            }}
+          >
+            <View style={[styles.pickerItemAvatar, { backgroundColor: `${AppColors.primary}20` }]}>
+              <Ionicons name="add" size={16} color={AppColors.primary} />
+            </View>
+            <Text style={[styles.pickerItemText, { color: AppColors.primary }]}>Aggiungi nuovo account</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    </View>
+  );
+
+  // Handle opening commit in browser
+  const handleOpenCommit = (url?: string) => {
+    if (url) {
+      Linking.openURL(url);
+    }
+  };
+
+  // Commits list (Fork-style with avatars)
   const renderCommits = () => (
     <View style={styles.section}>
       {gitLoading ? (
@@ -319,39 +615,66 @@ export const GitHubView = ({ tab }: Props) => {
           <Text style={styles.emptyText}>Nessun commit trovato</Text>
         </View>
       ) : (
-        commits.map((commit, index) => (
-          <View key={commit.hash} style={styles.commitRow}>
-            {/* Graph line */}
-            <View style={styles.graphColumn}>
-              <View style={[styles.graphLine, index === 0 && styles.graphLineFirst]} />
-              <View style={[styles.graphDot, commit.isHead && styles.graphDotHead]} />
-              {index < commits.length - 1 && <View style={styles.graphLine} />}
-            </View>
+        <>
+          <Text style={styles.sectionTitle}>{commits.length} commit</Text>
+          {commits.map((commit, index) => (
+            <TouchableOpacity
+              key={commit.hash}
+              style={styles.commitRow}
+              activeOpacity={0.7}
+              onPress={() => handleOpenCommit(commit.url)}
+            >
+              {/* Graph line */}
+              <View style={styles.graphColumn}>
+                <View style={[styles.graphLine, index === 0 && styles.graphLineFirst]} />
+                <View style={[styles.graphDot, commit.isHead && styles.graphDotHead]} />
+                {index < commits.length - 1 && <View style={styles.graphLine} />}
+              </View>
 
-            {/* Commit info */}
-            <View style={styles.commitInfo}>
-              <View style={styles.commitHeader}>
-                <Text style={styles.commitMessage} numberOfLines={1}>{commit.message}</Text>
-                {commit.isHead && (
-                  <View style={styles.headBadge}>
-                    <Text style={styles.headBadgeText}>HEAD</Text>
-                  </View>
-                )}
-                {commit.branch && (
-                  <View style={styles.branchBadge}>
-                    <Ionicons name="git-branch" size={10} color={AppColors.primary} />
-                    <Text style={styles.branchBadgeText}>{commit.branch}</Text>
-                  </View>
-                )}
+              {/* Avatar */}
+              {commit.authorAvatar ? (
+                <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatar} />
+              ) : (
+                <View style={[styles.commitAvatar, styles.commitAvatarPlaceholder]}>
+                  <Text style={styles.commitAvatarText}>
+                    {commit.author.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+
+              {/* Commit info */}
+              <View style={styles.commitInfo}>
+                <View style={styles.commitHeader}>
+                  <Text style={styles.commitMessage} numberOfLines={2}>{commit.message.split('\n')[0]}</Text>
+                </View>
+                <View style={styles.commitMeta}>
+                  <Text style={styles.commitHash}>{commit.shortHash}</Text>
+                  <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
+                  <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
+                </View>
+                {/* Badges row */}
+                <View style={styles.commitBadges}>
+                  {commit.isHead && (
+                    <View style={styles.headBadge}>
+                      <Text style={styles.headBadgeText}>HEAD</Text>
+                    </View>
+                  )}
+                  {commit.branch && (
+                    <View style={styles.branchBadge}>
+                      <Ionicons name="git-branch" size={10} color={AppColors.primary} />
+                      <Text style={styles.branchBadgeText}>{commit.branch}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
-              <View style={styles.commitMeta}>
-                <Text style={styles.commitHash}>{commit.shortHash}</Text>
-                <Text style={styles.commitAuthor}>{commit.author}</Text>
-                <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
-              </View>
-            </View>
-          </View>
-        ))
+
+              {/* Open icon */}
+              {commit.url && (
+                <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.2)" style={{ marginLeft: 8 }} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </>
       )}
     </View>
   );
@@ -543,34 +866,15 @@ export const GitHubView = ({ tab }: Props) => {
 
 
   return (
-    <Reanimated.View style={[styles.container, { paddingTop: insets.top }, containerAnimatedStyle]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Ionicons name="logo-github" size={24} color="#fff" />
-          <Text style={styles.projectName}>{projectName}</Text>
-        </View>
-        {gitAccounts.length > 0 && (
-          <View style={styles.headerAccount}>
-            {gitAccounts[0].avatarUrl ? (
-              <Image source={{ uri: gitAccounts[0].avatarUrl }} style={styles.headerAvatar} />
-            ) : (
-              <Ionicons name="person-circle" size={28} color="rgba(255,255,255,0.5)" />
-            )}
-          </View>
-        )}
-      </View>
-
-      {/* Toolbar */}
-      {renderToolbar()}
-
-      {/* Navigation Tabs */}
-      {renderTabs()}
+    <Reanimated.View style={[styles.container, { paddingTop: insets.top + TAB_BAR_HEIGHT }, containerAnimatedStyle]}>
+      {/* Compact Header */}
+      {renderHeader()}
 
       {/* Content */}
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -582,8 +886,10 @@ export const GitHubView = ({ tab }: Props) => {
         {activeSection === 'commits' && renderCommits()}
         {activeSection === 'branches' && renderBranches()}
         {activeSection === 'changes' && renderChanges()}
-        {activeSection === 'account' && renderAccount()}
       </ScrollView>
+
+      {/* Account Picker Modal */}
+      {showAccountPicker && renderAccountPicker()}
 
       <AddGitAccountModal
         visible={showAddAccountModal}
@@ -599,120 +905,226 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0d0d0f',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  projectName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  headerAccount: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  headerAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  // Toolbar
-  toolbarScroll: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+  // Compact Header
+  compactHeader: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  toolbar: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
+    paddingVertical: 10,
   },
-  toolbarBtn: {
+  repoInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
+    flex: 1,
+  },
+  repoTextContainer: {
+    flex: 1,
+  },
+  repoName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  repoPath: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    fontFamily: 'monospace',
+    marginTop: 1,
+  },
+  // Account Selector
+  accountSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 6,
+    borderRadius: 8,
+    maxWidth: 160,
   },
-  toolbarBtnLoading: {
-    opacity: 0.6,
+  accountAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
   },
-  toolbarBtnText: {
-    fontSize: 13,
+  accountAvatarPlaceholder: {
+    backgroundColor: 'rgba(139, 124, 246, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountName: {
+    fontSize: 12,
     fontWeight: '500',
     color: '#fff',
+    maxWidth: 80,
   },
-  toolbarDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginHorizontal: 8,
+  accountPlaceholder: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
   },
-  branchIndicator: {
+  permBadgeWrite: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 208, 132, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
+  },
+  permBadgeRead: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 2,
+  },
+  // Actions Row
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  branchPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginLeft: 'auto',
     paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingVertical: 4,
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
     borderRadius: 6,
-    maxWidth: 120,
   },
-  branchName: {
-    fontSize: 12,
+  branchText: {
+    fontSize: 11,
     fontWeight: '600',
     color: AppColors.primary,
   },
-  // Nav tabs
-  navTabsScroll: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  navTabs: {
+  actionButtons: {
     flexDirection: 'row',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
     gap: 4,
   },
-  navTab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  actionBtn: {
+    width: 32,
+    height: 32,
     borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  navTabActive: {
+  pushBtn: {
+    backgroundColor: `${AppColors.primary}30`,
+  },
+  actionBtnLoading: {
+    opacity: 0.6,
+  },
+  // Tabs Row
+  tabsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 2,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  tabItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  tabItemActive: {
     backgroundColor: 'rgba(139, 124, 246, 0.15)',
   },
-  navTabText: {
+  tabText: {
     fontSize: 12,
     fontWeight: '500',
     color: 'rgba(255,255,255,0.5)',
   },
-  navTabTextActive: {
+  tabTextActive: {
     color: AppColors.primary,
   },
   content: {
     flex: 1,
+  },
+  contentContainer: {
+    paddingBottom: 20,
+  },
+  // Account Picker Modal
+  pickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  pickerCard: {
+    width: '85%',
+    maxHeight: '60%',
+    backgroundColor: '#1a1a1c',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  pickerTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  pickerList: {
+    maxHeight: 300,
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  pickerItemSelected: {
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+  },
+  pickerItemAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerItemInfo: {
+    flex: 1,
+  },
+  pickerItemText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  pickerItemProvider: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 1,
   },
   section: {
     padding: 16,
@@ -753,11 +1165,19 @@ const styles = StyleSheet.create({
   // Commit row (Fork-style)
   commitRow: {
     flexDirection: 'row',
-    marginBottom: 2,
+    alignItems: 'flex-start',
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 10,
+    marginHorizontal: -4,
+    paddingHorizontal: 4,
   },
   graphColumn: {
-    width: 32,
+    width: 28,
     alignItems: 'center',
+    marginRight: 4,
   },
   graphLine: {
     width: 2,
@@ -781,22 +1201,42 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
   },
+  commitAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 10,
+    marginTop: 2,
+  },
+  commitAvatarPlaceholder: {
+    backgroundColor: 'rgba(139, 124, 246, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commitAvatarText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
   commitInfo: {
     flex: 1,
-    paddingVertical: 10,
-    paddingRight: 12,
+    paddingVertical: 2,
   },
   commitHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 4,
   },
   commitMessage: {
-    flex: 1,
     fontSize: 14,
     fontWeight: '500',
     color: '#fff',
+    lineHeight: 18,
+  },
+  commitBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    flexWrap: 'wrap',
   },
   headBadge: {
     paddingHorizontal: 6,
@@ -827,6 +1267,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
   commitHash: {
     fontSize: 11,

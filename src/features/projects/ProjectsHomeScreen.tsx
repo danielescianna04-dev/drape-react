@@ -7,6 +7,7 @@ import * as Clipboard from 'expo-clipboard';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import axios from 'axios';
 
 interface Props {
@@ -25,6 +26,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [repoVisibility, setRepoVisibility] = useState<'loading' | 'public' | 'private' | 'unknown'>('unknown');
+  const [showCommits, setShowCommits] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -465,6 +467,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     <Text style={styles.sheetActionText}>Apri</Text>
                   </TouchableOpacity>
 
+                  {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                    <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                      handleCloseMenu();
+                      setTimeout(() => setShowCommits(true), 300);
+                    }}>
+                      <View style={[styles.sheetActionIcon, { backgroundColor: `${AppColors.primary}15` }]}>
+                        <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
+                      </View>
+                      <Text style={styles.sheetActionText}>Commit</Text>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
                     <View style={styles.sheetActionIcon}>
                       <Ionicons name="copy-outline" size={20} color="#fff" />
@@ -502,6 +516,19 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <Text style={styles.sheetCancelText}>Annulla</Text>
             </TouchableOpacity>
           </Animated.View>
+        </View>
+      )}
+
+      {/* Git Commits Screen */}
+      {showCommits && selectedProject && (selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+        <View style={StyleSheet.absoluteFill}>
+          <GitCommitsScreen
+            repositoryUrl={selectedProject.repositoryUrl || selectedProject.githubUrl}
+            onClose={() => {
+              setShowCommits(false);
+              setSelectedProject(null);
+            }}
+          />
         </View>
       )}
     </View>
