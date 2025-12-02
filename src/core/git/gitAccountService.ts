@@ -154,11 +154,21 @@ export const gitAccountService = {
       // Token is obfuscated for basic protection
       try {
         const obfuscatedToken = obfuscateToken(token, userId);
-        await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), {
-          ...account,
+        // Build Firebase document, excluding undefined fields (Firestore doesn't allow undefined)
+        const firebaseData: Record<string, any> = {
+          id: account.id,
+          provider: account.provider,
+          username: account.username,
+          avatarUrl: account.avatarUrl,
           addedAt: account.addedAt.toISOString(),
           encryptedToken: obfuscatedToken,
-        });
+        };
+        // Only add optional fields if they have values
+        if (account.displayName) firebaseData.displayName = account.displayName;
+        if (account.email) firebaseData.email = account.email;
+        if (account.serverUrl) firebaseData.serverUrl = account.serverUrl;
+
+        await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), firebaseData);
         console.log(`✅ [Firebase] Git account + token saved for user ${userId}:`, account.username);
       } catch (firebaseErr) {
         console.warn('⚠️ Could not save to Firebase:', firebaseErr);
@@ -330,7 +340,8 @@ export const gitAccountService = {
   },
 
   async getAccountsByProvider(userId: string, provider: GitProvider): Promise<GitAccount[]> {
-    const accounts = await this.getAccounts(userId);
+    // Use getAllAccounts to include Firebase accounts (cross-device sync)
+    const accounts = await this.getAllAccounts(userId);
     return accounts.filter(a => a.provider === provider);
   },
 

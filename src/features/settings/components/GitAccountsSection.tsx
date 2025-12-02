@@ -27,7 +27,8 @@ export const GitAccountsSection = () => {
   }, [userId]);
 
   const loadAccounts = async () => {
-    const list = await gitAccountService.getAccounts(userId || 'anonymous');
+    // Use getAllAccounts to get both local and Firebase accounts (cross-device sync)
+    const list = await gitAccountService.getAllAccounts(userId || 'anonymous');
     setAccounts(list);
   };
 
