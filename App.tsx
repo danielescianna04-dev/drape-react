@@ -80,8 +80,8 @@ export default function App() {
 
     console.log('🔐 [checkAuthBeforeOpen] userId:', userId, 'owner:', owner);
 
-    // Check if we have accounts - use gitAccountService (same as Settings screen)
-    const accounts = await gitAccountService.getAccounts(userId);
+    // Check if we have accounts - use getAllAccounts to include Firebase accounts (cross-device sync)
+    const accounts = await gitAccountService.getAllAccounts(userId);
     console.log('🔐 [checkAuthBeforeOpen] gitAccountService accounts count:', accounts.length);
 
     // If NO accounts at all, DON'T block - let the clone proceed without auth
@@ -550,8 +550,8 @@ export default function App() {
       let githubToken = newToken;
 
       if (!githubToken) {
-        // Check if we have accounts - use gitAccountService (same as Settings screen)
-        const accounts = await gitAccountService.getAccounts(userId);
+        // Check if we have accounts - use getAllAccounts to include Firebase accounts (cross-device sync)
+        const accounts = await gitAccountService.getAllAccounts(userId);
         console.log('📥 [handleImportRepo] gitAccountService accounts count:', accounts.length);
 
         // If NO accounts, try without auth first (works for public repos)

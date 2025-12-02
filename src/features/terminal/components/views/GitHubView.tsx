@@ -102,7 +102,8 @@ export const GitHubView = ({ tab }: Props) => {
 
   const loadAccountInfo = async () => {
     try {
-      const accounts = await gitAccountService.getAccounts(userId);
+      // Use getAllAccounts to include Firebase accounts (cross-device sync)
+      const accounts = await gitAccountService.getAllAccounts(userId);
       setGitAccounts(accounts);
 
       // Check if there's a linked account for this repo

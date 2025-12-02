@@ -52,7 +52,8 @@ export const GitManagementScreen = ({ onClose }: Props) => {
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const accs = await gitAccountService.getAccounts(userId);
+      // Use getAllAccounts to include Firebase accounts (cross-device sync)
+      const accs = await gitAccountService.getAllAccounts(userId);
       setAccounts(accs);
     } catch (error) {
       console.error('Error loading accounts:', error);
