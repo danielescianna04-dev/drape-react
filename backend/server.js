@@ -2181,7 +2181,7 @@ app.post('/workstation/create', async (req, res) => {
     let files = [];
     if (projectType === 'git' && repositoryUrl) {
       try {
-        const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+        const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
         if (repoMatch) {
           const [, owner, repo] = repoMatch;
           console.log(`📦 Fetching files from GitHub: ${owner}/${repo}`);
@@ -2228,7 +2228,7 @@ app.post('/workstation/create', async (req, res) => {
           // For public repos, GitHub API returns 200
           // A 404 without auth means: repo doesn't exist OR it's private
           // Let's check if the repo exists using GitHub's public API endpoint
-          const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+          const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
           if (repoMatch) {
             const [, owner, repo] = repoMatch;
             try {
@@ -3524,7 +3524,7 @@ async function checkIfRepoIsPrivate(repositoryUrl, githubToken = null) {
   try {
     // Extract owner and repo from URL
     // Supports: https://github.com/owner/repo.git or https://github.com/owner/repo
-    const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+    const match = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
     if (!match) {
       console.log('⚠️ Could not parse GitHub URL, assuming public');
       return { isPrivate: false, requiresAuth: false };

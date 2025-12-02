@@ -55,7 +55,9 @@
       "Bash(tasklist:*)",
       "Bash(git checkout:*)",
       "Bash(keytool:*)",
-      "Bash(cmd /c \"taskkill /F /PID 22872\")"
+      "Bash(cmd /c \"taskkill /F /PID 22872\")",
+      "Bash(pod install)",
+      "Bash(xcrun xctrace:*)"
     ],
     "deny": [],
     "ask": []

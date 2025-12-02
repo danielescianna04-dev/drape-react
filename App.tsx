@@ -64,7 +64,7 @@ export default function App() {
   }, [user, isInitialized, currentScreen]);
 
   // Helper function to check auth BEFORE opening project
-  // Returns token if auth successful, null if cancelled/failed
+  // Returns token if auth successful, empty string if no auth needed (public repo), null if cancelled
   const checkAuthBeforeOpen = async (
     githubUrl: string,
     workstationName: string,
@@ -77,7 +77,6 @@ export default function App() {
     const userId = useTerminalStore.getState().userId || 'anonymous';
     const match = githubUrl.match(/github\.com\/([^\/]+)\//);
     const owner = match ? match[1] : 'unknown';
-    const repoName = githubUrl.split('/').pop()?.replace('.git', '') || workstationName;
 
     console.log('🔐 [checkAuthBeforeOpen] userId:', userId, 'owner:', owner);
 
@@ -85,20 +84,11 @@ export default function App() {
     const accounts = await gitAccountService.getAccounts(userId);
     console.log('🔐 [checkAuthBeforeOpen] gitAccountService accounts count:', accounts.length);
 
-    // If NO accounts at all, ALWAYS require auth
+    // If NO accounts at all, DON'T block - let the clone proceed without auth
+    // The backend will determine if auth is needed (public vs private repo)
     if (accounts.length === 0) {
-      console.log('🔐🔐🔐 [checkAuthBeforeOpen] NO ACCOUNTS - showing auth popup');
-      try {
-        const token = await requestGitAuth(
-          `Collega un account GitHub per accedere a "${repoName}"`,
-          { repositoryUrl: githubUrl, owner }
-        );
-        console.log('🔐 [checkAuthBeforeOpen] Got token from popup');
-        return token;
-      } catch {
-        console.log('🔐🔐🔐 [checkAuthBeforeOpen] USER CANCELLED - returning null');
-        return null;
-      }
+      console.log('🔐🔐🔐 [checkAuthBeforeOpen] NO ACCOUNTS - proceeding without auth (may be public repo)');
+      return ''; // Empty string = no token, but proceed anyway
     }
 
     // Try to get token for this repository using gitAccountService
@@ -107,27 +97,11 @@ export default function App() {
 
     console.log('🔐 [checkAuthBeforeOpen] token found via gitAccountService:', !!token);
 
-    // Show popup if:
-    // 1. No token for this owner - need to authenticate
-    // 2. Multiple accounts exist - let user choose
-    const needsAuth = !token;
-    const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
-
-    if (needsAuth || hasMultipleAccounts) {
-      console.log('🔐🔐🔐 [checkAuthBeforeOpen] SHOWING POPUP - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
-      try {
-        token = await requestGitAuth(
-          hasMultipleAccounts
-            ? `Scegli un account per "${repoName}"`
-            : `Autenticazione richiesta per "${repoName}"`,
-          { repositoryUrl: githubUrl, owner }
-        );
-        console.log('🔐 [checkAuthBeforeOpen] Got token from popup');
-        return token;
-      } catch {
-        console.log('🔐🔐🔐 [checkAuthBeforeOpen] USER CANCELLED - returning null');
-        return null;
-      }
+    // If we have accounts but no token for this specific repo, still allow proceeding
+    // The clone process will request auth if needed (for private repos)
+    if (!token) {
+      console.log('🔐 [checkAuthBeforeOpen] No token for this repo, but has accounts - proceeding');
+      return ''; // Empty string = proceed without pre-auth
     }
 
     console.log('🔐 [checkAuthBeforeOpen] Using existing token');
@@ -161,61 +135,19 @@ export default function App() {
     console.log('🔄 [cloneRepositoryWithAuth] userId:', userId, 'owner:', owner);
     console.log('🔄 [cloneRepositoryWithAuth] linkedGithubAccount:', linkedGithubAccount);
 
-    // Use pre-authenticated token if provided
-    let token = preAuthToken;
+    // Use pre-authenticated token if provided, or try to get one from saved accounts
+    let token = preAuthToken || null;
     let usedAccountUsername = linkedGithubAccount || owner;
 
-    // If no pre-auth token, check if we have one saved
+    // If no pre-auth token, check if we have one saved (but DON'T show popup yet)
     if (!token) {
-      // Use gitAccountService (same as Settings screen)
-      const accounts = await gitAccountService.getAccounts(userId);
       const tokenResult = await gitAccountService.getTokenForRepo(userId, githubUrl);
       token = tokenResult?.token || null;
+      console.log('🔄 [cloneRepositoryWithAuth] Found saved token:', !!token);
+    }
 
-      console.log('🔄 [cloneRepositoryWithAuth] gitAccountService accounts:', accounts.length, 'hasToken:', !!token);
-
-      // Show popup if:
-      // 1. Multiple accounts exist and no specific token for this owner - let user choose
-      // 2. No token at all - need to authenticate
-      const needsAuth = !token;
-      const hasMultipleAccounts = accounts.length > 1 && !linkedGithubAccount;
-
-      if (needsAuth || hasMultipleAccounts) {
-        console.log('🔄 [cloneRepositoryWithAuth] Showing popup - needsAuth:', needsAuth, 'hasMultipleAccounts:', hasMultipleAccounts);
-        try {
-          token = await requestGitAuth(
-            hasMultipleAccounts
-              ? `Scegli un account per "${repoName}"`
-              : `Autenticazione richiesta per "${repoName}"`,
-            { repositoryUrl: githubUrl, owner }
-          );
-          console.log('🔄 [cloneRepositoryWithAuth] Got token from popup');
-
-          // Get the username of the account that was authenticated
-          const validation = await githubTokenService.validateToken(token);
-          if (validation.valid && validation.username) {
-            usedAccountUsername = validation.username;
-
-            // Salva l'account GitHub nel progetto
-            console.log('🔗 [cloneRepositoryWithAuth] Saving GitHub account to project:', usedAccountUsername);
-            await workstationService.updateProjectGitHubAccount(projectId, usedAccountUsername);
-          }
-        } catch {
-          // User cancelled
-          console.log('🔄 [cloneRepositoryWithAuth] User cancelled auth');
-          addTerminalItemToStore(tabId, {
-            id: `cancelled-${Date.now()}`,
-            type: 'system',
-            content: 'Autenticazione annullata',
-            timestamp: new Date(),
-          });
-          // Clean up cloning set before returning
-          cloningProjects.current.delete(projectId);
-          return;
-        }
-      }
-    } else {
-      // If we have a pre-auth token, save the account to the project
+    // If we have a token, save the account to the project
+    if (token) {
       try {
         const validation = await githubTokenService.validateToken(token);
         if (validation.valid && validation.username) {
@@ -227,6 +159,10 @@ export default function App() {
         console.log('⚠️ Could not validate token:', e);
       }
     }
+
+    // DON'T show auth popup here - try to clone first
+    // The backend will tell us if auth is needed (401 for private repos)
+    console.log('🔄 [cloneRepositoryWithAuth] Proceeding to clone (token:', token ? 'yes' : 'no', ')');
 
     addTerminalItemToStore(tabId, {
       id: `loading-${Date.now()}`,
@@ -936,8 +872,10 @@ export default function App() {
                     workstation.githubAccountUsername
                   );
 
-                  // checkAuthBeforeOpen returns null ONLY if auth was required and user cancelled
-                  // (if no auth needed, it returns the existing token)
+                  // checkAuthBeforeOpen returns:
+                  // - token string: use this token
+                  // - empty string '': no token but proceed (public repo or will auth later)
+                  // - null: user cancelled auth (don't proceed)
                   if (authToken === null) {
                     console.log('🔐 [onOpenProject-Home] Auth cancelled, not navigating');
                     return; // Don't navigate - user cancelled auth
@@ -1125,8 +1063,10 @@ export default function App() {
                     workstation.githubAccountUsername
                   );
 
-                  // checkAuthBeforeOpen returns null ONLY if auth was required and user cancelled
-                  // (if no auth needed, it returns the existing token)
+                  // checkAuthBeforeOpen returns:
+                  // - token string: use this token
+                  // - empty string '': no token but proceed (public repo or will auth later)
+                  // - null: user cancelled auth (don't proceed)
                   if (authToken === null) {
                     console.log('🔐 [onOpenProject-All] Auth cancelled, not navigating');
                     return; // Don't navigate - user cancelled auth
