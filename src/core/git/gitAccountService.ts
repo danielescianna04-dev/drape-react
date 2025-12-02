@@ -317,18 +317,26 @@ export const gitAccountService = {
 
       // Get local accounts as fallback/merge
       const localAccounts = await this.getAccounts(userId);
+      console.log(`📥 [Local] Loaded ${localAccounts.length} git accounts`);
 
       // Merge: prefer Firebase accounts, add any local-only accounts
       const firebaseUsernames = new Set(firebaseAccounts.map(a => `${a.provider}-${a.username}`));
       const mergedAccounts = [...firebaseAccounts];
 
+      // If we have local accounts not in Firebase, sync them to Firebase
       for (const local of localAccounts) {
         const key = `${local.provider}-${local.username}`;
         if (!firebaseUsernames.has(key)) {
           mergedAccounts.push(local);
+
+          // Try to sync this local account to Firebase (so other devices can see it)
+          this.syncLocalAccountToFirebase(local, userId).catch(err => {
+            console.warn('⚠️ Could not sync local account to Firebase:', err);
+          });
         }
       }
 
+      console.log(`📥 [Merged] Total ${mergedAccounts.length} git accounts`);
       return mergedAccounts.sort(
         (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
       );
@@ -510,6 +518,44 @@ export const gitAccountService = {
       console.log(`✅ Synced ${accounts.length} accounts, restored ${tokensRestored} tokens from Firebase`);
     } catch (error) {
       console.error('Error syncing from Firebase:', error);
+    }
+  },
+
+  // Sync a local account (and its token) to Firebase
+  // This is called when we find local accounts not in Firebase
+  async syncLocalAccountToFirebase(account: GitAccount, userId: string): Promise<void> {
+    try {
+      console.log(`🔄 [syncLocalAccountToFirebase] Syncing ${account.username} to Firebase...`);
+
+      // Get the token from local SecureStore
+      const tokenKey = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
+      const token = await SecureStore.getItemAsync(tokenKey);
+
+      if (!token) {
+        console.log(`⚠️ [syncLocalAccountToFirebase] No token found for ${account.username}, skipping`);
+        return;
+      }
+
+      // Build Firebase document, excluding undefined fields
+      const obfuscatedToken = obfuscateToken(token, userId);
+      const firebaseData: Record<string, any> = {
+        id: account.id,
+        provider: account.provider,
+        username: account.username,
+        avatarUrl: account.avatarUrl,
+        addedAt: account.addedAt instanceof Date ? account.addedAt.toISOString() : account.addedAt,
+        encryptedToken: obfuscatedToken,
+      };
+
+      // Only add optional fields if they have values
+      if (account.displayName) firebaseData.displayName = account.displayName;
+      if (account.email) firebaseData.email = account.email;
+      if (account.serverUrl) firebaseData.serverUrl = account.serverUrl;
+
+      await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), firebaseData);
+      console.log(`✅ [syncLocalAccountToFirebase] ${account.username} synced to Firebase`);
+    } catch (error) {
+      console.error(`❌ [syncLocalAccountToFirebase] Error syncing ${account.username}:`, error);
     }
   },
 };
