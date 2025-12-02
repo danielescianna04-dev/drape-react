@@ -4,6 +4,8 @@
   <dict>
     <key>CADisableMinimumFrameDurationOnPhone</key>
     <true/>
+    <key>CFBundleAllowMixedLocalizations</key>
+    <true/>
     <key>CFBundleDevelopmentRegion</key>
     <string>$(DEVELOPMENT_LANGUAGE)</string>
     <key>CFBundleDisplayName</key>
@@ -27,7 +29,9 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>drape</string>
           <string>com.drape.app</string>
+          <string>com.googleusercontent.apps.74904913373-67m1922fmr6vij5ioanf4amto28gbqbo</string>
         </array>
       </dict>
     </array>

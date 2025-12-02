@@ -299,8 +299,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             >
               <View style={styles.actionCardInner}>
                 <Ionicons name="logo-github" size={24} color="#fff" />
-                <Text style={styles.actionCardTitle}>GitHub</Text>
-                <Text style={styles.actionCardSubtitle}>Clona repo</Text>
+                <Text style={styles.actionCardTitle}>Clona</Text>
+                <Text style={styles.actionCardSubtitle}>clona repo</Text>
               </View>
             </TouchableOpacity>
 

@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "74904913373",
+    "project_id": "drape-mobile-ide",
+    "storage_bucket": "drape-mobile-ide.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:74904913373:android:e0c570ae449dce3783e234",
+        "android_client_info": {
+          "package_name": "com.drape.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "74904913373-4ivvetgpgt00uf5c1gb8v4m2bofubibd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDB_tXWF-2iro5lbz8DXydco9gfAK4zZzc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "74904913373-4ivvetgpgt00uf5c1gb8v4m2bofubibd.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "74904913373-67m1922fmr6vij5ioanf4amto28gbqbo.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.drape.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -95,12 +95,35 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const webViewRef = useRef<WebView>(null);
   const inputRef = useRef<TextInput>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
+  const prevWorkstationId = useRef<string | null>(null);
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
+
+  // Reset preview state when project changes
+  useEffect(() => {
+    const currentId = currentWorkstation?.id;
+
+    // If workstation changed, reset preview state
+    if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
+      console.log(`🔄 Project changed: ${prevWorkstationId.current} → ${currentId}, resetting preview`);
+      setServerStatus('stopped');
+      setPreviewServerUrl(null);
+      setProjectInfo(null);
+      setIsStarting(false);
+
+      // Clear any running health checks
+      if (checkInterval.current) {
+        clearInterval(checkInterval.current);
+        checkInterval.current = null;
+      }
+    }
+
+    prevWorkstationId.current = currentId || null;
+  }, [currentWorkstation?.id]);
 
   // Opening animation - fade in
   useEffect(() => {

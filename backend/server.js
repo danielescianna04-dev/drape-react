@@ -2227,29 +2227,66 @@ app.post('/workstation/create', async (req, res) => {
         if (error.response?.status === 404 && !githubToken) {
           // For public repos, GitHub API returns 200
           // A 404 without auth means: repo doesn't exist OR it's private
-          // Let's check if the repo exists by trying to access it via web
+          // Let's check if the repo exists using GitHub's public API endpoint
           const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
           if (repoMatch) {
             const [, owner, repo] = repoMatch;
             try {
-              // Check repo existence via GitHub API (this endpoint works without auth for public repos)
-              await axios.head(`https://github.com/${owner}/${repo}`, {
-                maxRedirects: 0,
+              // Use GitHub API to check repo visibility - this endpoint returns repo info for public repos
+              // without authentication, and 404 for private repos
+              const repoInfo = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+                headers: {
+                  'Accept': 'application/vnd.github.v3+json',
+                  'User-Agent': 'Drape-Mobile-IDE'
+                },
                 validateStatus: (status) => status === 200 || status === 404
               });
-              // If we get here, repo exists but API returned 404 = it's private
-              console.log('🔒 Private repository detected, authentication required');
-              return res.status(401).json({
-                error: 'Authentication required',
-                message: 'This repository is private and requires authentication',
-                requiresAuth: true
-              });
+
+              if (repoInfo.status === 200) {
+                // Repo is public and exists - the 404 was for branches, not the repo
+                // This means the default branch is not main/master
+                console.log('📂 Repository is public, checking available branches...');
+                const defaultBranch = repoInfo.data.default_branch;
+                console.log(`🌿 Default branch: ${defaultBranch}`);
+
+                // Try to fetch with the actual default branch
+                try {
+                  const branchResponse = await axios.get(
+                    `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`,
+                    { headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Drape-Mobile-IDE' } }
+                  );
+
+                  files = branchResponse.data.tree
+                    .filter(item => item.type === 'blob')
+                    .map(item => item.path)
+                    .filter(path =>
+                      !path.includes('node_modules/') &&
+                      !path.startsWith('.git/') &&
+                      !path.includes('/dist/') &&
+                      !path.includes('/build/')
+                    )
+                    .slice(0, 500);
+
+                  console.log(`✅ Found ${files.length} files from GitHub (branch: ${defaultBranch})`);
+                } catch (branchError) {
+                  console.log('⚠️ Could not fetch files from default branch, using fallback');
+                  files = ['README.md', 'package.json', '.gitignore', 'src/index.js', 'src/App.js'];
+                }
+              } else {
+                // Repo returned 404 on the public API - it's private
+                console.log('🔒 Private repository detected, authentication required');
+                return res.status(401).json({
+                  error: 'Authentication required',
+                  message: 'This repository is private and requires authentication',
+                  requiresAuth: true
+                });
+              }
             } catch (checkError) {
-              // Repo doesn't exist at all
-              console.log('❌ Repository not found');
+              // Network error or other issue
+              console.log('❌ Error checking repository:', checkError.message);
               return res.status(404).json({
                 error: 'Repository not found',
-                message: 'This repository does not exist on GitHub',
+                message: 'Could not verify repository existence',
                 requiresAuth: false
               });
             }
