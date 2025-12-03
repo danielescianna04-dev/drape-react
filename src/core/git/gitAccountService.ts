@@ -527,9 +527,24 @@ export const gitAccountService = {
     try {
       console.log(`🔄 [syncLocalAccountToFirebase] Syncing ${account.username} to Firebase...`);
 
-      // Get the token from local SecureStore
-      const tokenKey = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
-      const token = await SecureStore.getItemAsync(tokenKey);
+      // Always use consistent ID format: userId-provider-username
+      const accountId = `${userId}-${account.provider}-${account.username}`;
+
+      // Get the token from local SecureStore - try both old and new key formats
+      const newTokenKey = `${TOKEN_PREFIX}${userId}-${account.provider}-${account.username}`;
+      const oldTokenKey = `${TOKEN_PREFIX}${account.provider}-${account.username}`;
+
+      let token = await SecureStore.getItemAsync(newTokenKey);
+      if (!token) {
+        // Try old format without userId
+        token = await SecureStore.getItemAsync(oldTokenKey);
+        if (token) {
+          console.log(`🔄 [syncLocalAccountToFirebase] Found token with old key format, migrating...`);
+          // Migrate to new key format
+          await SecureStore.setItemAsync(newTokenKey, token);
+          await SecureStore.deleteItemAsync(oldTokenKey);
+        }
+      }
 
       if (!token) {
         console.log(`⚠️ [syncLocalAccountToFirebase] No token found for ${account.username}, skipping`);
@@ -539,7 +554,7 @@ export const gitAccountService = {
       // Build Firebase document, excluding undefined fields
       const obfuscatedToken = obfuscateToken(token, userId);
       const firebaseData: Record<string, any> = {
-        id: account.id,
+        id: accountId,
         provider: account.provider,
         username: account.username,
         avatarUrl: account.avatarUrl,
@@ -552,8 +567,8 @@ export const gitAccountService = {
       if (account.email) firebaseData.email = account.email;
       if (account.serverUrl) firebaseData.serverUrl = account.serverUrl;
 
-      await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), firebaseData);
-      console.log(`✅ [syncLocalAccountToFirebase] ${account.username} synced to Firebase`);
+      await setDoc(doc(db, 'users', userId, 'git-accounts', accountId), firebaseData);
+      console.log(`✅ [syncLocalAccountToFirebase] ${account.username} synced to Firebase with ID: ${accountId}`);
     } catch (error) {
       console.error(`❌ [syncLocalAccountToFirebase] Error syncing ${account.username}:`, error);
     }
