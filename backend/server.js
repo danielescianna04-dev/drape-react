@@ -67,6 +67,119 @@ async function findAvailablePort(startPort, maxAttempts = 100) {
   throw new Error(`No available port found after trying ${maxAttempts} ports starting from ${startPort}`);
 }
 
+/**
+ * Check if project requires environment variables
+ * Looks for .env.example, .env.local.example, .env.sample files
+ * Compares with existing .env, .env.local to find missing vars
+ */
+async function checkRequiredEnvVars(repoPath) {
+  const envExampleFiles = ['.env.example', '.env.local.example', '.env.sample', 'example.env'];
+  const envFiles = ['.env', '.env.local'];
+
+  let exampleFile = null;
+  let exampleContent = null;
+
+  // Find example env file
+  for (const file of envExampleFiles) {
+    try {
+      const filePath = path.join(repoPath, file);
+      exampleContent = await fs.readFile(filePath, 'utf8');
+      exampleFile = file;
+      break;
+    } catch {
+      // File doesn't exist, try next
+    }
+  }
+
+  // No example file found - no env vars required
+  if (!exampleFile) {
+    return { requiresEnvVars: false };
+  }
+
+  // Check if actual env file exists
+  let existingEnvContent = '';
+  let existingEnvFile = null;
+  for (const file of envFiles) {
+    try {
+      const filePath = path.join(repoPath, file);
+      existingEnvContent = await fs.readFile(filePath, 'utf8');
+      existingEnvFile = file;
+      break;
+    } catch {
+      // File doesn't exist
+    }
+  }
+
+  // Parse env variables from example file
+  const parseEnvFile = (content) => {
+    const vars = [];
+    const seenKeys = new Set(); // Track seen keys to avoid duplicates
+    const lines = content.split('\n');
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Skip empty lines
+      if (!trimmed) continue;
+
+      // Check if it's a comment (description for next variable)
+      if (trimmed.startsWith('#')) {
+        continue;
+      }
+
+      // Parse KEY=value
+      const match = trimmed.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/i);
+      if (match) {
+        const [, key, value] = match;
+
+        // Skip duplicate keys
+        if (seenKeys.has(key)) {
+          continue;
+        }
+        seenKeys.add(key);
+
+        // Look for description in previous comment lines
+        let description = '';
+        const lineIndex = lines.indexOf(line);
+        if (lineIndex > 0) {
+          const prevLine = lines[lineIndex - 1].trim();
+          if (prevLine.startsWith('#')) {
+            description = prevLine.substring(1).trim();
+          }
+        }
+
+        vars.push({
+          key,
+          defaultValue: value.replace(/^["']|["']$/g, ''), // Remove quotes
+          description,
+          required: !value || value === 'your_value_here' || value.includes('xxx') || value.includes('YOUR_')
+        });
+      }
+    }
+    return vars;
+  };
+
+  const exampleVars = parseEnvFile(exampleContent);
+  const existingVars = existingEnvFile ? parseEnvFile(existingEnvContent) : [];
+  const existingKeys = new Set(existingVars.map(v => v.key));
+
+  // Find missing variables (in example but not in existing)
+  const missingVars = exampleVars.filter(v => !existingKeys.has(v.key));
+
+  // If all vars exist, no config needed
+  if (missingVars.length === 0) {
+    return { requiresEnvVars: false };
+  }
+
+  return {
+    requiresEnvVars: true,
+    exampleFile,
+    targetFile: existingEnvFile || (exampleFile.includes('.local') ? '.env.local' : '.env'),
+    missingVars,
+    allVars: exampleVars
+  };
+}
+
 const { VertexAI } = require('@google-cloud/vertexai');
 const { GoogleAuth } = require('google-auth-library');
 const admin = require('firebase-admin');
@@ -4520,6 +4633,23 @@ app.post('/preview/start', async (req, res) => {
       }
     }
 
+    // Step 5.5: Check for required environment variables
+    const envCheckResult = await checkRequiredEnvVars(repoPath);
+    if (envCheckResult.requiresEnvVars) {
+      console.log('⚠️ Missing environment variables detected');
+      console.log(`   Example file: ${envCheckResult.exampleFile}`);
+      console.log(`   Missing vars: ${envCheckResult.missingVars.map(v => v.key).join(', ')}`);
+
+      return res.status(200).json({
+        success: false,
+        requiresEnvVars: true,
+        exampleFile: envCheckResult.exampleFile,
+        envVars: envCheckResult.missingVars,
+        projectType: commands.projectType,
+        message: 'Questo progetto richiede variabili d\'ambiente. Configura i valori per continuare.'
+      });
+    }
+
     // Step 6: Find available port
     let port = commands.port || 3000;
     port = await findAvailablePort(port);
@@ -4670,6 +4800,97 @@ app.post('/preview/clear-cache', (req, res) => {
   }
 
   res.json({ success: true });
+});
+
+/**
+ * Save environment variables for a project
+ * Creates or updates .env file with provided variables
+ */
+app.post('/preview/env', async (req, res) => {
+  try {
+    const { workstationId, envVars, targetFile } = req.body;
+
+    if (!workstationId || !envVars) {
+      return res.status(400).json({ success: false, error: 'workstationId and envVars are required' });
+    }
+
+    console.log(`\n📝 Saving environment variables for: ${workstationId}`);
+    console.log(`   Target file: ${targetFile || '.env'}`);
+    console.log(`   Variables: ${Object.keys(envVars).join(', ')}`);
+
+    // Resolve repo path
+    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    if (workstationId.startsWith('ws-')) {
+      const projectIdLower = workstationId.substring(3);
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+        }
+      } catch (err) {
+        console.error('Error reading cloned_repos:', err);
+      }
+    }
+
+    // Build env file content
+    const envFileName = targetFile || '.env';
+    const envFilePath = path.join(repoPath, envFileName);
+
+    // Read existing content if file exists
+    let existingContent = '';
+    try {
+      existingContent = await fs.readFile(envFilePath, 'utf8');
+    } catch {
+      // File doesn't exist, will create new
+    }
+
+    // Parse existing vars
+    const existingVars = {};
+    if (existingContent) {
+      const lines = existingContent.split('\n');
+      for (const line of lines) {
+        const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/i);
+        if (match) {
+          existingVars[match[1]] = match[2];
+        }
+      }
+    }
+
+    // Merge with new vars (new vars override existing)
+    const mergedVars = { ...existingVars, ...envVars };
+
+    // Build new content
+    let newContent = '# Environment variables\n# Generated by Drape IDE\n\n';
+    for (const [key, value] of Object.entries(mergedVars)) {
+      // Quote value if it contains spaces or special characters
+      const needsQuotes = /[\s#=]/.test(value);
+      const quotedValue = needsQuotes ? `"${value}"` : value;
+      newContent += `${key}=${quotedValue}\n`;
+    }
+
+    // Write file
+    await fs.writeFile(envFilePath, newContent, 'utf8');
+
+    console.log(`✅ Environment file saved: ${envFilePath}`);
+    console.log(`   Total variables: ${Object.keys(mergedVars).length}`);
+
+    res.json({
+      success: true,
+      file: envFileName,
+      varsCount: Object.keys(mergedVars).length
+    });
+
+  } catch (error) {
+    console.error('❌ Error saving env vars:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 /**

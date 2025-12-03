@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
-import { PanelHeader, EmptyState } from '../../../shared/components/organisms';
-import { IconButton } from '../../../shared/components/atoms';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface Props {
   onClose: () => void;
@@ -20,6 +23,7 @@ interface EnvVariable {
 }
 
 export const SecretsPanel = ({ onClose }: Props) => {
+  const insets = useSafeAreaInsets();
   const { currentWorkstation } = useTerminalStore();
   const [envVars, setEnvVars] = useState<EnvVariable[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -28,6 +32,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadEnvVariables();
@@ -50,11 +55,14 @@ export const SecretsPanel = ({ onClose }: Props) => {
       }
 
       const data = await response.json();
-      setEnvVars(data.variables || []);
+      const uniqueVars = (data.variables || []).filter(
+        (v: EnvVariable, index: number, self: EnvVariable[]) =>
+          index === self.findIndex((t) => t.key === v.key)
+      );
+      setEnvVars(uniqueVars);
       setHasEnvExample(data.hasEnvExample || false);
     } catch (error) {
       console.error('Failed to load env variables:', error);
-      Alert.alert('Errore', 'Impossibile caricare le variabili d\'ambiente');
     } finally {
       setIsLoading(false);
     }
@@ -69,40 +77,26 @@ export const SecretsPanel = ({ onClose }: Props) => {
         `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            variables: envVars,
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ variables: envVars }),
         }
       );
 
-      if (!response.ok) {
-        throw new Error(`Failed to save env variables: ${response.status}`);
-      }
-
-      Alert.alert('Successo', 'Variabili d\'ambiente salvate correttamente');
+      if (!response.ok) throw new Error('Failed to save');
+      Alert.alert('Salvato', 'Variabili aggiornate con successo');
     } catch (error) {
-      console.error('Failed to save env variables:', error);
-      Alert.alert('Errore', 'Impossibile salvare le variabili d\'ambiente');
+      Alert.alert('Errore', 'Impossibile salvare le variabili');
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleAddVariable = () => {
-    if (!newKey.trim()) {
-      Alert.alert('Errore', 'Inserisci il nome della variabile');
+    if (!newKey.trim()) return;
+    if (envVars.find(v => v.key === newKey)) {
+      Alert.alert('Errore', 'Variabile già esistente');
       return;
     }
-
-    const existingVar = envVars.find(v => v.key === newKey);
-    if (existingVar) {
-      Alert.alert('Errore', 'Una variabile con questo nome esiste già');
-      return;
-    }
-
     setEnvVars([...envVars, { key: newKey, value: newValue, isSecret: true }]);
     setNewKey('');
     setNewValue('');
@@ -114,186 +108,190 @@ export const SecretsPanel = ({ onClose }: Props) => {
   };
 
   const handleDeleteVariable = (key: string) => {
-    Alert.alert(
-      'Conferma',
-      `Vuoi eliminare la variabile ${key}?`,
-      [
-        { text: 'Annulla', style: 'cancel' },
-        {
-          text: 'Elimina',
-          style: 'destructive',
-          onPress: () => setEnvVars(envVars.filter(v => v.key !== key))
-        }
-      ]
-    );
+    Alert.alert('Elimina', `Eliminare ${key}?`, [
+      { text: 'Annulla', style: 'cancel' },
+      { text: 'Elimina', style: 'destructive', onPress: () => setEnvVars(envVars.filter(v => v.key !== key)) }
+    ]);
+  };
+
+  const toggleSecretVisibility = (key: string) => {
+    setVisibleSecrets(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) newSet.delete(key);
+      else newSet.add(key);
+      return newSet;
+    });
   };
 
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#0a0a0a', '#000000']}
+        colors={['#0d0d0d', '#000000']}
         style={StyleSheet.absoluteFill}
       />
 
-      <PanelHeader
-        title="Secrets & Variables"
-        icon="key"
-        onClose={onClose}
-      />
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.headerLeft}>
+          <View style={styles.headerIconContainer}>
+            <LinearGradient
+              colors={['#8B5CF6', '#6366F1']}
+              style={styles.headerIconGradient}
+            >
+              <Ionicons name="key" size={18} color="#fff" />
+            </LinearGradient>
+          </View>
+          <View>
+            <Text style={styles.headerTitle}>Environment</Text>
+            <Text style={styles.headerSubtitle}>{envVars.length} variabili</Text>
+          </View>
+        </View>
+        <TouchableOpacity onPress={onClose} style={styles.closeButton} activeOpacity={0.7}>
+          <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
+        </TouchableOpacity>
+      </View>
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={AppColors.primary} />
-          <Text style={styles.loadingText}>Caricamento variabili...</Text>
         </View>
       ) : (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Info Banner */}
-          <View style={styles.infoBanner}>
-            <View style={styles.infoBannerIcon}>
-              <Ionicons name="information-circle" size={20} color="#00D9FF" />
-            </View>
-            <View style={styles.infoBannerContent}>
-              <Text style={styles.infoBannerTitle}>Gestisci le tue variabili d'ambiente</Text>
-              <Text style={styles.infoBannerText}>
-                {hasEnvExample
-                  ? 'Trovato .env.example nel progetto. Le variabili sono state caricate automaticamente.'
-                  : 'Aggiungi manualmente le variabili d\'ambiente necessarie per il progetto.'}
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Quick Actions */}
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, showAddForm && styles.actionButtonActive]}
+              onPress={() => setShowAddForm(!showAddForm)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name={showAddForm ? "close" : "add"} size={18} color={showAddForm ? "#fff" : AppColors.primary} />
+              <Text style={[styles.actionButtonText, showAddForm && styles.actionButtonTextActive]}>
+                {showAddForm ? 'Annulla' : 'Nuova'}
               </Text>
-            </View>
-          </View>
+            </TouchableOpacity>
 
-          {/* Environment Variables List */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Variabili d'Ambiente</Text>
+            {envVars.length > 0 && (
               <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => setShowAddForm(!showAddForm)}
+                style={[styles.actionButton, styles.saveActionButton]}
+                onPress={handleSave}
+                disabled={isSaving}
                 activeOpacity={0.7}
               >
-                <Ionicons name={showAddForm ? "close" : "add-circle"} size={20} color={AppColors.primary} />
-                <Text style={styles.addButtonText}>{showAddForm ? 'Annulla' : 'Aggiungi'}</Text>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload" size={18} color="#fff" />
+                    <Text style={[styles.actionButtonText, styles.actionButtonTextActive]}>Salva</Text>
+                  </>
+                )}
               </TouchableOpacity>
-            </View>
-
-            {/* Add Variable Form */}
-            {showAddForm && (
-              <View style={styles.addForm}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Nome Variabile</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="es. API_KEY"
-                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
-                    value={newKey}
-                    onChangeText={setNewKey}
-                    autoCapitalize="characters"
-                  />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Valore</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Inserisci il valore"
-                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
-                    value={newValue}
-                    onChangeText={setNewValue}
-                    secureTextEntry={true}
-                  />
-                </View>
-                <TouchableOpacity
-                  style={styles.addFormButton}
-                  onPress={handleAddVariable}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={[AppColors.primary, '#7C5DFA']}
-                    style={styles.addFormButtonGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
-                    <Text style={styles.addFormButtonText}>Aggiungi Variabile</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
             )}
+          </View>
 
-            {/* Variables List */}
-            {envVars.length === 0 ? (
-              <EmptyState
-                icon="file-tray-outline"
-                title="Nessuna variabile d'ambiente configurata"
-                subtitle="Clicca su 'Aggiungi' per creare la tua prima variabile"
+          {/* Add Form */}
+          {showAddForm && (
+            <Animated.View entering={FadeInDown.duration(200)} style={styles.addForm}>
+              <View style={styles.addFormHeader}>
+                <Ionicons name="add-circle" size={20} color={AppColors.primary} />
+                <Text style={styles.addFormTitle}>Nuova Variabile</Text>
+              </View>
+              <TextInput
+                style={styles.addFormInput}
+                placeholder="NOME_VARIABILE"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={newKey}
+                onChangeText={setNewKey}
+                autoCapitalize="characters"
               />
-            ) : (
-              envVars.map((envVar) => (
-                <View key={envVar.key} style={styles.variableItem}>
-                  <View style={styles.variableHeader}>
-                    <View style={styles.variableIcon}>
+              <TextInput
+                style={styles.addFormInput}
+                placeholder="valore"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={newValue}
+                onChangeText={setNewValue}
+                secureTextEntry
+              />
+              <TouchableOpacity style={styles.addFormSubmit} onPress={handleAddVariable} activeOpacity={0.8}>
+                <LinearGradient colors={['#8B5CF6', '#6366F1']} style={styles.addFormSubmitGradient}>
+                  <Text style={styles.addFormSubmitText}>Aggiungi</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
+          {/* Variables List */}
+          {envVars.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="folder-open-outline" size={40} color="rgba(255,255,255,0.15)" />
+              </View>
+              <Text style={styles.emptyTitle}>Nessuna variabile</Text>
+              <Text style={styles.emptySubtitle}>Aggiungi la prima variabile d'ambiente</Text>
+            </View>
+          ) : (
+            <View style={styles.variablesList}>
+              {envVars.map((envVar, index) => (
+                <Animated.View
+                  key={`${envVar.key}-${index}`}
+                  entering={FadeInDown.delay(index * 50).duration(300)}
+                  style={styles.variableCard}
+                >
+                  <View style={styles.variableCardHeader}>
+                    <View style={styles.variableTypeIcon}>
                       <Ionicons
-                        name={envVar.isSecret ? "lock-closed" : "document-text"}
-                        size={16}
-                        color={envVar.isSecret ? "#FFA500" : AppColors.primary}
+                        name={envVar.isSecret ? "shield-checkmark" : "document-text"}
+                        size={14}
+                        color={envVar.isSecret ? "#F59E0B" : "#10B981"}
                       />
                     </View>
-                    <Text style={styles.variableKey}>{envVar.key}</Text>
+                    <Text style={styles.variableCardKey} numberOfLines={1}>{envVar.key}</Text>
+                    <TouchableOpacity
+                      onPress={() => toggleSecretVisibility(envVar.key)}
+                      style={styles.visibilityButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons
+                        name={visibleSecrets.has(envVar.key) ? "eye" : "eye-off"}
+                        size={16}
+                        color="rgba(255,255,255,0.4)"
+                      />
+                    </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDeleteVariable(envVar.key)}
-                      style={styles.deleteButton}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={styles.deleteButtonSmall}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name="trash-outline" size={18} color="#FF4444" />
+                      <Ionicons name="trash" size={14} color="#EF4444" />
                     </TouchableOpacity>
                   </View>
                   {envVar.description && (
-                    <Text style={styles.variableDescription}>{envVar.description}</Text>
+                    <Text style={styles.variableCardDescription}>{envVar.description}</Text>
                   )}
-                  <TextInput
-                    style={styles.variableInput}
-                    value={envVar.value}
-                    onChangeText={(value) => handleUpdateVariable(envVar.key, value)}
-                    placeholder="Inserisci il valore"
-                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
-                    secureTextEntry={envVar.isSecret}
-                  />
-                </View>
-              ))
-            )}
-          </View>
-
-          {/* Save Button */}
-          {envVars.length > 0 && (
-            <TouchableOpacity
-              style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-              onPress={handleSave}
-              disabled={isSaving}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={isSaving ? ['#555', '#444'] : [AppColors.primary, '#7C5DFA']}
-                style={styles.saveButtonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                {isSaving ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Ionicons name="save" size={20} color="#FFFFFF" />
-                )}
-                <Text style={styles.saveButtonText}>
-                  {isSaving ? 'Salvataggio...' : 'Salva Modifiche'}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                  <View style={styles.variableInputContainer}>
+                    <TextInput
+                      style={styles.variableCardInput}
+                      value={envVar.value}
+                      onChangeText={(value) => handleUpdateVariable(envVar.key, value)}
+                      placeholder="..."
+                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      secureTextEntry={envVar.isSecret && !visibleSecrets.has(envVar.key)}
+                    />
+                  </View>
+                </Animated.View>
+              ))}
+            </View>
           )}
 
-          {/* Warning */}
-          <View style={styles.warningBanner}>
-            <Ionicons name="warning" size={18} color="#FFA500" />
-            <Text style={styles.warningText}>
-              Le variabili vengono salvate nel file .env del progetto. Non condividere mai i valori sensibili.
+          {/* Footer Info */}
+          <View style={styles.footerInfo}>
+            <Ionicons name="information-circle" size={14} color="rgba(255,255,255,0.3)" />
+            <Text style={styles.footerInfoText}>
+              Le variabili sono salvate nel file .env del progetto
             </Text>
           </View>
         </ScrollView>
@@ -311,203 +309,228 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 1000,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  headerIconGradient: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: -0.3,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 1,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
   },
-  infoBanner: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0, 217, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 217, 255, 0.3)',
-    borderRadius: 12,
+  scrollContent: {
     padding: 16,
-    marginTop: 20,
-    gap: 12,
+    paddingBottom: 40,
   },
-  infoBannerIcon: {
-    marginTop: 2,
-  },
-  infoBannerContent: {
-    flex: 1,
-  },
-  infoBannerTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#00D9FF',
-    marginBottom: 4,
-  },
-  infoBannerText: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.7)',
-    lineHeight: 18,
-  },
-  section: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  sectionHeader: {
+  quickActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  addButton: {
+  actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(139, 124, 246, 0.12)',
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
   },
-  addButtonText: {
+  actionButtonActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  saveActionButton: {
+    backgroundColor: AppColors.primary,
+    borderColor: AppColors.primary,
+  },
+  actionButtonText: {
     fontSize: 13,
     fontWeight: '600',
     color: AppColors.primary,
   },
+  actionButtonTextActive: {
+    color: '#fff',
+  },
   addForm: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 12,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#FFFFFF',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  addFormButton: {
-    marginTop: 8,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  addFormButtonGradient: {
+  addFormHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
     gap: 8,
+    marginBottom: 14,
   },
-  addFormButtonText: {
-    color: '#FFFFFF',
+  addFormTitle: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#fff',
   },
-  variableItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-  },
-  variableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  variableIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  variableKey: {
-    flex: 1,
+  addFormInput: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: 'monospace',
-  },
-  deleteButton: {
-    padding: 4,
-  },
-  variableDescription: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginBottom: 8,
-    marginLeft: 38,
-  },
-  variableInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    color: '#fff',
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#FFFFFF',
-    fontFamily: 'monospace',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  saveButton: {
+  addFormSubmit: {
     borderRadius: 10,
     overflow: 'hidden',
+    marginTop: 4,
+  },
+  addFormSubmitGradient: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  addFormSubmitText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
   },
-  saveButtonDisabled: {
-    opacity: 0.6,
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 4,
   },
-  saveButtonGradient: {
+  emptySubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.3)',
+  },
+  variablesList: {
+    gap: 10,
+  },
+  variableCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  variableCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  variableTypeIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  variableCardKey: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+    letterSpacing: 0.2,
+  },
+  visibilityButton: {
+    padding: 4,
+  },
+  deleteButtonSmall: {
+    padding: 4,
+  },
+  variableCardDescription: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: 8,
+    marginLeft: 34,
+  },
+  variableInputContainer: {
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  variableCardInput: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 13,
+    color: '#fff',
+    fontFamily: 'monospace',
+  },
+  footerInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 10,
+    gap: 6,
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
   },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  warningBanner: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255, 165, 0, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 165, 0, 0.3)',
-    borderRadius: 10,
-    padding: 12,
-    gap: 10,
-    marginBottom: 24,
-  },
-  warningText: {
-    flex: 1,
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
-    lineHeight: 16,
+  footerInfoText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.3)',
   },
 });

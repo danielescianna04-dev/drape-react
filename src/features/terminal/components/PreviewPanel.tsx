@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -85,6 +85,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [isStarting, setIsStarting] = useState(false);
   const [startingMessage, setStartingMessage] = useState('');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  // Environment variables state
+  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{key: string; defaultValue: string; description: string; required: boolean}> | null>(null);
+  const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
+  const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
+  const [isSavingEnv, setIsSavingEnv] = useState(false);
   // Initialize from global store if available, otherwise use prop
   const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(globalServerUrl || previewUrl);
 
@@ -285,6 +290,34 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const result = await response.json();
       console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
 
+      // Check if env vars are required
+      if (result.requiresEnvVars) {
+        console.log('⚠️ Environment variables required');
+        console.log(`   Vars: ${result.envVars?.map((v: any) => v.key).join(', ')}`);
+
+        // Update project info
+        if (result.projectType) {
+          setProjectInfo({
+            type: result.projectType,
+            defaultPort: 3000,
+            startCommand: '',
+            installCommand: '',
+            description: result.projectType
+          });
+        }
+
+        // Set required env vars for the form
+        setRequiredEnvVars(result.envVars || []);
+        setEnvTargetFile(result.targetFile || '.env');
+
+        // Initialize values as empty (defaults shown as placeholders only)
+        setEnvVarValues({});
+
+        logSystem(result.message || 'Configurazione variabili d\'ambiente richiesta', 'preview');
+        setIsStarting(false);
+        return;
+      }
+
       // Update project info from AI detection
       if (result.projectType) {
         setProjectInfo({
@@ -327,6 +360,51 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       setServerStatus('stopped');
     } finally {
       setIsStarting(false);
+    }
+  };
+
+  // Save environment variables and restart server
+  const handleSaveEnvVars = async () => {
+    if (!currentWorkstation?.id) return;
+
+    setIsSavingEnv(true);
+    logSystem('Salvataggio variabili d\'ambiente...', 'preview');
+
+    try {
+      const response = await fetch(`${apiUrl}/preview/env`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workstationId: currentWorkstation.id,
+          envVars: envVarValues,
+          targetFile: envTargetFile,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Errore nel salvataggio');
+      }
+
+      const result = await response.json();
+      console.log('✅ Env vars saved:', result);
+
+      logOutput(`Variabili salvate in ${result.file}`, 'preview', 0);
+
+      // Clear the form and restart
+      setRequiredEnvVars(null);
+      setEnvVarValues({});
+
+      // Restart server
+      logSystem('Riavvio del server...', 'preview');
+      handleStartServer();
+
+    } catch (error: any) {
+      console.error('Error saving env vars:', error);
+      logError(`Errore: ${error.message}`, 'preview');
+    } finally {
+      setIsSavingEnv(false);
     }
   };
 
@@ -684,7 +762,89 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
             {/* WebView Preview or Start Screen */}
             <View style={styles.webViewContainer}>
-              {serverStatus === 'stopped' ? (
+              {serverStatus === 'stopped' && requiredEnvVars ? (
+                // Environment variables form
+                <View style={styles.envVarsScreen}>
+                  {/* Close button */}
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.5)" />
+                  </TouchableOpacity>
+
+                  {/* Env vars form - scrollable list */}
+                  <ScrollView
+                    style={[styles.envVarsContainer, { marginTop: insets.top + 44 }]}
+                    contentContainerStyle={styles.envVarsScrollContent}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <View style={styles.envVarsHeader}>
+                      <Text style={styles.envVarsTitle}>Variabili d'Ambiente</Text>
+                      <Text style={styles.envVarsSubtitle}>
+                        Richieste per l'avvio del progetto
+                      </Text>
+                    </View>
+
+                    <View style={styles.envVarsList}>
+                      {requiredEnvVars.map((envVar) => (
+                        <View key={envVar.key} style={styles.envVarItem}>
+                          <View style={styles.envVarLabelRow}>
+                            <Text style={styles.envVarKey}>{envVar.key}</Text>
+                            {envVar.required && (
+                              <Text style={styles.envVarRequired}>*</Text>
+                            )}
+                          </View>
+                          {envVar.description && (
+                            <Text style={styles.envVarDescription}>{envVar.description}</Text>
+                          )}
+                          <TextInput
+                            style={styles.envVarInput}
+                            value={envVarValues[envVar.key] || ''}
+                            onChangeText={(text) => setEnvVarValues(prev => ({
+                              ...prev,
+                              [envVar.key]: text
+                            }))}
+                            placeholder={envVar.defaultValue || 'Inserisci valore...'}
+                            placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+
+                  {/* Fixed bottom buttons */}
+                  <View style={[styles.envVarsActions, { paddingBottom: insets.bottom + 16 }]}>
+                    <TouchableOpacity
+                      style={[styles.envVarsSaveButton, isSavingEnv && styles.envVarsSaveButtonDisabled]}
+                      onPress={handleSaveEnvVars}
+                      disabled={isSavingEnv}
+                      activeOpacity={0.7}
+                    >
+                      {isSavingEnv ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="play" size={16} color="#fff" />
+                          <Text style={styles.envVarsSaveText}>Avvia</Text>
+</>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.envVarsSkipButton}
+                      onPress={() => setRequiredEnvVars(null)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.envVarsSkipText}>Annulla</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : serverStatus === 'stopped' ? (
                 // Server not running - Device mockup style with ChatPage background
                 <View style={styles.startScreen}>
                   {/* ChatPage gradient background */}
@@ -1499,5 +1659,105 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Environment variables form styles
+  envVarsScreen: {
+    flex: 1,
+    backgroundColor: '#0a0a0a',
+  },
+  envVarsContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  envVarsScrollContent: {
+    paddingBottom: 20,
+  },
+  envVarsHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 4,
+  },
+  envVarsTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#fff',
+    marginTop: 8,
+  },
+  envVarsSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+  },
+  envVarsList: {
+    gap: 12,
+  },
+  envVarItem: {
+    gap: 4,
+  },
+  envVarLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  envVarKey: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontFamily: 'monospace',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  envVarRequired: {
+    fontSize: 11,
+    color: AppColors.primary,
+    fontWeight: '600',
+  },
+  envVarDescription: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.3)',
+    marginBottom: 2,
+  },
+  envVarInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  envVarsActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    gap: 10,
+    alignItems: 'center',
+  },
+  envVarsSaveButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppColors.primary,
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 6,
+  },
+  envVarsSaveButtonDisabled: {
+    opacity: 0.6,
+  },
+  envVarsSaveText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  envVarsSkipButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  envVarsSkipText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
 });

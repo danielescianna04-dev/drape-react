@@ -12,12 +12,13 @@ import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
+import { SecretsPanel } from './SecretsPanel';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 
-type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | 'envVars' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -137,13 +138,14 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
           {/* Center section with wheel - lowered */}
           <View style={styles.centerSection}>
-            <View style={{ height: 60 }} />
+            <View style={{ height: 160 }} />
             <VerticalIconSwitcher
               icons={[
                 { name: 'grid-outline', action: () => setActivePanel(null) },
                 { name: 'folder-outline', action: () => togglePanel('files') },
                 { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
+                { name: 'key-outline', action: () => togglePanel('envVars') },
                 { name: 'settings-outline', action: () => togglePanel('settings') },
               ]}
               onIconChange={() => { }}
@@ -164,6 +166,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         {activePanel === 'preview' && <PreviewPanel onClose={() => setActivePanel(null)} previewUrl="http://localhost:3001" projectName="Project Preview" />}
         {activePanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
         {activePanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
+        {activePanel === 'envVars' && <SecretsPanel onClose={() => setActivePanel(null)} />}
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
@@ -202,7 +205,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 44,
     backgroundColor: AppColors.dark.backgroundAlt,
-    paddingTop: 60,
+    paddingTop: 44,
     paddingBottom: 20,
     zIndex: 1001,
     alignItems: 'center',
