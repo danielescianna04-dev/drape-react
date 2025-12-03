@@ -14,6 +14,7 @@ import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { IconButton } from '../../../shared/components/atoms';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
+import { gitAccountService } from '../../../core/git/gitAccountService';
 
 interface Props {
   onClose: () => void;
@@ -244,6 +245,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
     try {
+      // Get GitHub token for private repos
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      let githubToken: string | null = null;
+
+      if (currentWorkstation.repositoryUrl) {
+        const tokenResult = await gitAccountService.getTokenForRepo(userId, currentWorkstation.repositoryUrl);
+        githubToken = tokenResult?.token || null;
+        console.log('🔐 Preview: GitHub token found:', !!githubToken);
+      }
+
       // Call new AI-powered preview endpoint
       // This endpoint handles everything: detection, install, start, health check
       const controller = new AbortController();
@@ -259,6 +270,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         body: JSON.stringify({
           workstationId: currentWorkstation.id,
           repositoryUrl: currentWorkstation.repositoryUrl,
+          githubToken: githubToken,
         }),
         signal: controller.signal,
       });

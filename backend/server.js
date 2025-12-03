@@ -4415,13 +4415,14 @@ app.post('/preview/start', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { workstationId, forceRefresh } = req.body;
+    const { workstationId, forceRefresh, githubToken, repositoryUrl } = req.body;
 
     if (!workstationId) {
       return res.status(400).json({ success: false, error: 'workstationId is required' });
     }
 
     console.log(`\n🚀 Starting AI-powered preview for: ${workstationId}`);
+    console.log(`   GitHub token provided: ${githubToken ? 'yes' : 'no'}`);
 
     // Resolve repo path
     let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
@@ -4446,11 +4447,11 @@ app.post('/preview/start', async (req, res) => {
       await fs.access(repoPath);
     } catch {
       // If repo doesn't exist but we have a URL, try to clone it
-      const { repositoryUrl } = req.body;
       if (repositoryUrl) {
         console.log(`📦 Repository not found, cloning from ${repositoryUrl}...`);
+        console.log(`   Using GitHub token: ${githubToken ? 'yes' : 'no'}`);
         try {
-          await cloneAndReadRepository(repositoryUrl, workstationId);
+          await cloneAndReadRepository(repositoryUrl, workstationId, githubToken);
           // Re-check access after clone
           await fs.access(repoPath);
         } catch (cloneError) {
