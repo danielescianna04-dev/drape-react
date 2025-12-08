@@ -409,6 +409,55 @@ export const workstationService = {
     }
   },
 
+  // Aggiorna workstation (nome, ecc.)
+  async updateWorkstation(workstationId: string, updates: Partial<{ name: string }>): Promise<void> {
+    try {
+      const cleanId = workstationId.startsWith('ws-') ? workstationId.substring(3) : workstationId;
+      console.log('📝 Updating workstation:', cleanId, updates);
+      await updateDoc(doc(db, COLLECTION, cleanId), updates);
+      console.log('✅ Workstation updated');
+    } catch (error) {
+      console.error('Error updating workstation:', error);
+      throw error;
+    }
+  },
+
+  // Crea nuovo workstation (duplica)
+  async createWorkstation(workstation: Partial<WorkstationInfo>): Promise<WorkstationInfo> {
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) throw new Error('User not authenticated');
+
+      const project: Omit<UserProject, 'id'> = {
+        name: workstation.name || 'Nuovo Progetto',
+        type: workstation.repositoryUrl ? 'git' : 'personal',
+        repositoryUrl: workstation.repositoryUrl,
+        userId,
+        createdAt: new Date(),
+        lastAccessed: new Date(),
+        status: 'creating',
+      };
+
+      const docRef = await addDoc(collection(db, COLLECTION), project);
+      console.log('📂 Created new workstation:', docRef.id);
+
+      return {
+        id: docRef.id,
+        name: project.name,
+        language: workstation.language || 'Unknown',
+        status: project.status as any,
+        createdAt: project.createdAt,
+        files: [],
+        repositoryUrl: project.repositoryUrl,
+        folderId: null,
+        projectId: docRef.id,
+      };
+    } catch (error) {
+      console.error('Error creating workstation:', error);
+      throw error;
+    }
+  },
+
   // Alias per compatibilità
   async deleteWorkstation(workstationId: string): Promise<void> {
     return this.deleteProject(workstationId);

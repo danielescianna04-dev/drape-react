@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Modal, Pressable } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,12 +23,23 @@ import { TerminalView } from '../../features/terminal/components/TerminalView';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
 import { BrowserView } from '../../features/terminal/components/views/BrowserView';
 import { PreviewView } from '../../features/terminal/components/views/PreviewView';
+import { SupabaseView } from '../../features/terminal/components/views/SupabaseView';
+import { FigmaView } from '../../features/terminal/components/views/FigmaView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
 import { useContentOffset } from '../../hooks/ui/useContentOffset';
 
 const colors = AppColors.dark;
+
+// Available AI models
+const AI_MODELS = [
+  { id: 'claude-sonnet-4', name: 'Claude 4', icon: 'sparkles' as const },
+  { id: 'gpt-oss-120b', name: 'GPT 120B', icon: 'flash' as const },
+  { id: 'gpt-oss-20b', name: 'GPT 20B', icon: 'flash-outline' as const },
+  { id: 'llama-4-scout', name: 'Llama 4', icon: 'paw' as const },
+  { id: 'qwen-3-32b', name: 'Qwen 3', icon: 'code-slash' as const },
+];
 
 interface ChatPageProps {
   tab?: Tab;
@@ -74,6 +85,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   } = chatState;
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
+
+  // Model selector modal state
+  const [showModelSelector, setShowModelSelector] = useState(false);
+
+  // Get current model display name
+  const currentModelName = useMemo(() => {
+    const model = AI_MODELS.find(m => m.id === selectedModel);
+    return model?.name || 'Claude 4';
+  }, [selectedModel]);
 
   // Memoize currentTab to prevent infinite re-renders
   const currentTab = useMemo(() => {
@@ -804,7 +824,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
           xhr.send(JSON.stringify({
             prompt: userMessage,
-            model: selectedModel,
+            selectedModel: selectedModel,
             conversationHistory: conversationHistory,
             workstationId: currentWorkstation?.id,
             projectId: currentWorkstation?.projectId || currentWorkstation?.id,
@@ -1023,6 +1043,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <BrowserView tab={currentTab} />
       ) : currentTab?.type === 'preview' ? (
         <PreviewView tab={currentTab} />
+      ) : currentTab?.type === 'integration' ? (
+        currentTab.data?.integration === 'supabase' ? (
+          <SupabaseView tab={currentTab} />
+        ) : currentTab.data?.integration === 'figma' ? (
+          <FigmaView tab={currentTab} />
+        ) : null
       ) : (
         <>
         <ScrollView
@@ -1144,10 +1170,58 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             </View>
 
             {/* Model Selector */}
-            <TouchableOpacity style={styles.modelSelector}>
-              <SafeText style={styles.modelText}>Llama 3.1 8B</SafeText>
+            <TouchableOpacity
+              style={styles.modelSelector}
+              onPress={() => setShowModelSelector(true)}
+            >
+              <SafeText style={styles.modelText}>{currentModelName}</SafeText>
               <Ionicons name="chevron-down" size={12} color={AppColors.dark.bodyText} />
             </TouchableOpacity>
+
+            {/* Model Selection Modal */}
+            <Modal
+              visible={showModelSelector}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowModelSelector(false)}
+            >
+              <Pressable
+                style={styles.modelModalOverlay}
+                onPress={() => setShowModelSelector(false)}
+              >
+                <View style={styles.modelModalContent}>
+                  <SafeText style={styles.modelModalTitle}>Seleziona Modello AI</SafeText>
+                  {AI_MODELS.map((model) => (
+                    <TouchableOpacity
+                      key={model.id}
+                      style={[
+                        styles.modelDropdownItem,
+                        selectedModel === model.id && styles.modelDropdownItemActive
+                      ]}
+                      onPress={() => {
+                        setSelectedModel(model.id);
+                        setShowModelSelector(false);
+                      }}
+                    >
+                      <Ionicons
+                        name={model.icon}
+                        size={18}
+                        color={selectedModel === model.id ? AppColors.primary : '#8A8A8A'}
+                      />
+                      <SafeText style={[
+                        styles.modelDropdownText,
+                        selectedModel === model.id && styles.modelDropdownTextActive
+                      ]}>
+                        {model.name}
+                      </SafeText>
+                      {selectedModel === model.id && (
+                        <Ionicons name="checkmark-circle" size={18} color={AppColors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </Pressable>
+            </Modal>
           </View>
 
           {/* Main Input Row */}
@@ -1394,6 +1468,51 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: AppColors.icon.default,
     fontWeight: '500',
+  },
+  modelModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modelModalContent: {
+    backgroundColor: '#1a1a1c',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: AppColors.dark.surfaceAlt,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    minWidth: 200,
+    maxWidth: 280,
+  },
+  modelModalTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: AppColors.white.full,
+    textAlign: 'center',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: AppColors.dark.surfaceAlt,
+  },
+  modelDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  modelDropdownItemActive: {
+    backgroundColor: AppColors.primaryAlpha.a10,
+  },
+  modelDropdownText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#8A8A8A',
+    fontWeight: '500',
+  },
+  modelDropdownTextActive: {
+    color: AppColors.white.full,
   },
   mainInputRow: {
     flexDirection: 'row',

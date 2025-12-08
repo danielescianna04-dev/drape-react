@@ -68,116 +68,57 @@ async function findAvailablePort(startPort, maxAttempts = 100) {
 }
 
 /**
- * Check if project requires environment variables
- * Looks for .env.example, .env.local.example, .env.sample files
- * Compares with existing .env, .env.local to find missing vars
+ * Use AI to analyze startup error output and identify required environment variables
+ * Only called when the server fails to start
  */
-async function checkRequiredEnvVars(repoPath) {
-  const envExampleFiles = ['.env.example', '.env.local.example', '.env.sample', 'example.env'];
-  const envFiles = ['.env', '.env.local'];
+async function aiAnalyzeStartupError(errorOutput, projectType) {
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an expert at analyzing application startup errors.
+Your task is to identify which environment variables are missing or incorrectly configured based on the error output.
 
-  let exampleFile = null;
-  let exampleContent = null;
+IMPORTANT: Only return environment variables that are CLEARLY mentioned in the error or are REQUIRED for the specific error to be resolved.
+Do NOT guess or add variables that might be useful - only the ones strictly needed to fix the current error.
 
-  // Find example env file
-  for (const file of envExampleFiles) {
-    try {
-      const filePath = path.join(repoPath, file);
-      exampleContent = await fs.readFile(filePath, 'utf8');
-      exampleFile = file;
-      break;
-    } catch {
-      // File doesn't exist, try next
+Common patterns:
+- "NEXT_PUBLIC_SUPABASE_URL is not defined" -> need NEXT_PUBLIC_SUPABASE_URL
+- "Missing required environment variable: API_KEY" -> need API_KEY
+- "Error: STRIPE_SECRET_KEY must be set" -> need STRIPE_SECRET_KEY
+- "Cannot read property 'xyz' of undefined" where xyz is accessed from process.env -> need that env var
+
+Respond in JSON format:
+{
+  "hasEnvError": true/false,
+  "envVars": [
+    { "key": "VAR_NAME", "description": "Brief description", "required": true }
+  ],
+  "errorSummary": "Brief summary of the error"
+}`
+    },
+    {
+      role: 'user',
+      content: `Project type: ${projectType}
+
+Error output:
+${errorOutput.substring(0, 4000)}
+
+Analyze this error and identify any missing environment variables. If the error is NOT related to environment variables, set hasEnvError to false.`
     }
+  ];
+
+  try {
+    const response = await callGroqAI(messages, { json: true, temperature: 0.1, maxTokens: 500 });
+    const parsed = JSON.parse(response);
+    return {
+      hasEnvError: parsed.hasEnvError || false,
+      envVars: parsed.envVars || [],
+      errorSummary: parsed.errorSummary || ''
+    };
+  } catch (error) {
+    console.error('AI error analysis failed:', error.message);
+    return { hasEnvError: false, envVars: [], errorSummary: '' };
   }
-
-  // No example file found - no env vars required
-  if (!exampleFile) {
-    return { requiresEnvVars: false };
-  }
-
-  // Check if actual env file exists
-  let existingEnvContent = '';
-  let existingEnvFile = null;
-  for (const file of envFiles) {
-    try {
-      const filePath = path.join(repoPath, file);
-      existingEnvContent = await fs.readFile(filePath, 'utf8');
-      existingEnvFile = file;
-      break;
-    } catch {
-      // File doesn't exist
-    }
-  }
-
-  // Parse env variables from example file
-  const parseEnvFile = (content) => {
-    const vars = [];
-    const seenKeys = new Set(); // Track seen keys to avoid duplicates
-    const lines = content.split('\n');
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // Skip empty lines
-      if (!trimmed) continue;
-
-      // Check if it's a comment (description for next variable)
-      if (trimmed.startsWith('#')) {
-        continue;
-      }
-
-      // Parse KEY=value
-      const match = trimmed.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/i);
-      if (match) {
-        const [, key, value] = match;
-
-        // Skip duplicate keys
-        if (seenKeys.has(key)) {
-          continue;
-        }
-        seenKeys.add(key);
-
-        // Look for description in previous comment lines
-        let description = '';
-        const lineIndex = lines.indexOf(line);
-        if (lineIndex > 0) {
-          const prevLine = lines[lineIndex - 1].trim();
-          if (prevLine.startsWith('#')) {
-            description = prevLine.substring(1).trim();
-          }
-        }
-
-        vars.push({
-          key,
-          defaultValue: value.replace(/^["']|["']$/g, ''), // Remove quotes
-          description,
-          required: !value || value === 'your_value_here' || value.includes('xxx') || value.includes('YOUR_')
-        });
-      }
-    }
-    return vars;
-  };
-
-  const exampleVars = parseEnvFile(exampleContent);
-  const existingVars = existingEnvFile ? parseEnvFile(existingEnvContent) : [];
-  const existingKeys = new Set(existingVars.map(v => v.key));
-
-  // Find missing variables (in example but not in existing)
-  const missingVars = exampleVars.filter(v => !existingKeys.has(v.key));
-
-  // If all vars exist, no config needed
-  if (missingVars.length === 0) {
-    return { requiresEnvVars: false };
-  }
-
-  return {
-    requiresEnvVars: true,
-    exampleFile,
-    targetFile: existingEnvFile || (exampleFile.includes('.local') ? '.env.local' : '.env'),
-    missingVars,
-    allVars: exampleVars
-  };
 }
 
 const { VertexAI } = require('@google-cloud/vertexai');
@@ -500,12 +441,66 @@ const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY,
 });
 
-// AI Chat endpoint - Using Claude 3.5 Sonnet with native tool calling
+// Available AI models configuration
+const AI_MODELS = {
+  // Claude models
+  'claude-sonnet-4': {
+    provider: 'anthropic',
+    modelId: 'claude-sonnet-4-20250514',
+    name: 'Claude Sonnet 4',
+    description: 'Anthropic - Migliore qualità'
+  },
+  // Groq models (with tool calling support)
+  'gpt-oss-120b': {
+    provider: 'groq',
+    modelId: 'openai/gpt-oss-120b',
+    name: 'GPT OSS 120B',
+    description: 'OpenAI via Groq - Potente e gratuito'
+  },
+  'gpt-oss-20b': {
+    provider: 'groq',
+    modelId: 'openai/gpt-oss-20b',
+    name: 'GPT OSS 20B',
+    description: 'OpenAI via Groq - Veloce'
+  },
+  'llama-4-scout': {
+    provider: 'groq',
+    modelId: 'meta-llama/llama-4-scout-17b-16e-instruct',
+    name: 'Llama 4 Scout',
+    description: 'Meta via Groq - Bilanciato'
+  },
+  'qwen-3-32b': {
+    provider: 'groq',
+    modelId: 'qwen/qwen3-32b',
+    name: 'Qwen 3 32B',
+    description: 'Alibaba via Groq - Ottimo per codice'
+  }
+};
+
+// Get available AI models
+app.get('/ai/models', (req, res) => {
+  const models = Object.entries(AI_MODELS).map(([key, config]) => ({
+    id: key,
+    name: config.name,
+    description: config.description,
+    provider: config.provider
+  }));
+  res.json({ models });
+});
+
+// AI Chat endpoint - Multi-model support (Claude + Groq)
 app.post('/ai/chat', async (req, res) => {
-  const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl } = req.body;
-  // Use Claude Sonnet 4.0 (latest model)
-  // Note: Model IDs available depend on API tier
-  const model = 'claude-sonnet-4-20250514';
+  const { prompt, conversationHistory = [], workstationId, context, projectId, repositoryUrl, selectedModel = 'claude-sonnet-4' } = req.body;
+
+  console.log(`📥 Received selectedModel from frontend: "${selectedModel}"`);
+  console.log(`📋 Available models: ${Object.keys(AI_MODELS).join(', ')}`);
+
+  // Get model configuration
+  const modelConfig = AI_MODELS[selectedModel] || AI_MODELS['claude-sonnet-4'];
+  const model = modelConfig.modelId;
+  const provider = modelConfig.provider;
+
+  console.log(`🤖 Using model: ${modelConfig.name} (${provider}/${model})`);
 
   if (!prompt) {
     return res.status(400).json({ error: 'Prompt is required' });
@@ -1072,7 +1067,7 @@ REGOLE D'ORO:
       }
     }
 
-    // Create Claude streaming session with tool support
+    // Create streaming session with tool support
     let currentMessages = [...messages];
 
     // Main streaming loop to handle tool calls
@@ -1080,6 +1075,237 @@ REGOLE D'ORO:
     let retryCount = 0;
     const MAX_RETRIES = 3;
 
+    // ==========================================
+    // GROQ PROVIDER - with tool calling support
+    // ==========================================
+    if (provider === 'groq') {
+      const GROQ_API_KEY = process.env.GROQ_API_KEY;
+      if (!GROQ_API_KEY) {
+        throw new Error('GROQ_API_KEY not configured');
+      }
+
+      // Convert tools to OpenAI format for Groq
+      const groqTools = tools.map(tool => ({
+        type: 'function',
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.input_schema
+        }
+      }));
+
+      // Convert messages to OpenAI format
+      const groqMessages = [
+        { role: 'system', content: systemMessage },
+        ...currentMessages.map(msg => {
+          if (msg.role === 'user' && Array.isArray(msg.content)) {
+            // Handle tool_result messages
+            const toolResults = msg.content.filter(c => c.type === 'tool_result');
+            if (toolResults.length > 0) {
+              return toolResults.map(tr => ({
+                role: 'tool',
+                tool_call_id: tr.tool_use_id,
+                content: tr.content
+              }));
+            }
+            // Handle text content
+            const textContent = msg.content.find(c => c.type === 'text');
+            return { role: 'user', content: textContent?.text || '' };
+          }
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            // Handle assistant messages with tool calls
+            const textBlocks = msg.content.filter(c => c.type === 'text');
+            const toolUses = msg.content.filter(c => c.type === 'tool_use');
+            return {
+              role: 'assistant',
+              content: textBlocks.map(t => t.text).join('') || null,
+              tool_calls: toolUses.length > 0 ? toolUses.map(tu => ({
+                id: tu.id,
+                type: 'function',
+                function: {
+                  name: tu.name,
+                  arguments: JSON.stringify(tu.input)
+                }
+              })) : undefined
+            };
+          }
+          return { role: msg.role, content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) };
+        }).flat()
+      ];
+
+      while (continueLoop) {
+        continueLoop = false;
+
+        try {
+          console.log(`🔄 Calling Groq API with model: ${model}`);
+          console.log(`🔑 GROQ_API_KEY present: ${GROQ_API_KEY ? 'YES' : 'NO'}`);
+
+          // Groq streaming with tool support
+          const response = await axios.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            {
+              model: model,
+              messages: groqMessages,
+              temperature: 0.7,
+              max_tokens: 8192,
+              tools: groqTools.length > 0 ? groqTools : undefined,
+              tool_choice: groqTools.length > 0 ? 'auto' : undefined,
+              stream: true
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+              },
+              responseType: 'stream',
+              timeout: 120000
+            }
+          );
+
+          let fullResponse = '';
+          let toolCalls = [];
+          let currentToolCall = null;
+
+          // Process streaming response
+          for await (const chunk of response.data) {
+            const lines = chunk.toString().split('\n').filter(line => line.trim().startsWith('data:'));
+
+            for (const line of lines) {
+              const data = line.replace('data: ', '').trim();
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const delta = parsed.choices?.[0]?.delta;
+
+                if (delta?.content) {
+                  fullResponse += delta.content;
+                  res.write(`data: ${JSON.stringify({ text: delta.content })}\n\n`);
+                }
+
+                // Handle tool calls
+                if (delta?.tool_calls) {
+                  for (const tc of delta.tool_calls) {
+                    if (tc.index !== undefined) {
+                      if (!toolCalls[tc.index]) {
+                        toolCalls[tc.index] = { id: tc.id, name: '', arguments: '' };
+                      }
+                      if (tc.function?.name) {
+                        toolCalls[tc.index].name = tc.function.name;
+                        toolCalls[tc.index].id = tc.id;
+                      }
+                      if (tc.function?.arguments) {
+                        toolCalls[tc.index].arguments += tc.function.arguments;
+                      }
+                    }
+                  }
+                }
+              } catch (parseError) {
+                // Skip invalid JSON chunks
+              }
+            }
+          }
+
+          // Execute tool calls if any
+          if (toolCalls.length > 0) {
+            console.log(`🔧 Groq: Executing ${toolCalls.length} tool(s)...`);
+
+            const toolResults = await Promise.all(toolCalls.map(async (tc) => {
+              try {
+                const args = JSON.parse(tc.arguments || '{}');
+                console.log(`🔧 Executing ${tc.name}:`, args);
+
+                // Send tool call to frontend
+                res.write(`data: ${JSON.stringify({
+                  functionCall: { name: tc.name, args }
+                })}\n\n`);
+
+                const result = await executeTool(tc.name, args);
+
+                return {
+                  id: tc.id,
+                  name: tc.name,
+                  args,
+                  result
+                };
+              } catch (error) {
+                return {
+                  id: tc.id,
+                  name: tc.name,
+                  args: {},
+                  result: `Error: ${error.message}`
+                };
+              }
+            }));
+
+            // Send batched results to frontend
+            res.write(`data: ${JSON.stringify({
+              toolResultsBatch: toolResults.map(tr => ({
+                name: tr.name,
+                args: tr.args,
+                result: tr.result
+              })),
+              count: toolResults.length
+            })}\n\n`);
+
+            // Add assistant message with tool calls
+            groqMessages.push({
+              role: 'assistant',
+              content: fullResponse || null,
+              tool_calls: toolCalls.map(tc => ({
+                id: tc.id,
+                type: 'function',
+                function: {
+                  name: tc.name,
+                  arguments: tc.arguments
+                }
+              }))
+            });
+
+            // Add tool results
+            for (const tr of toolResults) {
+              groqMessages.push({
+                role: 'tool',
+                tool_call_id: tr.id,
+                content: tr.result
+              });
+            }
+
+            continueLoop = true;
+          }
+
+        } catch (groqError) {
+          console.error('❌ Groq error details:');
+          console.error('  Status:', groqError.response?.status);
+          // Safely extract error data to avoid circular JSON reference
+          const errorData = groqError.response?.data?.error?.message || groqError.response?.data?.message || 'No additional data';
+          console.error('  Data:', errorData);
+          console.error('  Message:', groqError.message);
+
+          // Send error to frontend
+          res.write(`data: ${JSON.stringify({ text: `\n❌ Errore Groq: ${groqError.response?.data?.error?.message || groqError.message}\n` })}\n\n`);
+
+          if (groqError.response?.status === 429 && retryCount < MAX_RETRIES) {
+            retryCount++;
+            const waitTime = Math.pow(2, retryCount) * 1000;
+            res.write(`data: ${JSON.stringify({ text: `\n⏳ Rate limit - Riprovo tra ${waitTime/1000}s...\n` })}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continueLoop = true;
+          } else {
+            throw groqError;
+          }
+        }
+      }
+
+      // Done with Groq
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    // ==========================================
+    // CLAUDE PROVIDER (Anthropic) - default
+    // ==========================================
     while (continueLoop) {
       continueLoop = false;
 
@@ -2743,6 +2969,446 @@ app.delete('/workstation/:id', async (req, res) => {
 });
 
 // Environment Variables / Secrets Management
+// Cache per analisi AI in corso
+const envAnalysisCache = new Map(); // workstationId -> { status, variables, timestamp }
+
+// POST /workstation/:id/env-analyze - Avvia analisi AI delle variabili d'ambiente
+app.post('/workstation/:id/env-analyze', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Check if analysis is already in progress or recent
+    const cached = envAnalysisCache.get(id);
+    if (cached && cached.status === 'analyzing') {
+      return res.json({ status: 'analyzing', message: 'Analysis already in progress' });
+    }
+    if (cached && cached.status === 'complete' && Date.now() - cached.timestamp < 300000) {
+      // Cache valid for 5 minutes
+      return res.json({ status: 'complete', variables: cached.variables });
+    }
+
+    // Mark as analyzing with progress
+    envAnalysisCache.set(id, { status: 'analyzing', progress: 0, phase: 'starting', timestamp: Date.now() });
+
+    // Get workstation repository path - handle both ws-xxx format and direct ID
+    let repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    // Remove ws- prefix if present and try to find the repo
+    const cleanId = repoName.startsWith('ws-') ? repoName.slice(3) : repoName;
+
+    let repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    // Try with original ID first
+    if (!fs.existsSync(repoPath)) {
+      // Try with clean ID (without ws- prefix)
+      repoPath = path.join(__dirname, 'cloned_repos', cleanId);
+    }
+
+    // Try case-insensitive match in cloned_repos folder
+    if (!fs.existsSync(repoPath)) {
+      const clonedReposPath = path.join(__dirname, 'cloned_repos');
+      if (fs.existsSync(clonedReposPath)) {
+        const dirs = fs.readdirSync(clonedReposPath);
+        const match = dirs.find(d => d.toLowerCase() === cleanId.toLowerCase());
+        if (match) {
+          repoPath = path.join(clonedReposPath, match);
+        }
+      }
+    }
+
+    console.log(`🔑 [env-analyze] id=${id}, cleanId=${cleanId}, repoPath=${repoPath}, exists=${fs.existsSync(repoPath)}`);
+
+    if (!fs.existsSync(repoPath)) {
+      envAnalysisCache.delete(id);
+      return res.status(404).json({ error: 'Repository not found' });
+    }
+
+    // Start async analysis
+    res.json({ status: 'analyzing', message: 'Analysis started' });
+
+    // Do analysis in background
+    analyzeEnvVariablesWithAI(id, repoPath).catch(err => {
+      console.error('AI env analysis failed:', err);
+      envAnalysisCache.set(id, { status: 'error', error: err.message, timestamp: Date.now() });
+    });
+
+  } catch (error) {
+    console.error('Failed to start env analysis:', error.message);
+    envAnalysisCache.delete(id);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /workstation/:id/env-analyze/status - Controlla stato analisi
+app.get('/workstation/:id/env-analyze/status', async (req, res) => {
+  const { id } = req.params;
+  const cached = envAnalysisCache.get(id);
+
+  if (!cached) {
+    return res.json({ status: 'not_started' });
+  }
+
+  res.json(cached);
+});
+
+// Funzione per analizzare le variabili con AI - Approccio in 2 fasi
+async function analyzeEnvVariablesWithAI(workstationId, repoPath) {
+  const fs = require('fs');
+  const path = require('path');
+
+  console.log(`🔍 Starting AI env analysis for ${workstationId}`);
+
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  if (!GROQ_API_KEY) {
+    envAnalysisCache.set(workstationId, {
+      status: 'error',
+      error: 'GROQ_API_KEY not configured',
+      timestamp: Date.now()
+    });
+    return;
+  }
+
+  // ============ FASE 1: AI identifica i pattern da cercare ============
+  console.log(`📋 Phase 1: AI identifying env patterns for ${workstationId}`);
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 10, phase: 'Identificazione pattern...', timestamp: Date.now() });
+
+  // Leggi alcuni file chiave per capire il tipo di progetto
+  const sampleFiles = [];
+  const keyFiles = ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', '.env.example', '.env.sample', 'docker-compose.yml'];
+
+  for (const keyFile of keyFiles) {
+    const filePath = path.join(repoPath, keyFile);
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf8').substring(0, 2000);
+        sampleFiles.push({ file: keyFile, content });
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Leggi anche i primi file sorgente trovati
+  const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.go', '.java', '.rb', '.php', '.env.example'];
+  let filesScanned = 0;
+
+  function scanForSamples(dir, depth = 0) {
+    if (depth > 2 || filesScanned >= 5) return;
+    try {
+      const items = fs.readdirSync(dir);
+      for (const item of items) {
+        if (filesScanned >= 5) break;
+        if (item.startsWith('.') || item === 'node_modules' || item === 'vendor' || item === 'dist' || item === 'build' || item === '__pycache__') continue;
+        const fullPath = path.join(dir, item);
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          scanForSamples(fullPath, depth + 1);
+        } else if (stat.isFile() && extensions.includes(path.extname(item))) {
+          try {
+            const content = fs.readFileSync(fullPath, 'utf8').substring(0, 1500);
+            sampleFiles.push({ file: path.relative(repoPath, fullPath), content });
+            filesScanned++;
+          } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  scanForSamples(repoPath);
+
+  // Prima chiamata AI: identifica i pattern da cercare
+  const phase1Prompt = `Analyze this project and tell me what patterns to search for to find ALL environment variables.
+
+Project files:
+${sampleFiles.map(f => `=== ${f.file} ===\n${f.content}`).join('\n\n')}
+
+Return ONLY a JSON object with this format (no markdown, just JSON):
+{
+  "patterns": [
+    "process.env.",
+    "import.meta.env.",
+    "os.getenv(",
+    "etc..."
+  ],
+  "fileExtensions": [".js", ".ts", ".py", "etc..."],
+  "configFiles": ["config.js", ".env.example", "etc..."],
+  "projectType": "nodejs/python/go/etc",
+  "hints": "any special patterns or files to check for this project type"
+}
+
+Be thorough - include ALL patterns used in this language/framework for reading env vars.`;
+
+  let searchPatterns;
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages: [{ role: 'user', content: phase1Prompt }],
+        temperature: 0.1,
+        max_tokens: 1000
+      })
+    });
+
+    if (!response.ok) throw new Error(`Groq API error: ${response.status}`);
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content || '{}';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    searchPatterns = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+  } catch (e) {
+    console.error('Phase 1 AI error:', e);
+    // Fallback a pattern standard
+    searchPatterns = {
+      patterns: ['process.env.', 'import.meta.env.', 'os.getenv(', 'os.environ[', 'ENV[', 'getenv('],
+      fileExtensions: ['.js', '.ts', '.jsx', '.tsx', '.py', '.go', '.java', '.rb', '.php'],
+      configFiles: ['.env.example', '.env.sample', 'config.js', 'config.ts', 'settings.py']
+    };
+  }
+
+  console.log(`🔎 Phase 1 complete. Patterns: ${searchPatterns?.patterns?.length || 0}, Extensions: ${searchPatterns?.fileExtensions?.length || 0}`);
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 30, phase: 'Pattern identificati', timestamp: Date.now() });
+
+  // ============ FASE 2: Scansiona i file con i pattern identificati ============
+  console.log(`📂 Phase 2: Scanning files with identified patterns`);
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 40, phase: 'Scansione file...', timestamp: Date.now() });
+
+  const patterns = searchPatterns?.patterns || ['process.env.', 'import.meta.env.'];
+  const exts = searchPatterns?.fileExtensions || ['.js', '.ts', '.jsx', '.tsx', '.py'];
+  const configFiles = searchPatterns?.configFiles || ['.env.example'];
+
+  // Crea regex dai pattern
+  const patternRegex = new RegExp(patterns.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+
+  const codeSnippets = [];
+  const foundVarNames = new Set();
+  let totalFilesScanned = 0;
+  let totalDirsScanned = 0;
+
+  function scanDir(dir, depth = 0) {
+    if (depth > 10) return; // Profondità massima 10 livelli
+    try {
+      const items = fs.readdirSync(dir);
+      totalDirsScanned++;
+      console.log(`  📁 [depth=${depth}] Scanning: ${path.relative(repoPath, dir) || '.'} (${items.length} items)`);
+
+      for (const item of items) {
+        if (item.startsWith('.') && !configFiles.includes(item)) continue;
+        if (['node_modules', 'vendor', 'dist', 'build', '__pycache__', '.git', 'coverage'].includes(item)) continue;
+
+        const fullPath = path.join(dir, item);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+          scanDir(fullPath, depth + 1);
+        } else if (stat.isFile()) {
+          const ext = path.extname(item);
+          const isConfig = configFiles.includes(item);
+
+          if (exts.includes(ext) || isConfig) {
+            totalFilesScanned++;
+            try {
+              const content = fs.readFileSync(fullPath, 'utf8');
+
+              // Cerca tutti i match dei pattern
+              const matches = content.match(patternRegex);
+              if (matches || isConfig) {
+                const lines = content.split('\n');
+                const relevantLines = [];
+                const fileVars = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                  const line = lines[i];
+                  if (patternRegex.test(line) || (isConfig && line.includes('='))) {
+                    // Estrai anche contesto (linea prima e dopo)
+                    const context = [];
+                    if (i > 0) context.push(lines[i-1]);
+                    context.push(line);
+                    if (i < lines.length - 1) context.push(lines[i+1]);
+                    relevantLines.push(context.join('\n'));
+
+                    // Estrai nome variabile se possibile
+                    const envMatch = line.match(/(?:process\.env\.|import\.meta\.env\.|os\.getenv\(["']|os\.environ\[["']|ENV\[["'])([A-Z_][A-Z0-9_]*)/i);
+                    if (envMatch) {
+                      foundVarNames.add(envMatch[1]);
+                      fileVars.push(envMatch[1]);
+                    }
+                  }
+                }
+
+                if (relevantLines.length > 0 || isConfig) {
+                  codeSnippets.push({
+                    file: path.relative(repoPath, fullPath),
+                    content: isConfig ? content.substring(0, 2000) : relevantLines.slice(0, 15).join('\n---\n').substring(0, 1500)
+                  });
+                  if (fileVars.length > 0) {
+                    console.log(`    📄 ${path.relative(repoPath, fullPath)}: found ${fileVars.length} vars [${fileVars.join(', ')}]`);
+                  }
+                }
+              }
+            } catch (e) { /* ignore read errors */ }
+          }
+        }
+      }
+    } catch (e) { /* ignore dir errors */ }
+  }
+
+  scanDir(repoPath);
+
+  console.log(`📄 Found ${codeSnippets.length} files with env patterns, ${foundVarNames.size} variable names extracted directly`);
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 60, phase: 'File scansionati', timestamp: Date.now() });
+
+  if (codeSnippets.length === 0 && foundVarNames.size === 0) {
+    envAnalysisCache.set(workstationId, {
+      status: 'complete',
+      variables: [],
+      message: 'No environment variables found in code',
+      timestamp: Date.now()
+    });
+    return;
+  }
+
+  // ============ FASE 3: AI analizza i file trovati ============
+  console.log(`🤖 Phase 3: AI analyzing ${codeSnippets.length} code snippets, ${foundVarNames.size} vars found`);
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 70, phase: 'Analisi AI...', timestamp: Date.now() });
+
+  // Se abbiamo trovato variabili direttamente, usiamo l'AI solo per arricchire le descrizioni
+  // Limitiamo i snippet a 50 per non superare il limite token
+  const snippetsForAI = codeSnippets.slice(0, 50);
+  const codeContext = snippetsForAI.map(s => `=== ${s.file} ===\n${s.content}`).join('\n\n');
+  const varsList = Array.from(foundVarNames).join(', ');
+
+  const phase3Prompt = `I found these environment variables in a project: ${varsList}
+
+Here's the code context where they are used:
+${codeContext}
+
+For each variable, provide a description of what it's used for based on the code context.
+Return ONLY a JSON array with this exact format (no markdown, just JSON):
+[
+  {"key": "VAR_NAME", "description": "what it's used for", "isSecret": true/false, "defaultValue": "if found"}
+]
+
+Rules:
+- ONLY include variables that are PROJECT-SPECIFIC configuration (API keys, database URLs, service endpoints, feature flags)
+- isSecret=true for passwords, tokens, API keys, secrets, credentials, database URLs
+- defaultValue only if explicitly defined in code
+- EXCLUDE system/OS variables like: PATH, HOME, USER, SHELL, LANG, TERM, PWD, OLDPWD, TMPDIR, DISPLAY, XDG_*, LC_*, DART_HOME, FLUTTER_HOME, ANDROID_*, JAVA_HOME, NODE_PATH, etc.
+- EXCLUDE generic runtime variables that are not project configuration
+- Only return variables the user would need to configure in a .env file to run the project`;
+
+  let variables = [];
+
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+        messages: [{ role: 'user', content: phase3Prompt }],
+        temperature: 0.1,
+        max_tokens: 4000
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Groq API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0]?.message?.content || '[]';
+
+    // Parse JSON from response
+    try {
+      const jsonMatch = content.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        variables = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.error('Failed to parse AI response:', e);
+    }
+  } catch (error) {
+    console.error('AI analysis error (continuing with regex results):', error);
+  }
+
+  // Aggiungi tutte le variabili trovate direttamente con regex che l'AI potrebbe aver perso
+  const aiKeys = new Set(variables.map(v => v.key));
+  for (const varName of foundVarNames) {
+    if (!aiKeys.has(varName)) {
+      variables.push({
+        key: varName,
+        description: 'Environment variable used in the project',
+        isSecret: /password|secret|key|token|api|auth|credential|db|database|mongo|redis|mysql|postgres|private/i.test(varName),
+        defaultValue: null
+      });
+    }
+  }
+
+  // Filter out system/OS variables that are not project-specific
+  const systemVarsToExclude = new Set([
+    'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'PWD', 'OLDPWD', 'TMPDIR', 'DISPLAY',
+    'LOGNAME', 'HOSTNAME', 'HOSTTYPE', 'OSTYPE', 'MACHTYPE', 'SHLVL', 'PS1', 'PS2',
+    'EDITOR', 'VISUAL', 'PAGER', 'BROWSER', 'COLORTERM', 'LS_COLORS', 'CLICOLOR',
+    'DART_HOME', 'FLUTTER_HOME', 'FLUTTER_ROOT', 'PUB_CACHE',
+    'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'ANDROID_NDK_HOME',
+    'JAVA_HOME', 'JRE_HOME', 'CLASSPATH',
+    'NODE_PATH', 'NVM_DIR', 'NVM_BIN', 'NPM_CONFIG_PREFIX',
+    'GOPATH', 'GOROOT', 'GOPROXY',
+    'PYTHONPATH', 'PYTHONHOME', 'VIRTUAL_ENV', 'CONDA_PREFIX',
+    'RUBY_HOME', 'GEM_HOME', 'GEM_PATH', 'RBENV_ROOT',
+    'CARGO_HOME', 'RUSTUP_HOME',
+    'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GPG_AGENT_INFO',
+    'DBUS_SESSION_BUS_ADDRESS', 'XDG_SESSION_ID', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+    'MAIL', 'MANPATH', 'INFOPATH',
+    '__CF_USER_TEXT_ENCODING', 'Apple_PubSub_Socket_Render', 'COMMAND_MODE',
+    'GOOGLE_CLOUD_PROJECT', // This is set automatically by GCP, not user config
+  ]);
+
+  // Also exclude variables that match certain patterns
+  const systemVarPatterns = [
+    /^LC_/, /^XDG_/, /^GTK_/, /^QT_/, /^GNOME_/, /^KDE_/,
+    /^__/, /^npm_/, /^COMP_/, /^BASH_/, /^ZSH_/,
+    /^LESS/, /^MORE/, /^PAGER_/,
+  ];
+
+  const isSystemVar = (key) => {
+    if (systemVarsToExclude.has(key)) return true;
+    return systemVarPatterns.some(pattern => pattern.test(key));
+  };
+
+  // Filter out system vars
+  variables = variables.filter(v => !isSystemVar(v.key));
+
+  // Deduplicate by key
+  const seen = new Set();
+  variables = variables.filter(v => {
+    if (!v.key || seen.has(v.key)) return false;
+    seen.add(v.key);
+    return true;
+  });
+
+  console.log(`✅ Found ${variables.length} env variables for ${workstationId} (scanned ${codeSnippets.length} files)`);
+
+  // Update progress to 90% before completing
+  envAnalysisCache.set(workstationId, { status: 'analyzing', progress: 90, phase: 'Finalizzazione...', timestamp: Date.now() });
+
+  envAnalysisCache.set(workstationId, {
+    status: 'complete',
+    progress: 100,
+    variables,
+    filesScanned: codeSnippets.length,
+    projectType: searchPatterns?.projectType || 'unknown',
+    timestamp: Date.now()
+  });
+}
+
 // GET /workstation/:id/env-variables - Legge le variabili d'ambiente dal .env del progetto
 app.get('/workstation/:id/env-variables', async (req, res) => {
   const { id } = req.params;
@@ -2751,9 +3417,32 @@ app.get('/workstation/:id/env-variables', async (req, res) => {
     const fs = require('fs');
     const path = require('path');
 
-    // Get workstation repository path
-    const repoName = id.replace(/\//g, '_').replace(/:/g, '_');
-    const repoPath = path.join(__dirname, 'cloned_repos', repoName);
+    // Get workstation repository path - handle both ws-xxx format and direct ID
+    let repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    // Remove ws- prefix if present and try to find the repo
+    const cleanId = repoName.startsWith('ws-') ? repoName.slice(3) : repoName;
+
+    let repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    // Try with original ID first
+    if (!fs.existsSync(repoPath)) {
+      // Try with clean ID (without ws- prefix)
+      repoPath = path.join(__dirname, 'cloned_repos', cleanId);
+    }
+
+    // Try case-insensitive match in cloned_repos folder
+    if (!fs.existsSync(repoPath)) {
+      const clonedReposPath = path.join(__dirname, 'cloned_repos');
+      if (fs.existsSync(clonedReposPath)) {
+        const dirs = fs.readdirSync(clonedReposPath);
+        const match = dirs.find(d => d.toLowerCase() === cleanId.toLowerCase());
+        if (match) {
+          repoPath = path.join(clonedReposPath, match);
+        }
+      }
+    }
+
+    console.log(`🔑 [env-variables] id=${id}, repoPath=${repoPath}, exists=${fs.existsSync(repoPath)}`);
 
     const envPath = path.join(repoPath, '.env');
     const envExamplePath = path.join(repoPath, '.env.example');
@@ -2761,19 +3450,57 @@ app.get('/workstation/:id/env-variables', async (req, res) => {
     let variables = [];
     let hasEnvExample = fs.existsSync(envExamplePath);
 
+    // Helper per identificare valori placeholder (non configurati)
+    const isPlaceholderValue = (value) => {
+      if (!value || value.trim() === '') return true;
+      const lowerValue = value.toLowerCase();
+      // Pattern comuni per placeholder
+      return (
+        lowerValue.startsWith('your_') ||
+        lowerValue.startsWith('your-') ||
+        lowerValue.includes('your_') ||
+        lowerValue.includes('_here') ||
+        lowerValue === 'xxx' ||
+        lowerValue === 'yyy' ||
+        lowerValue === 'zzz' ||
+        /^(sk_test_|pk_test_|whsec_)\.{2,}$/.test(value) || // Stripe placeholders come sk_test_...
+        /^[a-z_]+\.\.\.$/.test(value) || // Valori che finiscono con ...
+        lowerValue.match(/^(todo|fixme|changeme|replace|insert|add)$/i)
+      );
+    };
+
     // Se esiste .env, leggilo
     if (fs.existsSync(envPath)) {
       const envContent = fs.readFileSync(envPath, 'utf8');
-      variables = parseEnvFile(envContent);
+      const allVars = parseEnvFile(envContent);
+      // Filtra solo le variabili che hanno valori REALI (non placeholder)
+      variables = allVars.filter(v => !isPlaceholderValue(v.value));
     }
-    // Altrimenti, se esiste .env.example, leggilo come template
+    // Altrimenti, se esiste .env.example, NON mostrare come "dal progetto"
+    // perché .env.example contiene solo placeholder
     else if (hasEnvExample) {
-      const envExampleContent = fs.readFileSync(envExamplePath, 'utf8');
-      variables = parseEnvFile(envExampleContent);
+      // Non caricare variabili da .env.example come "dal progetto"
+      // saranno mostrate solo come suggerimenti AI
+      variables = [];
+    }
+
+    // Check if AI analysis found additional variables
+    const aiAnalysis = envAnalysisCache.get(id);
+    let aiVariables = [];
+    let aiStatus = 'not_started';
+    if (aiAnalysis) {
+      aiStatus = aiAnalysis.status;
+      if (aiAnalysis.status === 'complete' && aiAnalysis.variables) {
+        // Merge AI variables with existing (AI vars that don't exist in .env)
+        const existingKeys = new Set(variables.map(v => v.key));
+        aiVariables = aiAnalysis.variables.filter(v => !existingKeys.has(v.key));
+      }
     }
 
     res.json({
       variables,
+      aiVariables,
+      aiStatus,
       hasEnvExample
     });
   } catch (error) {
@@ -4421,25 +5148,55 @@ async function callGroqAI(messages, options = {}) {
     throw new Error('GROQ_API_KEY not configured');
   }
 
-  const response = await axios.post(
-    'https://api.groq.com/openai/v1/chat/completions',
-    {
-      model: options.model || 'llama-3.3-70b-versatile',
-      messages,
-      temperature: options.temperature || 0.3,
-      max_tokens: options.maxTokens || 1000,
-      response_format: options.json ? { type: 'json_object' } : undefined
-    },
-    {
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000
-    }
-  );
+  const maxRetries = options.maxRetries || 3;
+  let lastError;
 
-  return response.data.choices[0].message.content;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          model: options.model || 'meta-llama/llama-4-scout-17b-16e-instruct',
+          messages,
+          temperature: options.temperature || 0.3,
+          max_tokens: options.maxTokens || 1000,
+          response_format: options.json ? { type: 'json_object' } : undefined
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      return response.data.choices[0].message.content;
+    } catch (error) {
+      lastError = error;
+
+      // Check for rate limit (429) error
+      if (error.response?.status === 429) {
+        const retryAfter = error.response.headers['retry-after'];
+        const waitTime = retryAfter ? Math.min(parseInt(retryAfter) * 1000, 30000) : Math.pow(2, attempt + 1) * 1000;
+
+        console.log(`⏳ Rate limit hit (attempt ${attempt + 1}/${maxRetries}), waiting ${waitTime/1000}s...`);
+
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+      }
+
+      // For other errors, don't retry
+      if (error.response?.status !== 429) {
+        throw error;
+      }
+    }
+  }
+
+  // If we exhausted retries, throw with helpful message
+  throw new Error(`Groq API rate limit exceeded after ${maxRetries} attempts. Please wait a moment and try again.`);
 }
 
 /**
@@ -4498,7 +5255,10 @@ Return ONLY a JSON object with this exact format:
   "startCommand": "command to start the dev server",
   "port": 3000,
   "needsInstall": true,
-  "notes": "any important notes"
+  "notes": "any important notes",
+  "hasBackend": false,
+  "backendCommand": null,
+  "backendPort": null
 }
 
 Rules:
@@ -4509,7 +5269,14 @@ Rules:
 - Default ports: React 3000, Vite 5173, Next.js 3000, Expo 8081, Django 8000, Flask 5000
 - If you see a Makefile or Dockerfile, consider those
 - Be specific with commands, include flags if needed
-- IMPORTANT: Never use yarn or pnpm, always use npm`
+- IMPORTANT: Never use yarn or pnpm, always use npm
+
+MULTI-SERVER DETECTION:
+- If package.json has a "backend", "server", "api", or "json-server" script, set hasBackend=true
+- Common patterns: "npm run backend", "npm run server", "npm run api", "json-server"
+- Look for db.json (json-server), server.js in root, or separate /server /backend folders
+- If hasBackend=true, set backendCommand to the command to start it and backendPort to its port
+- json-server typically runs on port 5000 or 3001`
     },
     {
       role: 'user',
@@ -4614,14 +5381,19 @@ app.post('/preview/start', async (req, res) => {
 
     // Step 5: Run install if needed
     if (commands.needsInstall && commands.installCommand) {
-      console.log(`📦 Running install: ${commands.installCommand}`);
+      // Add --legacy-peer-deps to npm install to avoid peer dependency conflicts
+      let installCommand = commands.installCommand;
+      if (installCommand.includes('npm install') && !installCommand.includes('--legacy-peer-deps')) {
+        installCommand = installCommand.replace('npm install', 'npm install --legacy-peer-deps');
+      }
+      console.log(`📦 Running install: ${installCommand}`);
 
       try {
         const { exec } = require('child_process');
         const { promisify } = require('util');
         const execAsync = promisify(exec);
 
-        await execAsync(commands.installCommand, {
+        await execAsync(installCommand, {
           cwd: repoPath,
           timeout: 120000, // 2 minute timeout for install
           maxBuffer: 10 * 1024 * 1024
@@ -4633,21 +5405,30 @@ app.post('/preview/start', async (req, res) => {
       }
     }
 
-    // Step 5.5: Check for required environment variables
-    const envCheckResult = await checkRequiredEnvVars(repoPath);
-    if (envCheckResult.requiresEnvVars) {
-      console.log('⚠️ Missing environment variables detected');
-      console.log(`   Example file: ${envCheckResult.exampleFile}`);
-      console.log(`   Missing vars: ${envCheckResult.missingVars.map(v => v.key).join(', ')}`);
+    // Step 5.5: For Expo/React Native projects, install web dependencies
+    const isExpoForWebInstall = commands.startCommand?.includes('expo') ||
+                                commands.projectType?.toLowerCase().includes('expo') ||
+                                commands.projectType?.toLowerCase().includes('react native');
 
-      return res.status(200).json({
-        success: false,
-        requiresEnvVars: true,
-        exampleFile: envCheckResult.exampleFile,
-        envVars: envCheckResult.missingVars,
-        projectType: commands.projectType,
-        message: 'Questo progetto richiede variabili d\'ambiente. Configura i valori per continuare.'
-      });
+    if (isExpoForWebInstall) {
+      console.log('📱 Expo project detected, installing web dependencies...');
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Install react-dom and react-native-web for Expo web support
+        // Note: npx expo install requires -- before npm flags
+        await execAsync('npx expo install react-dom react-native-web @expo/metro-runtime -- --legacy-peer-deps', {
+          cwd: repoPath,
+          timeout: 120000,
+          maxBuffer: 10 * 1024 * 1024
+        });
+        console.log('✅ Web dependencies installed');
+      } catch (webInstallError) {
+        console.error('⚠️ Web dependencies install warning:', webInstallError.message);
+        // Continue anyway - might already be installed
+      }
     }
 
     // Step 6: Find available port
@@ -4657,6 +5438,12 @@ app.post('/preview/start', async (req, res) => {
 
     // Step 7: Prepare and execute start command
     let startCommand = commands.startCommand;
+
+    // Fallback if AI didn't return a start command
+    if (!startCommand) {
+      console.log('⚠️ No start command from AI, using default npm start');
+      startCommand = 'npm start';
+    }
 
     // Update port in command if different
     if (port !== commands.port) {
@@ -4672,19 +5459,46 @@ app.post('/preview/start', async (req, res) => {
     }
 
     // Add HOST=0.0.0.0 for network access - framework-specific handling
+    const isExpoProject = startCommand.includes('expo') ||
+                          commands.projectType?.toLowerCase().includes('expo') ||
+                          commands.projectType?.toLowerCase().includes('react native');
+
+    let metroPort = null; // For Expo projects, this will be the actual port used
+
     if (!startCommand.includes('HOST=') && !startCommand.includes('--host')) {
-      if (startCommand.includes('expo')) {
-        // Expo uses --host lan for LAN access
-        startCommand = `${startCommand} --host lan`;
+      if (isExpoProject) {
+        // Expo: use --web for web preview, --port for custom port, CI=1 for non-interactive mode
+        // Find an available port for Metro bundler (starting from 8082 to avoid 8081)
+        metroPort = await findAvailablePort(8082);
+        // For npm start that wraps expo, we need to call expo directly with --web flag
+        if (startCommand === 'npm start' || startCommand === 'npm run start') {
+          startCommand = `CI=1 npx expo start --web --port ${metroPort}`;
+        } else {
+          startCommand = `CI=1 ${startCommand} --web --port ${metroPort}`;
+        }
+        console.log(`🔌 Using Metro port: ${metroPort} (web mode)`);
       } else if (startCommand.includes('ng serve') || commands.projectType === 'Angular') {
         // Angular CLI requires --host flag
         startCommand = `${startCommand} --host 0.0.0.0`;
       } else if (startCommand.includes('vue-cli-service serve') || commands.projectType === 'Vue') {
         // Vue CLI also uses --host flag
         startCommand = `${startCommand} --host 0.0.0.0`;
-      } else if (startCommand.includes('vite') || commands.projectType === 'Vite') {
+      } else if (startCommand.includes('vite') || commands.projectType === 'Vite' || commands.projectType?.toLowerCase().includes('vite')) {
         // Vite uses --host flag
-        startCommand = `${startCommand} --host 0.0.0.0`;
+        startCommand = `${startCommand} --host`;
+      } else if (startCommand.includes('npm run dev') || startCommand.includes('npm run start')) {
+        // Check if it's a Vite project by looking for vite.config
+        const fs = require('fs');
+        const viteConfigExists = fs.existsSync(`${repoPath}/vite.config.js`) ||
+                                  fs.existsSync(`${repoPath}/vite.config.ts`) ||
+                                  fs.existsSync(`${repoPath}/vite.config.mjs`);
+        if (viteConfigExists) {
+          console.log('📦 Vite project detected via config file - adding --host');
+          startCommand = `${startCommand} -- --host`;
+        } else {
+          // Default: use HOST environment variable
+          startCommand = `HOST=0.0.0.0 ${startCommand}`;
+        }
       } else if (startCommand.includes('flask run') || commands.projectType === 'Flask') {
         // Flask uses --host flag
         startCommand = `${startCommand} --host 0.0.0.0`;
@@ -4702,8 +5516,55 @@ app.post('/preview/start', async (req, res) => {
 
     console.log(`🚀 Executing: ${startCommand}`);
 
+    // Start the backend server if detected (e.g., json-server, express API)
+    let backendProcess = null;
+    let backendPort = null;
+    if (commands.hasBackend && commands.backendCommand) {
+      backendPort = commands.backendPort || 5000;
+      // Check if port is available, find alternative if not
+      backendPort = await findAvailablePort(backendPort);
+
+      let backendCmd = commands.backendCommand;
+      // Update port in command if needed
+      if (backendCmd.includes('--port')) {
+        backendCmd = backendCmd.replace(/--port[=\s]\d+/, `--port ${backendPort}`);
+      } else if (backendCmd.includes('json-server')) {
+        backendCmd = `${backendCmd} --port ${backendPort}`;
+      }
+      // Add host for network access
+      if (backendCmd.includes('json-server') && !backendCmd.includes('--host')) {
+        backendCmd = `${backendCmd} --host 0.0.0.0`;
+      }
+
+      console.log(`🔧 Starting backend server: ${backendCmd} (port ${backendPort})`);
+
+      const { exec: execBackend } = require('child_process');
+      backendProcess = execBackend(backendCmd, {
+        cwd: repoPath,
+        env: { ...process.env, PORT: backendPort.toString() },
+        maxBuffer: 10 * 1024 * 1024
+      });
+
+      backendProcess.stdout?.on('data', (data) => {
+        console.log(`[Backend] ${data.toString().trim()}`);
+      });
+      backendProcess.stderr?.on('data', (data) => {
+        console.log(`[Backend Error] ${data.toString().trim()}`);
+      });
+      backendProcess.on('error', (err) => {
+        console.error(`[Backend Process Error] ${err.message}`);
+      });
+    }
+
     // Start the server in background using exec (more compatible with npm)
     const { exec } = require('child_process');
+
+    // Collect output for error analysis
+    let serverOutput = '';
+    let serverErrorOutput = '';
+    let processExited = false;
+    let exitCode = null;
+
     const serverProcess = exec(startCommand, {
       cwd: repoPath,
       env: {
@@ -4717,28 +5578,46 @@ app.post('/preview/start', async (req, res) => {
       maxBuffer: 10 * 1024 * 1024
     });
 
-    // Log server output for debugging
+    // Log server output and collect for error analysis
     serverProcess.stdout?.on('data', (data) => {
-      console.log(`[Server] ${data.toString().trim()}`);
+      const output = data.toString();
+      serverOutput += output;
+      console.log(`[Server] ${output.trim()}`);
     });
     serverProcess.stderr?.on('data', (data) => {
-      console.log(`[Server Error] ${data.toString().trim()}`);
+      const output = data.toString();
+      serverErrorOutput += output;
+      console.log(`[Server Error] ${output.trim()}`);
     });
     serverProcess.on('error', (err) => {
       console.error(`[Server Process Error] ${err.message}`);
+      serverErrorOutput += `Process error: ${err.message}\n`;
+    });
+    serverProcess.on('exit', (code) => {
+      processExited = true;
+      exitCode = code;
+      console.log(`[Server] Process exited with code: ${code}`);
     });
 
     // Step 8: Health check
-    const previewUrl = `http://${LOCAL_IP}:${port}`;
+    // For Expo projects, use the Metro port instead of the generic port
+    const actualPort = isExpoProject && metroPort ? metroPort : port;
+    const previewUrl = `http://${LOCAL_IP}:${actualPort}`;
     console.log(`🏥 Health checking: ${previewUrl}`);
 
-    const maxAttempts = 45;
+    const maxAttempts = 30; // Reduced from 45 to fail faster if there's an error
     let healthy = false;
     let attempts = 0;
 
     for (let i = 0; i < maxAttempts; i++) {
       attempts++;
       await new Promise(r => setTimeout(r, 1000));
+
+      // Check if process crashed early (within first 10 seconds)
+      if (processExited && exitCode !== 0 && i < 10) {
+        console.log(`⚠️ Server process exited early with code ${exitCode}`);
+        break;
+      }
 
       try {
         const healthResponse = await axios.get(previewUrl, { timeout: 3000 });
@@ -4758,10 +5637,34 @@ app.post('/preview/start', async (req, res) => {
     const totalTime = Date.now() - startTime;
     console.log(`⏱️ Total time: ${totalTime}ms`);
 
-    res.json({
+    // If server failed to start, analyze the error output with AI
+    if (!healthy && (serverErrorOutput || processExited)) {
+      console.log('🔍 Analyzing startup error with AI...');
+      const combinedOutput = serverOutput + '\n' + serverErrorOutput;
+      const errorAnalysis = await aiAnalyzeStartupError(combinedOutput, commands.projectType);
+
+      if (errorAnalysis.hasEnvError && errorAnalysis.envVars.length > 0) {
+        console.log(`⚠️ AI detected missing env vars: ${errorAnalysis.envVars.map(v => v.key).join(', ')}`);
+
+        // Kill the failed process
+        try { serverProcess.kill(); } catch {}
+
+        return res.status(200).json({
+          success: false,
+          requiresEnvVars: true,
+          envVars: errorAnalysis.envVars,
+          projectType: commands.projectType,
+          message: errorAnalysis.errorSummary || 'Il progetto richiede variabili d\'ambiente per avviarsi.',
+          targetFile: '.env'
+        });
+      }
+    }
+
+    // Prepare response with backend info if available
+    const response = {
       success: true,
       previewUrl,
-      port,
+      port: actualPort,
       serverReady: healthy,
       projectType: commands.projectType,
       commands: {
@@ -4772,7 +5675,18 @@ app.post('/preview/start', async (req, res) => {
         totalMs: totalTime,
         cached: projectCommandsCache.has(cacheKey) && !req.body.forceRefresh
       }
-    });
+    };
+
+    // Add backend info if detected
+    if (commands.hasBackend && backendPort) {
+      response.hasBackend = true;
+      response.backendUrl = `http://${LOCAL_IP}:${backendPort}`;
+      response.backendPort = backendPort;
+      response.backendCommand = commands.backendCommand;
+      console.log(`🔧 Backend server started at: ${response.backendUrl}`);
+    }
+
+    res.json(response);
 
   } catch (error) {
     console.error('❌ Preview start error:', error);

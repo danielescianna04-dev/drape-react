@@ -106,6 +106,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [webCompatibilityError, setWebCompatibilityError] = useState<string | null>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
 
@@ -120,6 +121,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       setPreviewServerUrl(null);
       setProjectInfo(null);
       setIsStarting(false);
+      setWebCompatibilityError(null);
 
       // Clear any running health checks
       if (checkInterval.current) {
@@ -151,26 +153,29 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   // NOTE: Server is NOT stopped on unmount - only when user clicks X button
   // This allows navigating to other pages while keeping server running
 
-  // Check server status periodically (only if server is expected to be running)
+  // Check server status periodically (only when server is running, not when 'checking')
+  // Note: When status is 'checking', health checks are started manually in handleStartServer
+  // with the correct URL passed directly to avoid stale state issues
   useEffect(() => {
-    // Only start health checks if:
-    // 1. Server status is 'checking' or 'running' (not 'stopped')
-    // 2. We have a valid preview URL (not localhost:3001 placeholder)
-    if (serverStatus === 'stopped' || currentPreviewUrl.includes('localhost:3001')) {
-      console.log('⏸️ Skipping health checks - server not started yet');
+    // Only start periodic health checks if server is already running
+    // Skip if 'stopped' (not started) or 'checking' (manual checks handle this)
+    if (serverStatus !== 'running') {
+      console.log(`⏸️ Skipping periodic health checks - status: ${serverStatus}`);
       return;
     }
 
-    // Wait 1 second before starting checks to allow URL to be updated from backend response
-    const startTimeout = setTimeout(() => {
-      checkServerStatus();
+    // Verify we have a valid preview URL
+    if (currentPreviewUrl.includes('localhost:3001')) {
+      console.log('⏸️ Skipping health checks - no valid preview URL yet');
+      return;
+    }
 
-      // Check every 3 seconds
-      checkInterval.current = setInterval(checkServerStatus, 3000);
-    }, 1000);
+    console.log(`🔄 Starting periodic health checks for: ${currentPreviewUrl}`);
+
+    // Check every 5 seconds to keep connection alive
+    checkInterval.current = setInterval(checkServerStatus, 5000);
 
     return () => {
-      clearTimeout(startTimeout);
       if (checkInterval.current) {
         clearInterval(checkInterval.current);
       }
@@ -206,35 +211,50 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   }, [projectInfo, apiUrl]);
 
-  const checkServerStatus = async () => {
-    try {
-      console.log(`🔍 Checking server status at: ${currentPreviewUrl}`);
+  const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
+    const urlToCheck = urlOverride || currentPreviewUrl;
+    const maxRetries = 30; // Max 30 retries = 30 seconds of checking
 
-      // Try to fetch the URL
+    try {
+      console.log(`🔍 Checking server status at: ${urlToCheck} (attempt ${retryCount + 1})`);
+
+      // Try to fetch the URL using GET (more reliable than HEAD across different servers)
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);
 
-      const response = await fetch(currentPreviewUrl, {
-        method: 'HEAD',
+      const response = await fetch(urlToCheck, {
+        method: 'GET',
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      if (response.ok) {
+      // Consider any status < 500 as "server is running" (2xx, 3xx, 4xx all mean server is up)
+      // 4xx just means the specific path isn't found, but server is responding
+      if (response.status < 500) {
         console.log(`✅ Server is running! Status: ${response.status}`);
         // Only log the first time (when transitioning from checking to running)
         if (serverStatus !== 'running') {
-          logOutput(`Server is running at ${currentPreviewUrl}`, 'preview', 0);
+          logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
         }
         setServerStatus('running');
+        // Update the preview URL state if we used an override
+        if (urlOverride && urlOverride !== currentPreviewUrl) {
+          setCurrentPreviewUrl(urlOverride);
+        }
       } else {
-        console.log(`⚠️ Server responded but not OK. Status: ${response.status}`);
-        // Don't set to stopped - just keep checking
+        console.log(`⚠️ Server error. Status: ${response.status}`);
+        // Retry if we're still checking
+        if (serverStatus === 'checking' && retryCount < maxRetries) {
+          setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 1000);
+        }
       }
     } catch (error) {
       console.log(`❌ Server check failed: ${error.message}`);
-      // Don't set to stopped - server might just be loading, keep the WebView visible
+      // Retry if server isn't ready yet and we're still in checking mode
+      if (serverStatus === 'checking' && retryCount < maxRetries) {
+        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 1000);
+      }
     }
   };
 
@@ -327,6 +347,13 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           installCommand: result.commands?.install || 'npm install',
           description: result.projectType
         });
+
+        // Check if it's a mobile-only project (Expo/React Native)
+        const projectTypeLower = result.projectType.toLowerCase();
+        if (projectTypeLower.includes('expo') || projectTypeLower.includes('react native')) {
+          console.warn('⚠️ Mobile-only project detected:', result.projectType);
+          setWebCompatibilityError('Questa app è un\'app mobile nativa (Expo/React Native). La preview web potrebbe non funzionare correttamente. Per una preview completa, usa un dispositivo fisico o un emulatore.');
+        }
       }
 
       // Update preview URL
@@ -344,14 +371,28 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         logOutput(`Server started at ${result.previewUrl}`, 'preview', 0);
         logSystem(`Project: ${result.projectType} | Port: ${result.port}`, 'preview');
+
+        // Log backend info if available
+        if (result.hasBackend && result.backendUrl) {
+          console.log(`🔧 Backend server: ${result.backendUrl}`);
+          logSystem(`Backend API: ${result.backendUrl}`, 'preview');
+        }
+
         setServerStatus('running');
       } else {
         // Server started but health check didn't pass yet
         console.log('⏳ Server starting, health check pending...');
         logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
+
+        // Log backend info if available
+        if (result.hasBackend && result.backendUrl) {
+          console.log(`🔧 Backend server: ${result.backendUrl}`);
+          logSystem(`Backend API: ${result.backendUrl}`, 'preview');
+        }
+
         setServerStatus('checking');
-        // Start local health checks
-        setTimeout(() => checkServerStatus(), 1000);
+        // Start local health checks - pass the URL directly to avoid stale state
+        setTimeout(() => checkServerStatus(result.previewUrl), 1000);
       }
 
     } catch (error: any) {
@@ -962,6 +1003,22 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       <Text style={styles.loadingText}>Caricamento anteprima...</Text>
                     </View>
                   )}
+                  {webCompatibilityError && (
+                    <View style={styles.errorOverlay}>
+                      <View style={styles.errorCard}>
+                        <Ionicons name="phone-portrait-outline" size={48} color={AppColors.primary} />
+                        <Text style={styles.errorTitle}>App Mobile Nativa</Text>
+                        <Text style={styles.errorMessage}>{webCompatibilityError}</Text>
+                        <TouchableOpacity
+                          style={styles.errorCloseButton}
+                          onPress={handleClose}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.errorCloseText}>Chiudi</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
                   <WebView
                     ref={webViewRef}
                     source={{ uri: currentPreviewUrl }}
@@ -1049,6 +1106,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         }
 
                         if (data.type === 'JS_ERROR') {
+                          // Ignore generic "Script error" CORS errors - they don't provide useful info
+                          if (data.message === 'Script error.' && !data.filename) {
+                            console.log('ℹ️ Ignoring generic Script error (CORS)');
+                            return;
+                          }
                           console.error('🔴 JavaScript Error in WebView:');
                           console.error(`   Message: ${data.message}`);
                           console.error(`   File: ${data.filename}:${data.lineno}:${data.colno}`);
@@ -1759,5 +1821,47 @@ const styles = StyleSheet.create({
   envVarsSkipText: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+  // Error overlay styles
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  errorCard: {
+    backgroundColor: 'rgba(30, 30, 46, 0.95)',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorMessage: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  errorCloseButton: {
+    backgroundColor: AppColors.primary,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  errorCloseText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
@@ -27,6 +27,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [repoVisibility, setRepoVisibility] = useState<'loading' | 'public' | 'private' | 'unknown'>('unknown');
   const [showCommits, setShowCommits] = useState(false);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -183,6 +186,88 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         },
       ]
     );
+  };
+
+  // Duplica il progetto
+  const handleDuplicateProject = async () => {
+    if (!selectedProject) return;
+
+    setIsDuplicating(true);
+    try {
+      // Crea un nuovo progetto con lo stesso repo URL ma nome diverso
+      const duplicatedProject = {
+        ...selectedProject,
+        id: undefined, // Sarà generato dal servizio
+        name: `${selectedProject.name} (copia)`,
+        createdAt: new Date().toISOString(),
+      };
+
+      const newWorkstation = await workstationService.createWorkstation(duplicatedProject);
+      handleCloseMenu();
+      loadRecentProjects();
+      Alert.alert('Successo', `Progetto duplicato come "${newWorkstation.name}"`);
+    } catch (error) {
+      console.error('Error duplicating project:', error);
+      Alert.alert('Errore', 'Impossibile duplicare il progetto');
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
+  // Condividi il link del repository
+  const handleShareProject = async () => {
+    if (!selectedProject) return;
+
+    const repoUrl = selectedProject.repositoryUrl || selectedProject.githubUrl;
+
+    try {
+      if (repoUrl) {
+        await Share.share({
+          message: `Dai un'occhiata a questo progetto: ${selectedProject.name}\n${repoUrl}`,
+          url: repoUrl,
+          title: selectedProject.name,
+        });
+      } else {
+        // Se non c'è un repo, condividi solo il nome
+        await Share.share({
+          message: `Sto lavorando su "${selectedProject.name}" con Drape IDE!`,
+          title: selectedProject.name,
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing project:', error);
+    }
+  };
+
+  // Apri modal per rinominare
+  const handleOpenRename = () => {
+    if (!selectedProject) return;
+    setNewProjectName(selectedProject.name);
+    handleCloseMenu();
+    setTimeout(() => setShowRenameModal(true), 300);
+  };
+
+  // Conferma rinomina
+  const handleConfirmRename = async () => {
+    if (!selectedProject || !newProjectName.trim()) return;
+
+    if (newProjectName.trim() === selectedProject.name) {
+      setShowRenameModal(false);
+      return;
+    }
+
+    try {
+      await workstationService.updateWorkstation(selectedProject.id, {
+        name: newProjectName.trim()
+      });
+      setShowRenameModal(false);
+      setSelectedProject(null);
+      loadRecentProjects();
+      Alert.alert('Successo', 'Progetto rinominato');
+    } catch (error) {
+      console.error('Error renaming project:', error);
+      Alert.alert('Errore', 'Impossibile rinominare il progetto');
+    }
   };
 
   const shimmerOpacity = shimmerAnim.interpolate({
@@ -484,21 +569,25 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     </TouchableOpacity>
                   )}
 
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleDuplicateProject} disabled={isDuplicating}>
                     <View style={styles.sheetActionIcon}>
-                      <Ionicons name="copy-outline" size={20} color="#fff" />
+                      {isDuplicating ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Ionicons name="copy-outline" size={20} color="#fff" />
+                      )}
                     </View>
                     <Text style={styles.sheetActionText}>Duplica</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
                     <View style={styles.sheetActionIcon}>
                       <Ionicons name="share-outline" size={20} color="#fff" />
                     </View>
                     <Text style={styles.sheetActionText}>Condividi</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7}>
+                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
                     <View style={styles.sheetActionIcon}>
                       <Ionicons name="create-outline" size={20} color="#fff" />
                     </View>
@@ -536,6 +625,47 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           />
         </View>
       )}
+
+      {/* Rename Modal */}
+      <Modal
+        visible={showRenameModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRenameModal(false)}
+      >
+        <Pressable
+          style={styles.renameModalBackdrop}
+          onPress={() => setShowRenameModal(false)}
+        >
+          <Pressable style={styles.renameModalContent} onPress={() => {}}>
+            <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={newProjectName}
+              onChangeText={setNewProjectName}
+              placeholder="Nome progetto"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={styles.renameModalActions}>
+              <TouchableOpacity
+                style={styles.renameModalCancel}
+                onPress={() => setShowRenameModal(false)}
+              >
+                <Text style={styles.renameModalCancelText}>Annulla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.renameModalConfirm, !newProjectName.trim() && styles.renameModalConfirmDisabled]}
+                onPress={handleConfirmRename}
+                disabled={!newProjectName.trim()}
+              >
+                <Text style={styles.renameModalConfirmText}>Conferma</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -915,5 +1045,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.5)',
+  },
+  // Rename Modal
+  renameModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  renameModalContent: {
+    backgroundColor: '#1a1a1c',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 340,
+  },
+  renameModalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  renameInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  renameModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  renameModalCancel: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  renameModalCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  renameModalConfirm: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+  },
+  renameModalConfirmDisabled: {
+    opacity: 0.5,
+  },
+  renameModalConfirmText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

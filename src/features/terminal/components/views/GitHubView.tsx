@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated, ActivityIndicator, RefreshControl, Linking } from 'react-native';
-import Reanimated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { workstationService } from '../../../../core/workstation/workstationService-firebase';
-import { useSidebarOffset } from '../../context/SidebarContext';
 import { config } from '../../../../config/config';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../../core/github/githubService';
@@ -71,20 +69,8 @@ export const GitHubView = ({ tab }: Props) => {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
 
-  const { sidebarTranslateX } = useSidebarOffset();
-
   const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
   const userId = useTerminalStore.getState().userId || 'anonymous';
-
-  // Animated style that adapts when sidebar is hidden
-  const containerAnimatedStyle = useAnimatedStyle(() => {
-    const paddingLeft = interpolate(
-      sidebarTranslateX.value,
-      [-50, 0],
-      [0, 50]
-    );
-    return { paddingLeft };
-  });
 
   useEffect(() => {
     loadAccountInfo();
@@ -867,7 +853,7 @@ export const GitHubView = ({ tab }: Props) => {
 
 
   return (
-    <Reanimated.View style={[styles.container, { paddingTop: insets.top + TAB_BAR_HEIGHT }, containerAnimatedStyle]}>
+    <View style={[styles.container, { paddingTop: insets.top + TAB_BAR_HEIGHT }]}>
       {/* Compact Header */}
       {renderHeader()}
 
@@ -897,7 +883,7 @@ export const GitHubView = ({ tab }: Props) => {
         onClose={() => setShowAddAccountModal(false)}
         onAccountAdded={loadAccountInfo}
       />
-    </Reanimated.View>
+    </View>
   );
 };
 

@@ -126,7 +126,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       css: { icon: 'logo-css3', color: '#1572B6' },
       json: { icon: 'code-working', color: '#F2C037' },
       md: { icon: 'document-text', color: '#FFFFFF' },
-      gitignore: { icon: 'logo-git', color: '#F05032' },
+      gitignore: { icon: 'git-branch', color: '#F05032' },
     };
     return iconMap[ext || ''] || { icon: 'document-outline', color: AppColors.icon.default };
   };

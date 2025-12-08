@@ -1,0 +1,749 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, useAnimatedStyle } from 'react-native-reanimated';
+import { AppColors } from '../../../shared/theme/colors';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useSidebarOffset } from '../context/SidebarContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+interface Props {
+  onClose: () => void;
+}
+
+interface FigmaConfig {
+  accessToken: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileKey?: string;
+  isConnected: boolean;
+}
+
+const FIGMA_STORAGE_KEY = 'figma_config';
+const FIGMA_ORANGE = '#F24E1E';
+const FIGMA_PURPLE = '#A259FF';
+
+export const FigmaPanel = ({ onClose }: Props) => {
+  const insets = useSafeAreaInsets();
+  const { currentWorkstation } = useTerminalStore();
+  const { sidebarTranslateX } = useSidebarOffset();
+
+  const [config, setConfig] = useState<FigmaConfig>({
+    accessToken: '',
+    fileUrl: '',
+    fileName: '',
+    fileKey: '',
+    isConnected: false,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isTesting, setIsTesting] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+
+  // Container animated style for sidebar offset
+  const containerAnimatedStyle = useAnimatedStyle(() => ({
+    left: 44 + sidebarTranslateX.value,
+  }));
+
+  useEffect(() => {
+    loadConfig();
+  }, [currentWorkstation]);
+
+  const getStorageKey = () => {
+    return `${FIGMA_STORAGE_KEY}_${currentWorkstation?.id || 'global'}`;
+  };
+
+  const loadConfig = async () => {
+    try {
+      setIsLoading(true);
+      const saved = await AsyncStorage.getItem(getStorageKey());
+      if (saved) {
+        setConfig(JSON.parse(saved));
+      }
+    } catch (error) {
+      console.error('Failed to load Figma config:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const extractFileKey = (url: string): string | null => {
+    // Figma file URL format: https://www.figma.com/file/{fileKey}/{fileName}
+    // or https://www.figma.com/design/{fileKey}/{fileName}
+    const match = url.match(/figma\.com\/(file|design)\/([a-zA-Z0-9]+)/);
+    return match ? match[2] : null;
+  };
+
+  const testConnection = async () => {
+    if (!config.accessToken) {
+      Alert.alert('Errore', 'Inserisci il Personal Access Token');
+      return;
+    }
+
+    try {
+      setIsTesting(true);
+
+      // Test token by fetching user info
+      const response = await fetch('https://api.figma.com/v1/me', {
+        headers: {
+          'X-Figma-Token': config.accessToken,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Status: ${response.status}`);
+      }
+
+      const userData = await response.json();
+
+      // If file URL provided, fetch file info
+      let fileName = '';
+      let fileKey = '';
+      if (config.fileUrl) {
+        fileKey = extractFileKey(config.fileUrl) || '';
+        if (fileKey) {
+          const fileResponse = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=1`, {
+            headers: {
+              'X-Figma-Token': config.accessToken,
+            },
+          });
+          if (fileResponse.ok) {
+            const fileData = await fileResponse.json();
+            fileName = fileData.name || '';
+          }
+        }
+      }
+
+      const newConfig = {
+        ...config,
+        isConnected: true,
+        fileName,
+        fileKey,
+      };
+      setConfig(newConfig);
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+
+      Alert.alert('Connesso!', `Ciao ${userData.handle || 'utente'}! Figma connesso.`);
+    } catch (error) {
+      console.error('Figma connection test failed:', error);
+      setConfig(prev => ({ ...prev, isConnected: false }));
+      Alert.alert('Errore', 'Token non valido o scaduto. Verifica il tuo Personal Access Token.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const disconnect = async () => {
+    Alert.alert(
+      'Disconnetti',
+      'Vuoi disconnettere Figma da questo progetto?',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Disconnetti',
+          style: 'destructive',
+          onPress: async () => {
+            setConfig({
+              accessToken: '',
+              fileUrl: '',
+              fileName: '',
+              fileKey: '',
+              isConnected: false,
+            });
+            await AsyncStorage.removeItem(getStorageKey());
+          },
+        },
+      ]
+    );
+  };
+
+  const openFigmaFile = () => {
+    if (config.fileUrl) {
+      Linking.openURL(config.fileUrl);
+    } else if (config.fileKey) {
+      Linking.openURL(`https://www.figma.com/file/${config.fileKey}`);
+    } else {
+      Linking.openURL('https://www.figma.com/files/recent');
+    }
+  };
+
+  const exportDesignTokens = async () => {
+    if (!config.fileKey || !config.accessToken) {
+      Alert.alert('Errore', 'Collega prima un file Figma');
+      return;
+    }
+
+    Alert.alert(
+      'Export Design Tokens',
+      'Questa funzionalita esportera colori, font e spacing dal tuo file Figma in un file theme.ts',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Esporta',
+          onPress: () => {
+            // TODO: Implement actual export
+            Alert.alert('Coming Soon', 'Export design tokens in sviluppo');
+          },
+        },
+      ]
+    );
+  };
+
+  const downloadAssets = async () => {
+    if (!config.fileKey || !config.accessToken) {
+      Alert.alert('Errore', 'Collega prima un file Figma');
+      return;
+    }
+
+    Alert.alert(
+      'Download Assets',
+      'Scarica icone e immagini dal file Figma nella cartella assets/',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Download',
+          onPress: () => {
+            // TODO: Implement actual download
+            Alert.alert('Coming Soon', 'Download assets in sviluppo');
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <Animated.View style={[styles.container, containerAnimatedStyle]}>
+      <LinearGradient
+        colors={['#0a0a0a', '#1a0f0a', '#0a0a0a']}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.headerLeft}>
+          <View style={styles.figmaLogo}>
+            <Ionicons name="color-palette" size={18} color={FIGMA_ORANGE} />
+          </View>
+          <Text style={styles.headerTitle}>Figma</Text>
+          {config.isConnected && (
+            <View style={styles.connectedBadge}>
+              <View style={styles.connectedDot} />
+            </View>
+          )}
+        </View>
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
+        </TouchableOpacity>
+      </View>
+
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="small" color={FIGMA_ORANGE} />
+        </View>
+      ) : !config.isConnected ? (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Connect Form */}
+          <Animated.View entering={FadeIn.duration(300)} style={styles.connectCard}>
+            <View style={styles.connectHeader}>
+              <View style={styles.figmaLogoLarge}>
+                <Ionicons name="color-palette" size={36} color={FIGMA_ORANGE} />
+              </View>
+              <Text style={styles.connectTitle}>Connetti Figma</Text>
+              <Text style={styles.connectSubtitle}>
+                Collega il tuo account Figma per sincronizzare design tokens e assets
+              </Text>
+            </View>
+
+            <View style={styles.form}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Personal Access Token</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="figd_xxxxx..."
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  value={config.accessToken}
+                  onChangeText={(text) => setConfig(prev => ({ ...prev, accessToken: text }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry={!showToken}
+                />
+                <TouchableOpacity
+                  style={styles.showTokenButton}
+                  onPress={() => setShowToken(!showToken)}
+                >
+                  <Ionicons
+                    name={showToken ? "eye" : "eye-off"}
+                    size={16}
+                    color="rgba(255,255,255,0.4)"
+                  />
+                  <Text style={styles.showTokenText}>
+                    {showToken ? 'Nascondi' : 'Mostra'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>File URL (opzionale)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://www.figma.com/file/..."
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  value={config.fileUrl}
+                  onChangeText={(text) => setConfig(prev => ({ ...prev, fileUrl: text }))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <Text style={styles.inputHint}>
+                  Collega un file specifico per export rapido
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.connectButton, isTesting && styles.connectButtonDisabled]}
+                onPress={testConnection}
+                disabled={isTesting}
+              >
+                {isTesting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="color-palette" size={18} color="#fff" />
+                    <Text style={styles.connectButtonText}>Connetti</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.helpLink}
+                onPress={() => Linking.openURL('https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens')}
+              >
+                <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
+                <Text style={styles.helpLinkText}>Come creo un token?</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      ) : (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Connected State */}
+          <Animated.View entering={FadeIn.duration(300)}>
+            {/* File Info */}
+            <View style={styles.fileCard}>
+              <View style={styles.fileHeader}>
+                <View style={styles.fileIconContainer}>
+                  <Ionicons name="document" size={24} color={FIGMA_PURPLE} />
+                </View>
+                <View style={styles.fileInfo}>
+                  <Text style={styles.fileName}>
+                    {config.fileName || 'File Figma'}
+                  </Text>
+                  {config.fileKey && (
+                    <Text style={styles.fileKey} numberOfLines={1}>
+                      {config.fileKey}
+                    </Text>
+                  )}
+                </View>
+                <TouchableOpacity onPress={openFigmaFile}>
+                  <Ionicons name="open-outline" size={20} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Quick Actions */}
+            <Text style={styles.sectionTitle}>Azioni</Text>
+            <View style={styles.actionsList}>
+              <TouchableOpacity style={styles.actionRow} onPress={openFigmaFile}>
+                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(242, 78, 30, 0.15)' }]}>
+                  <Ionicons name="open-outline" size={18} color={FIGMA_ORANGE} />
+                </View>
+                <View style={styles.actionInfo}>
+                  <Text style={styles.actionTitle}>Apri in Figma</Text>
+                  <Text style={styles.actionDesc}>Apri il file nel browser</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionRow} onPress={exportDesignTokens}>
+                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(162, 89, 255, 0.15)' }]}>
+                  <Ionicons name="color-wand-outline" size={18} color={FIGMA_PURPLE} />
+                </View>
+                <View style={styles.actionInfo}>
+                  <Text style={styles.actionTitle}>Export Design Tokens</Text>
+                  <Text style={styles.actionDesc}>Colori, font, spacing in theme.ts</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionRow} onPress={downloadAssets}>
+                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                  <Ionicons name="download-outline" size={18} color="#3B82F6" />
+                </View>
+                <View style={styles.actionInfo}>
+                  <Text style={styles.actionTitle}>Download Assets</Text>
+                  <Text style={styles.actionDesc}>Icone e immagini in assets/</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionRow}
+                onPress={() => {
+                  // TODO: Inspect components
+                  Alert.alert('Coming Soon', 'Inspect componenti in sviluppo');
+                }}
+              >
+                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                  <Ionicons name="layers-outline" size={18} color="#10B981" />
+                </View>
+                <View style={styles.actionInfo}>
+                  <Text style={styles.actionTitle}>Inspect Componenti</Text>
+                  <Text style={styles.actionDesc}>Visualizza struttura del design</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Change File */}
+            <TouchableOpacity
+              style={styles.changeFileButton}
+              onPress={() => {
+                Alert.prompt(
+                  'Cambia File',
+                  'Inserisci il nuovo URL del file Figma',
+                  [
+                    { text: 'Annulla', style: 'cancel' },
+                    {
+                      text: 'Salva',
+                      onPress: async (newUrl) => {
+                        if (newUrl) {
+                          const fileKey = extractFileKey(newUrl);
+                          if (fileKey) {
+                            // Fetch file name
+                            try {
+                              const response = await fetch(`https://api.figma.com/v1/files/${fileKey}?depth=1`, {
+                                headers: { 'X-Figma-Token': config.accessToken },
+                              });
+                              const data = await response.json();
+                              const newConfig = {
+                                ...config,
+                                fileUrl: newUrl,
+                                fileKey,
+                                fileName: data.name || '',
+                              };
+                              setConfig(newConfig);
+                              await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+                            } catch (e) {
+                              setConfig(prev => ({ ...prev, fileUrl: newUrl, fileKey }));
+                            }
+                          } else {
+                            Alert.alert('Errore', 'URL non valido');
+                          }
+                        }
+                      },
+                    },
+                  ],
+                  'plain-text',
+                  config.fileUrl
+                );
+              }}
+            >
+              <Ionicons name="swap-horizontal-outline" size={16} color="rgba(255,255,255,0.5)" />
+              <Text style={styles.changeFileText}>Cambia file</Text>
+            </TouchableOpacity>
+
+            {/* Disconnect Button */}
+            <TouchableOpacity style={styles.disconnectButton} onPress={disconnect}>
+              <Ionicons name="unlink-outline" size={18} color="#EF4444" />
+              <Text style={styles.disconnectText}>Disconnetti</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </ScrollView>
+      )}
+    </Animated.View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(242, 78, 30, 0.1)',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  figmaLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(242, 78, 30, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  figmaLogoLarge: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: 'rgba(242, 78, 30, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  connectedBadge: {
+    marginLeft: 4,
+  },
+  connectedDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: FIGMA_ORANGE,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  // Connect Card
+  connectCard: {
+    backgroundColor: 'rgba(242, 78, 30, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(242, 78, 30, 0.1)',
+  },
+  connectHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  connectTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#fff',
+    marginTop: 12,
+  },
+  connectSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
+  },
+  form: {
+    gap: 16,
+  },
+  inputGroup: {
+    gap: 6,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  input: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  inputHint: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 4,
+  },
+  showTokenButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  showTokenText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  connectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: FIGMA_ORANGE,
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  connectButtonDisabled: {
+    opacity: 0.6,
+  },
+  connectButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  helpLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  helpLinkText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  // Connected State
+  fileCard: {
+    backgroundColor: 'rgba(162, 89, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(162, 89, 255, 0.15)',
+  },
+  fileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  fileIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(162, 89, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  fileName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  fileKey: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+    fontFamily: 'monospace',
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.4)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  actionsList: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  actionIconSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  actionTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  actionDesc: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  changeFileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  changeFileText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  disconnectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+  },
+  disconnectText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#EF4444',
+  },
+});

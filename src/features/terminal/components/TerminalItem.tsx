@@ -931,16 +931,13 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   systemBlock: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 6,
+    paddingVertical: 4,
   },
   systemText: {
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.5)',
-    textAlign: 'center',
-    fontWeight: '500',
+    textAlign: 'left',
+    fontWeight: '400',
   },
   // Loading card styles (same as bash card)
   loadingCard: {

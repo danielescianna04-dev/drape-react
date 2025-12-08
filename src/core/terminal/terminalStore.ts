@@ -169,7 +169,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   projectFolders: [],
   isCreatingWorkstation: false,
   userId: null,
-  selectedModel: 'auto',
+  selectedModel: 'claude-sonnet-4',
   isTerminalMode: true,
   autoApprove: false,
   isRecording: false,

@@ -13,7 +13,9 @@ import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
 import { SecretsPanel } from './SecretsPanel';
+import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
+import { IntegrationsFAB } from './IntegrationsFAB';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
@@ -32,6 +34,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  const [isGitSheetVisible, setIsGitSheetVisible] = useState(false);
+  const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab } = useTabStore();
 
   // Shared values
@@ -62,16 +66,40 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [tabs, setActiveTab, addTab]);
 
   const handleGitClick = useCallback(() => {
-    setActivePanel(null);
-    const gitHubTab = tabs.find(t => t.id === 'github-main');
-    if (gitHubTab) {
-      setActiveTab('github-main');
+    // Open git sheet instead of creating a tab
+    setIsGitSheetVisible(true);
+  }, []);
+
+  const handleIntegrationsClick = useCallback(() => {
+    setIsIntegrationsFABVisible(prev => !prev);
+  }, []);
+
+  const handleSupabasePress = useCallback(() => {
+    // Open as tab instead of panel (keep FAB visible)
+    const supabaseTab = tabs.find(t => t.id === 'integration-supabase');
+    if (supabaseTab) {
+      setActiveTab('integration-supabase');
     } else {
       addTab({
-        id: 'github-main',
-        type: 'github',
-        title: 'Git',
-        data: {},
+        id: 'integration-supabase',
+        type: 'integration',
+        title: 'Supabase',
+        data: { integration: 'supabase' },
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleFigmaPress = useCallback(() => {
+    // Open as tab instead of panel (keep FAB visible)
+    const figmaTab = tabs.find(t => t.id === 'integration-figma');
+    if (figmaTab) {
+      setActiveTab('integration-figma');
+    } else {
+      addTab({
+        id: 'integration-figma',
+        type: 'integration',
+        title: 'Figma',
+        data: { integration: 'figma' },
       });
     }
   }, [tabs, setActiveTab, addTab]);
@@ -146,6 +174,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
                 { name: 'key-outline', action: () => togglePanel('envVars') },
+                { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
                 { name: 'settings-outline', action: () => togglePanel('settings') },
               ]}
               onIconChange={() => { }}
@@ -193,6 +222,20 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           </MultitaskingPanel>
         )}
       </View>
+
+      {/* Git Sheet - overlays everything */}
+      <GitSheet
+        visible={isGitSheetVisible}
+        onClose={() => setIsGitSheetVisible(false)}
+      />
+
+      {/* Integrations FAB - draggable floating buttons */}
+      <IntegrationsFAB
+        visible={isIntegrationsFABVisible}
+        onSupabasePress={handleSupabasePress}
+        onFigmaPress={handleFigmaPress}
+        onClose={() => setIsIntegrationsFABVisible(false)}
+      />
     </SidebarProvider>
   );
 };

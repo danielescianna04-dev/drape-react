@@ -27,9 +27,11 @@ export const SettingsPanel = ({ onClose }: Props) => {
   } = useTerminalStore();
 
   const models = [
-    { id: 'gpt-4', name: 'GPT-4', description: 'Modello più potente' },
-    { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo', description: 'Veloce ed efficiente' },
-    { id: 'claude-3', name: 'Claude 3', description: 'Antropic AI' },
+    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Anthropic - Migliore qualità', icon: 'sparkles' },
+    { id: 'gpt-oss-120b', name: 'GPT OSS 120B', description: 'OpenAI via Groq - Potente e gratuito', icon: 'logo-capacitor' },
+    { id: 'gpt-oss-20b', name: 'GPT OSS 20B', description: 'OpenAI via Groq - Veloce', icon: 'flash' },
+    { id: 'llama-4-scout', name: 'Llama 4 Scout', description: 'Meta via Groq - Bilanciato', icon: 'paw' },
+    { id: 'qwen-3-32b', name: 'Qwen 3 32B', description: 'Alibaba via Groq - Ottimo per codice', icon: 'code-slash' },
   ];
 
   return (
