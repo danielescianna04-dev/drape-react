@@ -25,6 +25,7 @@ import { BrowserView } from '../../features/terminal/components/views/BrowserVie
 import { PreviewView } from '../../features/terminal/components/views/PreviewView';
 import { SupabaseView } from '../../features/terminal/components/views/SupabaseView';
 import { FigmaView } from '../../features/terminal/components/views/FigmaView';
+import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
@@ -51,7 +52,7 @@ interface ChatPageProps {
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
-  const contentAnimatedStyle = useContentOffset();
+  const contentOffsetStyle = useContentOffset();
 
   const scrollViewRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
@@ -1010,19 +1011,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       cardBorderAnimatedStyle,
       animatedStyle
     ]}>
-      {/* Premium gradient background */}
-      <LinearGradient
-        colors={AppColors.gradient.dark}
-        locations={[0, 0.3, 0.7, 1]}
-        style={styles.background}
-      >
-        {/* Subtle glow effects */}
-        <View style={styles.glowTop} />
-        <View style={styles.glowBottom} />
-      </LinearGradient>
-
-      {/* Content wrapper with animation */}
-      <Animated.View style={[{ flex: 1 }, contentAnimatedStyle]}>
+      {/* Content wrapper with sidebar offset */}
+      <View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, contentOffsetStyle]}>
       {currentTab?.type === 'file' ? (
         <FileViewer
           visible={true}
@@ -1043,6 +1033,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         <BrowserView tab={currentTab} />
       ) : currentTab?.type === 'preview' ? (
         <PreviewView tab={currentTab} />
+      ) : currentTab?.type === 'envVars' ? (
+        <EnvVarsView tab={currentTab} />
       ) : currentTab?.type === 'integration' ? (
         currentTab.data?.integration === 'supabase' ? (
           <SupabaseView tab={currentTab} />
@@ -1051,6 +1043,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         ) : null
       ) : (
         <>
+        {/* Chat background with gradient */}
+        <LinearGradient
+          colors={AppColors.gradient.dark}
+          locations={[0, 0.3, 0.7, 1]}
+          style={styles.background}
+        >
+          <View style={styles.glowTop} />
+          <View style={styles.glowBottom} />
+        </LinearGradient>
         <ScrollView
           ref={scrollViewRef}
           style={[styles.output, isCardMode && styles.outputCardMode]}
@@ -1265,7 +1266,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       </Animated.View>
         </>
       )}
-      </Animated.View>
+      </View>
     </Animated.View>
   );
 };
@@ -1273,7 +1274,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.dark.backgroundAlt,
+    backgroundColor: '#0d0d0f',
   },
   background: {
     ...StyleSheet.absoluteFillObject,

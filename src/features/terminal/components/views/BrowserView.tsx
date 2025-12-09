@@ -142,8 +142,7 @@ export const BrowserView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    paddingLeft: 50, // IconBar width
+    backgroundColor: '#0d0d0f',
   },
   header: {
     flexDirection: 'row',

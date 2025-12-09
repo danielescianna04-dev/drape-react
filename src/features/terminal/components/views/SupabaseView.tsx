@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { AppColors } from '../../../../shared/theme/colors';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -250,18 +248,6 @@ export const SupabaseView = ({ tab }: Props) => {
 
   return (
     <View style={[styles.container, { paddingTop: topPadding }]}>
-      {!config.isConnected && (
-        <>
-          <LinearGradient
-            colors={AppColors.gradient.dark}
-            locations={[0, 0.3, 0.7, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.glowTop} />
-          <View style={styles.glowBottom} />
-        </>
-      )}
-
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={SUPABASE_GREEN} />
@@ -559,27 +545,7 @@ export const SupabaseView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111113',
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -100,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primaryAlpha.a08,
-    opacity: 0.6,
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -150,
-    right: -80,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: AppColors.primaryAlpha.a05,
-    opacity: 0.5,
+    backgroundColor: '#0d0d0f',
   },
   loadingContainer: {
     flex: 1,

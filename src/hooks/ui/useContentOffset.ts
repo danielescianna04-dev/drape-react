@@ -1,22 +1,20 @@
-import { useAnimatedStyle } from 'react-native-reanimated';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 
 /**
- * Hook that provides animated style to offset content when sidebar collapses
+ * Hook that provides paddingLeft based on sidebar state
  *
- * When sidebar is hidden, content shifts left by half the sidebar width (25px)
- * to keep it visually centered on screen
+ * When sidebar is open, content has paddingLeft to not overlap (44px)
+ * When sidebar is closed, paddingLeft is 0 so content fills screen
  *
- * @returns Animated style with translateX transformation
+ * The change is instant (no animation) - the sidebar's own animation
+ * provides visual feedback for the transition.
  *
- * @example
- * const contentOffset = useContentOffset();
- * <Animated.View style={[styles.container, contentOffset]}>
+ * @returns Style object with paddingLeft
  */
 export const useContentOffset = () => {
-  const { sidebarTranslateX } = useSidebarOffset();
+  const { isSidebarHidden } = useSidebarOffset();
 
-  return useAnimatedStyle(() => ({
-    transform: [{ translateX: sidebarTranslateX.value / 2 }],
-  }));
+  return {
+    paddingLeft: isSidebarHidden ? 0 : 44,
+  };
 };

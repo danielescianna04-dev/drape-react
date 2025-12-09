@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Dimensions } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
@@ -12,7 +12,6 @@ import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
 import { PreviewPanel } from './PreviewPanel';
 import { GitPanel } from './GitPanel';
-import { SecretsPanel } from './SecretsPanel';
 import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { IntegrationsFAB } from './IntegrationsFAB';
@@ -20,7 +19,7 @@ import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 
-type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | 'envVars' | null;
+type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -73,6 +72,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const handleIntegrationsClick = useCallback(() => {
     setIsIntegrationsFABVisible(prev => !prev);
   }, []);
+
+  const handleEnvVarsClick = useCallback(() => {
+    // Open as tab instead of panel
+    const envVarsTab = tabs.find(t => t.id === 'env-vars');
+    if (envVarsTab) {
+      setActiveTab('env-vars');
+    } else {
+      addTab({
+        id: 'env-vars',
+        type: 'envVars',
+        title: 'Variabili Ambiente',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
 
   const handleSupabasePress = useCallback(() => {
     // Open as tab instead of panel (keep FAB visible)
@@ -129,23 +143,24 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     })
     .onEnd((event) => {
       'worklet';
-      if (event.translationX < -25 || event.velocityX < -400) {
+      // Easier to close: smaller threshold (-15px instead of -25px) and lower velocity (-200 instead of -400)
+      if (event.translationX < -15 || event.velocityX < -200) {
         sidebarTranslateX.value = withTiming(-50, { duration: 200, easing: Easing.out(Easing.cubic) });
         runOnJS(setIsSidebarHidden)(true);
       } else {
         sidebarTranslateX.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
       }
     })
-    .activeOffsetX([-10, 1000])
-    .activeOffsetY([-50, 50])
-    .hitSlop({ right: 100 });
+    .activeOffsetX([-5, 1000])  // More sensitive to left swipes
+    .activeOffsetY([-80, 80])   // More tolerant of vertical movement
+    .hitSlop({ right: 200, top: 50, bottom: 50 });  // Larger touch area
 
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: sidebarTranslateX.value }],
   }));
 
   return (
-    <SidebarProvider value={{ sidebarTranslateX }}>
+    <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden }}>
       {isSidebarHidden && (
         <GestureDetector gesture={edgeSwipeGesture}>
           <View style={styles.edgeSwipeArea}>
@@ -169,11 +184,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <View style={{ height: 160 }} />
             <VerticalIconSwitcher
               icons={[
-                { name: 'grid-outline', action: () => setActivePanel(null) },
-                { name: 'folder-outline', action: () => togglePanel('files') },
                 { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
-                { name: 'key-outline', action: () => togglePanel('envVars') },
+                { name: 'key-outline', action: handleEnvVarsClick },
                 { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
                 { name: 'settings-outline', action: () => togglePanel('settings') },
               ]}
@@ -190,12 +203,18 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       </GestureDetector>
 
       <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }}>
+        {/* Backdrop overlay - tap to close panel */}
+        {activePanel && activePanel !== 'multitasking' && activePanel !== 'vertical' && (
+          <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
+            <View style={styles.panelBackdrop} />
+          </TouchableWithoutFeedback>
+        )}
+
         {activePanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
         {activePanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
         {activePanel === 'preview' && <PreviewPanel onClose={() => setActivePanel(null)} previewUrl="http://localhost:3001" projectName="Project Preview" />}
         {activePanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
         {activePanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === 'envVars' && <SecretsPanel onClose={() => setActivePanel(null)} />}
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
@@ -279,5 +298,10 @@ const styles = StyleSheet.create({
     height: 50,
     backgroundColor: AppColors.primaryAlpha.a40,
     borderRadius: 1.5,
+  },
+  panelBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    zIndex: 999,
   },
 });

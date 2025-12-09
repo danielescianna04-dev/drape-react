@@ -1,12 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, TextInput, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, runOnJS } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, interpolate, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../../shared/theme/colors';
-import { useSidebarOffset } from '../../context/SidebarContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,15 +32,9 @@ export const PreviewView = ({ tab }: Props) => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
 
-  const { sidebarTranslateX } = useSidebarOffset();
-
   // Animation values for design mode
   const designModeProgress = useSharedValue(0);
   const pinchScale = useSharedValue(1);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: sidebarTranslateX.value / 2 }],
-  }));
 
   // Animated style for the phone preview in design mode
   const phoneAnimatedStyle = useAnimatedStyle(() => {
@@ -149,7 +142,7 @@ export const PreviewView = ({ tab }: Props) => {
   );
 
   return (
-    <Animated.View style={[styles.container, animatedStyle]}>
+    <View style={styles.container}>
       {/* Design Mode Header */}
       {designMode && (
         <Animated.View style={[styles.designModeHeader]}>
@@ -344,15 +337,14 @@ export const PreviewView = ({ tab }: Props) => {
           </KeyboardAvoidingView>
         </Animated.View>
       )}
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    paddingLeft: 50, // IconBar width
+    backgroundColor: '#0d0d0f',
   },
   // Design Mode Header
   designModeHeader: {

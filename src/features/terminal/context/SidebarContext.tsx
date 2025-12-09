@@ -1,8 +1,9 @@
 import React, { createContext, useContext } from 'react';
-import { SharedValue, useSharedValue, makeMutable } from 'react-native-reanimated';
+import { SharedValue, makeMutable } from 'react-native-reanimated';
 
 interface SidebarContextType {
   sidebarTranslateX: SharedValue<number>;
+  isSidebarHidden: boolean;
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null);
@@ -16,7 +17,7 @@ export const useSidebarOffset = () => {
   const context = useContext(SidebarContext);
 
   if (!context) {
-    return { sidebarTranslateX: defaultSidebarValue };
+    return { sidebarTranslateX: defaultSidebarValue, isSidebarHidden: false };
   }
   return context;
 };

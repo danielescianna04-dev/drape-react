@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FigmaLogo } from '../../../../shared/components/icons/FigmaLogo';
-import { AppColors } from '../../../../shared/theme/colors';
 
 interface Props {
   tab: any;
@@ -201,15 +199,6 @@ export const FigmaView = ({ tab }: Props) => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
-      <LinearGradient
-        colors={AppColors.gradient.dark}
-        locations={[0, 0.3, 0.7, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      {/* Subtle glow effects */}
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
-
       {isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="small" color={FIGMA_PURPLE} />
@@ -448,28 +437,7 @@ export const FigmaView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    paddingLeft: 50,
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -100,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primaryAlpha.a08,
-    opacity: 0.6,
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -150,
-    right: -80,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: AppColors.primaryAlpha.a05,
-    opacity: 0.5,
+    backgroundColor: '#0d0d0f',
   },
   figmaLogoLarge: {
     width: 64,
