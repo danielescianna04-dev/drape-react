@@ -5200,6 +5200,72 @@ async function callGroqAI(messages, options = {}) {
 }
 
 /**
+ * Detect the package manager used by the project
+ * @param {string} repoPath - Path to the repository
+ * @returns {string} - 'pnpm', 'yarn', or 'npm'
+ */
+function detectPackageManager(repoPath) {
+  const fs = require('fs');
+
+  // Check for lock files in order of priority
+  if (fs.existsSync(path.join(repoPath, 'pnpm-lock.yaml')) ||
+      fs.existsSync(path.join(repoPath, 'pnpm-workspace.yaml'))) {
+    console.log('📦 Detected package manager: pnpm');
+    return 'pnpm';
+  }
+
+  if (fs.existsSync(path.join(repoPath, 'yarn.lock'))) {
+    console.log('📦 Detected package manager: yarn');
+    return 'yarn';
+  }
+
+  if (fs.existsSync(path.join(repoPath, 'bun.lockb'))) {
+    console.log('📦 Detected package manager: bun');
+    return 'bun';
+  }
+
+  // Default to npm
+  console.log('📦 Detected package manager: npm (default)');
+  return 'npm';
+}
+
+/**
+ * Get the install command for the detected package manager
+ * @param {string} packageManager - 'pnpm', 'yarn', 'bun', or 'npm'
+ * @returns {string} - Install command
+ */
+function getInstallCommand(packageManager) {
+  switch (packageManager) {
+    case 'pnpm':
+      return 'pnpm install';
+    case 'yarn':
+      return 'yarn install';
+    case 'bun':
+      return 'bun install';
+    default:
+      return 'npm install --legacy-peer-deps';
+  }
+}
+
+/**
+ * Get the run command prefix for the detected package manager
+ * @param {string} packageManager - 'pnpm', 'yarn', 'bun', or 'npm'
+ * @returns {string} - Run command prefix (e.g., 'npm run', 'pnpm run')
+ */
+function getRunCommand(packageManager) {
+  switch (packageManager) {
+    case 'pnpm':
+      return 'pnpm run';
+    case 'yarn':
+      return 'yarn';
+    case 'bun':
+      return 'bun run';
+    default:
+      return 'npm run';
+  }
+}
+
+/**
  * AI-powered project analysis - Step 1: Get file list to read
  */
 async function aiSelectFilesToRead(tree) {
@@ -5379,13 +5445,12 @@ app.post('/preview/start', async (req, res) => {
       projectCommandsCache.set(cacheKey, commands);
     }
 
-    // Step 5: Run install if needed
-    if (commands.needsInstall && commands.installCommand) {
-      // Add --legacy-peer-deps to npm install to avoid peer dependency conflicts
-      let installCommand = commands.installCommand;
-      if (installCommand.includes('npm install') && !installCommand.includes('--legacy-peer-deps')) {
-        installCommand = installCommand.replace('npm install', 'npm install --legacy-peer-deps');
-      }
+    // Step 5: Run install if needed - use detected package manager
+    const packageManager = detectPackageManager(repoPath);
+
+    if (commands.needsInstall) {
+      // Use the detected package manager instead of what AI suggested
+      const installCommand = getInstallCommand(packageManager);
       console.log(`📦 Running install: ${installCommand}`);
 
       try {
@@ -5395,7 +5460,7 @@ app.post('/preview/start', async (req, res) => {
 
         await execAsync(installCommand, {
           cwd: repoPath,
-          timeout: 120000, // 2 minute timeout for install
+          timeout: 180000, // 3 minute timeout for install (pnpm can be slower first time)
           maxBuffer: 10 * 1024 * 1024
         });
         console.log('✅ Install completed');
@@ -5441,8 +5506,16 @@ app.post('/preview/start', async (req, res) => {
 
     // Fallback if AI didn't return a start command
     if (!startCommand) {
-      console.log('⚠️ No start command from AI, using default npm start');
-      startCommand = 'npm start';
+      console.log(`⚠️ No start command from AI, using default ${packageManager} start`);
+      startCommand = packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`;
+    }
+
+    // Convert npm commands to the detected package manager
+    if (packageManager !== 'npm') {
+      // Replace npm run with the correct package manager
+      startCommand = startCommand.replace(/^npm run /, `${getRunCommand(packageManager)} `);
+      startCommand = startCommand.replace(/^npm start/, packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`);
+      console.log(`📦 Converted start command for ${packageManager}: ${startCommand}`);
     }
 
     // Update port in command if different
@@ -5486,7 +5559,8 @@ app.post('/preview/start', async (req, res) => {
       } else if (startCommand.includes('vite') || commands.projectType === 'Vite' || commands.projectType?.toLowerCase().includes('vite')) {
         // Vite uses --host flag
         startCommand = `${startCommand} --host`;
-      } else if (startCommand.includes('npm run dev') || startCommand.includes('npm run start')) {
+      } else if (startCommand.includes('run dev') || startCommand.includes('run start') ||
+                 startCommand.includes('yarn dev') || startCommand.includes('yarn start')) {
         // Check if it's a Vite project by looking for vite.config
         const fs = require('fs');
         const viteConfigExists = fs.existsSync(`${repoPath}/vite.config.js`) ||
@@ -5494,7 +5568,12 @@ app.post('/preview/start', async (req, res) => {
                                   fs.existsSync(`${repoPath}/vite.config.mjs`);
         if (viteConfigExists) {
           console.log('📦 Vite project detected via config file - adding --host');
-          startCommand = `${startCommand} -- --host`;
+          // For pnpm/yarn, use -- to pass args to the underlying script
+          if (packageManager === 'pnpm' || packageManager === 'yarn') {
+            startCommand = `${startCommand} --host`;
+          } else {
+            startCommand = `${startCommand} -- --host`;
+          }
         } else {
           // Default: use HOST environment variable
           startCommand = `HOST=0.0.0.0 ${startCommand}`;
