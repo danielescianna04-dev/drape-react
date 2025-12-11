@@ -5164,7 +5164,7 @@ async function callGroqAI(messages, options = {}) {
       const response = await axios.post(
         'https://api.groq.com/openai/v1/chat/completions',
         {
-          model: options.model || 'meta-llama/llama-4-scout-17b-16e-instruct',
+          model: options.model || 'openai/gpt-oss-120b',
           messages,
           temperature: options.temperature || 0.3,
           max_tokens: options.maxTokens || 1000,
@@ -5512,21 +5512,36 @@ app.post('/preview/start', async (req, res) => {
     // Step 7: Prepare and execute start command
     let startCommand = commands.startCommand;
 
-    // Fallback if AI didn't return a start command
-    if (!startCommand) {
-      // For static websites/libraries, use our static file server
-      const projectTypeLower = commands.projectType?.toLowerCase() || '';
-      const isStaticSite = projectTypeLower.includes('static') ||
-                           projectTypeLower === 'html' ||
-                           projectTypeLower.includes('html/css') ||
-                           projectTypeLower.includes('css library') ||
-                           projectTypeLower.includes('css framework') ||
-                           projectTypeLower.includes('documentation') ||
-                           projectTypeLower.includes('landing page');
+    // Check project type for static site detection
+    const projectTypeLower = commands.projectType?.toLowerCase() || '';
+    const isStaticSite = projectTypeLower.includes('static') ||
+                         projectTypeLower === 'html' ||
+                         projectTypeLower.includes('html/css') ||
+                         projectTypeLower.includes('css library') ||
+                         projectTypeLower.includes('css framework') ||
+                         projectTypeLower.includes('documentation') ||
+                         projectTypeLower.includes('landing page');
 
-      if (isStaticSite) {
-        console.log(`📁 Static site/library detected (${commands.projectType}), using static-server.js`);
-        startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} .`;
+    // Check if it's a legacy Grunt/Gulp project that should be served as static
+    const isLegacyBuildTool = (startCommand?.includes('grunt') || startCommand?.includes('gulp')) &&
+                              isStaticSite;
+
+    // Fallback if AI didn't return a start command OR if it's a static site with legacy build tools
+    if (!startCommand || isLegacyBuildTool) {
+      if (isStaticSite || isLegacyBuildTool) {
+        // Check for common static content directories
+        const staticDirs = ['app', 'public', 'dist', 'build', 'www', 'static', '.'];
+        let serveDir = '.';
+        for (const dir of staticDirs) {
+          const indexPath = path.join(repoPath, dir, 'index.html');
+          if (fsSync.existsSync(indexPath)) {
+            serveDir = dir;
+            console.log(`📁 Found index.html in ${dir}/`);
+            break;
+          }
+        }
+        console.log(`📁 Static site detected (${commands.projectType}), using static-server.js on ${serveDir}/`);
+        startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} ${serveDir}`;
       } else {
         console.log(`⚠️ No start command from AI, using default ${packageManager} start`);
         startCommand = packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`;
