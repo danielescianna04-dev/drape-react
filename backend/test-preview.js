@@ -225,13 +225,18 @@ async function testPreview(repoUrl) {
   }
 }
 
-// Test projects list - various frameworks and setups
+// Test projects list - various frameworks and setups (all public repos)
 const testProjects = [
+  // JavaScript/TypeScript
   { name: 'Vue 3 + Vite (pnpm)', url: 'https://github.com/antfu/vitesse-lite' },
   { name: 'React + Vite + Tailwind', url: 'https://github.com/joaopaulomoraes/reactjs-vite-tailwindcss-boilerplate' },
-  { name: 'Static HTML (SpinKit)', url: 'https://github.com/tobiasahlin/SpinKit' },
-  { name: 'Svelte Template', url: 'https://github.com/sveltejs/template' },
-  { name: 'Vue 3 Simple', url: 'https://github.com/vuejs/create-vue-templates' },
+  { name: 'Svelte + Vite', url: 'https://github.com/sveltejs/template' },
+  { name: 'Next.js Starter', url: 'https://github.com/vercel/next.js/tree/canary/examples/hello-world' },
+  // Static HTML/CSS
+  { name: 'Static HTML (SpinKit CSS)', url: 'https://github.com/tobiasahlin/SpinKit' },
+  { name: 'Static HTML (50Projects)', url: 'https://github.com/bradtraversy/50projects50days' },
+  // SolidJS
+  { name: 'SolidJS Starter', url: 'https://github.com/solidjs/templates' },
 ];
 
 async function runTests() {

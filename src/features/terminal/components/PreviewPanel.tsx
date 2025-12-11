@@ -338,6 +338,32 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         return;
       }
 
+      // Check if server startup failed
+      if (result.success === false) {
+        console.error('❌ Server startup failed:', result.error);
+
+        // Update project info if available
+        if (result.projectType) {
+          setProjectInfo({
+            type: result.projectType,
+            defaultPort: 3000,
+            startCommand: '',
+            installCommand: '',
+            description: result.projectType
+          });
+        }
+
+        // Show error to user
+        logError(result.error || 'Il server non è riuscito ad avviarsi.', 'preview');
+        if (result.errorDetails) {
+          logSystem(`Dettagli: ${result.errorDetails.substring(0, 200)}...`, 'preview');
+        }
+
+        setServerStatus('stopped');
+        setIsStarting(false);
+        return;
+      }
+
       // Update project info from AI detection
       if (result.projectType) {
         setProjectInfo({

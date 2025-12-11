@@ -5533,6 +5533,19 @@ app.post('/preview/start', async (req, res) => {
       console.log(`📦 Converted start command for ${packageManager}: ${startCommand}`);
     }
 
+    // Convert global CLI commands to npx (handles gulp, grunt, webpack, etc.)
+    // These tools are often not installed globally but are in devDependencies
+    const globalCliTools = ['gulp', 'grunt', 'webpack', 'rollup', 'parcel', 'esbuild', 'tsc', 'eslint', 'prettier', 'jest', 'mocha', 'karma', 'bower', 'browserify'];
+    for (const tool of globalCliTools) {
+      // Match the tool at the start of the command (e.g., "gulp build" -> "npx gulp build")
+      const toolRegex = new RegExp(`^${tool}(\\s|$)`);
+      if (toolRegex.test(startCommand)) {
+        startCommand = `npx ${startCommand}`;
+        console.log(`🔧 Converted global CLI command to npx: ${startCommand}`);
+        break;
+      }
+    }
+
     // Update port in command if different
     if (port !== commands.port) {
       // Replace port in various formats
@@ -5782,6 +5795,49 @@ app.post('/preview/start', async (req, res) => {
           projectType: commands.projectType,
           message: errorAnalysis.errorSummary || 'Il progetto richiede variabili d\'ambiente per avviarsi.',
           targetFile: '.env'
+        });
+      }
+
+      // Check for common startup errors (command not found, npm install failed, etc.)
+      const errorLower = serverErrorOutput.toLowerCase();
+      const isCommandNotFound = errorLower.includes('command not found') ||
+                                 errorLower.includes('not recognized') ||
+                                 exitCode === 127;
+      const isNpmError = errorLower.includes('npm error') ||
+                         errorLower.includes('npm err!') ||
+                         errorLower.includes('enoent') ||
+                         errorLower.includes('missing script');
+      const isModuleNotFound = errorLower.includes('cannot find module') ||
+                               errorLower.includes('module not found');
+
+      if (processExited && exitCode !== 0) {
+        // Kill any remaining process
+        try { serverProcess.kill(); } catch {}
+
+        let errorMessage = 'Il server non è riuscito ad avviarsi.';
+        let errorDetails = serverErrorOutput || 'Errore sconosciuto';
+
+        if (isCommandNotFound) {
+          const cmdMatch = serverErrorOutput.match(/(\w+): command not found/i);
+          const missingCmd = cmdMatch ? cmdMatch[1] : 'richiesto';
+          errorMessage = `Comando "${missingCmd}" non trovato. Il progetto potrebbe richiedere dipendenze globali non installate.`;
+        } else if (isNpmError) {
+          errorMessage = 'Errore durante l\'installazione delle dipendenze npm.';
+          if (errorLower.includes('missing script')) {
+            errorMessage = 'Script npm non trovato nel package.json.';
+          }
+        } else if (isModuleNotFound) {
+          errorMessage = 'Modulo Node.js mancante. Prova a eseguire "npm install".';
+        }
+
+        console.log(`❌ Server startup failed: ${errorMessage}`);
+
+        return res.status(200).json({
+          success: false,
+          error: errorMessage,
+          errorDetails: errorDetails.substring(0, 500),
+          projectType: commands.projectType,
+          exitCode: exitCode
         });
       }
     }
