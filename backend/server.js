@@ -5578,11 +5578,27 @@ app.post('/preview/start', async (req, res) => {
       maxBuffer: 10 * 1024 * 1024
     });
 
+    // Track actual port from server output
+    let detectedPort = null;
+
     // Log server output and collect for error analysis
     serverProcess.stdout?.on('data', (data) => {
       const output = data.toString();
       serverOutput += output;
       console.log(`[Server] ${output.trim()}`);
+
+      // Detect actual port from server output
+      // Vite: "Local: http://localhost:3000/" or "Network: http://192.168.x.x:3000/"
+      // React: "On Your Network: http://192.168.x.x:3000"
+      // Next.js: "started server on 0.0.0.0:3000"
+      const portMatches = output.match(/(?:localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|0\.0\.0\.0):(\d{4,5})/g);
+      if (portMatches && !detectedPort) {
+        const match = portMatches[0].match(/:(\d{4,5})/);
+        if (match) {
+          detectedPort = parseInt(match[1]);
+          console.log(`🔍 Detected actual port from output: ${detectedPort}`);
+        }
+      }
     });
     serverProcess.stderr?.on('data', (data) => {
       const output = data.toString();
@@ -5600,9 +5616,18 @@ app.post('/preview/start', async (req, res) => {
     });
 
     // Step 8: Health check
+    // Wait a bit for server to start and output port info
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Use detected port from output if available, otherwise fall back to expected port
     // For Expo projects, use the Metro port instead of the generic port
-    const actualPort = isExpoProject && metroPort ? metroPort : port;
-    const previewUrl = `http://${LOCAL_IP}:${actualPort}`;
+    let actualPort = isExpoProject && metroPort ? metroPort : port;
+    if (detectedPort && detectedPort !== actualPort) {
+      console.log(`🔄 Using detected port ${detectedPort} instead of expected port ${actualPort}`);
+      actualPort = detectedPort;
+    }
+
+    let previewUrl = `http://${LOCAL_IP}:${actualPort}`;
     console.log(`🏥 Health checking: ${previewUrl}`);
 
     const maxAttempts = 30; // Reduced from 45 to fail faster if there's an error
@@ -5617,6 +5642,13 @@ app.post('/preview/start', async (req, res) => {
       if (processExited && exitCode !== 0 && i < 10) {
         console.log(`⚠️ Server process exited early with code ${exitCode}`);
         break;
+      }
+
+      // Update port if detected during health check loop
+      if (detectedPort && detectedPort !== actualPort) {
+        console.log(`🔄 Port changed: ${actualPort} -> ${detectedPort}`);
+        actualPort = detectedPort;
+        previewUrl = `http://${LOCAL_IP}:${actualPort}`;
       }
 
       try {

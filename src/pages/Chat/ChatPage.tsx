@@ -1341,7 +1341,7 @@ const styles = StyleSheet.create({
   },
   output: {
     flex: 1,
-    paddingLeft: 44,
+    paddingLeft: 16,
     paddingTop: 100, // Further increased to add space below TabBar
   },
   outputCardMode: {

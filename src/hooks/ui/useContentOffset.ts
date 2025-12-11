@@ -15,6 +15,6 @@ export const useContentOffset = () => {
   const { isSidebarHidden } = useSidebarOffset();
 
   return {
-    paddingLeft: isSidebarHidden ? 0 : 44,
+    paddingLeft: isSidebarHidden ? 0 : 16,
   };
 };
