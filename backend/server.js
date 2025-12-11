@@ -57,8 +57,16 @@ function isPortAvailable(port) {
  * @returns {Promise<number>} - First available port
  */
 async function findAvailablePort(startPort, maxAttempts = 100) {
+  // Reserved ports that should never be used (3001 is our backend port)
+  const reservedPorts = [3001];
+
   for (let i = 0; i < maxAttempts; i++) {
     const port = startPort + i;
+    // Skip reserved ports
+    if (reservedPorts.includes(port)) {
+      console.log(`⚠️  Port ${port} is reserved (backend), skipping...`);
+      continue;
+    }
     if (await isPortAvailable(port)) {
       return port;
     }
