@@ -35,7 +35,7 @@ function detectProjectType(files, packageJson) {
     return {
       type: 'react',
       defaultPort: 8080,
-      startCommand: 'PORT=8080 npm start',
+      startCommand: 'npm start',
       installCommand: 'npm install',
       description: 'React Application'
     };
@@ -46,7 +46,7 @@ function detectProjectType(files, packageJson) {
     return {
       type: 'nextjs',
       defaultPort: 8080,
-      startCommand: 'PORT=8080 npm run dev',
+      startCommand: 'npm run dev',
       installCommand: 'npm install',
       description: 'Next.js Application'
     };

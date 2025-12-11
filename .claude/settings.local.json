@@ -57,7 +57,12 @@
       "Bash(keytool:*)",
       "Bash(cmd /c \"taskkill /F /PID 22872\")",
       "Bash(pod install)",
-      "Bash(xcrun xctrace:*)"
+      "Bash(xcrun xctrace:*)",
+      "Bash(cmd /c \"taskkill /F /PID 8540\")",
+      "Bash(powershell -Command:*)",
+      "Bash(git -C /c/Users/rivas/Projects/drape-react status)",
+      "Bash(git -C /c/Users/rivas/Projects/drape-react diff --stat)",
+      "Bash(git -C /c/Users/rivas/Projects/drape-react log -3 --oneline)"
     ],
     "deny": [],
     "ask": []

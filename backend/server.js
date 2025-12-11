@@ -5147,6 +5147,96 @@ async function readProjectFiles(repoPath, filePaths) {
 }
 
 /**
+ * Basic project detection fallback (when GROQ_API_KEY not available)
+ * Uses projectDetector.js instead of AI
+ */
+async function basicDetectCommands(repoPath) {
+  const { detectProjectType } = require('./projectDetector');
+  const fsSync = require('fs');
+
+  // Get file list
+  const entries = await fs.readdir(repoPath, { withFileTypes: true });
+  const files = entries.map(e => e.name);
+
+  // Read package.json if present
+  let packageJson = null;
+  const packageJsonPath = path.join(repoPath, 'package.json');
+  if (fsSync.existsSync(packageJsonPath)) {
+    try {
+      packageJson = JSON.parse(fsSync.readFileSync(packageJsonPath, 'utf-8'));
+    } catch (e) {
+      console.log('⚠️ Could not parse package.json');
+    }
+  }
+
+  // Use projectDetector
+  const detected = detectProjectType(files, packageJson);
+
+  // Check if this is a static HTML project that wasn't detected
+  // (has HTML files but package.json has no runnable scripts)
+  const htmlFiles = files.filter(f => f.endsWith('.html'));
+  const hasRunnableScripts = packageJson?.scripts?.start ||
+                              packageJson?.scripts?.dev ||
+                              packageJson?.scripts?.serve ||
+                              packageJson?.dependencies?.react ||
+                              packageJson?.dependencies?.vue ||
+                              packageJson?.dependencies?.['@angular/core'];
+
+  if (!detected || (!hasRunnableScripts && htmlFiles.length > 0)) {
+    // Treat as static HTML site
+    const staticServerPath = path.join(__dirname, 'static-server.js');
+
+    return {
+      projectType: 'Static HTML Site',
+      installCommand: null,
+      startCommand: `node "${staticServerPath}" 8000 .`,
+      port: 8000,
+      needsInstall: false,
+      notes: htmlFiles.length > 0 ? `Available HTML files: ${htmlFiles.join(', ')}` : null,
+      hasBackend: false,
+      backendCommand: null,
+      backendPort: null
+    };
+  }
+
+  if (!detected) {
+    // Default fallback for unknown projects
+    return {
+      projectType: 'unknown',
+      installCommand: packageJson ? 'npm install' : null,
+      startCommand: packageJson?.scripts?.start ? 'npm start' :
+                    packageJson?.scripts?.dev ? 'npm run dev' : null,
+      port: 3000,
+      needsInstall: !!packageJson,
+      notes: 'Could not auto-detect project type',
+      hasBackend: false,
+      backendCommand: null,
+      backendPort: null
+    };
+  }
+
+  // Convert projectDetector format to AI format
+  return {
+    projectType: detected.description || detected.type,
+    installCommand: detected.installCommand,
+    startCommand: detected.startCommand,
+    port: detected.defaultPort || 3000,
+    needsInstall: !!detected.installCommand,
+    notes: detected.previewNote || null,
+    hasBackend: false,
+    backendCommand: null,
+    backendPort: null
+  };
+}
+
+/**
+ * Check if AI is available (GROQ_API_KEY configured)
+ */
+function isAIAvailable() {
+  return !!process.env.GROQ_API_KEY;
+}
+
+/**
  * Call Groq AI API
  */
 async function callGroqAI(messages, options = {}) {
@@ -5427,27 +5517,38 @@ app.post('/preview/start', async (req, res) => {
       commands = projectCommandsCache.get(cacheKey);
       console.log('📦 Using cached commands');
     } else {
-      // Step 1: Get project tree
-      console.log('🌳 Reading project structure...');
-      const tree = await getProjectTree(repoPath);
-      console.log(`   Found ${tree.length} entries`);
+      // Check if AI is available
+      if (isAIAvailable()) {
+        // Step 1: Get project tree
+        console.log('🌳 Reading project structure...');
+        const tree = await getProjectTree(repoPath);
+        console.log(`   Found ${tree.length} entries`);
 
-      // Step 2: AI selects files to read
-      console.log('🤖 AI selecting files to analyze...');
-      const filesToRead = await aiSelectFilesToRead(tree);
-      console.log(`   Selected: ${filesToRead.join(', ')}`);
+        // Step 2: AI selects files to read
+        console.log('🤖 AI selecting files to analyze...');
+        const filesToRead = await aiSelectFilesToRead(tree);
+        console.log(`   Selected: ${filesToRead.join(', ')}`);
 
-      // Step 3: Read selected files
-      console.log('📖 Reading selected files...');
-      const fileContents = await readProjectFiles(repoPath, filesToRead);
+        // Step 3: Read selected files
+        console.log('📖 Reading selected files...');
+        const fileContents = await readProjectFiles(repoPath, filesToRead);
 
-      // Step 4: AI determines commands
-      console.log('🧠 AI analyzing project...');
-      commands = await aiDetermineCommands(tree, fileContents);
-      console.log(`   Project type: ${commands.projectType}`);
-      console.log(`   Install: ${commands.installCommand}`);
-      console.log(`   Start: ${commands.startCommand}`);
-      console.log(`   Port: ${commands.port}`);
+        // Step 4: AI determines commands
+        console.log('🧠 AI analyzing project...');
+        commands = await aiDetermineCommands(tree, fileContents);
+        console.log(`   Project type: ${commands.projectType}`);
+        console.log(`   Install: ${commands.installCommand}`);
+        console.log(`   Start: ${commands.startCommand}`);
+        console.log(`   Port: ${commands.port}`);
+      } else {
+        // Fallback: Use basic project detection (no AI)
+        console.log('⚙️ Using basic project detection (AI not configured)...');
+        commands = await basicDetectCommands(repoPath);
+        console.log(`   Project type: ${commands.projectType}`);
+        console.log(`   Install: ${commands.installCommand}`);
+        console.log(`   Start: ${commands.startCommand}`);
+        console.log(`   Port: ${commands.port}`);
+      }
 
       // Cache the result
       projectCommandsCache.set(cacheKey, commands);
@@ -5571,15 +5672,12 @@ app.post('/preview/start', async (req, res) => {
 
     // Update port in command if different
     if (port !== commands.port) {
-      // Replace port in various formats
+      // Replace port in various formats (for commands that have port in them)
       startCommand = startCommand.replace(/--port[=\s]\d+/, `--port ${port}`);
-      startCommand = startCommand.replace(/PORT=\d+/, `PORT=${port}`);
       startCommand = startCommand.replace(/:(\d{4,5})\b/, `:${port}`);
-
-      // If no port found in command, prepend PORT env var
-      if (!startCommand.includes(port.toString())) {
-        startCommand = `PORT=${port} ${startCommand}`;
-      }
+      // Remove any existing PORT=xxx from command (we pass PORT via env instead)
+      startCommand = startCommand.replace(/PORT=\d+\s*/, '');
+      // Note: PORT is passed via env object in exec(), not in command string
     }
 
     // Add HOST=0.0.0.0 for network access - framework-specific handling
@@ -5628,7 +5726,13 @@ app.post('/preview/start', async (req, res) => {
           }
         } else {
           // Default: use HOST environment variable
-          startCommand = `HOST=0.0.0.0 ${startCommand}`;
+          // Use Windows-compatible syntax if on Windows
+          if (process.platform === 'win32') {
+            // Use quotes around value to avoid trailing space issue
+            startCommand = `set "HOST=0.0.0.0" && ${startCommand}`;
+          } else {
+            startCommand = `HOST=0.0.0.0 ${startCommand}`;
+          }
         }
       } else if (startCommand.includes('flask run') || commands.projectType === 'Flask') {
         // Flask uses --host flag
@@ -5639,9 +5743,18 @@ app.post('/preview/start', async (req, res) => {
       } else if (startCommand.includes('rails') && startCommand.includes('server')) {
         // Rails uses -b flag for binding
         startCommand = `${startCommand} -b 0.0.0.0`;
+      } else if (startCommand.includes('static-server.js')) {
+        // Our static-server.js already binds to 0.0.0.0, no HOST needed
+        console.log(`📦 Static server - no HOST modification needed`);
       } else {
         // Default: use HOST environment variable (works for most Node.js frameworks)
-        startCommand = `HOST=0.0.0.0 ${startCommand}`;
+        // Use Windows-compatible syntax if on Windows
+        if (process.platform === 'win32') {
+          // Use quotes around value to avoid trailing space issue
+          startCommand = `set "HOST=0.0.0.0" && ${startCommand}`;
+        } else {
+          startCommand = `HOST=0.0.0.0 ${startCommand}`;
+        }
       }
     }
 
@@ -5875,7 +5988,7 @@ app.post('/preview/start', async (req, res) => {
       projectType: commands.projectType,
       commands: {
         install: commands.installCommand,
-        start: commands.startCommand
+        start: startCommand  // Use local variable which includes fallbacks for static sites
       },
       timing: {
         totalMs: totalTime,

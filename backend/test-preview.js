@@ -15,7 +15,7 @@
  * Example: node test-preview.js https://github.com/antfu/vitesse-lite
  */
 
-const API_BASE = 'http://192.168.0.57:3001';
+const API_BASE = process.env.API_BASE || 'http://localhost:3000';
 
 // Generate a unique project ID (simulating Firebase doc ID)
 function generateProjectId() {
@@ -225,18 +225,32 @@ async function testPreview(repoUrl) {
   }
 }
 
-// Test projects list - various frameworks and setups (all public repos)
+// Test projects list - FASE 1: Guaranteed frameworks (all public repos)
+// Using standalone repos that can be cloned directly
 const testProjects = [
-  // JavaScript/TypeScript
-  { name: 'Vue 3 + Vite (pnpm)', url: 'https://github.com/antfu/vitesse-lite' },
-  { name: 'React + Vite + Tailwind', url: 'https://github.com/joaopaulomoraes/reactjs-vite-tailwindcss-boilerplate' },
-  { name: 'Svelte + Vite', url: 'https://github.com/sveltejs/template' },
-  { name: 'Next.js Starter', url: 'https://github.com/vercel/next.js/tree/canary/examples/hello-world' },
-  // Static HTML/CSS
-  { name: 'Static HTML (SpinKit CSS)', url: 'https://github.com/tobiasahlin/SpinKit' },
-  { name: 'Static HTML (50Projects)', url: 'https://github.com/bradtraversy/50projects50days' },
-  // SolidJS
-  { name: 'SolidJS Starter', url: 'https://github.com/solidjs/templates' },
+  // ===== STATIC HTML =====
+  { name: '1. Static HTML', url: 'https://github.com/tobiasahlin/SpinKit', framework: 'static' },
+
+  // ===== REACT + VITE =====
+  { name: '2. React + Vite', url: 'https://github.com/joaopaulomoraes/reactjs-vite-tailwindcss-boilerplate', framework: 'react-vite' },
+
+  // ===== VUE + VITE =====
+  { name: '3. Vue 3 + Vite', url: 'https://github.com/antfu/vitesse-lite', framework: 'vue-vite' },
+
+  // ===== SVELTE =====
+  { name: '4. Svelte', url: 'https://github.com/sveltejs/template', framework: 'svelte' },
+
+  // ===== NEXT.JS =====
+  { name: '5. Next.js', url: 'https://github.com/vercel/next-learn-starter', framework: 'nextjs' },
+
+  // ===== NUXT 3 =====
+  { name: '6. Nuxt 3', url: 'https://github.com/nuxt/starter', framework: 'nuxt' },
+
+  // ===== ANGULAR =====
+  { name: '7. Angular', url: 'https://github.com/angular/quickstart', framework: 'angular' },
+
+  // ===== ASTRO =====
+  { name: '8. Astro', url: 'https://github.com/withastro/blog-tutorial-demo', framework: 'astro' },
 ];
 
 async function runTests() {

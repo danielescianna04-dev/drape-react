@@ -75,18 +75,47 @@ const mimeTypes = {
 const server = http.createServer((req, res) => {
   // Decode URL and remove query string
   let filePath = decodeURIComponent(req.url.split('?')[0]);
+  const isRootOrDirRequest = filePath.endsWith('/');
 
-  // Default to index.html if path ends with /
-  if (filePath.endsWith('/')) {
-    filePath += 'index.html';
-  }
-
-  // Build full file path
-  const fullPath = path.resolve(path.join(directory, filePath));
+  // Build full file path for the directory first (to check if it's a dir)
+  const fullDirPath = path.resolve(path.join(directory, filePath.replace(/\/$/, '') || '.'));
   const baseDir = path.resolve(directory);
 
   // Security: prevent directory traversal
   // Normalize both paths for Windows compatibility
+  if (!fullDirPath.startsWith(baseDir)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('403 Forbidden');
+    return;
+  }
+
+  // For directory requests (ending with /), check index.html first, then listing
+  if (isRootOrDirRequest) {
+    const indexPath = path.join(fullDirPath, 'index.html');
+    fs.stat(indexPath, (indexErr, indexStats) => {
+      if (!indexErr && indexStats.isFile()) {
+        // index.html exists - serve it
+        serveFile(indexPath, res);
+      } else {
+        // No index.html - check if directory exists
+        fs.stat(fullDirPath, (dirErr, dirStats) => {
+          if (!dirErr && dirStats.isDirectory()) {
+            // Generate directory listing
+            generateDirectoryListing(fullDirPath, filePath || '/', res);
+          } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('404 Not Found');
+          }
+        });
+      }
+    });
+    return;
+  }
+
+  // For non-directory requests, try to serve the file
+  const fullPath = path.resolve(path.join(directory, filePath));
+
+  // Security check again for non-directory paths
   if (!fullPath.startsWith(baseDir)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('403 Forbidden');
@@ -96,17 +125,8 @@ const server = http.createServer((req, res) => {
   // Check if file exists
   fs.stat(fullPath, (err, stats) => {
     if (err) {
-      // Path doesn't exist - check if it's a directory request without trailing slash
-      const dirPath = fullPath.replace(/\/index\.html$/, '');
-      fs.stat(dirPath, (dirErr, dirStats) => {
-        if (!dirErr && dirStats.isDirectory()) {
-          // It's a directory - generate listing
-          generateDirectoryListing(dirPath, filePath.replace(/\/index\.html$/, '/'), res);
-        } else {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('404 Not Found');
-        }
-      });
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('404 Not Found');
       return;
     }
 
