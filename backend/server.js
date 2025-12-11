@@ -5593,8 +5593,9 @@ app.post('/preview/start', async (req, res) => {
         // Vue CLI also uses --host flag
         startCommand = `${startCommand} --host 0.0.0.0`;
       } else if (startCommand.includes('vite') || commands.projectType === 'Vite' || commands.projectType?.toLowerCase().includes('vite')) {
-        // Vite uses --host flag
-        startCommand = `${startCommand} --host`;
+        // Vite uses --host and --port flags
+        startCommand = `${startCommand} --host --port ${port}`;
+        console.log(`📦 Vite project detected - adding --host --port ${port}`);
       } else if (startCommand.includes('run dev') || startCommand.includes('run start') ||
                  startCommand.includes('yarn dev') || startCommand.includes('yarn start')) {
         // Check if it's a Vite project by looking for vite.config
@@ -5603,12 +5604,12 @@ app.post('/preview/start', async (req, res) => {
                                   fs.existsSync(`${repoPath}/vite.config.ts`) ||
                                   fs.existsSync(`${repoPath}/vite.config.mjs`);
         if (viteConfigExists) {
-          console.log('📦 Vite project detected via config file - adding --host');
+          console.log(`📦 Vite project detected via config file - adding --host --port ${port}`);
           // For pnpm/yarn, use -- to pass args to the underlying script
           if (packageManager === 'pnpm' || packageManager === 'yarn') {
-            startCommand = `${startCommand} --host`;
+            startCommand = `${startCommand} --host --port ${port}`;
           } else {
-            startCommand = `${startCommand} -- --host`;
+            startCommand = `${startCommand} -- --host --port ${port}`;
           }
         } else {
           // Default: use HOST environment variable
