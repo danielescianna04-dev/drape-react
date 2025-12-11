@@ -95,34 +95,187 @@ const server = http.createServer((req, res) => {
 
   // Check if file exists
   fs.stat(fullPath, (err, stats) => {
-    if (err || !stats.isFile()) {
-      // File not found
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('404 Not Found');
+    if (err) {
+      // Path doesn't exist - check if it's a directory request without trailing slash
+      const dirPath = fullPath.replace(/\/index\.html$/, '');
+      fs.stat(dirPath, (dirErr, dirStats) => {
+        if (!dirErr && dirStats.isDirectory()) {
+          // It's a directory - generate listing
+          generateDirectoryListing(dirPath, filePath.replace(/\/index\.html$/, '/'), res);
+        } else {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('404 Not Found');
+        }
+      });
       return;
     }
 
-    // Get MIME type
-    const ext = path.extname(fullPath).toLowerCase();
-    const contentType = mimeTypes[ext] || 'application/octet-stream';
-
-    // Read and serve file
-    fs.readFile(fullPath, (err, data) => {
-      if (err) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('500 Internal Server Error');
-        console.error(`Error reading file: ${err.message}`);
-        return;
-      }
-
-      res.writeHead(200, {
-        'Content-Type': contentType,
-        'Content-Length': data.length
+    if (stats.isDirectory()) {
+      // It's a directory - check for index.html first
+      const indexPath = path.join(fullPath, 'index.html');
+      fs.stat(indexPath, (indexErr, indexStats) => {
+        if (!indexErr && indexStats.isFile()) {
+          // Serve index.html
+          serveFile(indexPath, res);
+        } else {
+          // Generate directory listing
+          generateDirectoryListing(fullPath, filePath, res);
+        }
       });
-      res.end(data);
-    });
+      return;
+    }
+
+    // It's a file - serve it
+    serveFile(fullPath, res);
   });
 });
+
+/**
+ * Serve a file with proper MIME type
+ */
+function serveFile(fullPath, res) {
+  const ext = path.extname(fullPath).toLowerCase();
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+  fs.readFile(fullPath, (err, data) => {
+    if (err) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('500 Internal Server Error');
+      console.error(`Error reading file: ${err.message}`);
+      return;
+    }
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': data.length
+    });
+    res.end(data);
+  });
+}
+
+/**
+ * Generate an HTML directory listing page
+ */
+function generateDirectoryListing(dirPath, urlPath, res) {
+  fs.readdir(dirPath, { withFileTypes: true }, (err, entries) => {
+    if (err) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('500 Internal Server Error');
+      return;
+    }
+
+    // Sort: directories first, then files, alphabetically
+    entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Generate HTML
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Index of ${urlPath}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      padding: 16px 0;
+      border-bottom: 1px solid #21262d;
+      margin-bottom: 16px;
+      color: #58a6ff;
+    }
+    .breadcrumb { color: #8b949e; }
+    .breadcrumb a { color: #58a6ff; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    ul { list-style: none; }
+    li {
+      border-bottom: 1px solid #21262d;
+    }
+    li:last-child { border-bottom: none; }
+    a {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 8px;
+      color: #c9d1d9;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    a:hover { background: #161b22; }
+    .icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .folder { color: #54aeff; }
+    .file { color: #8b949e; }
+    .name { flex: 1; }
+    .folder-name { color: #58a6ff; font-weight: 500; }
+    .parent { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>
+      <span class="breadcrumb">${generateBreadcrumb(urlPath)}</span>
+    </h1>
+    <ul>
+      ${urlPath !== '/' ? `<li><a href="../"><svg class="icon parent" viewBox="0 0 16 16" fill="currentColor"><path d="M8 12L2 6h12z"/></svg><span class="name parent">..</span></a></li>` : ''}
+      ${entries.map(entry => {
+        const isDir = entry.isDirectory();
+        const href = isDir ? `${entry.name}/` : entry.name;
+        const icon = isDir
+          ? '<svg class="icon folder" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z"/></svg>'
+          : '<svg class="icon file" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 1.5a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V6h-2.75A1.75 1.75 0 018 4.25V1.5H3.75zm5.75.56v2.19c0 .138.112.25.25.25h2.19L9.5 2.06zM2 1.75C2 .784 2.784 0 3.75 0h5.086c.464 0 .909.184 1.237.513l3.414 3.414c.329.328.513.773.513 1.237v8.086A1.75 1.75 0 0112.25 15h-8.5A1.75 1.75 0 012 13.25V1.75z"/></svg>';
+        const nameClass = isDir ? 'name folder-name' : 'name';
+        return `<li><a href="${href}">${icon}<span class="${nameClass}">${entry.name}</span></a></li>`;
+      }).join('\n      ')}
+    </ul>
+  </div>
+</body>
+</html>`;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/html',
+      'Content-Length': Buffer.byteLength(html)
+    });
+    res.end(html);
+  });
+}
+
+/**
+ * Generate breadcrumb navigation HTML
+ */
+function generateBreadcrumb(urlPath) {
+  if (urlPath === '/') return '/';
+
+  const parts = urlPath.split('/').filter(Boolean);
+  let html = '<a href="/">/</a>';
+  let currentPath = '';
+
+  parts.forEach((part, i) => {
+    currentPath += '/' + part;
+    if (i < parts.length - 1) {
+      html += ` <a href="${currentPath}/">${part}</a> /`;
+    } else {
+      html += ` ${part} /`;
+    }
+  });
+
+  return html;
+}
 
 // Start server with automatic port finding
 async function startServer() {

@@ -5506,8 +5506,23 @@ app.post('/preview/start', async (req, res) => {
 
     // Fallback if AI didn't return a start command
     if (!startCommand) {
-      console.log(`⚠️ No start command from AI, using default ${packageManager} start`);
-      startCommand = packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`;
+      // For static websites/libraries, use our static file server
+      const projectTypeLower = commands.projectType?.toLowerCase() || '';
+      const isStaticSite = projectTypeLower.includes('static') ||
+                           projectTypeLower === 'html' ||
+                           projectTypeLower.includes('html/css') ||
+                           projectTypeLower.includes('css library') ||
+                           projectTypeLower.includes('css framework') ||
+                           projectTypeLower.includes('documentation') ||
+                           projectTypeLower.includes('landing page');
+
+      if (isStaticSite) {
+        console.log(`📁 Static site/library detected (${commands.projectType}), using static-server.js`);
+        startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} .`;
+      } else {
+        console.log(`⚠️ No start command from AI, using default ${packageManager} start`);
+        startCommand = packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`;
+      }
     }
 
     // Convert npm commands to the detected package manager
