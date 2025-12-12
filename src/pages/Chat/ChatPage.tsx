@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
 import { useContentOffset } from '../../hooks/ui/useContentOffset';
+import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
 const colors = AppColors.dark;
 
@@ -257,6 +258,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       inputPositionAnim.value = 0;
     }
   }, [hasChatStarted, currentTab?.id]);
+
+  // Subscribe to real-time backend logs via WebSocket
+  useEffect(() => {
+    // Only show logs when in terminal mode
+    if (!isTerminalMode) return;
+
+    const unsubscribe = websocketLogService.addListener((log: BackendLog) => {
+      // Add backend log to terminal
+      addTerminalItem({
+        id: `backend-log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        content: log.message,
+        type: log.level === 'error' ? TerminalItemType.ERROR : TerminalItemType.BACKEND_LOG,
+        timestamp: new Date(log.timestamp),
+        source: 'system',
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isTerminalMode, addTerminalItem]);
 
   useEffect(() => {
     // Aggiorna il toggle in tempo reale mentre scrivi (solo in auto mode)

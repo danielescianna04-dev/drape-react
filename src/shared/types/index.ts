@@ -5,6 +5,7 @@ export enum TerminalItemType {
   SYSTEM = 'system',
   LOADING = 'loading',
   USER_MESSAGE = 'user_message', // User message in chat (not a terminal command)
+  BACKEND_LOG = 'backend_log', // Real-time backend log
 }
 
 export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system';

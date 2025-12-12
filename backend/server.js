@@ -33,6 +33,72 @@ function getLocalIP() {
 const LOCAL_IP = getLocalIP();
 const net = require('net');
 
+// ============================================
+// REAL-TIME LOG BROADCASTING SYSTEM
+// ============================================
+let wssInstance = null; // Will be set after WebSocket server is created
+
+/**
+ * Broadcast a log message to all connected WebSocket clients
+ * @param {string} level - Log level: 'info', 'error', 'warn', 'debug'
+ * @param {string} message - The log message
+ * @param {object} metadata - Optional metadata (workstationId, tool, etc.)
+ */
+function broadcastLog(level, message, metadata = {}) {
+  if (!wssInstance) return;
+
+  const logEntry = {
+    type: 'log',
+    level,
+    message,
+    timestamp: new Date().toISOString(),
+    ...metadata
+  };
+
+  wssInstance.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(JSON.stringify(logEntry));
+      } catch (e) {
+        // Ignore send errors
+      }
+    }
+  });
+}
+
+// Store original console methods
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
+// Override console.log to also broadcast
+console.log = (...args) => {
+  originalConsoleLog.apply(console, args);
+  const message = args.map(arg =>
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  broadcastLog('info', message);
+};
+
+// Override console.error to also broadcast
+console.error = (...args) => {
+  originalConsoleError.apply(console, args);
+  const message = args.map(arg =>
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  broadcastLog('error', message);
+};
+
+// Override console.warn to also broadcast
+console.warn = (...args) => {
+  originalConsoleWarn.apply(console, args);
+  const message = args.map(arg =>
+    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+  ).join(' ');
+  broadcastLog('warn', message);
+};
+// ============================================
+
 /**
  * Check if a port is available
  * @param {number} port - Port to check
@@ -6960,6 +7026,7 @@ const server = http.createServer(app);
 
 // Create WebSocket server
 const wss = new WebSocket.Server({ server, path: '/ws' });
+wssInstance = wss; // Enable log broadcasting
 
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket client connected');

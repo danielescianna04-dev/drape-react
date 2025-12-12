@@ -613,6 +613,19 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           </View>
         </View>
       )}
+
+      {item.type === ItemType.BACKEND_LOG && (
+        <View style={styles.backendLogBlock}>
+          <View style={styles.backendLogHeader}>
+            <Ionicons name="server-outline" size={12} color="#8B949E" />
+            <Text style={styles.backendLogLabel}>BACKEND</Text>
+            <Text style={styles.backendLogTime}>
+              {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
+            </Text>
+          </View>
+          <Text style={styles.backendLogText}>{item.content || ''}</Text>
+        </View>
+      )}
       </View>
     </Animated.View>
   );
@@ -1225,5 +1238,37 @@ const markdownStyles = {
   td: {
     padding: 8,
     color: 'rgba(255, 255, 255, 0.85)',
+  },
+  // Backend Log styles
+  backendLogBlock: {
+    backgroundColor: 'rgba(30, 35, 45, 0.6)',
+    borderRadius: 8,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#58A6FF',
+  },
+  backendLogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  backendLogLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#58A6FF',
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  backendLogTime: {
+    fontSize: 10,
+    color: '#8B949E',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  backendLogText: {
+    fontSize: 12,
+    color: '#C9D1D9',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 18,
   },
 };
