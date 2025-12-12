@@ -36,6 +36,7 @@ const colors = AppColors.dark;
 // Available AI models
 const AI_MODELS = [
   { id: 'claude-sonnet-4', name: 'Claude 4', icon: 'sparkles' as const },
+  { id: 'gemini-2-flash', name: 'Gemini 2', icon: 'diamond' as const },
   { id: 'gpt-oss-120b', name: 'GPT 120B', icon: 'flash' as const },
   { id: 'gpt-oss-20b', name: 'GPT 20B', icon: 'flash-outline' as const },
   { id: 'llama-4-scout', name: 'Llama 4', icon: 'paw' as const },
@@ -122,38 +123,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Custom input handler that saves to ref immediately (no extra re-renders)
   const handleInputChange = useCallback((text: string) => {
-    const previousText = previousInputRef.current;
-    let correctedText = text;
-
-    // FIX: Invert case only for NEW characters to counteract keyboard's inverted caps lock
-    if (text.length > previousText.length && text.startsWith(previousText)) {
-      // New characters were added at the end
-      const newChars = text.slice(previousText.length);
-      const invertedNewChars = newChars.split('').map(char => {
-        if (/[a-zA-Z]/.test(char)) {
-          return char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase();
-        }
-        return char;
-      }).join('');
-      correctedText = previousText + invertedNewChars;
-    } else if (text.length < previousText.length) {
-      // Characters were deleted - use as is
-      correctedText = text;
-    } else if (text !== previousText) {
-      // Text was modified (e.g., character replaced) - invert the whole thing
-      correctedText = text.split('').map(char => {
-        if (/[a-zA-Z]/.test(char)) {
-          return char === char.toUpperCase() ? char.toLowerCase() : char.toUpperCase();
-        }
-        return char;
-      }).join('');
-    }
-
-    previousInputRef.current = correctedText;
-    setInput(correctedText);
+    previousInputRef.current = text;
+    setInput(text);
     // Save to ref immediately - this won't trigger re-renders
     if (currentTab?.id) {
-      tabInputsRef.current[currentTab.id] = correctedText;
+      tabInputsRef.current[currentTab.id] = text;
     }
   }, [currentTab?.id]);
 
@@ -786,6 +760,33 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       timestamp: new Date(),
                     });
                   }
+                  // Handle function call in progress (Gemini sends this before executing tool)
+                  else if (parsed.functionCall) {
+                    const { name, args } = parsed.functionCall;
+                    console.log('🔧 Function call in progress:', name);
+
+                    // Add a "tool executing" indicator to the terminal
+                    // Format: "Executing: tool_name" - will be styled in TerminalItem
+                    const toolIndicatorId = `tool-${Date.now()}-${name}`;
+                    addTerminalItem({
+                      id: toolIndicatorId,
+                      content: `Executing: ${name}`,
+                      type: TerminalItemType.OUTPUT,
+                      timestamp: new Date(),
+                    });
+
+                    // IMPORTANT: Create a new streaming message for text AFTER the tool call
+                    // This prevents the AI's text from being "split" around the tool indicator
+                    streamingMessageId = `stream-after-tool-${Date.now()}`;
+                    streamedContent = '';
+
+                    addTerminalItem({
+                      id: streamingMessageId,
+                      content: '',
+                      type: TerminalItemType.OUTPUT,
+                      timestamp: new Date(),
+                    });
+                  }
                   // Handle text responses
                   else if (parsed.text) {
                     streamedContent += parsed.text;
@@ -1234,7 +1235,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             {/* Input Field */}
             <TextInput
-              style={styles.input}
+              style={[styles.input, { textTransform: 'none' }]}
               value={input}
               onChangeText={handleInputChange}
               placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
@@ -1245,6 +1246,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               keyboardAppearance="dark"
               autoCapitalize="none"
               autoCorrect={false}
+              spellCheck={false}
+              autoComplete="off"
+              textContentType="none"
+              keyboardType="default"
             />
 
             {/* Send Button */}

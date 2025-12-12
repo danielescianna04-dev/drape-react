@@ -77,10 +77,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   }, [item, outputItem]);
 
-  // Protezione per content null/undefined
-  if (!item || item.content == null) {
-    return null;
-  }
+  // Animation effect - fade in and slide
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -98,13 +95,13 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
   // Animated dots for loading state
   useEffect(() => {
-    if (item.type === ItemType.LOADING) {
+    if (item?.type === ItemType.LOADING) {
       const interval = setInterval(() => {
         setDotCount((prev) => (prev >= 3 ? 1 : prev + 1));
       }, 500);
       return () => clearInterval(interval);
     }
-  }, [item.type]);
+  }, [item?.type]);
 
   // Pulse animation for loading thread dot
   useEffect(() => {
@@ -145,6 +142,12 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       setLoadingDots('.');
     }
   }, [isLoading]);
+
+  // IMPORTANT: All hooks must be called before any conditional return!
+  // Skip rendering empty placeholder messages (created for post-tool streaming)
+  if (!item || item.content == null || (typeof item.content === 'string' && item.content.trim() === '')) {
+    return null;
+  }
 
   const getTextColor = () => {
     switch (item.type) {
@@ -267,7 +270,10 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
               // Show inline format: READ filename (X lines)
               return (
                 <View style={styles.readFileInline}>
-                  <Text style={styles.readFileLabel}>READ</Text>
+                  <View style={styles.toolBadge}>
+                    <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
+                    <Text style={styles.toolBadgeText}>READ</Text>
+                  </View>
                   <Text style={styles.readFileName}>{fileName}</Text>
                   <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
                 </View>
@@ -354,7 +360,34 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       )}
 
       {item.type === ItemType.OUTPUT && (
-        // Check if this is a Read tool result
+        // Check if this is a tool executing indicator
+        (item.content || '').startsWith('Executing: ') ? (
+          (() => {
+            const toolName = (item.content || '').replace('Executing: ', '');
+            // Map tool names to friendly names and icons
+            const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+              'read_file': { icon: 'document-text-outline', label: 'Reading', color: '#58A6FF' },
+              'glob_files': { icon: 'search-outline', label: 'Searching', color: '#A371F7' },
+              'edit_file': { icon: 'create-outline', label: 'Editing', color: '#3FB950' },
+              'write_file': { icon: 'save-outline', label: 'Writing', color: '#3FB950' },
+              'search_in_files': { icon: 'code-slash-outline', label: 'Searching', color: '#FFA657' },
+              'list_files': { icon: 'folder-outline', label: 'Listing', color: '#58A6FF' },
+            };
+            const config = toolConfig[toolName] || { icon: 'cog-outline', label: 'Executing', color: '#8B949E' };
+
+            return (
+              <View style={styles.readFileInline}>
+                <View style={[styles.toolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                  <Ionicons name={config.icon as any} size={12} color={config.color} />
+                  <Text style={[styles.toolBadgeText, { color: config.color }]}>{config.label.toUpperCase()}</Text>
+                </View>
+                <Animated.View style={{ opacity: pulseAnim }}>
+                  <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)' }]}>...</Text>
+                </Animated.View>
+              </View>
+            );
+          })()
+        ) : // Check if this is a Read tool result
         (item.content || '').startsWith('Read ') ? (
           (() => {
             const content = item.content || '';
@@ -366,7 +399,10 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
             return (
               <View style={styles.readFileInline}>
-                <Text style={styles.readFileLabel}>READ</Text>
+                <View style={styles.toolBadge}>
+                  <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
+                  <Text style={styles.toolBadgeText}>READ</Text>
+                </View>
                 <Text style={styles.readFileName}>{fileName}</Text>
               </View>
             );
@@ -383,8 +419,11 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             return (
               <View>
                 <View style={styles.readFileInline}>
-                  <Text style={styles.readFileLabel}>GLOB</Text>
-                  <Text style={styles.readFileName}>pattern: {pattern}</Text>
+                  <View style={[styles.toolBadge, styles.toolBadgeGlob]}>
+                    <Ionicons name="search-outline" size={12} color="#A371F7" />
+                    <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>GLOB</Text>
+                  </View>
+                  <Text style={styles.readFileName}>{pattern}</Text>
                 </View>
                 {stats && (
                   <Text style={styles.globStats}>{stats}</Text>
@@ -400,10 +439,18 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             const editSubheader = lines[1]; // "└─ Added X lines"
             const codeLines = lines.slice(2); // Skip empty line and get code
 
+            const fileName = editHeader.replace('Edit ', '');
+
             return (
               <View>
-                {/* Header and stats outside the card */}
-                <Text style={styles.editFileHeader}>{editHeader}</Text>
+                {/* Header with badge */}
+                <View style={styles.readFileInline}>
+                  <View style={[styles.toolBadge, styles.toolBadgeEdit]}>
+                    <Ionicons name="create-outline" size={12} color="#3FB950" />
+                    <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>EDIT</Text>
+                  </View>
+                  <Text style={styles.readFileName}>{fileName}</Text>
+                </View>
                 {editSubheader && (
                   <Text style={styles.editFileStats}>{editSubheader}</Text>
                 )}
@@ -513,7 +560,9 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             {isLoading && !item.content ? (
               <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
             ) : (
-              <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
+              <View style={{ overflow: 'hidden', flex: 1 }}>
+                <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
+              </View>
             )}
           </View>
         )
@@ -591,13 +640,14 @@ const styles = StyleSheet.create({
   threadLine: {
     position: 'absolute',
     top: 18,
-    bottom: -40,
+    bottom: -24, // Reduced from -40 to prevent line from extending too far
     width: 2,
     backgroundColor: 'rgba(110, 118, 129, 0.3)',
     zIndex: 1,
   },
   contentContainer: {
     flex: 1,
+    overflow: 'hidden', // Prevent content from overflowing horizontally
   },
   userMessageContainer: {
     marginLeft: 0, // No thread container for user messages
@@ -612,6 +662,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#8B949E',
+    letterSpacing: 0.5,
+  },
+  toolBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(88, 166, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(88, 166, 255, 0.3)',
+  },
+  toolBadgeGlob: {
+    backgroundColor: 'rgba(163, 113, 247, 0.15)',
+    borderColor: 'rgba(163, 113, 247, 0.3)',
+  },
+  toolBadgeEdit: {
+    backgroundColor: 'rgba(63, 185, 80, 0.15)',
+    borderColor: 'rgba(63, 185, 80, 0.3)',
+  },
+  toolBadgeSearch: {
+    backgroundColor: 'rgba(255, 166, 87, 0.15)',
+    borderColor: 'rgba(255, 166, 87, 0.3)',
+  },
+  toolBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#58A6FF',
     letterSpacing: 0.5,
   },
   readFileName: {
@@ -886,6 +965,7 @@ const styles = StyleSheet.create({
   assistantMessageContent: {
     flex: 1,
     marginTop: 3, // Align text baseline with thread dot center
+    overflow: 'hidden', // Prevent markdown content from overflowing
   },
   loadingText: {
     fontSize: 15,
@@ -997,6 +1077,7 @@ const markdownStyles = {
     lineHeight: 22,
     marginTop: 0, // Remove any default top margin
     paddingTop: 0, // Remove any default top padding
+    borderWidth: 0, // Remove any borders
   },
   heading1: {
     fontSize: 20,
@@ -1023,6 +1104,8 @@ const markdownStyles = {
     marginTop: 0, // Ensure first paragraph aligns with thread dot
     marginBottom: 12,
     lineHeight: 22,
+    borderBottomWidth: 0, // Explicitly remove any bottom border
+    borderWidth: 0,
   },
   strong: {
     fontWeight: '700',
@@ -1095,14 +1178,33 @@ const markdownStyles = {
     paddingVertical: 8,
   },
   hr: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    height: 1,
-    marginVertical: 16,
+    backgroundColor: 'transparent', // Hide horizontal rules completely
+    height: 0,
+    marginVertical: 0,
+    display: 'none',
   },
   link: {
     color: '#58A6FF',
-    textDecorationLine: 'none', // Claude Code doesn't underline links
+    textDecorationLine: 'none',
+    textDecorationStyle: 'solid',
+    textDecorationColor: 'transparent',
     fontWeight: '600',
+  },
+  // Remove underline from any inline HTML tags
+  html_inline: {
+    textDecorationLine: 'none',
+  },
+  html_block: {
+    textDecorationLine: 'none',
+  },
+  softbreak: {
+    textDecorationLine: 'none',
+  },
+  hardbreak: {
+    textDecorationLine: 'none',
+  },
+  text: {
+    textDecorationLine: 'none',
   },
   table: {
     borderWidth: 1,

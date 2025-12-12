@@ -482,6 +482,13 @@ const AI_MODELS = {
     modelId: 'qwen/qwen3-32b',
     name: 'Qwen 3 32B',
     description: 'Alibaba via Groq - Ottimo per codice'
+  },
+  // Google Gemini
+  'gemini-2-flash': {
+    provider: 'gemini',
+    modelId: 'gemini-2.0-flash',
+    name: 'Gemini 2 Flash',
+    description: 'Google - Velocissimo e potente'
   }
 };
 
@@ -1306,6 +1313,217 @@ REGOLE D'ORO:
       }
 
       // Done with Groq
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+
+    // ==========================================
+    // GEMINI PROVIDER (Google) - with tool calling support
+    // ==========================================
+    if (provider === 'gemini') {
+      const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+      if (!GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY not configured');
+      }
+
+      // Convert tools to Gemini format
+      const geminiTools = [{
+        function_declarations: tools.map(tool => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.input_schema
+        }))
+      }];
+
+      // Convert messages to Gemini format
+      const geminiContents = currentMessages.map(msg => {
+        if (msg.role === 'user') {
+          if (Array.isArray(msg.content)) {
+            // Handle tool_result messages
+            const toolResults = msg.content.filter(c => c.type === 'tool_result');
+            if (toolResults.length > 0) {
+              return {
+                role: 'user',
+                parts: toolResults.map(tr => ({
+                  functionResponse: {
+                    name: tr.tool_use_id.split('_')[0] || 'tool',
+                    response: { result: tr.content }
+                  }
+                }))
+              };
+            }
+            const textContent = msg.content.find(c => c.type === 'text');
+            return { role: 'user', parts: [{ text: textContent?.text || '' }] };
+          }
+          return { role: 'user', parts: [{ text: msg.content }] };
+        }
+        if (msg.role === 'assistant') {
+          if (Array.isArray(msg.content)) {
+            const parts = [];
+            for (const block of msg.content) {
+              if (block.type === 'text') {
+                parts.push({ text: block.text });
+              } else if (block.type === 'tool_use') {
+                parts.push({
+                  functionCall: {
+                    name: block.name,
+                    args: block.input
+                  }
+                });
+              }
+            }
+            return { role: 'model', parts };
+          }
+          return { role: 'model', parts: [{ text: msg.content }] };
+        }
+        return { role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }] };
+      });
+
+      while (continueLoop) {
+        continueLoop = false;
+
+        try {
+          console.log(`🔄 Calling Gemini API with model: ${model}`);
+
+          // Gemini streaming request
+          const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${GEMINI_API_KEY}`,
+            {
+              contents: geminiContents,
+              systemInstruction: { parts: [{ text: systemMessage }] },
+              tools: geminiTools,
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 8192
+              }
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              responseType: 'stream',
+              timeout: 120000
+            }
+          );
+
+          let fullText = '';
+          let toolCalls = [];
+          let buffer = '';
+
+          // Process streaming response
+          response.data.on('data', (chunk) => {
+            buffer += chunk.toString();
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data.candidates?.[0]?.content?.parts) {
+                    for (const part of data.candidates[0].content.parts) {
+                      if (part.text) {
+                        fullText += part.text;
+                        res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+                      }
+                      if (part.functionCall) {
+                        toolCalls.push({
+                          id: `gemini_${Date.now()}_${toolCalls.length}`,
+                          name: part.functionCall.name,
+                          input: part.functionCall.args || {}
+                        });
+                        res.write(`data: ${JSON.stringify({
+                          functionCall: {
+                            name: part.functionCall.name,
+                            args: part.functionCall.args || {}
+                          }
+                        })}\n\n`);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // Ignore parse errors for incomplete JSON
+                }
+              }
+            }
+          });
+
+          await new Promise((resolve, reject) => {
+            response.data.on('end', resolve);
+            response.data.on('error', reject);
+          });
+
+          // Process tool calls if any
+          if (toolCalls.length > 0) {
+            console.log(`🔧 Processing ${toolCalls.length} Gemini tool calls`);
+
+            // Add assistant message with tool calls
+            const assistantContent = [];
+            if (fullText) {
+              assistantContent.push({ type: 'text', text: fullText });
+            }
+            for (const tc of toolCalls) {
+              assistantContent.push({
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.name,
+                input: tc.input
+              });
+            }
+            currentMessages.push({ role: 'assistant', content: assistantContent });
+
+            // Execute tools and stream results to frontend
+            const toolResults = [];
+            for (const tc of toolCalls) {
+              console.log(`   🔧 Executing: ${tc.name}`);
+              const result = await executeTool(tc.name, tc.input);
+              const resultContent = typeof result === 'string' ? result : JSON.stringify(result);
+
+              // Send tool result to frontend for UI display
+              res.write(`data: ${JSON.stringify({
+                toolResult: {
+                  name: tc.name,
+                  args: tc.input,
+                  result: resultContent
+                }
+              })}\n\n`);
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: tc.id,
+                content: resultContent
+              });
+            }
+            currentMessages.push({ role: 'user', content: toolResults });
+
+            // Update geminiContents for next iteration
+            geminiContents.push({
+              role: 'model',
+              parts: toolCalls.map(tc => ({
+                functionCall: { name: tc.name, args: tc.input }
+              }))
+            });
+            geminiContents.push({
+              role: 'user',
+              parts: toolResults.map(tr => ({
+                functionResponse: {
+                  name: tr.tool_use_id.split('_')[1] || 'tool',
+                  response: { result: tr.content }
+                }
+              }))
+            });
+
+            continueLoop = true;
+          }
+
+        } catch (error) {
+          console.error('❌ Gemini API error:', error.response?.data || error.message);
+          res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        }
+      }
+
+      // Done with Gemini
       res.write('data: [DONE]\n\n');
       res.end();
       return;
@@ -4082,15 +4300,22 @@ app.post('/workstation/search-files', async (req, res) => {
 
     console.log('🔍 Searching for:', pattern, 'in', repoPath);
 
-    // Use grep to search
-    const { stdout } = await execAsync(`cd "${repoPath}" && grep -r -n "${pattern}" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.json" . || true`);
+    // Use grep to search - exclude node_modules, dist, build, .git
+    const { stdout } = await execAsync(
+      `cd "${repoPath}" && grep -r -n "${pattern}" --include="*.js" --include="*.jsx" --include="*.ts" --include="*.tsx" --include="*.json" --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build --exclude-dir=.git --exclude-dir=coverage . || true`,
+      { maxBuffer: 10 * 1024 * 1024 } // 10MB buffer
+    );
 
     const results = stdout.split('\n').filter(line => line.trim()).map(line => {
       const [file, ...rest] = line.split(':');
       return { file, match: rest.join(':') };
     });
 
-    res.json({ success: true, results });
+    // Limit to first 50 results
+    const limitedResults = results.slice(0, 50);
+    const truncated = results.length > 50;
+
+    res.json({ success: true, results: limitedResults, totalCount: results.length, truncated });
   } catch (error) {
     console.error('Search files error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -5091,6 +5316,491 @@ app.get('/workstation/:projectId/search', async (req, res) => {
 const projectCommandsCache = new Map();
 
 /**
+ * OPTIMIZATION: Fast pre-AI detection for common frameworks
+ * Returns commands if detected, null if AI needed
+ */
+async function fastDetectProject(repoPath) {
+  const packageJsonPath = path.join(repoPath, 'package.json');
+
+  try {
+    // Check if package.json exists
+    await fs.access(packageJsonPath);
+    const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
+    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+    const scripts = packageJson.scripts || {};
+
+    // Detect framework from dependencies
+    let projectType = null;
+    let startCommand = null;
+    let port = 3000;
+
+    // Remix - check BEFORE Vite since Remix uses Vite internally
+    if (deps['@remix-run/react']) {
+      projectType = 'Remix';
+      startCommand = 'npm run dev';
+      port = 3000;
+    }
+    // Next.js - ALWAYS use dev mode (npm start requires a build)
+    else if (deps.next) {
+      projectType = 'Next.js';
+      // Use npm run dev if available, otherwise use npx next dev directly
+      startCommand = scripts.dev ? 'npm run dev' : 'npx next dev';
+      port = 3000;
+    }
+    // Nuxt - ALWAYS use dev mode
+    else if (deps.nuxt) {
+      projectType = 'Nuxt.js';
+      // Use npm run dev if available, otherwise use npx nuxi dev directly
+      startCommand = scripts.dev ? 'npm run dev' : 'npx nuxi dev';
+      port = 3000;
+    }
+    // Create React App
+    else if (deps['react-scripts']) {
+      projectType = 'Create React App';
+      startCommand = 'npm start';
+      port = 3000;
+    }
+    // Expo / React Native
+    else if (deps.expo || deps['expo-cli']) {
+      projectType = 'Expo / React Native';
+      startCommand = 'npx expo start --web --port 8081';
+      port = 8081;
+    }
+    // Angular
+    else if (deps['@angular/core']) {
+      projectType = 'Angular';
+      startCommand = scripts.start ? 'npm start' : 'npm run serve';
+      port = 4200;
+    }
+    // SvelteKit
+    else if (deps['@sveltejs/kit']) {
+      projectType = 'SvelteKit';
+      startCommand = 'npm run dev';
+      port = 5173;
+    }
+    // Astro
+    else if (deps.astro) {
+      projectType = 'Astro';
+      startCommand = 'npm run dev';
+      port = 4321;
+    }
+    // Vite detection (React, Vue, Svelte with Vite) - AFTER specific frameworks
+    else if (deps.vite) {
+      projectType = deps.react ? 'React + Vite' : deps.vue ? 'Vue + Vite' : deps.svelte ? 'Svelte + Vite' : 'Vite';
+      startCommand = scripts.dev ? 'npm run dev' : 'npm run start';
+      port = 5173;
+    }
+    // Express.js detection
+    else if (deps.express) {
+      projectType = 'Express.js';
+      // Prefer dev script, then start, then look for common entry points
+      if (scripts.dev) {
+        startCommand = 'npm run dev';
+      } else if (scripts.start) {
+        startCommand = 'npm start';
+      } else {
+        // Try common Express entry points
+        startCommand = 'node server.js || node index.js || node app.js';
+      }
+      port = 3000;
+    }
+    // Generic Node.js with common scripts
+    else if (scripts.dev && (deps.react || deps.vue || deps.svelte)) {
+      projectType = deps.react ? 'React' : deps.vue ? 'Vue' : 'Svelte';
+      startCommand = 'npm run dev';
+      port = 3000;
+    }
+    else if (scripts.start) {
+      projectType = 'Node.js';
+      startCommand = 'npm start';
+      port = 3000;
+    }
+
+    if (projectType && startCommand) {
+      console.log(`⚡ Fast detection: ${projectType}`);
+
+      // Check for backend scripts
+      let hasBackend = false;
+      let backendCommand = null;
+      let backendPort = null;
+
+      if (scripts.server || scripts.backend || scripts.api) {
+        hasBackend = true;
+        backendCommand = scripts.server ? 'npm run server' :
+                         scripts.backend ? 'npm run backend' : 'npm run api';
+        backendPort = 5000;
+      } else if (scripts['json-server'] || deps['json-server']) {
+        hasBackend = true;
+        backendCommand = 'npm run json-server';
+        backendPort = 3001;
+      }
+
+      return {
+        projectType,
+        installCommand: 'npm install',
+        startCommand,
+        port,
+        needsInstall: true,
+        notes: 'Fast detected',
+        hasBackend,
+        backendCommand,
+        backendPort,
+        fastDetected: true
+      };
+    }
+  } catch (err) {
+    // No package.json or parse error - check for static site
+  }
+
+  // Check for static HTML site
+  const indexHtmlPath = path.join(repoPath, 'index.html');
+  try {
+    await fs.access(indexHtmlPath);
+    console.log('⚡ Fast detection: Static HTML site');
+    return {
+      projectType: 'Static HTML',
+      installCommand: null,
+      startCommand: `node ${path.join(__dirname, 'static-server.js')} 8000 .`,
+      port: 8000,
+      needsInstall: false,
+      notes: 'Static HTML site',
+      hasBackend: false,
+      backendCommand: null,
+      backendPort: null,
+      fastDetected: true
+    };
+  } catch (err) {
+    // No index.html in root
+  }
+
+  // Check for Python projects
+  const requirementsPath = path.join(repoPath, 'requirements.txt');
+  const pyprojectPath = path.join(repoPath, 'pyproject.toml');
+
+  try {
+    await fs.access(requirementsPath);
+    const requirements = await fs.readFile(requirementsPath, 'utf-8');
+
+    if (requirements.includes('django')) {
+      console.log('⚡ Fast detection: Django');
+      return {
+        projectType: 'Django',
+        installCommand: 'pip3 install -r requirements.txt',
+        startCommand: 'python3 manage.py runserver 0.0.0.0:8000',
+        port: 8000,
+        needsInstall: true,
+        notes: 'Django project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    } else if (requirements.includes('flask')) {
+      console.log('⚡ Fast detection: Flask');
+      return {
+        projectType: 'Flask',
+        installCommand: 'pip3 install -r requirements.txt',
+        startCommand: 'python3 -m flask run --host=0.0.0.0 --port=5000',
+        port: 5000,
+        needsInstall: true,
+        notes: 'Flask project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    } else if (requirements.includes('fastapi')) {
+      console.log('⚡ Fast detection: FastAPI');
+      return {
+        projectType: 'FastAPI',
+        installCommand: 'pip3 install -r requirements.txt',
+        startCommand: 'python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload',
+        port: 8000,
+        needsInstall: true,
+        notes: 'FastAPI project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    }
+  } catch (err) {
+    // No requirements.txt
+  }
+
+  // Check for Ruby on Rails (Gemfile)
+  const gemfilePath = path.join(repoPath, 'Gemfile');
+  try {
+    await fs.access(gemfilePath);
+    const gemfile = await fs.readFile(gemfilePath, 'utf-8');
+
+    if (gemfile.includes('rails')) {
+      console.log('⚡ Fast detection: Ruby on Rails');
+      return {
+        projectType: 'Ruby on Rails',
+        installCommand: 'bundle install',
+        startCommand: 'rails server -b 0.0.0.0 -p 3000',
+        port: 3000,
+        needsInstall: true,
+        notes: 'Ruby on Rails project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    } else if (gemfile.includes('sinatra')) {
+      console.log('⚡ Fast detection: Sinatra');
+      return {
+        projectType: 'Sinatra',
+        installCommand: 'bundle install',
+        startCommand: 'ruby app.rb -o 0.0.0.0 -p 4567',
+        port: 4567,
+        needsInstall: true,
+        notes: 'Sinatra project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    }
+  } catch (err) {
+    // No Gemfile
+  }
+
+  // Check for Laravel (PHP - composer.json)
+  const composerPath = path.join(repoPath, 'composer.json');
+  try {
+    await fs.access(composerPath);
+    const composerJson = JSON.parse(await fs.readFile(composerPath, 'utf-8'));
+    const phpDeps = { ...composerJson.require, ...composerJson['require-dev'] };
+
+    if (phpDeps['laravel/framework']) {
+      console.log('⚡ Fast detection: Laravel');
+      return {
+        projectType: 'Laravel',
+        installCommand: 'composer install && php artisan key:generate --force',
+        startCommand: 'php artisan serve --host=0.0.0.0 --port=8000',
+        port: 8000,
+        needsInstall: true,
+        notes: 'Laravel PHP project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    } else if (phpDeps['symfony/framework-bundle'] || phpDeps['symfony/symfony']) {
+      console.log('⚡ Fast detection: Symfony');
+      return {
+        projectType: 'Symfony',
+        installCommand: 'composer install',
+        startCommand: 'php -S 0.0.0.0:8000 -t public/',
+        port: 8000,
+        needsInstall: true,
+        notes: 'Symfony PHP project',
+        hasBackend: false,
+        fastDetected: true
+      };
+    }
+  } catch (err) {
+    // No composer.json
+  }
+
+  // Check for Spring Boot (Java/Kotlin - pom.xml or build.gradle)
+  const pomPath = path.join(repoPath, 'pom.xml');
+  const gradlePath = path.join(repoPath, 'build.gradle');
+  const gradleKtsPath = path.join(repoPath, 'build.gradle.kts');
+
+  try {
+    // Check Maven (pom.xml)
+    await fs.access(pomPath);
+    const pomXml = await fs.readFile(pomPath, 'utf-8');
+
+    if (pomXml.includes('spring-boot')) {
+      console.log('⚡ Fast detection: Spring Boot (Maven)');
+      return {
+        projectType: 'Spring Boot',
+        installCommand: './mvnw dependency:resolve || mvn dependency:resolve',
+        startCommand: './mvnw spring-boot:run -Dspring-boot.run.arguments="--server.address=0.0.0.0 --server.port=8080" || mvn spring-boot:run -Dspring-boot.run.arguments="--server.address=0.0.0.0 --server.port=8080"',
+        port: 8080,
+        needsInstall: true,
+        notes: 'Spring Boot project (Maven)',
+        hasBackend: false,
+        fastDetected: true
+      };
+    }
+  } catch (err) {
+    // No pom.xml
+  }
+
+  try {
+    // Check Gradle (build.gradle or build.gradle.kts)
+    let gradleFile = null;
+    try {
+      await fs.access(gradlePath);
+      gradleFile = await fs.readFile(gradlePath, 'utf-8');
+    } catch {
+      try {
+        await fs.access(gradleKtsPath);
+        gradleFile = await fs.readFile(gradleKtsPath, 'utf-8');
+      } catch {
+        // Neither exists
+      }
+    }
+
+    if (gradleFile) {
+      if (gradleFile.includes('spring-boot') || gradleFile.includes('org.springframework.boot')) {
+        console.log('⚡ Fast detection: Spring Boot (Gradle)');
+        return {
+          projectType: 'Spring Boot',
+          installCommand: './gradlew build --no-daemon || gradle build',
+          startCommand: './gradlew bootRun --args="--server.address=0.0.0.0 --server.port=8080" || gradle bootRun --args="--server.address=0.0.0.0 --server.port=8080"',
+          port: 8080,
+          needsInstall: true,
+          notes: 'Spring Boot project (Gradle)',
+          hasBackend: false,
+          fastDetected: true
+        };
+      } else if (gradleFile.includes('io.ktor') || gradleFile.includes('ktor-server')) {
+        console.log('⚡ Fast detection: Ktor');
+        return {
+          projectType: 'Ktor',
+          installCommand: './gradlew build --no-daemon || gradle build',
+          startCommand: './gradlew run || gradle run',
+          port: 8080,
+          needsInstall: true,
+          notes: 'Ktor Kotlin project',
+          hasBackend: false,
+          fastDetected: true
+        };
+      }
+    }
+  } catch (err) {
+    // Gradle check failed
+  }
+
+  // Could not fast detect - need AI
+  return null;
+}
+
+/**
+ * Call Gemini AI API (optimized for project analysis)
+ */
+async function callGeminiAI(prompt, options = {}) {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+  if (!GEMINI_API_KEY) {
+    console.log('⚠️ GEMINI_API_KEY not set, falling back to Groq');
+    return null; // Will fallback to Groq
+  }
+
+  try {
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 500,
+          responseMimeType: options.json ? 'application/json' : 'text/plain'
+        }
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      }
+    );
+
+    const text = response.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return text;
+  } catch (error) {
+    console.error('Gemini API error:', error.response?.data || error.message);
+    return null; // Will fallback to Groq
+  }
+}
+
+/**
+ * OPTIMIZED: Single AI call to analyze project (replaces 2 separate calls)
+ */
+async function aiAnalyzeProjectOptimized(repoPath) {
+  // Only read essential files - no need for AI to select them
+  const essentialFiles = [
+    'package.json',
+    'vite.config.js', 'vite.config.ts',
+    'next.config.js', 'next.config.mjs',
+    'nuxt.config.js', 'nuxt.config.ts',
+    'angular.json',
+    'svelte.config.js',
+    'astro.config.mjs',
+    'requirements.txt',
+    'pyproject.toml',
+    'Cargo.toml',
+    'go.mod',
+    'Makefile',
+    'Dockerfile',
+    'Gruntfile.js',  // Grunt-based projects
+    'Gulpfile.js',   // Gulp-based projects
+    'bower.json',    // Bower dependencies
+    'Gemfile',       // Ruby projects
+    'composer.json', // PHP projects (Laravel, Symfony)
+    'pom.xml',       // Maven/Java/Kotlin projects
+    'build.gradle',  // Gradle/Java/Kotlin projects
+    'build.gradle.kts', // Gradle Kotlin DSL
+    'README.md'
+  ];
+
+  // Read only files that exist (max 2000 chars each to save tokens)
+  const fileContents = {};
+  for (const file of essentialFiles) {
+    try {
+      const content = await fs.readFile(path.join(repoPath, file), 'utf-8');
+      fileContents[file] = content.substring(0, 2000);
+    } catch (err) {
+      // File doesn't exist, skip
+    }
+  }
+
+  if (Object.keys(fileContents).length === 0) {
+    return null; // No recognizable project files
+  }
+
+  // Get minimal tree (only first level + key subdirs)
+  const entries = await fs.readdir(repoPath, { withFileTypes: true });
+  const tree = entries
+    .filter(e => !['node_modules', '.git', 'dist', 'build', '.next'].includes(e.name))
+    .slice(0, 30)
+    .map(e => `${e.isDirectory() ? '📁' : '📄'} ${e.name}`)
+    .join('\n');
+
+  const filesText = Object.entries(fileContents)
+    .map(([name, content]) => `=== ${name} ===\n${content}`)
+    .join('\n\n');
+
+  const prompt = `Analyze this project and return ONLY valid JSON:
+
+Project files:
+${tree}
+
+File contents:
+${filesText}
+
+Return JSON:
+{"projectType":"string","installCommand":"npm install or null","startCommand":"command to start dev server","port":3000,"needsInstall":true,"hasBackend":false,"backendCommand":null,"backendPort":null}
+
+Rules:
+- Use npm (not yarn/pnpm)
+- For Vite: port 5173, "npm run dev"
+- For Next.js: port 3000, "npm run dev"
+- For static HTML: port 8000, use static server
+- For Expo: "npx expo start --web --port 8081"
+- For Grunt: "grunt server" or check Gruntfile.js for server task, typically port 8888
+- For Gulp: check gulpfile.js for serve/server task
+- For older AngularJS: might need "grunt server" and port 8888`;
+
+  // Use Gemini only
+  const response = await callGeminiAI(prompt, { json: true });
+
+  if (!response) {
+    console.error('❌ Gemini AI failed - check GEMINI_API_KEY');
+    return null;
+  }
+
+  try {
+    return JSON.parse(response);
+  } catch (err) {
+    console.error('Failed to parse AI response:', response);
+    return null;
+  }
+}
+
+/**
  * Get directory tree structure (for AI analysis)
  */
 async function getProjectTree(repoPath, maxDepth = 3) {
@@ -5429,8 +6139,12 @@ Rules:
 - ALWAYS use npm (not yarn, not pnpm) for Node.js projects: "npm install" and "npm run <script>" or "npm start"
 - For Node.js: check "scripts" in package.json for "dev", "start", "serve" commands
 - For Python: look for requirements.txt, setup.py, pyproject.toml
+- IMPORTANT for Python: ALWAYS use "python3" and "pip3" (not "python" or "pip") because on macOS python2 is deprecated
+- For Flask: ALWAYS use "pip3 install -r requirements.txt" and "python3 -m flask run" (never "python3 app.py" because it doesn't support host binding)
+- For Django: use "pip3 install -r requirements.txt" and "python3 manage.py runserver 0.0.0.0:8000"
+- For FastAPI: use "pip3 install -r requirements.txt" and "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000"
 - For Expo/React Native: use "npx expo start --web --port 8081"
-- Default ports: React 3000, Vite 5173, Next.js 3000, Expo 8081, Django 8000, Flask 5000
+- Default ports: React 3000, Vite 5173, Next.js 3000, Expo 8081, Django 8000, Flask 5000, FastAPI 8000
 - If you see a Makefile or Dockerfile, consider those
 - Be specific with commands, include flags if needed
 - IMPORTANT: Never use yarn or pnpm, always use npm
@@ -5517,38 +6231,55 @@ app.post('/preview/start', async (req, res) => {
       commands = projectCommandsCache.get(cacheKey);
       console.log('📦 Using cached commands');
     } else {
-      // Check if AI is available
-      if (isAIAvailable()) {
-        // Step 1: Get project tree
-        console.log('🌳 Reading project structure...');
-        const tree = await getProjectTree(repoPath);
-        console.log(`   Found ${tree.length} entries`);
+      // OPTIMIZED: Try fast detection first (no AI call)
+      console.log('⚡ Attempting fast project detection...');
+      commands = await fastDetectProject(repoPath);
 
-        // Step 2: AI selects files to read
-        console.log('🤖 AI selecting files to analyze...');
-        const filesToRead = await aiSelectFilesToRead(tree);
-        console.log(`   Selected: ${filesToRead.join(', ')}`);
-
-        // Step 3: Read selected files
-        console.log('📖 Reading selected files...');
-        const fileContents = await readProjectFiles(repoPath, filesToRead);
-
-        // Step 4: AI determines commands
-        console.log('🧠 AI analyzing project...');
-        commands = await aiDetermineCommands(tree, fileContents);
-        console.log(`   Project type: ${commands.projectType}`);
-        console.log(`   Install: ${commands.installCommand}`);
-        console.log(`   Start: ${commands.startCommand}`);
-        console.log(`   Port: ${commands.port}`);
+      if (commands) {
+        console.log(`✅ Fast detected: ${commands.projectType}`);
       } else {
-        // Fallback: Use basic project detection (no AI)
-        console.log('⚙️ Using basic project detection (AI not configured)...');
-        commands = await basicDetectCommands(repoPath);
-        console.log(`   Project type: ${commands.projectType}`);
-        console.log(`   Install: ${commands.installCommand}`);
-        console.log(`   Start: ${commands.startCommand}`);
-        console.log(`   Port: ${commands.port}`);
+        // Fallback to AI (single optimized call)
+        console.log('🤖 Fast detection failed, using AI...');
+        commands = await aiAnalyzeProjectOptimized(repoPath);
+
+        if (!commands) {
+          // No fallback to Groq - return error
+          console.error('❌ AI analysis failed - could not determine project type');
+          return res.status(400).json({
+            success: false,
+            error: 'Impossibile determinare il tipo di progetto. Verifica che sia un progetto web valido.',
+            projectType: 'unknown'
+          });
+        }
       }
+
+      // Post-process Python commands: always use python3/pip3 on macOS
+      if (commands.installCommand && commands.installCommand.match(/\bpip\b/) && !commands.installCommand.includes('pip3')) {
+        commands.installCommand = commands.installCommand.replace(/\bpip\b/g, 'pip3');
+        console.log('   [Fixed] pip -> pip3');
+      }
+      // Add --break-system-packages for PEP 668 compliance (macOS Python 3.13+)
+      if (commands.installCommand && commands.installCommand.includes('pip3') && !commands.installCommand.includes('--break-system-packages')) {
+        commands.installCommand = commands.installCommand + ' --break-system-packages';
+        console.log('   [Fixed] Added --break-system-packages for PEP 668');
+      }
+      if (commands.startCommand && commands.startCommand.match(/\bpython\b/) && !commands.startCommand.includes('python3')) {
+        commands.startCommand = commands.startCommand.replace(/\bpython\b/g, 'python3');
+        console.log('   [Fixed] python -> python3');
+      }
+      // For Flask: convert "python3 app.py" to "python3 -m flask run" for proper host binding
+      if (commands.projectType?.toLowerCase().includes('flask') &&
+          commands.startCommand &&
+          commands.startCommand.match(/python3?\s+\w+\.py/) &&
+          !commands.startCommand.includes('flask run')) {
+        commands.startCommand = 'python3 -m flask run';
+        console.log('   [Fixed] python3 app.py -> python3 -m flask run');
+      }
+
+      console.log(`   Project type: ${commands.projectType}`);
+      console.log(`   Install: ${commands.installCommand}`);
+      console.log(`   Start: ${commands.startCommand}`);
+      console.log(`   Port: ${commands.port}`);
 
       // Cache the result
       projectCommandsCache.set(cacheKey, commands);
@@ -5558,8 +6289,14 @@ app.post('/preview/start', async (req, res) => {
     const packageManager = detectPackageManager(repoPath);
 
     if (commands.needsInstall) {
-      // Use the detected package manager instead of what AI suggested
-      const installCommand = getInstallCommand(packageManager);
+      // For Python projects, use the AI-suggested install command (pip3)
+      // For Node.js projects, use the detected package manager
+      const isPythonProject = commands.projectType?.toLowerCase().includes('flask') ||
+                              commands.projectType?.toLowerCase().includes('django') ||
+                              commands.projectType?.toLowerCase().includes('fastapi') ||
+                              commands.projectType?.toLowerCase().includes('python');
+
+      const installCommand = isPythonProject ? commands.installCommand : getInstallCommand(packageManager);
       console.log(`📦 Running install: ${installCommand}`);
 
       try {
@@ -5657,6 +6394,56 @@ app.post('/preview/start', async (req, res) => {
       console.log(`📦 Converted start command for ${packageManager}: ${startCommand}`);
     }
 
+    // Handle "static" command - AI sometimes returns this for static HTML sites
+    // Replace with our static-server.js
+    if (startCommand && (startCommand === 'static' || startCommand.startsWith('static ') || startCommand.includes('http-server') || startCommand.includes('serve'))) {
+      // Check for common static content directories
+      const staticDirs = ['app', 'public', 'dist', 'build', 'www', 'static', '.'];
+      let serveDir = '.';
+      for (const dir of staticDirs) {
+        const indexPath = path.join(repoPath, dir, 'index.html');
+        if (fsSync.existsSync(indexPath)) {
+          serveDir = dir;
+          break;
+        }
+      }
+      console.log(`🔧 Replacing "${startCommand}" with static-server.js`);
+      startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} ${serveDir}`;
+    }
+
+    // Fix Next.js: always use "npm run dev" for development, never "npm start" (which needs build)
+    if (commands.projectType === 'Next.js' || commands.projectType?.toLowerCase().includes('next')) {
+      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
+        const oldCmd = startCommand;
+        startCommand = startCommand.replace(/npm start/, 'npm run dev')
+                                   .replace(/yarn start/, 'yarn dev')
+                                   .replace(/pnpm start/, 'pnpm run dev');
+        console.log(`🔧 [Next.js] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
+      }
+    }
+
+    // Fix Nuxt: always use "npm run dev" for development
+    if (commands.projectType === 'Nuxt.js' || commands.projectType === 'Nuxt' || commands.projectType?.toLowerCase().includes('nuxt')) {
+      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
+        const oldCmd = startCommand;
+        startCommand = startCommand.replace(/npm start/, 'npm run dev')
+                                   .replace(/yarn start/, 'yarn dev')
+                                   .replace(/pnpm start/, 'pnpm run dev');
+        console.log(`🔧 [Nuxt] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
+      }
+    }
+
+    // Fix Astro: always use "npm run dev" for development
+    if (commands.projectType === 'Astro' || commands.projectType?.toLowerCase().includes('astro')) {
+      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
+        const oldCmd = startCommand;
+        startCommand = startCommand.replace(/npm start/, 'npm run dev')
+                                   .replace(/yarn start/, 'yarn dev')
+                                   .replace(/pnpm start/, 'pnpm run dev');
+        console.log(`🔧 [Astro] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
+      }
+    }
+
     // Convert global CLI commands to npx (handles gulp, grunt, webpack, etc.)
     // These tools are often not installed globally but are in devDependencies
     const globalCliTools = ['gulp', 'grunt', 'webpack', 'rollup', 'parcel', 'esbuild', 'tsc', 'eslint', 'prettier', 'jest', 'mocha', 'karma', 'bower', 'browserify'];
@@ -5700,14 +6487,39 @@ app.post('/preview/start', async (req, res) => {
         }
         console.log(`🔌 Using Metro port: ${metroPort} (web mode)`);
       } else if (startCommand.includes('ng serve') || commands.projectType === 'Angular') {
-        // Angular CLI requires --host flag
-        startCommand = `${startCommand} --host 0.0.0.0`;
+        // Angular CLI requires --host=value and --port=value format
+        // If running via npm/yarn, use -- to pass args to ng serve
+        if (startCommand.includes('npm start') || startCommand.includes('yarn start')) {
+          startCommand = `${startCommand} -- --host=0.0.0.0 --port=${port}`;
+        } else {
+          startCommand = `${startCommand} --host=0.0.0.0 --port=${port}`;
+        }
+        console.log(`📦 Angular project - using port ${port}`);
+      } else if (commands.projectType === 'Astro' || commands.projectType?.toLowerCase().includes('astro')) {
+        // Astro uses --host flag for network access
+        startCommand = `${startCommand} --host --port ${port}`;
+        console.log(`📦 Astro project - adding --host --port ${port}`);
+      } else if (commands.projectType === 'Remix') {
+        // Remix uses environment variables for host/port, not CLI flags
+        // HOST and PORT env vars are respected by remix dev
+        startCommand = `HOST=0.0.0.0 PORT=${port} ${startCommand}`;
+        console.log(`📦 Remix project - using HOST=0.0.0.0 PORT=${port}`);
+      } else if (commands.projectType === 'Express.js' || commands.projectType?.toLowerCase().includes('express')) {
+        // Express.js uses PORT env var and listens on all interfaces by default
+        // We set PORT env var to ensure correct port binding
+        startCommand = `PORT=${port} ${startCommand}`;
+        console.log(`📦 Express.js project - using PORT=${port}`);
       } else if (startCommand.includes('vue-cli-service serve') || commands.projectType === 'Vue') {
         // Vue CLI also uses --host flag
         startCommand = `${startCommand} --host 0.0.0.0`;
       } else if (startCommand.includes('vite') || commands.projectType === 'Vite' || commands.projectType?.toLowerCase().includes('vite')) {
         // Vite uses --host and --port flags
-        startCommand = `${startCommand} --host --port ${port}`;
+        // For npm, need -- to pass args to the script; for pnpm/yarn, args pass directly
+        if (packageManager === 'npm' && (startCommand.includes('npm run') || startCommand.includes('npm start'))) {
+          startCommand = `${startCommand} -- --host --port ${port}`;
+        } else {
+          startCommand = `${startCommand} --host --port ${port}`;
+        }
         console.log(`📦 Vite project detected - adding --host --port ${port}`);
       } else if (startCommand.includes('run dev') || startCommand.includes('run start') ||
                  startCommand.includes('yarn dev') || startCommand.includes('yarn start')) {
@@ -5734,12 +6546,18 @@ app.post('/preview/start', async (req, res) => {
             startCommand = `HOST=0.0.0.0 ${startCommand}`;
           }
         }
-      } else if (startCommand.includes('flask run') || commands.projectType === 'Flask') {
-        // Flask uses --host flag
-        startCommand = `${startCommand} --host 0.0.0.0`;
+      } else if (startCommand.includes('flask run') || commands.projectType === 'Flask' || commands.projectType?.toLowerCase().includes('flask')) {
+        // Flask: add --host and --port flags
+        startCommand = `${startCommand} --host 0.0.0.0 --port ${port}`;
       } else if (startCommand.includes('python') && startCommand.includes('manage.py runserver')) {
         // Django uses 0.0.0.0:port format
-        startCommand = startCommand.replace(/runserver/, `runserver 0.0.0.0:${port}`);
+        // Only add host:port if not already present
+        if (!startCommand.includes('0.0.0.0')) {
+          startCommand = startCommand.replace(/runserver/, `runserver 0.0.0.0:${port}`);
+        } else if (!startCommand.includes(`:${port}`)) {
+          // Update port if host is present but port is different
+          startCommand = startCommand.replace(/0\.0\.0\.0:\d+/, `0.0.0.0:${port}`);
+        }
       } else if (startCommand.includes('rails') && startCommand.includes('server')) {
         // Rails uses -b flag for binding
         startCommand = `${startCommand} -b 0.0.0.0`;

@@ -241,16 +241,16 @@ const testProjects = [
   { name: '4. Svelte', url: 'https://github.com/sveltejs/template', framework: 'svelte' },
 
   // ===== NEXT.JS =====
-  { name: '5. Next.js', url: 'https://github.com/vercel/next-learn-starter', framework: 'nextjs' },
+  { name: '5. Next.js', url: 'https://github.com/timlrx/tailwind-nextjs-starter-blog', framework: 'nextjs' },
 
   // ===== NUXT 3 =====
-  { name: '6. Nuxt 3', url: 'https://github.com/nuxt/starter', framework: 'nuxt' },
-
-  // ===== ANGULAR =====
-  { name: '7. Angular', url: 'https://github.com/angular/quickstart', framework: 'angular' },
+  { name: '6. Nuxt 3', url: 'https://github.com/viandwi24/nuxt3-awesome-starter', framework: 'nuxt' },
 
   // ===== ASTRO =====
-  { name: '8. Astro', url: 'https://github.com/withastro/blog-tutorial-demo', framework: 'astro' },
+  { name: '7. Astro', url: 'https://github.com/surjithctly/astroship', framework: 'astro' },
+
+  // ===== FLASK =====
+  { name: '8. Flask', url: 'https://github.com/jakerieger/FlaskIntroduction', framework: 'flask' },
 ];
 
 async function runTests() {
