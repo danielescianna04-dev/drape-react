@@ -422,6 +422,21 @@ export const workstationService = {
     }
   },
 
+  // Update lastAccessed timestamp when project is opened
+  async updateLastAccessed(projectId: string): Promise<void> {
+    try {
+      const cleanId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+      console.log('🕐 Updating lastAccessed for project:', cleanId);
+      await updateDoc(doc(db, COLLECTION, cleanId), {
+        lastAccessed: new Date(),
+      });
+      console.log('✅ lastAccessed updated');
+    } catch (error) {
+      console.error('Error updating lastAccessed:', error);
+      // Don't throw - this is a non-critical update
+    }
+  },
+
   // Crea nuovo workstation (duplica)
   async createWorkstation(workstation: Partial<WorkstationInfo>): Promise<WorkstationInfo> {
     try {
@@ -509,6 +524,7 @@ export const workstationService = {
         language: 'Unknown',
         status: project.status as any,
         createdAt: project.createdAt,
+        lastOpened: project.lastAccessed,
         files: [],
         repositoryUrl: project.repositoryUrl,
         githubAccountUsername: project.githubAccountUsername,

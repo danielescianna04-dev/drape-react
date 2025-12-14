@@ -112,6 +112,8 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   };
 
   const handleOpenProject = async (ws: any) => {
+    // Update lastAccessed in background (don't wait)
+    workstationService.updateLastAccessed(ws.id);
     setWorkstation(ws);
     if (onOpenProject) {
       onOpenProject(ws);

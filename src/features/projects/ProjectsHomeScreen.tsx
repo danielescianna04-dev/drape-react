@@ -56,7 +56,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     try {
       const workstations = await workstationService.getWorkstations();
       const recent = workstations
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .sort((a, b) => {
+          // Sort by lastOpened first, fallback to createdAt
+          const dateA = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+          const dateB = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+          return dateB - dateA;
+        })
         .slice(0, 10);
       setRecentProjects(recent);
     } catch (error) {
@@ -125,6 +130,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       console.log('Error checking repo visibility:', error);
       setRepoVisibility('unknown');
     }
+  };
+
+  // Handle opening a project - update lastAccessed timestamp
+  const handleProjectOpen = async (project: any) => {
+    // Update lastAccessed in background (don't wait)
+    workstationService.updateLastAccessed(project.id);
+    onOpenProject(project);
   };
 
   const handleOpenMenu = (project: any) => {
@@ -435,7 +447,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     key={project.id}
                     style={styles.projectCard}
                     activeOpacity={0.7}
-                    onPress={() => onOpenProject(project)}
+                    onPress={() => handleProjectOpen(project)}
                     onLongPress={() => handleOpenMenu(project)}
                     delayLongPress={400}
                   >
@@ -455,7 +467,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
                         )}
                         <View style={styles.metaDot} />
-                        <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
+                        <Text style={styles.projectTime}>{getTimeAgo(project.lastOpened || project.createdAt)}</Text>
                       </View>
                     </View>
                     <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
@@ -549,7 +561,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 <View style={styles.sheetActions}>
                   <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
                     handleCloseMenu();
-                    setTimeout(() => onOpenProject(selectedProject), 300);
+                    setTimeout(() => handleProjectOpen(selectedProject), 300);
                   }}>
                     <View style={styles.sheetActionIcon}>
                       <Ionicons name="open-outline" size={20} color="#fff" />

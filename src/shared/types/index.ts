@@ -19,6 +19,7 @@ export interface TerminalItem {
   exitCode?: number;
   previewUrl?: string;
   source?: TerminalSource; // Where the command originated from
+  isThinking?: boolean; // Show "Thinking..." indicator for AI response placeholder
 }
 
 export interface ChatSession {
@@ -73,6 +74,7 @@ export interface WorkstationInfo {
   repositoryUrl?: string;
   githubAccountUsername?: string; // Account GitHub collegato a questo progetto
   createdAt: Date;
+  lastOpened?: Date; // Last time project was opened
   files: any[];
   projectId?: string; // ID del progetto Firebase
   cloned?: boolean; // Se il progetto è già stato clonato

@@ -27,10 +27,19 @@ class WebSocketLogService {
   private isConnecting = false;
   private shouldReconnect = true;
 
+  // DISABLED: WebSocket log service is disabled to prevent connection loops
+  // and performance issues. Set to true to re-enable.
+  private enabled = false;
+
   /**
    * Connect to the backend WebSocket
    */
   connect(): void {
+    // Service is disabled
+    if (!this.enabled) {
+      return;
+    }
+
     if (this.ws?.readyState === WebSocket.OPEN || this.isConnecting) {
       return;
     }

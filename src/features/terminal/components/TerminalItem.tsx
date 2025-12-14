@@ -103,9 +103,12 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     }
   }, [item?.type]);
 
+  // Determine if we should show thinking state (either from parent isLoading or item.isThinking)
+  const showThinking = isLoading || item?.isThinking;
+
   // Pulse animation for loading thread dot
   useEffect(() => {
-    if (isLoading) {
+    if (showThinking) {
       const pulseAnimation = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -125,11 +128,11 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isLoading]);
+  }, [showThinking]);
 
   // Animated loading dots (cycles through '.', '..', '...')
   useEffect(() => {
-    if (isLoading) {
+    if (showThinking) {
       const interval = setInterval(() => {
         setLoadingDots(prev => {
           if (prev === '.') return '..';
@@ -141,11 +144,12 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     } else {
       setLoadingDots('.');
     }
-  }, [isLoading]);
+  }, [showThinking]);
 
   // IMPORTANT: All hooks must be called before any conditional return!
   // Skip rendering empty placeholder messages (created for post-tool streaming)
-  if (!item || item.content == null || (typeof item.content === 'string' && item.content.trim() === '')) {
+  // BUT: Don't skip if showThinking is true - we want to show "Thinking..." indicator
+  if (!item || item.content == null || (typeof item.content === 'string' && item.content.trim() === '' && !showThinking)) {
     return null;
   }
 
@@ -218,7 +222,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             style={[
               styles.threadDot,
               { backgroundColor: dotColor },
-              isLoading && { opacity: pulseAnim }
+              showThinking && { opacity: pulseAnim }
             ]}
           />
           {isNextItemOutput && <View style={styles.threadLine} />}
@@ -557,7 +561,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           <Text style={styles.terminalOutput}>{item.content || ''}</Text>
         ) : (
           <View style={styles.assistantMessageContent}>
-            {isLoading && !item.content ? (
+            {showThinking && !item.content ? (
               <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
             ) : (
               <View style={{ overflow: 'hidden', flex: 1 }}>
@@ -966,8 +970,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    maxWidth: '75%',
+    alignSelf: 'flex-end',
   },
   assistantMessageRow: {
     flexDirection: 'row',

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
@@ -163,9 +164,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden }}>
       {isSidebarHidden && (
         <GestureDetector gesture={edgeSwipeGesture}>
-          <View style={styles.edgeSwipeArea}>
-            <View style={styles.edgeIndicator} />
-          </View>
+          <TouchableWithoutFeedback onPress={() => {
+            sidebarTranslateX.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
+            setIsSidebarHidden(false);
+          }}>
+            <View style={styles.edgeSwipeArea}>
+              <View style={styles.slidePill}>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.9)" />
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
         </GestureDetector>
       )}
 
@@ -288,16 +296,19 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 20,
+    width: 32,
     zIndex: 1001,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
-  edgeIndicator: {
-    width: 3,
-    height: 50,
-    backgroundColor: AppColors.primaryAlpha.a40,
-    borderRadius: 1.5,
+  slidePill: {
+    width: 24,
+    height: 72,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   panelBackdrop: {
     ...StyleSheet.absoluteFillObject,

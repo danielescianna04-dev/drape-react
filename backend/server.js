@@ -38,6 +38,41 @@ const net = require('net');
 // ============================================
 let wssInstance = null; // Will be set after WebSocket server is created
 
+// Store server logs per workstation for streaming to frontend
+const serverLogsMap = new Map(); // workstationId -> { logs: [], listeners: Set<res> }
+
+/**
+ * Add a log entry for a workstation and notify listeners
+ */
+function addServerLog(workstationId, log) {
+  if (!serverLogsMap.has(workstationId)) {
+    serverLogsMap.set(workstationId, { logs: [], listeners: new Set() });
+  }
+  const entry = serverLogsMap.get(workstationId);
+
+  // Limit logs to last 500 entries
+  if (entry.logs.length > 500) {
+    entry.logs = entry.logs.slice(-400);
+  }
+
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    type: log.type || 'info', // 'stdout', 'stderr', 'info', 'error'
+    message: log.message
+  };
+  entry.logs.push(logEntry);
+
+  // Notify all SSE listeners
+  entry.listeners.forEach(res => {
+    try {
+      res.write(`data: ${JSON.stringify(logEntry)}\n\n`);
+    } catch (e) {
+      // Remove dead listener
+      entry.listeners.delete(res);
+    }
+  });
+}
+
 /**
  * Broadcast a log message to all connected WebSocket clients
  * @param {string} level - Log level: 'info', 'error', 'warn', 'debug'
@@ -46,6 +81,19 @@ let wssInstance = null; // Will be set after WebSocket server is created
  */
 function broadcastLog(level, message, metadata = {}) {
   if (!wssInstance) return;
+
+  // Filter out WebSocket connection/disconnection spam and other noise
+  const spamPatterns = [
+    /WebSocket.*connect/i,
+    /WebSocket.*disconnect/i,
+    /🔌.*WebSocket/i,
+    /📨.*WebSocket message/i,
+    /\[WebSocketLogService\]/i,
+  ];
+
+  if (spamPatterns.some(pattern => pattern.test(message))) {
+    return; // Don't broadcast spam messages
+  }
 
   const logEntry = {
     type: 'log',
@@ -1488,10 +1536,23 @@ REGOLE D'ORO:
                 try {
                   const data = JSON.parse(line.slice(6));
                   if (data.candidates?.[0]?.content?.parts) {
+                    // Check if this chunk contains a function call
+                    const hasToolCall = data.candidates[0].content.parts.some(p => p.functionCall);
+
                     for (const part of data.candidates[0].content.parts) {
                       if (part.text) {
-                        fullText += part.text;
-                        res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+                        // Filter out raw tool call syntax from text (e.g., "write_file(index.html, ...")
+                        // This happens when Gemini includes the tool call in text format
+                        const toolCallPatterns = [
+                          /\b(write_file|read_file|edit_file|glob_files|grep_search|execute_command)\s*\(/,
+                        ];
+                        const isRawToolCall = toolCallPatterns.some(pattern => pattern.test(part.text));
+
+                        // Only send text if it's not a raw tool call syntax
+                        if (!isRawToolCall || !hasToolCall) {
+                          fullText += part.text;
+                          res.write(`data: ${JSON.stringify({ text: part.text })}\n\n`);
+                        }
                       }
                       if (part.functionCall) {
                         toolCalls.push({
@@ -2494,23 +2555,29 @@ async function executeCommandOnWorkstation(command, workstationId) {
         console.error('❌ Spawn error:', err.message);
       });
 
-      // Log process output for debugging (first few seconds)
+      // Log process output for debugging and stream to frontend
       let outputBuffer = '';
       let errorBuffer = '';
 
       if (serverProcess.stdout) {
         serverProcess.stdout.on('data', (data) => {
+          const output = data.toString().trim();
           outputBuffer += data.toString();
-          if (outputBuffer.length < 2000) {
-            console.log('📤 Process output:', data.toString().trim());
+          if (outputBuffer.length < 5000) {
+            console.log('📤 Process output:', output);
           }
+          // Stream to frontend via SSE
+          addServerLog(workstationId, { type: 'stdout', message: output });
         });
       }
 
       if (serverProcess.stderr) {
         serverProcess.stderr.on('data', (data) => {
+          const output = data.toString().trim();
           errorBuffer += data.toString();
-          console.log('⚠️  Process stderr:', data.toString().trim());
+          console.log('⚠️  Process stderr:', output);
+          // Stream to frontend via SSE
+          addServerLog(workstationId, { type: 'stderr', message: output });
         });
       }
 
@@ -3352,11 +3419,11 @@ async function analyzeEnvVariablesWithAI(workstationId, repoPath) {
 
   console.log(`🔍 Starting AI env analysis for ${workstationId}`);
 
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
-  if (!GROQ_API_KEY) {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) {
     envAnalysisCache.set(workstationId, {
       status: 'error',
-      error: 'GROQ_API_KEY not configured',
+      error: 'GEMINI_API_KEY not configured',
       timestamp: Date.now()
     });
     return;
@@ -3432,24 +3499,26 @@ Be thorough - include ALL patterns used in this language/framework for reading e
 
   let searchPatterns;
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        messages: [{ role: 'user', content: phase1Prompt }],
-        temperature: 0.1,
-        max_tokens: 1000
-      })
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: phase1Prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 1000,
+            responseMimeType: 'application/json'
+          }
+        })
+      }
+    );
 
-    if (!response.ok) throw new Error(`Groq API error: ${response.status}`);
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || '{}';
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     searchPatterns = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
   } catch (e) {
@@ -3596,26 +3665,28 @@ Rules:
   let variables = [];
 
   try {
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-        messages: [{ role: 'user', content: phase3Prompt }],
-        temperature: 0.1,
-        max_tokens: 4000
-      })
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: phase3Prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 4000,
+            responseMimeType: 'application/json'
+          }
+        })
+      }
+    );
 
     if (!response.ok) {
-      throw new Error(`Groq API error: ${response.status}`);
+      throw new Error(`Gemini API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || '[]';
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
 
     // Parse JSON from response
     try {
@@ -3801,44 +3872,167 @@ app.get('/workstation/:id/env-variables', async (req, res) => {
   }
 });
 
-// POST /workstation/:id/env-variables - Salva le variabili d'ambiente nel .env
+// POST /workstation/:id/env-variables - Aggiunge o aggiorna una variabile d'ambiente nel .env
 app.post('/workstation/:id/env-variables', async (req, res) => {
   const { id } = req.params;
-  const { variables } = req.body;
+  const { key, value, isSecret, description, variables } = req.body;
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Get workstation repository path - handle both ws-xxx format and direct ID
+    let repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    const cleanId = repoName.startsWith('ws-') ? repoName.slice(3) : repoName;
+
+    let repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    if (!fs.existsSync(repoPath)) {
+      repoPath = path.join(__dirname, 'cloned_repos', cleanId);
+    }
+
+    if (!fs.existsSync(repoPath)) {
+      // Try case-insensitive match
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+      const repos = fs.readdirSync(clonedReposDir);
+      const match = repos.find(r => r.toLowerCase() === cleanId.toLowerCase() || r.toLowerCase() === repoName.toLowerCase());
+      if (match) {
+        repoPath = path.join(clonedReposDir, match);
+      }
+    }
+
+    const envPath = path.join(repoPath, '.env');
+
+    // Se viene passato un array variables, sovrascrivi tutto
+    if (variables && Array.isArray(variables)) {
+      let envContent = '# Environment Variables\n';
+      envContent += `# Last updated: ${new Date().toISOString()}\n\n`;
+
+      variables.forEach(variable => {
+        if (variable.description) {
+          envContent += `# ${variable.description}\n`;
+        }
+        envContent += `${variable.key}=${variable.value}\n\n`;
+      });
+
+      fs.writeFileSync(envPath, envContent, 'utf8');
+
+      console.log(`✅ Saved ${variables.length} environment variables to ${envPath}`);
+
+      return res.json({
+        success: true,
+        message: `Saved ${variables.length} variables`,
+        path: envPath
+      });
+    }
+
+    // Se viene passata una singola variabile (key, value), aggiungila/aggiornala
+    if (key) {
+      // Leggi le variabili esistenti
+      let existingVars = [];
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, 'utf8');
+        existingVars = parseEnvFile(content);
+      }
+
+      // Cerca se la variabile esiste già
+      const existingIndex = existingVars.findIndex(v => v.key === key);
+      if (existingIndex >= 0) {
+        // Aggiorna
+        existingVars[existingIndex] = { key, value, isSecret, description };
+      } else {
+        // Aggiungi
+        existingVars.push({ key, value, isSecret, description });
+      }
+
+      // Riscrivi il file
+      let envContent = '# Environment Variables\n';
+      envContent += `# Last updated: ${new Date().toISOString()}\n\n`;
+
+      existingVars.forEach(variable => {
+        if (variable.description) {
+          envContent += `# ${variable.description}\n`;
+        }
+        envContent += `${variable.key}=${variable.value || ''}\n\n`;
+      });
+
+      fs.writeFileSync(envPath, envContent, 'utf8');
+
+      console.log(`✅ Added/updated env variable ${key} in ${envPath}`);
+
+      return res.json({
+        success: true,
+        message: `Variable ${key} saved`,
+        path: envPath
+      });
+    }
+
+    res.status(400).json({ error: 'Missing key or variables' });
+  } catch (error) {
+    console.error('Failed to save env variables:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /workstation/:id/env-variables/:key - Elimina una variabile d'ambiente
+app.delete('/workstation/:id/env-variables/:key', async (req, res) => {
+  const { id, key } = req.params;
 
   try {
     const fs = require('fs');
     const path = require('path');
 
     // Get workstation repository path
-    const repoName = id.replace(/\//g, '_').replace(/:/g, '_');
-    const repoPath = path.join(__dirname, 'cloned_repos', repoName);
+    let repoName = id.replace(/\//g, '_').replace(/:/g, '_');
+    const cleanId = repoName.startsWith('ws-') ? repoName.slice(3) : repoName;
+
+    let repoPath = path.join(__dirname, 'cloned_repos', repoName);
+
+    if (!fs.existsSync(repoPath)) {
+      repoPath = path.join(__dirname, 'cloned_repos', cleanId);
+    }
+
+    if (!fs.existsSync(repoPath)) {
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+      const repos = fs.readdirSync(clonedReposDir);
+      const match = repos.find(r => r.toLowerCase() === cleanId.toLowerCase() || r.toLowerCase() === repoName.toLowerCase());
+      if (match) {
+        repoPath = path.join(clonedReposDir, match);
+      }
+    }
 
     const envPath = path.join(repoPath, '.env');
 
-    // Converti l'array di variabili in formato .env
+    if (!fs.existsSync(envPath)) {
+      return res.status(404).json({ error: '.env file not found' });
+    }
+
+    // Leggi e filtra le variabili
+    const content = fs.readFileSync(envPath, 'utf8');
+    let existingVars = parseEnvFile(content);
+    existingVars = existingVars.filter(v => v.key !== key);
+
+    // Riscrivi il file
     let envContent = '# Environment Variables\n';
     envContent += `# Last updated: ${new Date().toISOString()}\n\n`;
 
-    variables.forEach(variable => {
+    existingVars.forEach(variable => {
       if (variable.description) {
         envContent += `# ${variable.description}\n`;
       }
-      envContent += `${variable.key}=${variable.value}\n\n`;
+      envContent += `${variable.key}=${variable.value || ''}\n\n`;
     });
 
-    // Scrivi il file .env
     fs.writeFileSync(envPath, envContent, 'utf8');
 
-    console.log(`✅ Saved ${variables.length} environment variables to ${envPath}`);
+    console.log(`✅ Deleted env variable ${key} from ${envPath}`);
 
     res.json({
       success: true,
-      message: `Saved ${variables.length} variables`,
-      path: envPath
+      message: `Variable ${key} deleted`
     });
   } catch (error) {
-    console.error('Failed to save env variables:', error.message);
+    console.error('Failed to delete env variable:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
@@ -6687,6 +6881,102 @@ app.post('/preview/start', async (req, res) => {
     // Start the server in background using exec (more compatible with npm)
     const { exec } = require('child_process');
 
+    // Fix Next.js issues: remove stale lock files and add turbopack.root
+    if (commands.projectType === 'Next.js') {
+      try {
+        // Remove stale .next/dev/lock file if exists (prevents "Unable to acquire lock" errors)
+        const lockFilePath = path.join(repoPath, '.next', 'dev', 'lock');
+        if (fsSync.existsSync(lockFilePath)) {
+          console.log('🔧 Removing stale Next.js lock file...');
+          fsSync.unlinkSync(lockFilePath);
+          console.log('✅ Removed stale lock file');
+        }
+
+        const nextConfigPaths = [
+          path.join(repoPath, 'next.config.js'),
+          path.join(repoPath, 'next.config.mjs'),
+          path.join(repoPath, 'next.config.ts')
+        ];
+
+        let configPath = nextConfigPaths.find(p => fsSync.existsSync(p));
+
+        if (configPath) {
+          let configContent = fsSync.readFileSync(configPath, 'utf8');
+          let needsWrite = false;
+
+          // Remove old incorrect experimental.turbo config if present
+          if (configContent.includes('experimental') && configContent.includes('turbo')) {
+            console.log('🔧 Removing old experimental.turbo config...');
+            // Handle different config formats - reset to clean config with turbopack.root
+            if (configContent.includes('module.exports')) {
+              configContent = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
+};
+
+module.exports = nextConfig;
+`;
+            } else if (configContent.includes('export default')) {
+              configContent = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  turbopack: {
+    root: process.cwd(),
+  },
+};
+
+export default nextConfig;
+`;
+            }
+            needsWrite = true;
+            console.log('✅ Fixed Next.js config - removed invalid experimental.turbo');
+          }
+
+          // Add turbopack.root if not present (to fix lockfile detection issues)
+          if (!configContent.includes('turbopack')) {
+            console.log('🔧 Adding turbopack.root to Next.js config...');
+            if (configContent.includes('module.exports')) {
+              // CommonJS - add turbopack to existing config
+              configContent = configContent.replace(
+                /const\s+nextConfig\s*=\s*\{/,
+                `const nextConfig = {\n  turbopack: {\n    root: __dirname,\n  },`
+              );
+            } else if (configContent.includes('export default')) {
+              // ESM - add turbopack to existing config
+              configContent = configContent.replace(
+                /const\s+nextConfig\s*=\s*\{/,
+                `const nextConfig = {\n  turbopack: {\n    root: process.cwd(),\n  },`
+              );
+            }
+            needsWrite = true;
+            console.log('✅ Added turbopack.root to Next.js config');
+          }
+
+          if (needsWrite) {
+            fsSync.writeFileSync(configPath, configContent);
+          }
+
+        } else {
+          // Create next.config.js with turbopack.root
+          const newConfigPath = path.join(repoPath, 'next.config.js');
+          const newConfig = `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
+};
+
+module.exports = nextConfig;
+`;
+          fsSync.writeFileSync(newConfigPath, newConfig);
+          console.log('✅ Created next.config.js with turbopack.root');
+        }
+      } catch (configError) {
+        console.log('⚠️ Could not modify Next.js config:', configError.message);
+      }
+    }
+
     // Collect output for error analysis
     let serverOutput = '';
     let serverErrorOutput = '';
@@ -6701,7 +6991,11 @@ app.post('/preview/start', async (req, res) => {
         PORT: port.toString(),
         SKIP_PREFLIGHT_CHECK: 'true',  // Skip CRA dependency check (avoids conflicts with parent node_modules)
         BROWSER: 'none',  // Don't open browser automatically
-        NODE_OPTIONS: '--openssl-legacy-provider'  // Fix for Node.js 17+ with old webpack
+        NODE_OPTIONS: '--openssl-legacy-provider',  // Fix for Node.js 17+ with old webpack
+        // Next.js: disable Turbopack to avoid lockfile issues in parent directories
+        NEXT_PRIVATE_LOCAL_WEBPACK: '1',  // Force webpack instead of turbopack
+        __NEXT_DISABLE_MEMORY_WATCHER: '1',  // Disable memory watcher
+        NEXT_TELEMETRY_DISABLED: '1',  // Disable telemetry
       },
       maxBuffer: 10 * 1024 * 1024
     });
@@ -6713,7 +7007,11 @@ app.post('/preview/start', async (req, res) => {
     serverProcess.stdout?.on('data', (data) => {
       const output = data.toString();
       serverOutput += output;
-      console.log(`[Server] ${output.trim()}`);
+      const trimmedOutput = output.trim();
+      console.log(`[Server] ${trimmedOutput}`);
+
+      // Stream to frontend via SSE
+      addServerLog(workstationId, { type: 'stdout', message: trimmedOutput });
 
       // Detect actual port from server output
       // Vite: "Local: http://localhost:3000/" or "Network: http://192.168.x.x:3000/"
@@ -6731,16 +7029,26 @@ app.post('/preview/start', async (req, res) => {
     serverProcess.stderr?.on('data', (data) => {
       const output = data.toString();
       serverErrorOutput += output;
-      console.log(`[Server Error] ${output.trim()}`);
+      const trimmedOutput = output.trim();
+      console.log(`[Server Error] ${trimmedOutput}`);
+
+      // Stream to frontend via SSE
+      addServerLog(workstationId, { type: 'stderr', message: trimmedOutput });
     });
     serverProcess.on('error', (err) => {
       console.error(`[Server Process Error] ${err.message}`);
       serverErrorOutput += `Process error: ${err.message}\n`;
+
+      // Stream to frontend via SSE
+      addServerLog(workstationId, { type: 'error', message: `Process error: ${err.message}` });
     });
     serverProcess.on('exit', (code) => {
       processExited = true;
       exitCode = code;
       console.log(`[Server] Process exited with code: ${code}`);
+
+      // Stream to frontend via SSE
+      addServerLog(workstationId, { type: 'info', message: `Process exited with code: ${code}` });
     });
 
     // Step 8: Health check
@@ -6902,6 +7210,43 @@ app.post('/preview/start', async (req, res) => {
 });
 
 /**
+ * SSE endpoint to stream server logs for a workstation
+ */
+app.get('/preview/logs/:workstationId', (req, res) => {
+  const { workstationId } = req.params;
+
+  console.log(`📺 SSE logs connection for workstation: ${workstationId}`);
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  // Initialize logs entry if not exists
+  if (!serverLogsMap.has(workstationId)) {
+    serverLogsMap.set(workstationId, { logs: [], listeners: new Set() });
+  }
+
+  const entry = serverLogsMap.get(workstationId);
+
+  // Send existing logs first
+  entry.logs.forEach(log => {
+    res.write(`data: ${JSON.stringify(log)}\n\n`);
+  });
+
+  // Add this response to listeners
+  entry.listeners.add(res);
+
+  // Cleanup on disconnect
+  req.on('close', () => {
+    console.log(`📺 SSE logs disconnected for workstation: ${workstationId}`);
+    entry.listeners.delete(res);
+  });
+});
+
+/**
  * Clear preview commands cache for a project
  */
 app.post('/preview/clear-cache', (req, res) => {
@@ -7007,6 +7352,455 @@ app.post('/preview/env', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+/**
+ * Preview Element Inspector - AI-powered element analysis
+ * Analyzes selected element from preview and finds responsible file
+ */
+app.post('/preview/inspect', async (req, res) => {
+  const {
+    workstationId,
+    element,
+    message,
+    conversationHistory = [],
+    selectedModel = 'claude-sonnet-4'
+  } = req.body;
+
+  console.log('\n🔍 ═══════════════════════════════════════════════════');
+  console.log('🔍 PREVIEW INSPECT - Element Analysis Request');
+  console.log('🔍 ═══════════════════════════════════════════════════');
+  console.log(`📦 Workstation: ${workstationId}`);
+  console.log(`🏷️ Element: ${element ? `<${element.tag}> ${element.id ? '#' + element.id : ''} ${element.className || ''}` : '(none - general request)'}`);
+  console.log(`💬 User message: ${message || '(none)'}`);
+
+  if (!workstationId) {
+    return res.status(400).json({ error: 'workstationId is required' });
+  }
+
+  if (!element && !message) {
+    return res.status(400).json({ error: 'Either element or message is required' });
+  }
+
+  // Get model configuration
+  const modelConfig = AI_MODELS[selectedModel] || AI_MODELS['claude-sonnet-4'];
+  const model = modelConfig.modelId;
+  const provider = modelConfig.provider;
+
+  try {
+    // Resolve repo path
+    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+
+    if (workstationId.startsWith('ws-')) {
+      const projectIdLower = workstationId.substring(3);
+      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+
+      try {
+        const folders = await fs.readdir(clonedReposDir);
+        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
+        if (matchingFolder) {
+          repoPath = path.join(clonedReposDir, matchingFolder);
+        }
+      } catch (err) {
+        console.error('Error reading cloned_repos:', err);
+      }
+    }
+
+    console.log(`📂 Repo path: ${repoPath}`);
+
+    // Build search terms from element (if provided)
+    const searchTerms = [];
+    if (element) {
+      if (element.id) searchTerms.push(element.id);
+      if (element.className) {
+        const classes = element.className.split(' ').filter(c => c && !c.startsWith('__'));
+        searchTerms.push(...classes.slice(0, 3));
+      }
+      if (element.text) {
+        // Extract meaningful words from text (for i18n keys or hardcoded strings)
+        const words = element.text.split(/\s+/).filter(w => w.length > 3).slice(0, 3);
+        searchTerms.push(...words);
+      }
+    }
+
+    console.log(`🔎 Search terms: ${searchTerms.length > 0 ? searchTerms.join(', ') : '(none - general request)'}`);
+
+    // Search for files that might contain this element
+    let relevantFiles = [];
+
+    // Use grep to find files containing these terms (search ALL file types)
+    for (const term of searchTerms.slice(0, 5)) {
+      try {
+        // Search in all files, excluding common binary/generated directories and files
+        const { stdout } = await execPromise(
+          `grep -rl "${term}" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=.next --exclude-dir=.nuxt --exclude-dir=coverage --exclude-dir=__pycache__ --exclude="*.min.js" --exclude="*.min.css" --exclude="*.map" --exclude="*.lock" --exclude="package-lock.json" . 2>/dev/null | head -15`,
+          { cwd: repoPath, timeout: 5000 }
+        );
+        const files = stdout.trim().split('\n').filter(f => f);
+        relevantFiles.push(...files);
+      } catch (err) {
+        // grep returns error if no matches, that's ok
+      }
+    }
+
+    // Deduplicate and limit
+    relevantFiles = [...new Set(relevantFiles)].slice(0, 10);
+    console.log(`📄 Relevant files found: ${relevantFiles.length}`);
+
+    // Read content of most relevant files
+    const fileContents = [];
+    for (const file of relevantFiles.slice(0, 5)) {
+      try {
+        const filePath = path.join(repoPath, file.replace(/^\.\//, ''));
+        const content = await fs.readFile(filePath, 'utf8');
+        // Truncate large files
+        const truncatedContent = content.length > 3000
+          ? content.substring(0, 3000) + '\n... (truncated)'
+          : content;
+        fileContents.push({ path: file, content: truncatedContent });
+      } catch (err) {
+        console.log(`⚠️ Could not read ${file}: ${err.message}`);
+      }
+    }
+
+    // Build AI prompt
+    const elementDescription = element ? `
+ELEMENTO SELEZIONATO NELLA PREVIEW:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tag: <${element.tag}>
+ID: ${element.id || '(nessuno)'}
+Classi: ${element.className || '(nessuna)'}
+Testo: "${element.text || '(vuoto)'}"
+HTML interno (primi 200 char): ${element.innerHTML?.substring(0, 200) || '(vuoto)'}
+` : '';
+
+    const filesContext = fileContents.length > 0
+      ? `\n\nFILE POTENZIALMENTE CORRELATI:\n${fileContents.map(f => `\n━━━ ${f.path} ━━━\n${f.content}`).join('\n\n')}`
+      : '\n\nNessun file pre-caricato. Usa i tool per esplorare il codebase se necessario.';
+
+    const userRequest = message
+      ? `\n\nRICHIESTA UTENTE: "${message}"`
+      : '\n\nL\'utente vuole modificare questo elemento. Analizza e proponi come procedere.';
+
+    const systemPrompt = `Sei un assistente AI specializzato nella modifica di codice UI.
+
+L'utente sta usando un IDE mobile${element ? ' e ha selezionato un elemento nella preview della sua app' : ' e vuole modificare il progetto'}.
+Il tuo compito è:
+1. ${element ? 'Identificare il file responsabile di questo elemento' : 'Capire cosa l\'utente vuole modificare'}
+2. ESEGUIRE LE MODIFICHE richieste usando i tool disponibili
+3. Confermare le modifiche effettuate
+
+IMPORTANTE - HAI ACCESSO AI TOOL! USA SEMPRE edit_file PER MODIFICARE I FILE!
+
+WORKFLOW OBBLIGATORIO:
+1. ${element ? 'Se i file forniti contengono l\'elemento, usa edit_file per modificarlo' : 'Usa glob_files o search_in_files per trovare i file da modificare'}
+2. Se non trovi il file, usa glob_files o search_in_files per cercarlo
+3. Dopo aver trovato il file, usa read_file per leggerlo
+4. Usa edit_file per applicare la modifica
+5. Conferma la modifica effettuata
+
+REGOLE:
+- Rispondi in italiano, breve e pratico
+- USA I TOOL per fare le modifiche, non solo suggerirle!
+- Dopo ogni tool call, scrivi 1 riga di commento
+- Usa formattazione mobile-friendly
+
+${elementDescription}
+${filesContext}
+${userRequest}
+
+ESEGUI la modifica richiesta usando i tool!`;
+
+    // Define tools for preview inspect (same as /ai/chat)
+    const inspectTools = [
+      {
+        name: 'read_file',
+        description: 'Leggi il contenuto di un file nel progetto',
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Il path del file da leggere' }
+          },
+          required: ['filePath']
+        }
+      },
+      {
+        name: 'edit_file',
+        description: 'Modifica un file esistente con search & replace',
+        input_schema: {
+          type: 'object',
+          properties: {
+            filePath: { type: 'string', description: 'Il path del file da modificare' },
+            oldString: { type: 'string', description: 'Il testo esatto da cercare e sostituire' },
+            newString: { type: 'string', description: 'Il nuovo testo con cui sostituire' }
+          },
+          required: ['filePath', 'oldString', 'newString']
+        }
+      },
+      {
+        name: 'glob_files',
+        description: 'Cerca file usando pattern glob',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Il pattern glob (es: "**/*.html")' }
+          },
+          required: ['pattern']
+        }
+      },
+      {
+        name: 'search_in_files',
+        description: 'Cerca un pattern di testo nei file del progetto',
+        input_schema: {
+          type: 'object',
+          properties: {
+            pattern: { type: 'string', description: 'Il pattern di testo da cercare' }
+          },
+          required: ['pattern']
+        }
+      }
+    ];
+
+    // Helper function to execute tool calls for inspect
+    async function executeInspectTool(name, args, projectPath) {
+      const { promisify } = require('util');
+      const { exec } = require('child_process');
+      const execPromise = promisify(exec);
+      const glob = require('glob');
+
+      try {
+        switch (name) {
+          case 'read_file':
+            const filePath = path.join(projectPath, args.filePath.replace(/^\.\//, ''));
+            const content = await fs.readFile(filePath, 'utf8');
+            return content.length > 5000 ? content.substring(0, 5000) + '\n... (truncated)' : content;
+
+          case 'edit_file':
+            const editPath = path.join(projectPath, args.filePath.replace(/^\.\//, ''));
+            let fileContent = await fs.readFile(editPath, 'utf8');
+
+            // Normalize line endings for both file content and search strings
+            const normalizeLineEndings = (str) => str.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+            const normalizedFileContent = normalizeLineEndings(fileContent);
+            const normalizedOldString = normalizeLineEndings(args.oldString);
+            const normalizedNewString = normalizeLineEndings(args.newString);
+
+            // Try exact match first
+            if (normalizedFileContent.includes(normalizedOldString)) {
+              const newContent = normalizedFileContent.replace(normalizedOldString, normalizedNewString);
+              await fs.writeFile(editPath, newContent, 'utf8');
+              console.log(`✅ edit_file success: ${args.filePath}`);
+              return `✅ File ${args.filePath} modificato con successo!`;
+            }
+
+            // Try trimmed match (in case of leading/trailing whitespace differences)
+            const trimmedOldString = normalizedOldString.trim();
+            if (trimmedOldString.length > 10 && normalizedFileContent.includes(trimmedOldString)) {
+              const newContent = normalizedFileContent.replace(trimmedOldString, normalizedNewString.trim());
+              await fs.writeFile(editPath, newContent, 'utf8');
+              console.log(`✅ edit_file success (trimmed): ${args.filePath}`);
+              return `✅ File ${args.filePath} modificato con successo!`;
+            }
+
+            // Try matching with collapsed whitespace
+            const collapseWhitespace = (str) => str.replace(/\s+/g, ' ');
+            const collapsedFile = collapseWhitespace(normalizedFileContent);
+            const collapsedOld = collapseWhitespace(normalizedOldString);
+
+            if (collapsedOld.length > 20 && collapsedFile.includes(collapsedOld)) {
+              // Find the actual position in the original file
+              // This is a simplified approach - replace the first occurrence that matches when whitespace is collapsed
+              const lines = normalizedFileContent.split('\n');
+              let found = false;
+              let newLines = [];
+
+              for (let i = 0; i < lines.length && !found; i++) {
+                const lineCollapsed = collapseWhitespace(lines[i]);
+                const oldFirstLine = collapsedOld.split(' ')[0];
+                if (lineCollapsed.includes(oldFirstLine)) {
+                  // Found a potential match, try to replace from here
+                  const remainingContent = lines.slice(i).join('\n');
+                  if (collapseWhitespace(remainingContent).startsWith(collapsedOld.substring(0, 100))) {
+                    // Good enough match, do the replacement
+                    const newContent = normalizedFileContent.replace(
+                      new RegExp(normalizedOldString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 's'),
+                      normalizedNewString
+                    );
+                    if (newContent !== normalizedFileContent) {
+                      await fs.writeFile(editPath, newContent, 'utf8');
+                      console.log(`✅ edit_file success (whitespace-tolerant): ${args.filePath}`);
+                      return `✅ File ${args.filePath} modificato con successo!`;
+                    }
+                  }
+                }
+              }
+            }
+
+            console.log(`❌ edit_file failed: string not found in ${args.filePath}`);
+            console.log(`   Looking for (first 100 chars): ${normalizedOldString.substring(0, 100)}`);
+            return `❌ Errore: Il testo non è stato trovato nel file. Il file potrebbe essere stato modificato.`;
+
+          case 'glob_files':
+            const files = await glob(args.pattern, { cwd: projectPath, nodir: true, ignore: ['node_modules/**', '.git/**'] });
+            return `Trovati ${files.length} file:\n${files.slice(0, 20).join('\n')}${files.length > 20 ? '\n...(altri)' : ''}`;
+
+          case 'search_in_files':
+            const { stdout } = await execPromise(
+              `grep -rn "${args.pattern.replace(/"/g, '\\"')}" --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null | head -20`,
+              { cwd: projectPath, timeout: 5000 }
+            );
+            return stdout || 'Nessun risultato trovato';
+
+          default:
+            return `Tool sconosciuto: ${name}`;
+        }
+      } catch (error) {
+        console.log(`❌ Tool ${name} error:`, error.message);
+        return `Errore ${name}: ${error.message}`;
+      }
+    }
+
+    // Set up SSE streaming
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Main loop with tool support (like /ai/chat)
+    let currentMessages = [{ role: 'user', content: systemPrompt }];
+    let continueLoop = true;
+    let loopCount = 0;
+    const MAX_LOOPS = 10;
+
+    while (continueLoop && loopCount < MAX_LOOPS) {
+      loopCount++;
+
+      if (provider === 'anthropic') {
+        const response = await anthropic.messages.create({
+          model: model,
+          max_tokens: 2000,
+          tools: inspectTools,
+          messages: currentMessages,
+          stream: true
+        });
+
+        let textBuffer = '';
+        let toolUseBlocks = [];
+        let currentToolUse = null;
+        let stopReason = null;
+
+        // Process streaming response
+        for await (const event of response) {
+          if (event.type === 'content_block_start') {
+            if (event.content_block?.type === 'tool_use') {
+              currentToolUse = {
+                id: event.content_block.id,
+                name: event.content_block.name,
+                input: ''
+              };
+              // Send tool start event
+              res.write(`data: ${JSON.stringify({ type: 'tool_start', tool: event.content_block.name })}\n\n`);
+            }
+          } else if (event.type === 'content_block_delta') {
+            if (event.delta?.type === 'text_delta') {
+              textBuffer += event.delta.text;
+              res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
+            } else if (event.delta?.type === 'input_json_delta' && currentToolUse) {
+              currentToolUse.input += event.delta.partial_json;
+            }
+          } else if (event.type === 'content_block_stop') {
+            if (currentToolUse) {
+              try {
+                currentToolUse.input = JSON.parse(currentToolUse.input);
+              } catch (e) {
+                currentToolUse.input = {};
+              }
+              // Send tool_input event with parsed parameters (including filePath)
+              res.write(`data: ${JSON.stringify({
+                type: 'tool_input',
+                tool: currentToolUse.name,
+                input: currentToolUse.input
+              })}\n\n`);
+              toolUseBlocks.push(currentToolUse);
+              currentToolUse = null;
+            }
+          } else if (event.type === 'message_delta') {
+            stopReason = event.delta?.stop_reason;
+          }
+        }
+
+        // If we have tool calls, execute them
+        if (toolUseBlocks.length > 0 && stopReason === 'tool_use') {
+          // Build assistant message with tool uses
+          const assistantContent = [];
+          if (textBuffer) {
+            assistantContent.push({ type: 'text', text: textBuffer });
+          }
+          for (const tu of toolUseBlocks) {
+            assistantContent.push({
+              type: 'tool_use',
+              id: tu.id,
+              name: tu.name,
+              input: tu.input
+            });
+          }
+          currentMessages.push({ role: 'assistant', content: assistantContent });
+
+          // Execute tools and build results
+          const toolResults = [];
+          for (const tu of toolUseBlocks) {
+            console.log(`🔧 Executing tool: ${tu.name}`, JSON.stringify(tu.input).substring(0, 200));
+            const result = await executeInspectTool(tu.name, tu.input, repoPath);
+
+            // Determine success based on result content
+            const isSuccess = result.startsWith('✅') ||
+                              result.startsWith('Trovati') ||
+                              (result.length > 0 && !result.startsWith('❌') && !result.startsWith('Errore'));
+
+            // Send tool result event
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: tu.name, success: isSuccess })}\n\n`);
+            console.log(`   Result: ${isSuccess ? '✅' : '❌'} ${result.substring(0, 100)}`);
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tu.id,
+              content: result
+            });
+          }
+
+          currentMessages.push({ role: 'user', content: toolResults });
+          // Continue loop to get AI's response to tool results
+        } else {
+          // No more tool calls, we're done
+          continueLoop = false;
+        }
+      } else {
+        // For non-Anthropic providers, use simple streaming without tools
+        if (provider === 'google') {
+          const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+          const geminiModel = genAI.models.generateContentStream({
+            model: model,
+            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+          });
+
+          for await (const chunk of await geminiModel) {
+            const text = chunk.text();
+            if (text) {
+              res.write(`data: ${JSON.stringify({ text })}\n\n`);
+            }
+          }
+        }
+        continueLoop = false;
+      }
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+
+  } catch (error) {
+    console.error('❌ Preview inspect error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

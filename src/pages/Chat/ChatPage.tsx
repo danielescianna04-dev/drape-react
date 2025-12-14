@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,18 +30,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
 import { useContentOffset } from '../../hooks/ui/useContentOffset';
-import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
+import { AnthropicIcon, GoogleIcon } from '../../shared/components/icons';
+// WebSocket log service disabled - was causing connect/disconnect loop
+// import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
 const colors = AppColors.dark;
 
-// Available AI models
+// Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-sonnet-4', name: 'Claude 4', icon: 'sparkles' as const },
-  { id: 'gemini-2-flash', name: 'Gemini 2', icon: 'diamond' as const },
-  { id: 'gpt-oss-120b', name: 'GPT 120B', icon: 'flash' as const },
-  { id: 'gpt-oss-20b', name: 'GPT 20B', icon: 'flash-outline' as const },
-  { id: 'llama-4-scout', name: 'Llama 4', icon: 'paw' as const },
-  { id: 'qwen-3-32b', name: 'Qwen 3', icon: 'code-slash' as const },
+  { id: 'claude-sonnet-4', name: 'Claude 4', IconComponent: AnthropicIcon },
+  { id: 'gemini-2-flash', name: 'Gemini 2', IconComponent: GoogleIcon },
 ];
 
 interface ChatPageProps {
@@ -89,8 +87,36 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
-  // Model selector modal state
+  // Model selector dropdown state
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const dropdownAnim = useSharedValue(0);
+
+  // Animated styles for dropdown
+  const dropdownAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: dropdownAnim.value,
+    transform: [
+      { translateY: interpolate(dropdownAnim.value, [0, 1], [8, 0]) },
+      { scale: interpolate(dropdownAnim.value, [0, 1], [0.97, 1]) },
+    ],
+  }));
+
+  // Toggle dropdown with animation
+  const toggleModelSelector = useCallback(() => {
+    if (showModelSelector) {
+      // Close
+      dropdownAnim.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
+      setTimeout(() => setShowModelSelector(false), 150);
+    } else {
+      // Open
+      setShowModelSelector(true);
+      dropdownAnim.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+    }
+  }, [showModelSelector]);
+
+  const closeDropdown = useCallback(() => {
+    dropdownAnim.value = withTiming(0, { duration: 150 });
+    setTimeout(() => setShowModelSelector(false), 150);
+  }, []);
 
   // Get current model display name
   const currentModelName = useMemo(() => {
@@ -108,19 +134,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
-  // DEBUG: Log when terminal items change
+  // DEBUG: Log when terminal items count changes (reduced verbosity)
   useEffect(() => {
-    console.log('💬💬💬 [ChatPage] === TERMINAL ITEMS UPDATED ===');
-    console.log('💬 [ChatPage] currentTab?.id:', currentTab?.id);
-    console.log('💬 [ChatPage] activeTabId:', activeTabId);
-    console.log('💬 [ChatPage] tabTerminalItems.length:', tabTerminalItems.length);
-    if (tabTerminalItems.length > 0) {
-      console.log('💬 [ChatPage] Items:');
-      tabTerminalItems.forEach((item, i) => {
-        console.log(`   ${i}: type="${item.type}", content="${item.content?.substring(0, 50)}..."`);
-      });
+    // Only log significant changes (not every item)
+    if (tabTerminalItems.length > 0 && tabTerminalItems.length % 5 === 0) {
+      console.log(`💬 [ChatPage] Terminal items: ${tabTerminalItems.length} for tab ${currentTab?.id}`);
     }
-  }, [tabTerminalItems, currentTab?.id, activeTabId]);
+  }, [tabTerminalItems.length, currentTab?.id]);
 
   // Custom input handler that saves to ref immediately (no extra re-renders)
   const handleInputChange = useCallback((text: string) => {
@@ -259,14 +279,45 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [hasChatStarted, currentTab?.id]);
 
-  // Subscribe to real-time backend logs via WebSocket
-  useEffect(() => {
-    // Only show logs when in terminal mode
-    if (!isTerminalMode) return;
+  // WebSocket log service DISABLED - was causing connect/disconnect loop issues
+  // TODO: Re-enable when WebSocket stability is improved
+  // The real-time backend logs feature is temporarily disabled to prevent
+  // performance issues and log spam in the terminal.
 
+  /*
+  // Ref to hold the current addTerminalItem function (avoids re-subscribing on every render)
+  const addTerminalItemRef = useRef(addTerminalItem);
+  const isTerminalModeRef = useRef(isTerminalMode);
+
+  // Keep refs up to date
+  useEffect(() => {
+    addTerminalItemRef.current = addTerminalItem;
+  }, [addTerminalItem]);
+
+  useEffect(() => {
+    isTerminalModeRef.current = isTerminalMode;
+  }, [isTerminalMode]);
+
+  // Subscribe to real-time backend logs via WebSocket (only once on mount)
+  useEffect(() => {
     const unsubscribe = websocketLogService.addListener((log: BackendLog) => {
+      // Only show logs when in terminal mode
+      if (!isTerminalModeRef.current) return;
+
+      // Filter out WebSocket connection spam messages
+      const spamPatterns = [
+        /WebSocket.*connect/i,
+        /WebSocket.*disconnect/i,
+        /🔌.*WebSocket/i,
+        /\[WebSocketLogService\]/i,
+      ];
+
+      if (spamPatterns.some(pattern => pattern.test(log.message))) {
+        return; // Skip spam messages
+      }
+
       // Add backend log to terminal
-      addTerminalItem({
+      addTerminalItemRef.current({
         id: `backend-log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         content: log.message,
         type: log.level === 'error' ? TerminalItemType.ERROR : TerminalItemType.BACKEND_LOG,
@@ -278,7 +329,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     return () => {
       unsubscribe();
     };
-  }, [isTerminalMode, addTerminalItem]);
+  }, []); // Empty dependency array - subscribe only once on mount
+  */
 
   useEffect(() => {
     // Aggiorna il toggle in tempo reale mentre scrivi (solo in auto mode)
@@ -370,32 +422,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // widgetHeight inizia a 90px, quando cresce (es. 150px), compensiamo con 60px in più
     const heightDiff = Math.max(0, widgetHeight.value - 90);
 
-    // Always maintain 8px distance from keyboard
-    let translateY = baseTranslateY;
+    let translateY = baseTranslateY - heightDiff;
 
     if (keyboardHeight.value > 0) {
-      // Calculate keyboard offset maintaining 8px distance
-      const fullKeyboardOffset = keyboardHeight.value - insets.bottom + 8;
-
-      // Interpolate keyboard offset smoothly based on widget position
-      // When centered (animProgress=0): offset reduced by 280
-      // When at bottom (animProgress=1): full offset
-      const keyboardOffset = interpolate(
-        animProgress,
-        [0, 1],
-        [Math.max(0, fullKeyboardOffset - 280), fullKeyboardOffset],
-        Extrapolate.CLAMP
-      );
-
-      // Sottrai anche l'offset della crescita del widget per mantenere la distanza dalla tastiera
-      translateY = baseTranslateY - keyboardOffset - heightDiff;
-    } else {
-      // Anche senza tastiera, compensa la crescita per evitare che vada troppo in basso
-      translateY = baseTranslateY - heightDiff;
+      // Quando la tastiera è aperta, posiziona l'input appena sopra la tastiera
+      // keyboardHeight include già tutto, sottraiamo insets.bottom perché è già considerato
+      const keyboardOffset = keyboardHeight.value - insets.bottom;
+      translateY = translateY - keyboardOffset;
     }
+
+    // Calcola left in base allo stato della sidebar
+    // Quando sidebar è visibile (sidebarTranslateX = 0), left = 44
+    // Quando sidebar è nascosta (sidebarTranslateX = -44), left = 0
+    const sidebarLeft = interpolate(
+      sidebarTranslateX.value,
+      [-44, 0],
+      [0, 44],
+      Extrapolate.CLAMP
+    );
 
     return {
       top: 410,
+      left: sidebarLeft,
       transform: [{ translateY }]
     };
   });
@@ -582,12 +630,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     const messageType = shouldExecuteCommand ? TerminalItemType.COMMAND : TerminalItemType.USER_MESSAGE;
 
+    // Create streaming message placeholder IMMEDIATELY for AI chat
+    let streamingMessageId = (Date.now() + 2).toString();
+    let streamedContent = '';
+
+    // Add user message
     addTerminalItem({
       id: Date.now().toString(),
       content: userMessage,
       type: messageType,
       timestamp: new Date(),
     });
+
+    // For AI chat, add placeholder with isThinking=true immediately
+    // This ensures "Thinking..." appears right away without depending on parent isLoading state
+    if (!shouldExecuteCommand) {
+      addTerminalItem({
+        id: streamingMessageId,
+        content: '',
+        type: TerminalItemType.OUTPUT,
+        timestamp: new Date(),
+        isThinking: true,
+      });
+    }
 
     setLoading(true);
 
@@ -601,7 +666,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             workstationId: currentWorkstation?.id
           }
         );
-        
+
         addTerminalItem({
           id: (Date.now() + 1).toString(),
           content: response.data.output || '',
@@ -610,17 +675,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         });
       } else {
         // Chat mode - AI response
+        // Placeholder already created above with isThinking: true
 
-        // Create streaming message placeholder
-        let streamingMessageId = (Date.now() + 2).toString();
-        let streamedContent = '';
+        // IMPORTANT: Wait before starting XHR to allow React to render "Thinking..." placeholder
+        // This delay ensures the placeholder is visible before any API response arrives
+        await new Promise(resolve => setTimeout(resolve, 400));
 
-        addTerminalItem({
-          id: streamingMessageId,
-          content: '',
-          type: TerminalItemType.OUTPUT,
-          timestamp: new Date(),
-        });
+        // Track when we started to ensure minimum "Thinking..." display time
+        const thinkingStartTime = Date.now();
+        const MIN_THINKING_TIME = 500; // Show "Thinking..." for at least 500ms total
+        let hasShownFirstContent = false;
 
         // Use XMLHttpRequest for streaming (works in React Native)
         await new Promise<void>((resolve, reject) => {
@@ -813,21 +877,41 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   else if (parsed.text) {
                     streamedContent += parsed.text;
 
-                    // Update the message content in real-time
-                    useTabStore.setState((state) => ({
-                      tabs: state.tabs.map(t =>
-                        t.id === tab.id
-                          ? {
-                              ...t,
-                              terminalItems: t.terminalItems?.map(item =>
-                                item.id === streamingMessageId
-                                  ? { ...item, content: streamedContent }
-                                  : item
-                              )
-                            }
-                          : t
-                      )
-                    }));
+                    // Function to update UI with content
+                    const updateContent = () => {
+                      useTabStore.setState((state) => ({
+                        tabs: state.tabs.map(t =>
+                          t.id === tab.id
+                            ? {
+                                ...t,
+                                terminalItems: t.terminalItems?.map(item =>
+                                  item.id === streamingMessageId
+                                    ? { ...item, content: streamedContent, isThinking: false }
+                                    : item
+                                )
+                              }
+                            : t
+                        )
+                      }));
+                    };
+
+                    // For first content, ensure minimum "Thinking..." display time
+                    if (!hasShownFirstContent) {
+                      hasShownFirstContent = true;
+                      const elapsed = Date.now() - thinkingStartTime;
+                      const remaining = MIN_THINKING_TIME - elapsed;
+
+                      if (remaining > 0) {
+                        // Wait for remaining time before showing content
+                        setTimeout(updateContent, remaining);
+                      } else {
+                        // Already waited enough, show immediately
+                        updateContent();
+                      }
+                    } else {
+                      // After first content, update immediately
+                      updateContent();
+                    }
                   }
                 } catch (e) {
                   // Skip invalid JSON
@@ -1088,7 +1172,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         ) : (
           <>
             {(() => {
-              const filtered = terminalItems.filter(item => item && item.content != null);
+              // Filter out null items, empty content items, and "Executing:" placeholders
+              // BUT: Keep items with isThinking=true even if content is empty (to show "Thinking..." indicator)
+              const filtered = terminalItems.filter(item =>
+                item &&
+                item.content != null &&
+                (item.content.trim() !== '' || item.isThinking) &&  // Allow empty content if isThinking
+                item.content !== '...' &&  // Filter out placeholder ellipsis
+                !item.content.startsWith('Executing: ')  // Filter out tool execution indicators (replaced by tool results)
+              );
 
               return filtered.reduce((acc, item, index, filteredArray) => {
                 // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
@@ -1180,11 +1272,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   ]}
                 >
                   <Animated.View style={!isTerminalMode ? aiModeAnimatedStyle : undefined}>
-                    <Ionicons
-                      name="sparkles"
-                      size={14}
-                      color={!isTerminalMode ? AppColors.white.full : '#8A8A8A'}
-                    />
+                    <Text style={{
+                      fontSize: 10,
+                      fontWeight: '800',
+                      color: !isTerminalMode ? AppColors.white.full : '#8A8A8A',
+                      letterSpacing: 0.5,
+                    }}>AI</Text>
                   </Animated.View>
                 </TouchableOpacity>
               </View>
@@ -1196,56 +1289,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             {/* Model Selector */}
             <TouchableOpacity
               style={styles.modelSelector}
-              onPress={() => setShowModelSelector(true)}
+              onPress={toggleModelSelector}
             >
               <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-              <Ionicons name="chevron-down" size={12} color={AppColors.dark.bodyText} />
+              <Ionicons
+                name={showModelSelector ? "chevron-up" : "chevron-down"}
+                size={12}
+                color={AppColors.dark.bodyText}
+              />
             </TouchableOpacity>
-
-            {/* Model Selection Modal */}
-            <Modal
-              visible={showModelSelector}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setShowModelSelector(false)}
-            >
-              <Pressable
-                style={styles.modelModalOverlay}
-                onPress={() => setShowModelSelector(false)}
-              >
-                <View style={styles.modelModalContent}>
-                  <SafeText style={styles.modelModalTitle}>Seleziona Modello AI</SafeText>
-                  {AI_MODELS.map((model) => (
-                    <TouchableOpacity
-                      key={model.id}
-                      style={[
-                        styles.modelDropdownItem,
-                        selectedModel === model.id && styles.modelDropdownItemActive
-                      ]}
-                      onPress={() => {
-                        setSelectedModel(model.id);
-                        setShowModelSelector(false);
-                      }}
-                    >
-                      <Ionicons
-                        name={model.icon}
-                        size={18}
-                        color={selectedModel === model.id ? AppColors.primary : '#8A8A8A'}
-                      />
-                      <SafeText style={[
-                        styles.modelDropdownText,
-                        selectedModel === model.id && styles.modelDropdownTextActive
-                      ]}>
-                        {model.name}
-                      </SafeText>
-                      {selectedModel === model.id && (
-                        <Ionicons name="checkmark-circle" size={18} color={AppColors.primary} />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </Pressable>
-            </Modal>
           </View>
 
           {/* Main Input Row */}
@@ -1290,6 +1342,45 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
           </View>
         </LinearGradient>
+
+        {/* Model Dropdown - positioned outside LinearGradient */}
+        {showModelSelector && (
+          <>
+            <Pressable
+              style={styles.dropdownOverlay}
+              onPress={closeDropdown}
+            />
+            <Animated.View style={[styles.modelDropdown, dropdownAnimatedStyle]}>
+              {AI_MODELS.map((model) => {
+                const IconComponent = model.IconComponent;
+                return (
+                  <TouchableOpacity
+                    key={model.id}
+                    style={[
+                      styles.modelDropdownItem,
+                      selectedModel === model.id && styles.modelDropdownItemActive
+                    ]}
+                    onPress={() => {
+                      setSelectedModel(model.id);
+                      closeDropdown();
+                    }}
+                  >
+                    <IconComponent size={16} />
+                    <SafeText style={[
+                      styles.modelDropdownText,
+                      selectedModel === model.id && styles.modelDropdownTextActive
+                    ]}>
+                      {model.name}
+                    </SafeText>
+                    {selectedModel === model.id && (
+                      <Ionicons name="checkmark" size={14} color={AppColors.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </Animated.View>
+          </>
+        )}
       </Animated.View>
         </>
       )}
@@ -1328,7 +1419,6 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     position: 'absolute',
-    left: 44,
     right: 0,
     pointerEvents: 'box-none',
   },
@@ -1439,6 +1529,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
     maxHeight: 250, // Limite massimo dell'intero widget
     marginHorizontal: 16, // Margine orizzontale per restringere la card
+    overflow: 'visible',
+    zIndex: 10,
   },
   topControls: {
     height: 40,
@@ -1447,6 +1539,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 4,
+    overflow: 'visible',
+    zIndex: 100,
   },
   modeToggleContainer: {
     flexDirection: 'row',
@@ -1481,6 +1575,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: AppColors.primary,
   },
+  modelSelectorContainer: {
+    position: 'relative',
+    zIndex: 100,
+  },
   modelSelector: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1497,50 +1595,55 @@ const styles = StyleSheet.create({
     color: AppColors.icon.default,
     fontWeight: '500',
   },
-  modelModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  dropdownOverlay: {
+    position: 'absolute',
+    top: -500,
+    left: -500,
+    right: -500,
+    bottom: -500,
+    zIndex: 998,
   },
-  modelModalContent: {
-    backgroundColor: '#1a1a1c',
-    borderRadius: 16,
+  modelDropdown: {
+    position: 'absolute',
+    bottom: '100%',
+    right: 16,
+    marginBottom: 8,
+    backgroundColor: '#242428',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: AppColors.dark.surfaceAlt,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    minWidth: 200,
-    maxWidth: 280,
-  },
-  modelModalTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.white.full,
-    textAlign: 'center',
-    marginBottom: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: AppColors.dark.surfaceAlt,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    minWidth: 150,
+    zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 20,
   },
   modelDropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    gap: 8,
+    gap: 10,
+    borderRadius: 10,
+    marginHorizontal: 2,
+    marginVertical: 2,
   },
   modelDropdownItemActive: {
-    backgroundColor: AppColors.primaryAlpha.a10,
+    backgroundColor: AppColors.primaryAlpha.a15,
   },
   modelDropdownText: {
     flex: 1,
     fontSize: 13,
-    color: '#8A8A8A',
+    color: 'rgba(255,255,255,0.6)',
     fontWeight: '500',
   },
   modelDropdownTextActive: {
     color: AppColors.white.full,
+    fontWeight: '600',
   },
   mainInputRow: {
     flexDirection: 'row',

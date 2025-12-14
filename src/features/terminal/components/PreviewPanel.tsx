@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,6 +15,7 @@ import { IconButton } from '../../../shared/components/atoms';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
 import { gitAccountService } from '../../../core/git/gitAccountService';
+import { serverLogService } from '../../../core/services/serverLogService';
 
 interface Props {
   onClose: () => void;
@@ -63,8 +64,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     (currentValue, previousValue) => {
       // Only animate if FAB is expanded and sidebar position changed
       if (isExpandedShared.value && previousValue !== null && currentValue !== previousValue) {
-        // Calculate new width: base 300 + sidebar offset (0 to 50)
-        const newWidth = 300 + Math.abs(currentValue);
+        // Calculate new width: base 320 + sidebar offset (0 to 50)
+        const newWidth = 320 + Math.abs(currentValue);
         runOnJS(animateFabWidth)(newWidth);
       }
     },
@@ -104,11 +105,48 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const prevWorkstationId = useRef<string | null>(null);
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
-  const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string } | null>(null);
+  const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [webCompatibilityError, setWebCompatibilityError] = useState<string | null>(null);
+  const [aiResponse, setAiResponse] = useState<string>('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [activeTools, setActiveTools] = useState<string[]>([]);
+  const [aiMessages, setAiMessages] = useState<Array<{
+    type: 'text' | 'tool_start' | 'tool_result';
+    content: string;
+    tool?: string;
+    success?: boolean;
+    filePath?: string;
+    pattern?: string;
+  }>>([]);
+  const aiScrollViewRef = useRef<ScrollView>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Track keyboard height for input positioning
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
+
+  // NOTE: Server logs SSE connection is now handled by serverLogService (global singleton)
+  // This keeps the connection alive even when PreviewPanel is closed
 
   // Reset preview state when project changes
   useEffect(() => {
@@ -122,6 +160,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       setProjectInfo(null);
       setIsStarting(false);
       setWebCompatibilityError(null);
+
+      // Disconnect from previous project's logs (will reconnect to new project when server starts)
+      serverLogService.disconnect();
 
       // Clear any running health checks
       if (checkInterval.current) {
@@ -198,8 +239,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }, [currentWorkstation]);
 
   // Update preview URL when project type is detected
+  // IMPORTANT: Only update if server is not already running (to avoid overwriting the actual running port)
   useEffect(() => {
-    if (projectInfo && projectInfo.defaultPort && apiUrl) {
+    if (projectInfo && projectInfo.defaultPort && apiUrl && serverStatus !== 'running') {
       // Extract the host from apiUrl (e.g., "http://192.168.1.10:3000" -> "192.168.1.10")
       const urlMatch = apiUrl.match(/https?:\/\/([^:\/]+)/);
       if (urlMatch) {
@@ -209,7 +251,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         setCurrentPreviewUrl(newPreviewUrl);
       }
     }
-  }, [projectInfo, apiUrl]);
+  }, [projectInfo, apiUrl, serverStatus]);
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
@@ -388,6 +430,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         setCurrentPreviewUrl(result.previewUrl);
       }
 
+      // Connect to server logs stream (global service keeps connection alive)
+      if (currentWorkstation?.id && apiUrl) {
+        serverLogService.connect(currentWorkstation.id, apiUrl);
+      }
+
       // Check if server is ready
       if (result.serverReady) {
         console.log('✅ Server is running!');
@@ -480,6 +527,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       clearInterval(checkInterval.current);
     }
 
+    // NOTE: Don't disconnect from server logs here - keep connection alive
+    // The global serverLogService will continue streaming logs to the terminal
+    // Only disconnect when server is actually stopped or project changes
+
     // Stop the server if running
     if (serverStatus === 'running' || serverStatus === 'checking') {
       const portMatch = currentPreviewUrl.match(/:(\d+)/);
@@ -512,6 +563,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       // Reset global state when server is stopped
       setPreviewServerStatus('stopped');
       setPreviewServerUrl(null);
+
+      // Disconnect from server logs since server is being stopped
+      serverLogService.disconnect();
     }
 
     Animated.timing(fadeAnim, {
@@ -532,7 +586,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     setIsInputExpanded(true);
     // Calculate width based on current sidebar position
     // sidebarTranslateX: 0 = sidebar visible, -50 = sidebar hidden
-    const expandedWidth = 300 + Math.abs(sidebarTranslateX.value);
+    const expandedWidth = 320 + Math.abs(sidebarTranslateX.value);
     Animated.spring(fabWidthAnim, {
       toValue: expandedWidth,
       useNativeDriver: false,
@@ -567,26 +621,179 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   };
 
-  const handleSendMessage = () => {
-    if (message.trim() || selectedElement) {
-      // Combine selected element with message
-      let fullMessage = message.trim();
-
-      if (selectedElement) {
-        const elementContext = `[Selected Element: ${selectedElement.selector}${selectedElement.text ? ` - "${selectedElement.text}"` : ''}]`;
-        fullMessage = selectedElement && message.trim()
-          ? `${elementContext}\n${message.trim()}`
-          : elementContext;
+  const clearSelectedElement = () => {
+    setSelectedElement(null);
+    // Clear the visual selection overlay in the WebView
+    webViewRef.current?.injectJavaScript(`
+      if (window.__clearInspectSelection) {
+        window.__clearInspectSelection();
       }
+      true;
+    `);
+  };
 
-      console.log('Message sent:', fullMessage);
-      console.log('Selected element:', selectedElement);
+  const handleSendMessage = async () => {
+    if (!message.trim() && !selectedElement) return;
+    if (!currentWorkstation?.id) {
+      console.error('No workstation selected');
+      return;
+    }
 
-      // TODO: Implement message sending logic with fullMessage
+    // Clear previous response and set loading
+    setAiResponse('');
+    setAiMessages([]);
+    setIsAiLoading(true);
 
-      // Clear both message and selected element after sending
-      setMessage('');
-      setSelectedElement(null);
+    const userMessage = message.trim();
+    const elementData = selectedElement ? {
+      tag: selectedElement.tag || 'unknown',
+      className: selectedElement.className || '',
+      id: selectedElement.id || '',
+      text: selectedElement.text || '',
+      innerHTML: selectedElement.innerHTML || ''
+    } : null;
+
+    console.log('🔍 Sending inspect request:', { userMessage, elementData });
+
+    // Clear input immediately for better UX
+    setMessage('');
+    const savedElement = selectedElement;
+    setSelectedElement(null);
+
+    // Clear the visual selection overlay in the WebView
+    webViewRef.current?.injectJavaScript(`
+      if (window.__clearInspectSelection) {
+        window.__clearInspectSelection();
+      }
+      true;
+    `);
+
+    try {
+      // Use XMLHttpRequest for SSE streaming (works in React Native)
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.open('POST', `${apiUrl}/preview/inspect`);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        let lastIndex = 0;
+        let fullResponse = '';
+
+        xhr.onprogress = () => {
+          const newData = xhr.responseText.substring(lastIndex);
+          lastIndex = xhr.responseText.length;
+
+          // Parse SSE events
+          const lines = newData.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data === '[DONE]') {
+                setActiveTools([]);
+                continue;
+              }
+              try {
+                const parsed = JSON.parse(data);
+
+                // Handle tool events
+                if (parsed.type === 'tool_start') {
+                  console.log('🔧 Tool started:', parsed.tool);
+                  setActiveTools(prev => [...prev, parsed.tool]);
+                  // Add tool message
+                  setAiMessages(prev => [...prev, {
+                    type: 'tool_start',
+                    content: parsed.tool,
+                    tool: parsed.tool
+                  }]);
+                } else if (parsed.type === 'tool_input') {
+                  // Update last tool_start message with input details (filePath, pattern)
+                  console.log('📥 Tool input:', parsed.tool, parsed.input);
+                  setAiMessages(prev => {
+                    const updated = [...prev];
+                    for (let i = updated.length - 1; i >= 0; i--) {
+                      if (updated[i].type === 'tool_start' && updated[i].tool === parsed.tool) {
+                        updated[i] = {
+                          ...updated[i],
+                          filePath: parsed.input?.filePath,
+                          pattern: parsed.input?.pattern
+                        };
+                        break;
+                      }
+                    }
+                    return updated;
+                  });
+                } else if (parsed.type === 'tool_result') {
+                  console.log('✅ Tool result:', parsed.tool, parsed.success);
+                  setActiveTools(prev => prev.filter(t => t !== parsed.tool));
+                  // Update last tool_start message with result
+                  setAiMessages(prev => {
+                    const updated = [...prev];
+                    // Find last tool_start for this tool and mark it complete
+                    for (let i = updated.length - 1; i >= 0; i--) {
+                      if ((updated[i].type === 'tool_start' || updated[i].type === 'tool_result') && updated[i].tool === parsed.tool) {
+                        updated[i] = {
+                          ...updated[i],
+                          type: 'tool_result',
+                          success: parsed.success
+                        };
+                        break;
+                      }
+                    }
+                    return updated;
+                  });
+                } else if (parsed.text) {
+                  // Update or add text message - track text per message block
+                  setAiMessages(prev => {
+                    const last = prev[prev.length - 1];
+                    if (last && last.type === 'text') {
+                      // Append to existing text message
+                      const updated = [...prev];
+                      const newContent = (last.content || '') + parsed.text;
+                      updated[updated.length - 1] = {
+                        ...last,
+                        content: newContent
+                      };
+                      fullResponse = newContent; // Keep fullResponse in sync
+                      return updated;
+                    } else {
+                      // Add new text message (fresh start after tool)
+                      fullResponse = parsed.text;
+                      return [...prev, { type: 'text', content: parsed.text }];
+                    }
+                  });
+                  setAiResponse(fullResponse);
+                }
+              } catch (e) {
+                // Ignore parse errors for partial data
+              }
+            }
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error(`Request failed: ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.ontimeout = () => reject(new Error('Request timeout'));
+
+        xhr.send(JSON.stringify({
+          workstationId: currentWorkstation.id,
+          element: elementData || savedElement,
+          message: userMessage,
+          selectedModel: 'claude-sonnet-4'
+        }));
+      });
+
+    } catch (error: any) {
+      console.error('❌ Inspect request failed:', error);
+      setAiResponse(`Errore: ${error.message}`);
+    } finally {
+      setIsAiLoading(false);
     }
   };
 
@@ -662,10 +869,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
           let lastElement = null;
 
-          // Mouse move handler
-          const handleMouseMove = (e) => {
-            const target = e.target;
-            if (target.classList.contains('__inspector-overlay') ||
+          // Helper to update overlay position
+          const updateOverlay = (target) => {
+            if (!target || target.classList.contains('__inspector-overlay') ||
                 target.classList.contains('__inspector-tooltip')) return;
 
             const rect = target.getBoundingClientRect();
@@ -679,29 +885,65 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             const classes = target.className ? (typeof target.className === 'string' ? target.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2).join(' ') : '') : '';
             const id = target.id || '';
 
-            // Format tooltip text nicely
             let tooltipText = '<' + tagName + '>';
             if (id) tooltipText = '<' + tagName + '#' + id + '>';
             else if (classes) tooltipText = '<' + tagName + '.' + classes.split(' ').join('.') + '>';
 
             tooltip.textContent = tooltipText;
-
             lastElement = target;
           };
 
-          // Click handler
-          const handleClick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+          // Mouse move handler (for desktop/web)
+          const handleMouseMove = (e) => {
+            updateOverlay(e.target);
+          };
 
-            if (lastElement) {
+          // Touch start handler - show overlay on touch
+          const handleTouchStart = (e) => {
+            if (e.touches.length === 1) {
+              const touch = e.touches[0];
+              const target = document.elementFromPoint(touch.clientX, touch.clientY);
+              updateOverlay(target);
+            }
+          };
+
+          // Touch move handler - update overlay as finger moves
+          const handleTouchMove = (e) => {
+            if (e.touches.length === 1) {
+              const touch = e.touches[0];
+              const target = document.elementFromPoint(touch.clientX, touch.clientY);
+              updateOverlay(target);
+            }
+          };
+
+          // Helper to select element
+          const selectElement = () => {
+            if (!lastElement) return;
+
+            // Remove listeners immediately to freeze interaction
+            document.removeEventListener('mousemove', handleMouseMove, true);
+            document.removeEventListener('touchstart', handleTouchStart, true);
+            document.removeEventListener('touchmove', handleTouchMove, true);
+
+            // Show "waiting" state while animations settle
+            tooltip.textContent = '⏳ ...';
+            overlay.style.opacity = '0.5';
+
+            // Wait for animations to complete (CSS transitions typically 150-300ms)
+            // Then re-capture the element's final position
+            setTimeout(() => {
+              // Re-calculate position after animations
+              const rect = lastElement.getBoundingClientRect();
+              overlay.style.top = (rect.top + window.scrollY) + 'px';
+              overlay.style.left = (rect.left + window.scrollX) + 'px';
+              overlay.style.width = rect.width + 'px';
+              overlay.style.height = rect.height + 'px';
+              overlay.style.opacity = '1';
+
               const tagName = lastElement.tagName.toLowerCase();
               const className = lastElement.className || '';
               const id = lastElement.id || '';
               const text = lastElement.textContent?.substring(0, 50) || '';
-
-              // Remove mousemove listener to freeze the selection
-              document.removeEventListener('mousemove', handleMouseMove, true);
 
               // Change overlay style to show it's selected (not just hovered)
               overlay.style.borderColor = '#00D084';
@@ -712,7 +954,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               // Update tooltip to show "Selected!"
               tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
               tooltip.textContent = '✓ Selected';
-              tooltip.querySelector('::after')?.style.setProperty('border-top-color', '#00B972');
 
               // Send message to React Native
               window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -726,32 +967,55 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 }
               }));
 
-              // Keep selection visible for 2 seconds, then fade out
-              setTimeout(() => {
-                overlay.style.transition = 'opacity 0.5s ease';
+              // Keep selection visible until user sends message or removes it
+              // Store a function to clear the selection from React Native
+              window.__clearInspectSelection = () => {
+                overlay.style.transition = 'opacity 0.3s ease';
                 overlay.style.opacity = '0';
                 setTimeout(() => {
                   if (window.__inspectorCleanup) {
                     window.__inspectorCleanup();
                   }
-                }, 500);
-              }, 2000);
-            }
+                }, 300);
+              };
+            }, 350); // Wait 350ms for CSS animations to settle
+          };
+
+          // Click handler (mouse)
+          const handleClick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectElement();
             return false;
           };
 
-          // Attach listeners
+          // Touch end handler - select element on touch end
+          const handleTouchEnd = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectElement();
+            return false;
+          };
+
+          // Attach listeners for both mouse and touch
           document.addEventListener('mousemove', handleMouseMove, true);
           document.addEventListener('click', handleClick, true);
+          document.addEventListener('touchstart', handleTouchStart, { capture: true, passive: false });
+          document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
+          document.addEventListener('touchend', handleTouchEnd, { capture: true, passive: false });
 
           // Store cleanup function
           window.__inspectorCleanup = () => {
             document.removeEventListener('mousemove', handleMouseMove, true);
             document.removeEventListener('click', handleClick, true);
+            document.removeEventListener('touchstart', handleTouchStart, true);
+            document.removeEventListener('touchmove', handleTouchMove, true);
+            document.removeEventListener('touchend', handleTouchEnd, true);
             overlay.remove();
             style.remove();
             window.__inspectorEnabled = false;
             delete window.__inspectorCleanup;
+            delete window.__clearInspectSelection;
           };
 
           console.log('Inspect mode enabled');
@@ -1154,17 +1418,29 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           if (data.element.id) {
                             elementSelector = `<${data.element.tag}#${data.element.id}>`;
                           } else if (data.element.className) {
-                            const classes = data.element.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                            // Handle SVG elements where className is SVGAnimatedString object
+                            const classNameStr = typeof data.element.className === 'string'
+                              ? data.element.className
+                              : (data.element.className?.baseVal || '');
+                            const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
                             if (classes.length > 0) {
                               elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
                             }
                           }
 
-                          // Store selected element as attachment-like object
+                          // Store selected element with full info for AI analysis
                           const elementText = data.element.text?.trim() ? data.element.text.substring(0, 40) + (data.element.text.length > 40 ? '...' : '') : '';
+                          // Normalize className for storage (handle SVGAnimatedString)
+                          const normalizedClassName = typeof data.element.className === 'string'
+                            ? data.element.className
+                            : (data.element.className?.baseVal || '');
                           setSelectedElement({
                             selector: elementSelector,
-                            text: elementText
+                            text: elementText,
+                            tag: data.element.tag,
+                            className: normalizedClassName,
+                            id: data.element.id,
+                            innerHTML: data.element.innerHTML
                           });
 
                           // Focus input
@@ -1212,9 +1488,115 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             </View>
           </KeyboardAvoidingView>
 
+          {/* AI Response Panel - Shows when there's a response */}
+          {(aiMessages.length > 0 || isAiLoading) && (
+            <View style={[styles.aiResponsePanel, { bottom: keyboardHeight > 0 ? keyboardHeight + 70 : insets.bottom + 70 }]}>
+              <View style={styles.aiResponseHeader}>
+                <View style={styles.aiResponseHeaderLeft}>
+                  <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+                  <Text style={styles.aiResponseTitle}>
+                    {activeTools.length > 0 ? `Esecuzione: ${activeTools[activeTools.length - 1]}` : 'Analisi AI'}
+                  </Text>
+                  {activeTools.length > 0 && (
+                    <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 8 }} />
+                  )}
+                </View>
+                <TouchableOpacity
+                  onPress={() => { setAiResponse(''); setAiMessages([]); }}
+                  style={styles.aiResponseClose}
+                >
+                  <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.5)" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                ref={aiScrollViewRef}
+                style={styles.aiResponseScroll}
+                showsVerticalScrollIndicator={false}
+                onContentSizeChange={() => {
+                  // Auto-scroll to bottom when content changes
+                  aiScrollViewRef.current?.scrollToEnd({ animated: true });
+                }}
+              >
+                {isAiLoading && aiMessages.length === 0 ? (
+                  <View style={styles.aiMessageRow}>
+                    <View style={styles.aiThreadContainer}>
+                      <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                    </View>
+                    <View style={styles.aiMessageContent}>
+                      <Text style={styles.aiThinkingText}>Thinking...</Text>
+                    </View>
+                  </View>
+                ) : (
+                  aiMessages.map((msg, index) => {
+                    if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+                      // Tool badge rendering (like ChatPage)
+                      const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                        'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                        'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                        'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
+                        'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
+                      };
+                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
+                      const isComplete = msg.type === 'tool_result';
+                      const isSuccess = msg.success !== false;
+
+                      // Get display name (filename only from path, or pattern)
+                      const displayName = msg.filePath
+                        ? msg.filePath.split('/').pop() || msg.filePath
+                        : msg.pattern || '';
+
+                      return (
+                        <View key={index} style={styles.aiMessageRow}>
+                          <View style={styles.aiThreadContainer}>
+                            <View style={[
+                              styles.aiThreadDot,
+                              { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
+                            ]} />
+                          </View>
+                          <View style={styles.aiToolRow}>
+                            <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                              <Ionicons name={config.icon as any} size={12} color={config.color} />
+                              <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
+                            </View>
+                            {displayName && (
+                              <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
+                            )}
+                            {!isComplete ? (
+                              <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
+                            ) : (
+                              <Ionicons
+                                name={isSuccess ? 'checkmark-circle' : 'close-circle'}
+                                size={16}
+                                color={isSuccess ? '#3FB950' : '#F85149'}
+                                style={{ marginLeft: 8 }}
+                              />
+                            )}
+                          </View>
+                        </View>
+                      );
+                    } else {
+                      // Text message rendering
+                      return (
+                        <View key={index} style={styles.aiMessageRow}>
+                          <View style={styles.aiThreadContainer}>
+                            <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                          </View>
+                          <View style={styles.aiMessageContent}>
+                            <Text style={styles.aiResponseText}>{msg.content}</Text>
+                          </View>
+                        </View>
+                      );
+                    }
+                  })
+                )}
+              </ScrollView>
+            </View>
+          )}
+
+
           {/* Animated FAB / Input Box - Only show when server is running */}
           {serverStatus === 'running' && (
-            <Reanimated.View style={[styles.fabInputWrapper, { bottom: insets.bottom + 8, left: 12 }]}>
+            <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: 12 }]}>
               {/* Selected Element Chip - only when expanded */}
               {isInputExpanded && selectedElement && (
                 <View style={styles.selectedElementContainer}>
@@ -1229,7 +1611,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       )}
                     </View>
                     <TouchableOpacity
-                      onPress={() => setSelectedElement(null)}
+                      onPress={clearSelectedElement}
                       style={styles.chipClose}
                     >
                       <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
@@ -1291,6 +1673,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         keyboardAppearance="dark"
                         returnKeyType="send"
                       />
+
+                      {/* Dismiss Keyboard Button - only show when keyboard is open */}
+                      {keyboardHeight > 0 && (
+                        <TouchableOpacity
+                          onPress={() => Keyboard.dismiss()}
+                          style={styles.previewInputButton}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name="chevron-down"
+                            size={18}
+                            color="rgba(255, 255, 255, 0.5)"
+                          />
+                        </TouchableOpacity>
+                      )}
 
                       {/* Send Button */}
                       <TouchableOpacity
@@ -1720,6 +2117,7 @@ const styles = StyleSheet.create({
     // left is animated via fabWrapperAnimatedStyle (12 when sidebar visible, -38 when hidden -> expands)
     right: 12,
     alignItems: 'flex-end', // FAB starts from right
+    zIndex: 200, // Above keyboard background filler
   },
   fabAnimated: {
     height: 44,
@@ -1889,5 +2287,119 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+  },
+  // AI Response Panel styles
+  aiResponsePanel: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    maxHeight: 300,
+    backgroundColor: 'rgba(20, 20, 30, 0.95)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  aiResponseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  aiResponseHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  aiResponseTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: AppColors.primary,
+  },
+  aiResponseClose: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  aiResponseScroll: {
+    maxHeight: 240,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  aiResponseText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    lineHeight: 20,
+  },
+  aiLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  aiLoadingText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  // New ChatPage-like styles for AI messages
+  aiMessageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    gap: 10,
+  },
+  aiThreadContainer: {
+    width: 20,
+    alignItems: 'center',
+    paddingTop: 4,
+  },
+  aiThreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  aiMessageContent: {
+    flex: 1,
+  },
+  aiThinkingText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontStyle: 'italic',
+  },
+  aiToolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aiToolBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 4,
+  },
+  aiToolBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  aiToolFileName: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginLeft: 8,
+    fontFamily: 'monospace',
+    maxWidth: 150,
   },
 });

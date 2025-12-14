@@ -7,6 +7,7 @@ import { AppColors } from '../../../../shared/theme/colors';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { config } from '../../../../config/config';
 import { Tab } from '../../../../core/tabs/tabStore';
+import { useSidebarOffset } from '../../context/SidebarContext';
 
 interface Props {
   tab: Tab;
@@ -30,12 +31,16 @@ interface AIVariable {
 
 type AIStatus = 'not_started' | 'analyzing' | 'complete' | 'error';
 
+const SIDEBAR_WIDTH = 30;
+
 export const EnvVarsView = ({ tab }: Props) => {
   const insets = useSafeAreaInsets();
   const { currentWorkstation } = useTerminalStore();
+  const { isSidebarHidden } = useSidebarOffset();
 
   // Padding per TabBar e safe area
   const topPadding = insets.top + 38;
+  const sidebarPadding = isSidebarHidden ? 0 : SIDEBAR_WIDTH;
 
   const [envVars, setEnvVars] = useState<EnvVariable[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -99,7 +104,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 
     try {
       const response = await fetch(
-        `${config.apiUrl}/env/${currentWorkstation.projectId}`
+        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`
       );
       if (response.ok) {
         const data = await response.json();
@@ -121,7 +126,7 @@ export const EnvVarsView = ({ tab }: Props) => {
       progressWidth.value = withTiming(30, { duration: 500 });
 
       const response = await fetch(
-        `${config.apiUrl}/env/${currentWorkstation.projectId}/analyze`,
+        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-analyze`,
         { method: 'POST' }
       );
 
@@ -139,7 +144,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 
     try {
       const response = await fetch(
-        `${config.apiUrl}/env/${currentWorkstation.projectId}/analyze/status`
+        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-analyze/status`
       );
 
       if (response.ok) {
@@ -178,7 +183,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 
     try {
       const response = await fetch(
-        `${config.apiUrl}/env/${currentWorkstation.projectId}`,
+        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -219,7 +224,7 @@ export const EnvVarsView = ({ tab }: Props) => {
           onPress: async () => {
             try {
               const response = await fetch(
-                `${config.apiUrl}/env/${currentWorkstation.projectId}/${key}`,
+                `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables/${key}`,
                 { method: 'DELETE' }
               );
               if (response.ok) {
@@ -239,7 +244,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 
     try {
       const response = await fetch(
-        `${config.apiUrl}/env/${currentWorkstation.projectId}`,
+        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -262,7 +267,7 @@ export const EnvVarsView = ({ tab }: Props) => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: topPadding }]}>
+    <View style={[styles.container, { paddingTop: topPadding, paddingLeft: sidebarPadding }]}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -331,7 +336,7 @@ export const EnvVarsView = ({ tab }: Props) => {
                 envVars.map((variable) => (
                   <View key={variable.key} style={styles.variableItem}>
                     <View style={styles.variableHeader}>
-                      <Text style={styles.variableKey}>{variable.key}</Text>
+                      <Text style={styles.variableKey} numberOfLines={1} ellipsizeMode="tail">{variable.key}</Text>
                       <View style={styles.variableActions}>
                         {variable.isSecret && (
                           <TouchableOpacity
@@ -401,7 +406,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0d0d0f',
+    backgroundColor: AppColors.dark.background,
   },
   header: {
     flexDirection: 'row',
@@ -444,7 +449,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingLeft: 20,
+    paddingRight: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -530,6 +536,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
+    overflow: 'hidden',
   },
   variableHeader: {
     flexDirection: 'row',
@@ -542,13 +549,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: AppColors.primary,
     fontFamily: 'monospace',
+    flexShrink: 1,
+    maxWidth: '70%',
   },
   variableActions: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    gap: 4,
   },
   actionButton: {
-    padding: 4,
+    padding: 6,
   },
   variableValue: {
     fontSize: 13,

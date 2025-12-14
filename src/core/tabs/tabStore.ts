@@ -157,7 +157,7 @@ export const useTabStore = create<TabStore>((set) => ({
   })),
 
   addTerminalItem: (tabId, item) => {
-    console.log('🔵 Store addTerminalItem called:', { tabId, itemType: item?.type, itemContent: item?.content?.substring(0, 50) });
+    console.log('🔵 Store addTerminalItem called:', { tabId, itemType: item?.type, itemContent: item?.content?.substring(0, 50), isThinking: item?.isThinking });
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       const currentItems = tab?.terminalItems || [];
