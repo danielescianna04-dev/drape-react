@@ -9,6 +9,8 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 require('dotenv').config();
 
+const coderService = require('./coder-service');
+
 // Auto-detect local network IP
 function getLocalIP() {
   const interfaces = os.networkInterfaces();
@@ -1417,7 +1419,7 @@ REGOLE D'ORO:
           if (groqError.response?.status === 429 && retryCount < MAX_RETRIES) {
             retryCount++;
             const waitTime = Math.pow(2, retryCount) * 1000;
-            res.write(`data: ${JSON.stringify({ text: `\n⏳ Rate limit - Riprovo tra ${waitTime/1000}s...\n` })}\n\n`);
+            res.write(`data: ${JSON.stringify({ text: `\n⏳ Rate limit - Riprovo tra ${waitTime / 1000}s...\n` })}\n\n`);
             await new Promise(resolve => setTimeout(resolve, waitTime));
             continueLoop = true;
           } else {
@@ -2198,421 +2200,114 @@ app.get('/expo-preview/:port', async (req, res) => {
   }
 });
 
-// Execute command on workstation (real execution)
+// Execute command on workstation (cloud execution via Coder)
 async function executeCommandOnWorkstation(command, workstationId) {
   console.log(`🔧 executeCommandOnWorkstation called:`);
   console.log(`   Command: ${command}`);
   console.log(`   Workstation: ${workstationId}`);
 
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-  const path = require('path');
-  const fs = require('fs').promises;
+  // ===========================================
+  // VIBE CODING: CLOUD EXECUTION
+  // ===========================================
 
-  // Get the repository path - handle ws- prefix and case-insensitive matching
-  let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
-
-  // If workstation ID starts with 'ws-', try to find the project folder with case-insensitive matching
-  if (workstationId.startsWith('ws-')) {
-    const projectIdLower = workstationId.substring(3); // Remove 'ws-' prefix
-    const clonedReposDir = path.join(__dirname, 'cloned_repos');
-
-    try {
-      const folders = await fs.readdir(clonedReposDir);
-      const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
-
-      if (matchingFolder) {
-        repoPath = path.join(clonedReposDir, matchingFolder);
-        console.log(`   Mapped ${workstationId} → ${matchingFolder}`);
-      }
-    } catch (err) {
-      console.error('   Error reading cloned_repos:', err);
-    }
-  }
-
-  // Check if repository exists
-  try {
-    await fs.access(repoPath);
-  } catch {
-    console.log('⚠️  Repository not found, using simulation fallback');
-    return {
-      stdout: `Error: Project directory not found for workstation ${workstationId}`,
-      stderr: 'Repository directory does not exist',
-      exitCode: 1
-    };
-  }
-
-  // Check if this is a React Native/Expo project
-  const isReactNative = await checkIfReactNative(repoPath);
-
-  // Add HOST=0.0.0.0 for dev server commands to allow network access
-  let execCommand = command;
-  const isDevServerCommand = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|gatsby\s+develop|npx\s+expo\s+start|python3?\s+-m\s+http\.server|php\s+artisan\s+serve|rails\s+server|flask\s+run|uvicorn/.test(command);
-
-  if (isDevServerCommand) {
-    if (isReactNative) {
-      console.log('📱 React Native/Expo project detected - using port 8081');
-      // For Expo projects, add --host lan flag
-      // Environment variables (HOST, WDS_SOCKET_HOST) are passed via spawn env option
-      if (command.includes('expo')) {
-        execCommand = `${command} --host lan`;
-      } else {
-        execCommand = command;
-      }
-    } else {
-      console.log('🌐 Adding HOST=0.0.0.0 to dev server command for network access');
-      // On Windows, use cross-env or set command based on OS
-      const isWindows = process.platform === 'win32';
-      if (isWindows) {
-        execCommand = `set HOST=0.0.0.0 && ${command}`;
-      } else {
-        execCommand = `HOST=0.0.0.0 ${command}`;
-      }
-    }
-  }
+  // 1. Identify workspace
+  // workstationId format: "ws-<name>" or just "<name>"
+  const wsName = workstationId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    console.log(`💻 Executing in ${repoPath}: ${execCommand}`);
+    // 2. Ensure User & Agent
+    // We assume admin user for MVP flow
+    const user = await coderService.ensureUser('admin@drape.dev', 'admin');
 
-    // For dev server commands, we need to run them in background
-    // For now, just return success to indicate server is starting
-    if (isDevServerCommand) {
-      // Extract port from command or use defaults
-      let port = 3000; // default
+    // 3. Find Workspace
+    // We need the workspace ID to connect
+    // For speed, strict mapping would be better, but we search for now
+    // Simpler: assume we stored the mapping in memory or deduce it
+    // Let's deduce: workspace name is derived from repo name usually
 
-      // Try to extract port from command with multiple patterns
-      // Pattern 1: --port=8080 or --port 8080 (most frameworks)
-      // Pattern 2: :8080 (some servers like Rails, PHP)
-      // Pattern 3: http.server 8080 (Python simple server)
-      // Pattern 4: PORT=8080 (environment variable style)
-      const portPatterns = [
-        /(?:--port[=\s])(\d+)/,           // --port=8080 or --port 8080
-        /:(\d{4,5})\b/,                   // :8080
-        /http\.server\s+(\d+)/,           // python3 -m http.server 8000
-        /PORT[=\s](\d+)/                  // PORT=8080
-      ];
+    console.log(`☁️  Routing command to Coder workspace: ${wsName}`);
 
-      let portMatch = null;
-      for (const pattern of portPatterns) {
-        portMatch = command.match(pattern);
-        if (portMatch) {
-          port = parseInt(portMatch[1]);
-          console.log(`📍 Extracted port from command: ${port}`);
-          break;
-        }
-      }
+    // 4. Execute via Coder Agent (SSH/ReconnectingPTY)
+    // Since Coder's API for "exec" is complex (needs WebSocket upgrade), 
+    // for this MVP we will use the `coder` CLI installed on this server to proxy the command.
+    // This is much more reliable than implementing the SSH protocol in JS for now.
 
-      // Fallbacks if no port found
-      if (!portMatch) {
-        if (isReactNative) {
-          port = 8081;
-        }
-        console.log(`📍 Using default port: ${port}`);
-      }
+    // Ensure we are logged in
+    // (This should be handled by setup-coder.js but good to check)
 
-      // Check if this is a static server command (node static-server.js)
-      const isStaticServer = command.includes('static-server.js');
+    // Execute via Coder CLI: "coder ssh <workspace> -- <command>"
+    // Note: We need to set stdio to pipe to capture output
 
-      // For ALL dev server commands, find an available port dynamically
-      // This prevents port conflicts when running multiple projects
-      console.log(`🔍 Checking if port ${port} is available...`);
-      const originalPort = port;
-      port = await findAvailablePort(port);
+    console.log(`🚀 Sending command to cloud: ${command}`);
 
-      if (port !== originalPort) {
-        console.log(`⚠️  Port ${originalPort} is in use, using port ${port} instead`);
-        // Update the command with the new port if it contains the original port
-        if (execCommand.includes(originalPort.toString())) {
-          execCommand = execCommand.replace(new RegExp(`\\b${originalPort}\\b`, 'g'), port.toString());
-          console.log(`📝 Updated command: ${execCommand}`);
-        }
-        // Also set PORT environment variable for servers that use it
-        execCommand = `PORT=${port} ${execCommand}`;
-        console.log(`📝 Added PORT env variable: ${execCommand}`);
-      } else {
-        console.log(`✅ Port ${port} is available`);
-      }
+    // Pre-process command for non-interactive execution
+    let remoteCommand = command;
+    let isBackground = false;
 
-      // No port cleanup needed - we already found an available port dynamically
-      // This avoids accidentally killing other processes
+    // Handle long-running servers (start/dev/serve)
+    const isDevServer = /npm\s+(run\s+)?dev|npm\s+start|yarn\s+(run\s+)?dev|yarn\s+start|ng\s+serve|python3?\s+-m\s+http\.server|uvicorn/.test(command);
 
-      // Initialize fs and path at the beginning
-      const fs = require('fs');
-      const fsPromises = require('fs').promises;
-      const path = require('path');
+    if (isDevServer) {
+      isBackground = true;
+      // Run in background with nohup to survive disconnects
+      // We redirect stdout/stderr to a log file we can tail later
+      remoteCommand = `nohup ${command} > debug.log 2>&1 & echo $!`;
+      console.log(`🌐 Converting to background command: ${remoteCommand}`);
+    }
 
-      // For Expo/React Native projects, create .env file intelligently
-      if (isReactNative) {
-        try {
-          const os = require('os');
-          const networkInterfaces = os.networkInterfaces();
-          let localIp = 'localhost';
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-          // Get local IP
-          for (const interfaceName in networkInterfaces) {
-            const interfaces = networkInterfaces[interfaceName];
-            if (interfaces) {
-              for (const iface of interfaces) {
-                if (iface.family === 'IPv4' && !iface.internal) {
-                  localIp = iface.address;
-                  break;
-                }
-              }
-            }
-            if (localIp !== 'localhost') break;
-          }
+    // Use the coder CLI to run the command inside the workspace
+    // We use the full path to ensuring we hit the binary
+    const coderCli = 'coder';
 
-          const envPath = path.join(repoPath, '.env');
-          const envExamplePath = path.join(repoPath, '.env.example');
+    // Construct the SSH command
+    // -t force pseudo-terminal (good for colors), but might break some parsers. Let's try without first.
+    const fullCmd = `${coderCli} ssh ${wsName} -- ${remoteCommand}`;
 
-          // IMPORTANT: Check if .env already exists - don't overwrite user's configuration!
-          if (fs.existsSync(envPath)) {
-            console.log('✅ .env file already exists - preserving user configuration');
+    const { stdout, stderr } = await execAsync(fullCmd, {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      timeout: isBackground ? 10000 : 30000 // Short timeout for launch, longer for normal cmds
+    });
 
-            // Only check if it has necessary variables for Expo Web
-            if (command.includes('--web')) {
-              const existingContent = fs.readFileSync(envPath, 'utf8');
-              let needsUpdate = false;
-              let updatedContent = existingContent;
+    // If backround, execution returns the PID
+    if (isBackground) {
+      console.log(`✅ Background process started. PID: ${stdout.trim()}`);
 
-              // Check if HOST and WDS_SOCKET_HOST are present
-              if (!existingContent.includes('HOST=')) {
-                console.log('⚠️  Adding missing HOST=0.0.0.0 to existing .env');
-                updatedContent = `HOST=0.0.0.0\n${updatedContent}`;
-                needsUpdate = true;
-              }
-              if (!existingContent.includes('WDS_SOCKET_HOST=')) {
-                console.log('⚠️  Adding missing WDS_SOCKET_HOST=0.0.0.0 to existing .env');
-                updatedContent = `WDS_SOCKET_HOST=0.0.0.0\n${updatedContent}`;
-                needsUpdate = true;
-              }
+      // We can assume standard ports for now or parse them from logs later
+      // For Cloud Workstations, we usually rely on port forwarding or public ingress
+      // MVP: Let's assume port 3000 is exposed via Coder's port forwarding URL
 
-              // Only write if we added missing variables
-              if (needsUpdate) {
-                fs.writeFileSync(envPath, updatedContent, 'utf8');
-                console.log('📝 Updated .env with missing webpack-dev-server variables');
-              }
-            }
-          } else {
-            // No .env exists - create it from template or minimal config
-            let envContent = '';
+      // Generate the Proxy URL for the User
+      const proxyUrl = `${process.env.CODER_API_URL}/@${user.username}/${wsName}/apps/port/3000`; // Approximate URL structure for Coder port forwarding
 
-            // Check if .env.example exists
-            if (fs.existsSync(envExamplePath)) {
-              console.log('📄 Found .env.example - using it as template');
-              envContent = fs.readFileSync(envExamplePath, 'utf8');
-
-              // Replace dynamic values (IP addresses)
-              envContent = envContent.replace(/192\.168\.\d+\.\d+/g, localIp);
-              envContent = envContent.replace(/localhost:3000/g, `${localIp}:${PORT}`);
-
-              // Ensure webpack dev server variables are present (for Expo Web)
-              if (command.includes('--web')) {
-                if (!envContent.includes('HOST=')) {
-                  envContent = `HOST=0.0.0.0\n${envContent}`;
-                }
-                if (!envContent.includes('WDS_SOCKET_HOST=')) {
-                  envContent = `WDS_SOCKET_HOST=0.0.0.0\n${envContent}`;
-                }
-              }
-            } else {
-              console.log('⚠️  No .env.example found - creating minimal .env');
-              // Minimal .env for projects without .env.example
-              envContent = `# Auto-generated configuration\n`;
-              if (command.includes('--web')) {
-                envContent += `HOST=0.0.0.0\nWDS_SOCKET_HOST=0.0.0.0\n\n`;
-              }
-              envContent += `# Backend URL\nEXPO_PUBLIC_API_URL=http://${localIp}:${PORT}/\n`;
-            }
-
-            fs.writeFileSync(envPath, envContent, 'utf8');
-            console.log(`📝 Created .env file for ${command.includes('--web') ? 'Expo Web' : 'Expo'} with backend at ${localIp}:${PORT}`);
-          }
-        } catch (error) {
-          console.error('⚠️  Failed to create .env file:', error.message);
-        }
-
-        // Check if node_modules exists for React Native projects, if not install dependencies
-        const nodeModulesPath = path.join(repoPath, 'node_modules');
-        let needsInstall = false;
-        try {
-          await fsPromises.access(nodeModulesPath);
-          console.log('✅ node_modules exists');
-        } catch {
-          console.log('📦 node_modules not found, installing dependencies...');
-          needsInstall = true;
-        }
-
-        if (needsInstall) {
-          try {
-            console.log('⏳ Running npm install...');
-            console.log('   This may take several minutes for large projects...');
-            await execAsync('npm install', {
-              cwd: repoPath,
-              timeout: 600000, // 10 minutes for install - Expo projects have many dependencies
-              maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
-            });
-            console.log('✅ Dependencies installed successfully');
-          } catch (installErr) {
-            console.error('❌ Failed to install dependencies:', installErr.message);
-            // Log more details about the error
-            if (installErr.killed) {
-              console.error('   Installation was killed (likely timeout)');
-            }
-            if (installErr.code) {
-              console.error('   Exit code:', installErr.code);
-            }
-            return {
-              stdout: '',
-              stderr: `Failed to install dependencies: ${installErr.message}`,
-              exitCode: 1
-            };
-          }
-        }
-      }
-
-      // Check if node_modules exists for ANY JS project (not just React Native)
-      // This applies to: React, Vue, Angular, Next.js, Svelte, etc.
-      const packageJsonPath = path.join(repoPath, 'package.json');
-      const nodeModulesPath = path.join(repoPath, 'node_modules');
-
-      // Only check for JS projects that have package.json
-      if (fs.existsSync(packageJsonPath)) {
-        let needsInstall = false;
-        try {
-          await fsPromises.access(nodeModulesPath);
-          console.log('✅ node_modules exists');
-        } catch {
-          console.log('📦 node_modules not found, installing dependencies...');
-          needsInstall = true;
-        }
-
-        if (needsInstall) {
-          try {
-            console.log('⏳ Running npm install...');
-            console.log('   This may take several minutes for large projects...');
-            await execAsync('npm install', {
-              cwd: repoPath,
-              timeout: 600000, // 10 minutes for install
-              maxBuffer: 10 * 1024 * 1024 // 10MB buffer for npm output
-            });
-            console.log('✅ Dependencies installed successfully');
-          } catch (installErr) {
-            console.error('❌ Failed to install dependencies:', installErr.message);
-            if (installErr.killed) {
-              console.error('   Installation was killed (likely timeout)');
-            }
-            if (installErr.code) {
-              console.error('   Exit code:', installErr.code);
-            }
-            return {
-              stdout: '',
-              stderr: `Failed to install dependencies: ${installErr.message}`,
-              exitCode: 1
-            };
-          }
-        }
-      }
-
-      // Start ALL dev servers in background (non-blocking) - applies to ALL project types!
-      // This includes: React, Vue, Next.js, Python static servers, PHP, Rails, etc.
-      const { spawn } = require('child_process');
-      const isWindows = process.platform === 'win32';
-      const shell = isWindows ? 'cmd.exe' : 'sh';
-      const shellArg = isWindows ? '/c' : '-c';
-
-      // Prepare environment variables - inherit from parent and add network binding variables
-      const spawnEnv = {
-        ...process.env,
-        HOST: '0.0.0.0',                      // For webpack-dev-server (Expo Web)
-        WDS_SOCKET_HOST: '0.0.0.0',           // For webpack HMR socket
-        EXPO_DEVTOOLS_LISTEN_ADDRESS: '0.0.0.0',  // For Expo Metro (fallback)
-        SKIP_PREFLIGHT_CHECK: 'true',         // Skip Create React App dependency checks
-        BROWSER: 'none',                      // Don't open browser automatically
-        NODE_OPTIONS: '--openssl-legacy-provider'  // Fix for older react-scripts with Node 17+
-      };
-
-      console.log('🌐 Spawn environment variables set:', {
-        HOST: spawnEnv.HOST,
-        WDS_SOCKET_HOST: spawnEnv.WDS_SOCKET_HOST,
-        EXPO_DEVTOOLS_LISTEN_ADDRESS: spawnEnv.EXPO_DEVTOOLS_LISTEN_ADDRESS,
-        SKIP_PREFLIGHT_CHECK: spawnEnv.SKIP_PREFLIGHT_CHECK,
-        BROWSER: spawnEnv.BROWSER,
-        NODE_OPTIONS: spawnEnv.NODE_OPTIONS
-      });
-      console.log('💻 Final command to execute:', execCommand);
-
-      const serverProcess = spawn(shell, [shellArg, execCommand], {
-        cwd: repoPath,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],  // Capture stdout/stderr for debugging
-        env: spawnEnv
-      });
-
-      // Log spawn errors for debugging
-      serverProcess.on('error', (err) => {
-        console.error('❌ Spawn error:', err.message);
-      });
-
-      // Log process output for debugging and stream to frontend
-      let outputBuffer = '';
-      let errorBuffer = '';
-
-      if (serverProcess.stdout) {
-        serverProcess.stdout.on('data', (data) => {
-          const output = data.toString().trim();
-          outputBuffer += data.toString();
-          if (outputBuffer.length < 5000) {
-            console.log('📤 Process output:', output);
-          }
-          // Stream to frontend via SSE
-          addServerLog(workstationId, { type: 'stdout', message: output });
-        });
-      }
-
-      if (serverProcess.stderr) {
-        serverProcess.stderr.on('data', (data) => {
-          const output = data.toString().trim();
-          errorBuffer += data.toString();
-          console.log('⚠️  Process stderr:', output);
-          // Stream to frontend via SSE
-          addServerLog(workstationId, { type: 'stderr', message: output });
-        });
-      }
-
-      serverProcess.unref(); // Allow parent to exit independently
-
-      console.log('✅ Dev server started in background (PID:', serverProcess.pid, ')');
       return {
-        stdout: `> Starting development server...\n\nLocal:   http://localhost:${port}\nNetwork: http://0.0.0.0:${port}\n\n✨ Server starting in background...\n🚀 Development server running on workstation ${workstationId}`,
-        stderr: '',
+        stdout: `> Cloud Process Started\n\nPID: ${stdout.trim()}\nlogs: debug.log\n\n🌐 App Address: ${proxyUrl}`,
+        stderr: stderr,
         exitCode: 0
       };
     }
 
-    // For other commands, execute normally with timeout
-    const { stdout, stderr } = await execAsync(`cd "${repoPath}" && ${execCommand}`, {
-      timeout: 30000,
-      maxBuffer: 1024 * 1024 * 10 // 10MB buffer
-    });
-
-    console.log('✅ Command executed successfully');
     return {
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
+      stdout,
+      stderr,
       exitCode: 0
     };
 
-  } catch (error) {
-    console.error('❌ Command execution error:', error);
+  } catch (err) {
+    console.error('❌ Cloud Execution Failed:', err);
     return {
-      stdout: error.stdout ? error.stdout.toString().trim() : '',
-      stderr: error.stderr ? error.stderr.toString().trim() : error.message,
-      exitCode: error.code || 1
+      stdout: '',
+      stderr: `Cloud Error: ${err.message}\n${err.stderr || ''}`,
+      exitCode: 1
     };
   }
 }
+
+
+// --- OLD LOCAL LOGIC DELETED ---
 
 // Health check a URL con retry logic
 async function healthCheckUrl(url, maxAttempts = 15, delayMs = 1000) {
@@ -3587,9 +3282,9 @@ Be thorough - include ALL patterns used in this language/framework for reading e
                   if (patternRegex.test(line) || (isConfig && line.includes('='))) {
                     // Estrai anche contesto (linea prima e dopo)
                     const context = [];
-                    if (i > 0) context.push(lines[i-1]);
+                    if (i > 0) context.push(lines[i - 1]);
                     context.push(line);
-                    if (i < lines.length - 1) context.push(lines[i+1]);
+                    if (i < lines.length - 1) context.push(lines[i + 1]);
                     relevantLines.push(context.join('\n'));
 
                     // Estrai nome variabile se possibile
@@ -5065,57 +4760,45 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     console.log('🔗 Repository URL:', repositoryUrl);
     console.log('🔑 Has GitHub token:', !!githubToken);
 
-    // If repositoryUrl is provided, clone and read from local filesystem
-    if (repositoryUrl) {
-      const files = await cloneAndReadRepository(repositoryUrl, projectId, githubToken);
-      console.log(`✅ Found ${files.length} files in cloned repository`);
-      res.json({ success: true, files });
-      return;
-    }
 
-    // Check if repo is already cloned locally (even without repositoryUrl)
-    const reposDir = path.join(__dirname, 'cloned_repos');
-    const repoPath = path.join(reposDir, projectId);
+    // ===========================================
+    // VIBE CODING: CLOUD FILE SYSTEM (LIST)
+    // ===========================================
+    const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
     try {
-      await fs.access(repoPath);
-      // Repo exists locally, read files from it
-      console.log('📂 Found existing cloned repo at:', repoPath);
-      const files = await cloneAndReadRepository(null, projectId, null);
-      console.log(`✅ Found ${files.length} files in existing cloned repository`);
+      await coderService.ensureUser('admin@drape.dev', 'admin');
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+
+      // We use 'git ls-files' if it's a git repo, otherwise 'find'
+      // Let's use 'find' to be generic and robust
+      // Exclude node_modules, .git, etc.
+      const cmd = `find . -maxdepth 4 -not -path '*/.*' -not -path '*/node_modules/*' -not -type d`;
+
+      console.log(`☁️  Listing files from cloud: ${wsName}`);
+      const { stdout } = await execAsync(`coder ssh ${wsName} -- ${cmd}`, {
+        env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+        timeout: 10000
+      });
+
+      const files = stdout.split('\n').filter(f => f.trim() !== '').map(f => f.replace(/^\.\//, ''));
+      console.log(`✅ Found ${files.length} files in cloud workspace`);
       res.json({ success: true, files });
       return;
-    } catch {
-      // Repo not cloned locally - return empty array instead of checking Firestore
-      // (Firestore requires Google Cloud credentials which may not be configured)
-      console.log('📂 No local repo found and no repositoryUrl provided');
-      console.log('ℹ️ Returning empty file list (project needs to be cloned first)');
-      res.json({ success: true, files: [], needsClone: true });
+
+    } catch (err) {
+      console.error('❌ Cloud List Files Error:', err.message);
+      // Fallback or error?
+      // If the workspace is off, this fails. 
+      // For now, let's treat it as "needs clone" or empty to avoid crashing UI
+      res.json({ success: true, files: [], error: err.message });
       return;
     }
-  } catch (error) {
-    console.error('❌ Error getting files:', error.message);
 
-    // If repository is private and requires authentication
-    if (error.requiresAuth || error.isPrivate) {
-      console.log('🔒 Repository is private - authentication required');
-      res.status(401).json({
-        success: false,
-        error: error.message || 'Repository privata. È necessario autenticarsi con GitHub.',
-        requiresAuth: true,
-        isPrivate: true
-      });
-    }
-    // If repository clone failed (private or not found), return error
-    else if (error.message.includes('Failed to clone repository')) {
-      console.log('⚠️ Clone failed - repository private or not found');
-      res.status(401).json({
-        success: false,
-        error: 'Repository is private or not found. Authentication required.',
-        requiresAuth: true
-      });
-    } else {
-      res.status(500).json({ success: false, error: error.message });
-    }
+  } catch (error) {
+    console.error('❌ Outer Error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -5137,39 +4820,39 @@ app.get('/workstation/:projectId/file-content', async (req, res) => {
       return res.status(400).json({ success: false, error: 'File path is required' });
     }
 
-    // Ensure repository is cloned
-    const reposDir = path.join(__dirname, 'cloned_repos');
-    const repoPath = path.join(reposDir, projectId);
-    console.log('📂 [FILE-CONTENT] Checking repo path:', repoPath);
+    // ===========================================
+    // VIBE CODING: CLOUD FILE SYSTEM (READ)
+    // ===========================================
+    const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
-    // Check if repo exists, clone if not
+    // Read file content from cloud via SSH + cat
+    // We use base64 encoding on the remote side to avoid special char issues in transit
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    console.log(`📄 [CLOUD-READ] Reading ${filePath} from ${wsName}`);
+
     try {
-      await fs.access(repoPath);
-      console.log('✅ [FILE-CONTENT] Repository directory exists');
-    } catch {
-      console.log('⚠️  [FILE-CONTENT] Repository directory not found');
-      if (repositoryUrl) {
-        console.log('📦 [FILE-CONTENT] Attempting to clone repository...');
-        await cloneAndReadRepository(repositoryUrl, projectId);
-        console.log('✅ [FILE-CONTENT] Repository cloned successfully');
-      } else {
-        console.log('❌ [FILE-CONTENT] No repositoryUrl provided, returning 404');
-        return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
-      }
+      const cmd = `base64 "${filePath}"`; // cat file | base64 (checking syntax) -> simple 'base64 file' works on linux
+      const { stdout } = await execAsync(`coder ssh ${wsName} -- ${cmd}`, {
+        env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+        timeout: 5000
+      });
+
+      // Decode logic
+      const content = Buffer.from(stdout.trim(), 'base64').toString('utf-8');
+
+      console.log(`✅ [CLOUD-READ] Loaded ${content.length} bytes`);
+      res.json({ success: true, content, filePath });
+
+    } catch (err) {
+      console.error(`❌ [CLOUD-READ] Failed: ${err.message}`);
+      res.status(404).json({ success: false, error: 'File not found on cloud workspace' });
     }
-
-    // Read file content
-    const fullFilePath = path.join(repoPath, filePath);
-    console.log('📄 [FILE-CONTENT] Reading file from:', fullFilePath);
-
-    const content = await fs.readFile(fullFilePath, 'utf-8');
-
-    console.log(`✅ [FILE-CONTENT] File content loaded: ${filePath} (${content.length} bytes)`);
-    res.json({ success: true, content, filePath });
 
   } catch (error) {
     console.error('❌ [FILE-CONTENT] Error:', error.message);
-    console.error('   Stack:', error.stack);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -5189,113 +4872,83 @@ app.get('/git/status/:projectId', async (req, res) => {
     projectId = projectId.substring(3);
   }
 
-  const reposDir = path.join(__dirname, 'cloned_repos');
-  const repoPath = path.join(reposDir, projectId);
+
+  // ===========================================
+  // VIBE CODING: CLOUD GIT STATUS
+  // ===========================================
+  const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    // Check if repo exists
-    await fs.access(repoPath);
+    await coderService.ensureUser('admin@drape.dev', 'admin');
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-    // Check if it's a git repo
-    const gitDir = path.join(repoPath, '.git');
-    try {
-      await fs.access(gitDir);
-    } catch {
+    console.log(`☁️  Git Status Check in cloud: ${wsName}`);
+
+    // We run a combined script in the cloud to gather all git info at once
+    // This is faster than multiple SSH calls
+    const script = `
+        if [ -d .git ]; then
+            echo "IS_GIT:true"
+            echo "BRANCH:$(git rev-parse --abbrev-ref HEAD)"
+            echo "---LOG---"
+            git log --pretty=format:"%H|%h|%s|%an|%ae|%aI" -20
+            echo ""
+            echo "---STATUS---"
+            git status --porcelain
+        else
+            echo "IS_GIT:false"
+        fi
+    `.replace(/\n/g, ' '); // simple sanitization
+
+    const { stdout } = await execAsync(`coder ssh ${wsName} -- sh -c '${script}'`, {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      timeout: 10000
+    });
+
+    // Parse output
+    const output = stdout.toString().trim();
+    if (output.includes("IS_GIT:false")) {
       return res.json({ isGitRepo: false });
     }
 
-    // Get current branch
-    let currentBranch = 'main';
-    try {
-      currentBranch = execSync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
-    } catch (e) {
-      console.log('Could not get current branch:', e.message);
-    }
+    const currentBranchMatch = output.match(/BRANCH:(.*)/);
+    const currentBranch = currentBranchMatch ? currentBranchMatch[1] : 'main';
 
-    // Get commits (last 50)
-    let commits = [];
-    try {
-      const logOutput = execSync(
-        'git log --pretty=format:"%H|%h|%s|%an|%ae|%ai" -50',
-        { cwd: repoPath, encoding: 'utf-8' }
-      );
-      if (logOutput.trim()) {
-        commits = logOutput.trim().split('\n').map((line, index) => {
-          const [hash, shortHash, message, author, authorEmail, date] = line.split('|');
-          return {
-            hash,
-            shortHash,
-            message,
-            author,
-            authorEmail,
-            date: new Date(date),
-            isHead: index === 0,
-            branch: index === 0 ? currentBranch : undefined
-          };
-        });
-      }
-    } catch (e) {
-      console.log('Could not get commits:', e.message);
-    }
+    // Parse commits
+    const logPart = output.split('---LOG---')[1]?.split('---STATUS---')[0] || '';
+    const commits = logPart.trim().split('\n').filter(l => l).map((line, index) => {
+      const [hash, shortHash, message, author, authorEmail, date] = line.split('|');
+      return {
+        hash,
+        shortHash,
+        message,
+        author,
+        authorEmail,
+        date: new Date(date),
+        isHead: index === 0,
+        branch: index === 0 ? currentBranch : undefined
+      };
+    });
 
-    // Get branches
-    let branches = [];
-    try {
-      const branchOutput = execSync('git branch -a', { cwd: repoPath, encoding: 'utf-8' });
-      const branchLines = branchOutput.trim().split('\n');
-      branches = branchLines.map(line => {
-        const isCurrent = line.startsWith('*');
-        const name = line.replace(/^\*?\s*/, '').trim();
-        const isRemote = name.startsWith('remotes/');
-        return {
-          name: isRemote ? name.replace('remotes/', '') : name,
-          isCurrent,
-          isRemote
-        };
-      }).filter(b => !b.name.includes('HEAD'));
-
-      // Get ahead/behind for current branch
-      try {
-        const trackingOutput = execSync(`git rev-list --left-right --count origin/${currentBranch}...HEAD`, { cwd: repoPath, encoding: 'utf-8' });
-        const [behind, ahead] = trackingOutput.trim().split('\t').map(Number);
-        const currentBranchObj = branches.find(b => b.isCurrent);
-        if (currentBranchObj) {
-          currentBranchObj.ahead = ahead;
-          currentBranchObj.behind = behind;
-        }
-      } catch (e) {
-        // No tracking branch or other error
-      }
-    } catch (e) {
-      console.log('Could not get branches:', e.message);
-    }
-
-    // Get status (staged, modified, untracked)
+    // Parse status
+    const statusPart = output.split('---STATUS---')[1] || '';
     let status = { staged: [], modified: [], untracked: [], deleted: [] };
-    try {
-      const statusOutput = execSync('git status --porcelain', { cwd: repoPath, encoding: 'utf-8' });
-      if (statusOutput.trim()) {
-        statusOutput.trim().split('\n').forEach(line => {
-          const code = line.substring(0, 2);
-          const file = line.substring(3);
 
-          if (code[0] === 'A' || code[0] === 'M' || code[0] === 'D') {
-            status.staged.push(file);
-          }
-          if (code[1] === 'M') {
-            status.modified.push(file);
-          }
-          if (code === '??') {
-            status.untracked.push(file);
-          }
-          if (code[1] === 'D') {
-            status.deleted.push(file);
-          }
-        });
-      }
-    } catch (e) {
-      console.log('Could not get status:', e.message);
+    if (statusPart.trim()) {
+      statusPart.trim().split('\n').forEach(line => {
+        const code = line.substring(0, 2);
+        const file = line.substring(3);
+        if (code[0] === 'A' || code[0] === 'M' || code[0] === 'D') status.staged.push(file);
+        if (code[1] === 'M') status.modified.push(file);
+        if (code === '??') status.untracked.push(file);
+        if (code[1] === 'D') status.deleted.push(file);
+      });
     }
+
+    // Return mocked branches for now to save complexity, or fetch them too
+    const branches = [{ name: currentBranch, isCurrent: true, isRemote: false }];
 
     res.json({
       isGitRepo: true,
@@ -5306,50 +4959,29 @@ app.get('/git/status/:projectId', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Git status error:', error.message);
-    res.json({ isGitRepo: false, error: error.message });
+    console.error('❌ Cloud Git Status Error:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
-/**
- * Git fetch
- */
 app.post('/git/fetch/:projectId', async (req, res) => {
   let { projectId } = req.params;
-  const authHeader = req.headers.authorization;
-  const githubToken = authHeader?.replace('Bearer ', '');
-
-  if (projectId.startsWith('ws-')) {
-    projectId = projectId.substring(3);
-  }
-
-  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+  const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    await fs.access(repoPath);
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-    // Configure git with token if provided
-    if (githubToken) {
-      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-      if (remoteUrl.includes('github.com')) {
-        const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-        execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-      }
-    }
-
-    // Fetch
-    execSync('git fetch --all', { cwd: repoPath, encoding: 'utf-8' });
-
-    // Reset remote URL to remove token
-    if (githubToken) {
-      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-      const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-      execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-    }
+    console.log(`☁️  Git Fetch in cloud: ${wsName}`);
+    await execAsync(`coder ssh ${wsName} -- git fetch --all`, {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      timeout: 30000
+    });
 
     res.json({ success: true, message: 'Fetch completed' });
   } catch (error) {
-    console.error('❌ Git fetch error:', error.message);
+    console.error('❌ Cloud Git Fetch Error:', error.message);
     res.json({ success: false, message: error.message });
   }
 });
@@ -5359,40 +4991,22 @@ app.post('/git/fetch/:projectId', async (req, res) => {
  */
 app.post('/git/pull/:projectId', async (req, res) => {
   let { projectId } = req.params;
-  const authHeader = req.headers.authorization;
-  const githubToken = authHeader?.replace('Bearer ', '');
-
-  if (projectId.startsWith('ws-')) {
-    projectId = projectId.substring(3);
-  }
-
-  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+  const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    await fs.access(repoPath);
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-    // Configure git with token if provided
-    if (githubToken) {
-      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-      if (remoteUrl.includes('github.com')) {
-        const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-        execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-      }
-    }
+    console.log(`☁️  Git Pull in cloud: ${wsName}`);
+    await execAsync(`coder ssh ${wsName} -- git pull`, {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      timeout: 30000
+    });
 
-    // Pull
-    const output = execSync('git pull', { cwd: repoPath, encoding: 'utf-8' });
-
-    // Reset remote URL to remove token
-    if (githubToken) {
-      const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-      const cleanUrl = remoteUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-      execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-    }
-
-    res.json({ success: true, message: 'Pull completed', output });
+    res.json({ success: true, message: 'Pull completed' });
   } catch (error) {
-    console.error('❌ Git pull error:', error.message);
+    console.error('❌ Cloud Git Pull Error:', error.message);
     res.json({ success: false, message: error.message });
   }
 });
@@ -5402,40 +5016,22 @@ app.post('/git/pull/:projectId', async (req, res) => {
  */
 app.post('/git/push/:projectId', async (req, res) => {
   let { projectId } = req.params;
-  const authHeader = req.headers.authorization;
-  const githubToken = authHeader?.replace('Bearer ', '');
-
-  if (projectId.startsWith('ws-')) {
-    projectId = projectId.substring(3);
-  }
-
-  const repoPath = path.join(__dirname, 'cloned_repos', projectId);
+  const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    await fs.access(repoPath);
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
 
-    if (!githubToken) {
-      return res.json({ success: false, message: 'GitHub token required for push' });
-    }
+    console.log(`☁️  Git Push in cloud: ${wsName}`);
+    await execAsync(`coder ssh ${wsName} -- git push`, {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      timeout: 30000
+    });
 
-    // Configure git with token
-    const remoteUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-    if (remoteUrl.includes('github.com')) {
-      const newUrl = remoteUrl.replace('https://github.com/', `https://${githubToken}@github.com/`);
-      execSync(`git remote set-url origin "${newUrl}"`, { cwd: repoPath });
-    }
-
-    // Push
-    const output = execSync('git push', { cwd: repoPath, encoding: 'utf-8' });
-
-    // Reset remote URL to remove token
-    const currentUrl = execSync('git config --get remote.origin.url', { cwd: repoPath, encoding: 'utf-8' }).trim();
-    const cleanUrl = currentUrl.replace(/https:\/\/[^@]+@github\.com\//, 'https://github.com/');
-    execSync(`git remote set-url origin "${cleanUrl}"`, { cwd: repoPath });
-
-    res.json({ success: true, message: 'Push completed', output });
+    res.json({ success: true, message: 'Push completed' });
   } catch (error) {
-    console.error('❌ Git push error:', error.message);
+    console.error('❌ Cloud Git Push Error:', error.message);
     res.json({ success: false, message: error.message });
   }
 });
@@ -5454,32 +5050,66 @@ app.post('/workstation/:projectId/file-content', async (req, res) => {
       return res.status(400).json({ success: false, error: 'File path and content are required' });
     }
 
-    const reposDir = path.join(__dirname, 'cloned_repos');
-    const repoPath = path.join(reposDir, projectId);
+    // ===========================================
+    // VIBE CODING: CLOUD FILE SYSTEM (WRITE)
+    // ===========================================
+    const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
-    // Check if repo exists
-    try {
-      await fs.access(repoPath);
-    } catch {
-      if (repositoryUrl) {
-        console.log('📦 Repository not found, cloning first...');
-        await cloneAndReadRepository(repositoryUrl, projectId);
-      } else {
-        return res.status(404).json({ success: false, error: 'Repository not found and no URL provided' });
-      }
+    // Write file content to cloud via SSH
+    // Strategy: local echo base64 -> pipe -> ssh -> remote base64 -d > file
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    // 1. Encode content to base64 locally
+    const base64Content = Buffer.from(content).toString('base64');
+
+    console.log(`💾 [CLOUD-WRITE] Saving ${filePath} to ${wsName} (${content.length} bytes)`);
+
+    // 2. Ensure directory exists first
+    const dir = path.dirname(filePath);
+    if (dir !== '.') {
+      await execAsync(`coder ssh ${wsName} -- mkdir -p "${dir}"`, {
+        env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN }
+      });
     }
 
-    // Write file content
-    const fullFilePath = path.join(repoPath, filePath);
+    // 3. Write file
+    // We pass base64 string as environment variable or direct argument? 
+    // Argument might be too long. Stdin is safer.
+    // "echo <base64> | coder ssh <ws> 'base64 -d > <file>'"
 
-    // Ensure directory exists
-    const dir = path.dirname(fullFilePath);
-    await fs.mkdir(dir, { recursive: true });
+    // Caution: echo on mac might differ. Let's send raw bytes to stdin of the ssh process.
+    // But child_process.exec is bad for stdin. Use spawn.
+    // Simpler hack for now: If content is small (<1MB), arguement is likely fine.
+    // If very large, we might hit limits.
+    // Let's use a temporary PROPER way with spawn.
 
-    await fs.writeFile(fullFilePath, content, 'utf-8');
+    const { spawn } = require('child_process');
 
-    console.log(`✅ File saved: ${filePath} (${content.length} bytes)`);
-    res.json({ success: true, filePath, size: content.length });
+    const writeProcess = spawn('coder', ['ssh', wsName, '--', `base64 -d > "${filePath}"`], {
+      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    try {
+      await new Promise((resolve, reject) => {
+        writeProcess.stdin.write(base64Content);
+        writeProcess.stdin.end();
+
+        writeProcess.on('close', (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`Exit code ${code}`));
+        });
+
+        writeProcess.on('error', reject);
+      });
+
+      console.log('✅ [CLOUD-WRITE] Save successful');
+      res.json({ success: true, filePath, size: content.length });
+    } catch (writeErr) {
+      throw new Error(`Write failed: ${writeErr.message}`);
+    }
 
   } catch (error) {
     console.error('❌ Error saving file:', error.message);
@@ -5687,7 +5317,7 @@ async function fastDetectProject(repoPath) {
       if (scripts.server || scripts.backend || scripts.api) {
         hasBackend = true;
         backendCommand = scripts.server ? 'npm run server' :
-                         scripts.backend ? 'npm run backend' : 'npm run api';
+          scripts.backend ? 'npm run backend' : 'npm run api';
         backendPort = 5000;
       } else if (scripts['json-server'] || deps['json-server']) {
         hasBackend = true;
@@ -6146,11 +5776,11 @@ async function basicDetectCommands(repoPath) {
   // (has HTML files but package.json has no runnable scripts)
   const htmlFiles = files.filter(f => f.endsWith('.html'));
   const hasRunnableScripts = packageJson?.scripts?.start ||
-                              packageJson?.scripts?.dev ||
-                              packageJson?.scripts?.serve ||
-                              packageJson?.dependencies?.react ||
-                              packageJson?.dependencies?.vue ||
-                              packageJson?.dependencies?.['@angular/core'];
+    packageJson?.scripts?.dev ||
+    packageJson?.scripts?.serve ||
+    packageJson?.dependencies?.react ||
+    packageJson?.dependencies?.vue ||
+    packageJson?.dependencies?.['@angular/core'];
 
   if (!detected || (!hasRunnableScripts && htmlFiles.length > 0)) {
     // Treat as static HTML site
@@ -6175,7 +5805,7 @@ async function basicDetectCommands(repoPath) {
       projectType: 'unknown',
       installCommand: packageJson ? 'npm install' : null,
       startCommand: packageJson?.scripts?.start ? 'npm start' :
-                    packageJson?.scripts?.dev ? 'npm run dev' : null,
+        packageJson?.scripts?.dev ? 'npm run dev' : null,
       port: 3000,
       needsInstall: !!packageJson,
       notes: 'Could not auto-detect project type',
@@ -6248,7 +5878,7 @@ async function callGroqAI(messages, options = {}) {
         const retryAfter = error.response.headers['retry-after'];
         const waitTime = retryAfter ? Math.min(parseInt(retryAfter) * 1000, 30000) : Math.pow(2, attempt + 1) * 1000;
 
-        console.log(`⏳ Rate limit hit (attempt ${attempt + 1}/${maxRetries}), waiting ${waitTime/1000}s...`);
+        console.log(`⏳ Rate limit hit (attempt ${attempt + 1}/${maxRetries}), waiting ${waitTime / 1000}s...`);
 
         if (attempt < maxRetries - 1) {
           await new Promise(resolve => setTimeout(resolve, waitTime));
@@ -6277,7 +5907,7 @@ function detectPackageManager(repoPath) {
 
   // Check for lock files in order of priority
   if (fs.existsSync(path.join(repoPath, 'pnpm-lock.yaml')) ||
-      fs.existsSync(path.join(repoPath, 'pnpm-workspace.yaml'))) {
+    fs.existsSync(path.join(repoPath, 'pnpm-workspace.yaml'))) {
     console.log('📦 Detected package manager: pnpm');
     return 'pnpm';
   }
@@ -6439,765 +6069,64 @@ app.post('/preview/start', async (req, res) => {
       return res.status(400).json({ success: false, error: 'workstationId is required' });
     }
 
-    console.log(`\n🚀 Starting AI-powered preview for: ${workstationId}`);
-    console.log(`   GitHub token provided: ${githubToken ? 'yes' : 'no'}`);
+    // ===================================
+    // VIBE CODING ARCHITECTURE SWITCH
+    // ===================================
+    // Instead of cloning locally, we spawn a container on our K8s cluster
+    console.log(`\n🚀 [Vibe] Starting Cloud Workstation: ${workstationId}`);
 
-    // Resolve repo path
-    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+    // 1. Ensure User 
+    const coderUser = await coderService.ensureUser('admin@drape.dev', 'admin');
 
-    if (workstationId.startsWith('ws-')) {
-      const projectIdLower = workstationId.substring(3);
-      const clonedReposDir = path.join(__dirname, 'cloned_repos');
+    // 2. Create Workspace (it handles idempotency)
+    // Name must be clean (lowercase, alphanumeric, dashes)
+    const wsName = workstationId.replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
+    console.log(`   Creating Coder workspace: ${wsName}`);
 
-      try {
-        const folders = await fs.readdir(clonedReposDir);
-        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
-        if (matchingFolder) {
-          repoPath = path.join(clonedReposDir, matchingFolder);
-        }
-      } catch (err) {
-        console.error('Error reading cloned_repos:', err);
-      }
-    }
-
-    // Check repo exists
     try {
-      await fs.access(repoPath);
-    } catch {
-      // If repo doesn't exist but we have a URL, try to clone it
-      if (repositoryUrl) {
-        console.log(`📦 Repository not found, cloning from ${repositoryUrl}...`);
-        console.log(`   Using GitHub token: ${githubToken ? 'yes' : 'no'}`);
-        try {
-          await cloneAndReadRepository(repositoryUrl, workstationId, githubToken);
-          // Re-check access after clone
-          await fs.access(repoPath);
-        } catch (cloneError) {
-          console.error('❌ Clone failed:', cloneError);
-          return res.status(500).json({ success: false, error: `Failed to clone repository: ${cloneError.message}` });
-        }
-      } else {
-        return res.status(404).json({ success: false, error: 'Project not found' });
-      }
-    }
+      const workspace = await coderService.createWorkspace(coderUser.id, wsName, repositoryUrl);
+      console.log(`   Workspace active! ID: ${workspace.id}`);
 
-    console.log(`📁 Repository path: ${repoPath}`);
-
-    // Check cache first (unless force refresh)
-    const cacheKey = repoPath;
-    let commands = null;
-
-    if (!forceRefresh && projectCommandsCache.has(cacheKey)) {
-      commands = projectCommandsCache.get(cacheKey);
-      console.log('📦 Using cached commands');
-    } else {
-      // OPTIMIZED: Try fast detection first (no AI call)
-      console.log('⚡ Attempting fast project detection...');
-      commands = await fastDetectProject(repoPath);
-
-      if (commands) {
-        console.log(`✅ Fast detected: ${commands.projectType}`);
-      } else {
-        // Fallback to AI (single optimized call)
-        console.log('🤖 Fast detection failed, using AI...');
-        commands = await aiAnalyzeProjectOptimized(repoPath);
-
-        if (!commands) {
-          // No fallback to Groq - return error
-          console.error('❌ AI analysis failed - could not determine project type');
-          return res.status(400).json({
-            success: false,
-            error: 'Impossibile determinare il tipo di progetto. Verifica che sia un progetto web valido.',
-            projectType: 'unknown'
-          });
-        }
+      // 3. Start if stopped
+      if (workspace.latest_build.job.status !== 'running') {
+        console.log('   Starting workspace...');
+        await coderService.startWorkspace(workspace.id);
       }
 
-      // Post-process Python commands: always use python3/pip3 on macOS
-      if (commands.installCommand && commands.installCommand.match(/\bpip\b/) && !commands.installCommand.includes('pip3')) {
-        commands.installCommand = commands.installCommand.replace(/\bpip\b/g, 'pip3');
-        console.log('   [Fixed] pip -> pip3');
-      }
-      // Add --break-system-packages for PEP 668 compliance (macOS Python 3.13+)
-      if (commands.installCommand && commands.installCommand.includes('pip3') && !commands.installCommand.includes('--break-system-packages')) {
-        commands.installCommand = commands.installCommand + ' --break-system-packages';
-        console.log('   [Fixed] Added --break-system-packages for PEP 668');
-      }
-      if (commands.startCommand && commands.startCommand.match(/\bpython\b/) && !commands.startCommand.includes('python3')) {
-        commands.startCommand = commands.startCommand.replace(/\bpython\b/g, 'python3');
-        console.log('   [Fixed] python -> python3');
-      }
-      // For Flask: convert "python3 app.py" to "python3 -m flask run" for proper host binding
-      if (commands.projectType?.toLowerCase().includes('flask') &&
-          commands.startCommand &&
-          commands.startCommand.match(/python3?\s+\w+\.py/) &&
-          !commands.startCommand.includes('flask run')) {
-        commands.startCommand = 'python3 -m flask run';
-        console.log('   [Fixed] python3 app.py -> python3 -m flask run');
-      }
+      // 4. Return connection info immediately
+      // In a real Vibe implementation, we would wait for it to be ready
+      // But for speed, we return the URL and let the frontend handle the "waiting" state
 
-      console.log(`   Project type: ${commands.projectType}`);
-      console.log(`   Install: ${commands.installCommand}`);
-      console.log(`   Start: ${commands.startCommand}`);
-      console.log(`   Port: ${commands.port}`);
+      // Calculate dynamic URL
+      // format: https://<workspace-name>--<username>.coder.drape.dev (if wildcard DNS)
+      // MVP: We return the Coder dashboard URL deep link
+      const dashboardUrl = `${process.env.CODER_API_URL || 'http://35.193.11.163'}/@${coderUser.username}/${wsName}`;
+      const vscodeUrl = `${process.env.CODER_API_URL || 'http://35.193.11.163'}/@${coderUser.username}/${wsName}/apps/vscode`;
 
-      // Cache the result
-      projectCommandsCache.set(cacheKey, commands);
-    }
-
-    // Step 5: Run install if needed - use detected package manager
-    const packageManager = detectPackageManager(repoPath);
-
-    if (commands.needsInstall) {
-      // For Python projects, use the AI-suggested install command (pip3)
-      // For Node.js projects, use the detected package manager
-      const isPythonProject = commands.projectType?.toLowerCase().includes('flask') ||
-                              commands.projectType?.toLowerCase().includes('django') ||
-                              commands.projectType?.toLowerCase().includes('fastapi') ||
-                              commands.projectType?.toLowerCase().includes('python');
-
-      const installCommand = isPythonProject ? commands.installCommand : getInstallCommand(packageManager);
-      console.log(`📦 Running install: ${installCommand}`);
-
-      try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        await execAsync(installCommand, {
-          cwd: repoPath,
-          timeout: 180000, // 3 minute timeout for install (pnpm can be slower first time)
-          maxBuffer: 10 * 1024 * 1024
-        });
-        console.log('✅ Install completed');
-      } catch (installError) {
-        console.error('⚠️ Install warning:', installError.message);
-        // Continue anyway - install might have partially succeeded
-      }
-    }
-
-    // Step 5.5: For Expo/React Native projects, install web dependencies
-    const isExpoForWebInstall = commands.startCommand?.includes('expo') ||
-                                commands.projectType?.toLowerCase().includes('expo') ||
-                                commands.projectType?.toLowerCase().includes('react native');
-
-    if (isExpoForWebInstall) {
-      console.log('📱 Expo project detected, installing web dependencies...');
-      try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Install react-dom and react-native-web for Expo web support
-        // Note: npx expo install requires -- before npm flags
-        await execAsync('npx expo install react-dom react-native-web @expo/metro-runtime -- --legacy-peer-deps', {
-          cwd: repoPath,
-          timeout: 120000,
-          maxBuffer: 10 * 1024 * 1024
-        });
-        console.log('✅ Web dependencies installed');
-      } catch (webInstallError) {
-        console.error('⚠️ Web dependencies install warning:', webInstallError.message);
-        // Continue anyway - might already be installed
-      }
-    }
-
-    // Step 6: Find available port
-    let port = commands.port || 3000;
-    port = await findAvailablePort(port);
-    console.log(`🔌 Using port: ${port}`);
-
-    // Step 7: Prepare and execute start command
-    let startCommand = commands.startCommand;
-
-    // Check project type for static site detection
-    const projectTypeLower = commands.projectType?.toLowerCase() || '';
-    const isStaticSite = projectTypeLower.includes('static') ||
-                         projectTypeLower === 'html' ||
-                         projectTypeLower.includes('html/css') ||
-                         projectTypeLower.includes('css library') ||
-                         projectTypeLower.includes('css framework') ||
-                         projectTypeLower.includes('documentation') ||
-                         projectTypeLower.includes('landing page');
-
-    // Check if it's a legacy Grunt/Gulp project that should be served as static
-    const isLegacyBuildTool = (startCommand?.includes('grunt') || startCommand?.includes('gulp')) &&
-                              isStaticSite;
-
-    // Fallback if AI didn't return a start command OR if it's a static site with legacy build tools
-    if (!startCommand || isLegacyBuildTool) {
-      if (isStaticSite || isLegacyBuildTool) {
-        // Check for common static content directories
-        const staticDirs = ['app', 'public', 'dist', 'build', 'www', 'static', '.'];
-        let serveDir = '.';
-        for (const dir of staticDirs) {
-          const indexPath = path.join(repoPath, dir, 'index.html');
-          if (fsSync.existsSync(indexPath)) {
-            serveDir = dir;
-            console.log(`📁 Found index.html in ${dir}/`);
-            break;
-          }
-        }
-        console.log(`📁 Static site detected (${commands.projectType}), using static-server.js on ${serveDir}/`);
-        startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} ${serveDir}`;
-      } else {
-        console.log(`⚠️ No start command from AI, using default ${packageManager} start`);
-        startCommand = packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`;
-      }
-    }
-
-    // Convert npm commands to the detected package manager
-    if (packageManager !== 'npm') {
-      // Replace npm run with the correct package manager
-      startCommand = startCommand.replace(/^npm run /, `${getRunCommand(packageManager)} `);
-      startCommand = startCommand.replace(/^npm start/, packageManager === 'yarn' ? 'yarn start' : `${packageManager} run start`);
-      console.log(`📦 Converted start command for ${packageManager}: ${startCommand}`);
-    }
-
-    // Handle "static" command - AI sometimes returns this for static HTML sites
-    // Replace with our static-server.js
-    if (startCommand && (startCommand === 'static' || startCommand.startsWith('static ') || startCommand.includes('http-server') || startCommand.includes('serve'))) {
-      // Check for common static content directories
-      const staticDirs = ['app', 'public', 'dist', 'build', 'www', 'static', '.'];
-      let serveDir = '.';
-      for (const dir of staticDirs) {
-        const indexPath = path.join(repoPath, dir, 'index.html');
-        if (fsSync.existsSync(indexPath)) {
-          serveDir = dir;
-          break;
-        }
-      }
-      console.log(`🔧 Replacing "${startCommand}" with static-server.js`);
-      startCommand = `node ${path.join(__dirname, 'static-server.js')} ${port} ${serveDir}`;
-    }
-
-    // Fix Next.js: always use "npm run dev" for development, never "npm start" (which needs build)
-    if (commands.projectType === 'Next.js' || commands.projectType?.toLowerCase().includes('next')) {
-      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
-        const oldCmd = startCommand;
-        startCommand = startCommand.replace(/npm start/, 'npm run dev')
-                                   .replace(/yarn start/, 'yarn dev')
-                                   .replace(/pnpm start/, 'pnpm run dev');
-        console.log(`🔧 [Next.js] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
-      }
-    }
-
-    // Fix Nuxt: always use "npm run dev" for development
-    if (commands.projectType === 'Nuxt.js' || commands.projectType === 'Nuxt' || commands.projectType?.toLowerCase().includes('nuxt')) {
-      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
-        const oldCmd = startCommand;
-        startCommand = startCommand.replace(/npm start/, 'npm run dev')
-                                   .replace(/yarn start/, 'yarn dev')
-                                   .replace(/pnpm start/, 'pnpm run dev');
-        console.log(`🔧 [Nuxt] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
-      }
-    }
-
-    // Fix Astro: always use "npm run dev" for development
-    if (commands.projectType === 'Astro' || commands.projectType?.toLowerCase().includes('astro')) {
-      if (startCommand.includes('npm start') || startCommand.includes('yarn start') || startCommand.includes('pnpm start')) {
-        const oldCmd = startCommand;
-        startCommand = startCommand.replace(/npm start/, 'npm run dev')
-                                   .replace(/yarn start/, 'yarn dev')
-                                   .replace(/pnpm start/, 'pnpm run dev');
-        console.log(`🔧 [Astro] Fixed: "${oldCmd}" -> "${startCommand}" (dev mode)`);
-      }
-    }
-
-    // Convert global CLI commands to npx (handles gulp, grunt, webpack, etc.)
-    // These tools are often not installed globally but are in devDependencies
-    const globalCliTools = ['gulp', 'grunt', 'webpack', 'rollup', 'parcel', 'esbuild', 'tsc', 'eslint', 'prettier', 'jest', 'mocha', 'karma', 'bower', 'browserify'];
-    for (const tool of globalCliTools) {
-      // Match the tool at the start of the command (e.g., "gulp build" -> "npx gulp build")
-      const toolRegex = new RegExp(`^${tool}(\\s|$)`);
-      if (toolRegex.test(startCommand)) {
-        startCommand = `npx ${startCommand}`;
-        console.log(`🔧 Converted global CLI command to npx: ${startCommand}`);
-        break;
-      }
-    }
-
-    // Update port in command if different
-    if (port !== commands.port) {
-      // Replace port in various formats (for commands that have port in them)
-      startCommand = startCommand.replace(/--port[=\s]\d+/, `--port ${port}`);
-      startCommand = startCommand.replace(/:(\d{4,5})\b/, `:${port}`);
-      // Remove any existing PORT=xxx from command (we pass PORT via env instead)
-      startCommand = startCommand.replace(/PORT=\d+\s*/, '');
-      // Note: PORT is passed via env object in exec(), not in command string
-    }
-
-    // Add HOST=0.0.0.0 for network access - framework-specific handling
-    const isExpoProject = startCommand.includes('expo') ||
-                          commands.projectType?.toLowerCase().includes('expo') ||
-                          commands.projectType?.toLowerCase().includes('react native');
-
-    let metroPort = null; // For Expo projects, this will be the actual port used
-
-    if (!startCommand.includes('HOST=') && !startCommand.includes('--host')) {
-      if (isExpoProject) {
-        // Expo: use --web for web preview, --port for custom port, CI=1 for non-interactive mode
-        // Find an available port for Metro bundler (starting from 8082 to avoid 8081)
-        metroPort = await findAvailablePort(8082);
-        // For npm start that wraps expo, we need to call expo directly with --web flag
-        if (startCommand === 'npm start' || startCommand === 'npm run start') {
-          startCommand = `CI=1 npx expo start --web --port ${metroPort}`;
-        } else {
-          startCommand = `CI=1 ${startCommand} --web --port ${metroPort}`;
-        }
-        console.log(`🔌 Using Metro port: ${metroPort} (web mode)`);
-      } else if (startCommand.includes('ng serve') || commands.projectType === 'Angular') {
-        // Angular CLI requires --host=value and --port=value format
-        // If running via npm/yarn, use -- to pass args to ng serve
-        if (startCommand.includes('npm start') || startCommand.includes('yarn start')) {
-          startCommand = `${startCommand} -- --host=0.0.0.0 --port=${port}`;
-        } else {
-          startCommand = `${startCommand} --host=0.0.0.0 --port=${port}`;
-        }
-        console.log(`📦 Angular project - using port ${port}`);
-      } else if (commands.projectType === 'Astro' || commands.projectType?.toLowerCase().includes('astro')) {
-        // Astro uses --host flag for network access
-        startCommand = `${startCommand} --host --port ${port}`;
-        console.log(`📦 Astro project - adding --host --port ${port}`);
-      } else if (commands.projectType === 'Remix') {
-        // Remix uses environment variables for host/port, not CLI flags
-        // HOST and PORT env vars are respected by remix dev
-        startCommand = `HOST=0.0.0.0 PORT=${port} ${startCommand}`;
-        console.log(`📦 Remix project - using HOST=0.0.0.0 PORT=${port}`);
-      } else if (commands.projectType === 'Express.js' || commands.projectType?.toLowerCase().includes('express')) {
-        // Express.js uses PORT env var and listens on all interfaces by default
-        // We set PORT env var to ensure correct port binding
-        startCommand = `PORT=${port} ${startCommand}`;
-        console.log(`📦 Express.js project - using PORT=${port}`);
-      } else if (startCommand.includes('vue-cli-service serve') || commands.projectType === 'Vue') {
-        // Vue CLI also uses --host flag
-        startCommand = `${startCommand} --host 0.0.0.0`;
-      } else if (startCommand.includes('vite') || commands.projectType === 'Vite' || commands.projectType?.toLowerCase().includes('vite')) {
-        // Vite uses --host and --port flags
-        // For npm, need -- to pass args to the script; for pnpm/yarn, args pass directly
-        if (packageManager === 'npm' && (startCommand.includes('npm run') || startCommand.includes('npm start'))) {
-          startCommand = `${startCommand} -- --host --port ${port}`;
-        } else {
-          startCommand = `${startCommand} --host --port ${port}`;
-        }
-        console.log(`📦 Vite project detected - adding --host --port ${port}`);
-      } else if (startCommand.includes('run dev') || startCommand.includes('run start') ||
-                 startCommand.includes('yarn dev') || startCommand.includes('yarn start')) {
-        // Check if it's a Vite project by looking for vite.config
-        const fs = require('fs');
-        const viteConfigExists = fs.existsSync(`${repoPath}/vite.config.js`) ||
-                                  fs.existsSync(`${repoPath}/vite.config.ts`) ||
-                                  fs.existsSync(`${repoPath}/vite.config.mjs`);
-        if (viteConfigExists) {
-          console.log(`📦 Vite project detected via config file - adding --host --port ${port}`);
-          // For pnpm/yarn, use -- to pass args to the underlying script
-          if (packageManager === 'pnpm' || packageManager === 'yarn') {
-            startCommand = `${startCommand} --host --port ${port}`;
-          } else {
-            startCommand = `${startCommand} -- --host --port ${port}`;
-          }
-        } else {
-          // Default: use HOST environment variable
-          // Use Windows-compatible syntax if on Windows
-          if (process.platform === 'win32') {
-            // Use quotes around value to avoid trailing space issue
-            startCommand = `set "HOST=0.0.0.0" && ${startCommand}`;
-          } else {
-            startCommand = `HOST=0.0.0.0 ${startCommand}`;
-          }
-        }
-      } else if (startCommand.includes('flask run') || commands.projectType === 'Flask' || commands.projectType?.toLowerCase().includes('flask')) {
-        // Flask: add --host and --port flags
-        startCommand = `${startCommand} --host 0.0.0.0 --port ${port}`;
-      } else if (startCommand.includes('python') && startCommand.includes('manage.py runserver')) {
-        // Django uses 0.0.0.0:port format
-        // Only add host:port if not already present
-        if (!startCommand.includes('0.0.0.0')) {
-          startCommand = startCommand.replace(/runserver/, `runserver 0.0.0.0:${port}`);
-        } else if (!startCommand.includes(`:${port}`)) {
-          // Update port if host is present but port is different
-          startCommand = startCommand.replace(/0\.0\.0\.0:\d+/, `0.0.0.0:${port}`);
-        }
-      } else if (startCommand.includes('rails') && startCommand.includes('server')) {
-        // Rails uses -b flag for binding
-        startCommand = `${startCommand} -b 0.0.0.0`;
-      } else if (startCommand.includes('static-server.js')) {
-        // Our static-server.js already binds to 0.0.0.0, no HOST needed
-        console.log(`📦 Static server - no HOST modification needed`);
-      } else {
-        // Default: use HOST environment variable (works for most Node.js frameworks)
-        // Use Windows-compatible syntax if on Windows
-        if (process.platform === 'win32') {
-          // Use quotes around value to avoid trailing space issue
-          startCommand = `set "HOST=0.0.0.0" && ${startCommand}`;
-        } else {
-          startCommand = `HOST=0.0.0.0 ${startCommand}`;
-        }
-      }
-    }
-
-    console.log(`🚀 Executing: ${startCommand}`);
-
-    // Start the backend server if detected (e.g., json-server, express API)
-    let backendProcess = null;
-    let backendPort = null;
-    if (commands.hasBackend && commands.backendCommand) {
-      backendPort = commands.backendPort || 5000;
-      // Check if port is available, find alternative if not
-      backendPort = await findAvailablePort(backendPort);
-
-      let backendCmd = commands.backendCommand;
-      // Update port in command if needed
-      if (backendCmd.includes('--port')) {
-        backendCmd = backendCmd.replace(/--port[=\s]\d+/, `--port ${backendPort}`);
-      } else if (backendCmd.includes('json-server')) {
-        backendCmd = `${backendCmd} --port ${backendPort}`;
-      }
-      // Add host for network access
-      if (backendCmd.includes('json-server') && !backendCmd.includes('--host')) {
-        backendCmd = `${backendCmd} --host 0.0.0.0`;
-      }
-
-      console.log(`🔧 Starting backend server: ${backendCmd} (port ${backendPort})`);
-
-      const { exec: execBackend } = require('child_process');
-      backendProcess = execBackend(backendCmd, {
-        cwd: repoPath,
-        env: { ...process.env, PORT: backendPort.toString() },
-        maxBuffer: 10 * 1024 * 1024
+      return res.json({
+        success: true,
+        previewUrl: vscodeUrl, // Direct link to VS Code Web
+        port: 80,
+        serverReady: true,
+        projectType: 'Cloud Container',
+        commands: {
+          install: 'Done by Coder',
+          start: 'Done by Coder'
+        },
+        timing: {
+          totalMs: Date.now() - startTime,
+          cached: true
+        },
+        isCloudWorkstation: true,
+        dashboardUrl: dashboardUrl
       });
 
-      backendProcess.stdout?.on('data', (data) => {
-        console.log(`[Backend] ${data.toString().trim()}`);
-      });
-      backendProcess.stderr?.on('data', (data) => {
-        console.log(`[Backend Error] ${data.toString().trim()}`);
-      });
-      backendProcess.on('error', (err) => {
-        console.error(`[Backend Process Error] ${err.message}`);
-      });
+    } catch (coderError) {
+      console.error('❌ Coder provisioning failed:', coderError);
+      // Fallback to local? No, let's fail hard to debug
+      return res.status(500).json({ success: false, error: coderError.message });
     }
 
-    // Start the server in background using exec (more compatible with npm)
-    const { exec } = require('child_process');
-
-    // Fix Next.js issues: remove stale lock files and add turbopack.root
-    if (commands.projectType === 'Next.js') {
-      try {
-        // Remove stale .next/dev/lock file if exists (prevents "Unable to acquire lock" errors)
-        const lockFilePath = path.join(repoPath, '.next', 'dev', 'lock');
-        if (fsSync.existsSync(lockFilePath)) {
-          console.log('🔧 Removing stale Next.js lock file...');
-          fsSync.unlinkSync(lockFilePath);
-          console.log('✅ Removed stale lock file');
-        }
-
-        const nextConfigPaths = [
-          path.join(repoPath, 'next.config.js'),
-          path.join(repoPath, 'next.config.mjs'),
-          path.join(repoPath, 'next.config.ts')
-        ];
-
-        let configPath = nextConfigPaths.find(p => fsSync.existsSync(p));
-
-        if (configPath) {
-          let configContent = fsSync.readFileSync(configPath, 'utf8');
-          let needsWrite = false;
-
-          // Remove old incorrect experimental.turbo config if present
-          if (configContent.includes('experimental') && configContent.includes('turbo')) {
-            console.log('🔧 Removing old experimental.turbo config...');
-            // Handle different config formats - reset to clean config with turbopack.root
-            if (configContent.includes('module.exports')) {
-              configContent = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  turbopack: {
-    root: __dirname,
-  },
-};
-
-module.exports = nextConfig;
-`;
-            } else if (configContent.includes('export default')) {
-              configContent = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  turbopack: {
-    root: process.cwd(),
-  },
-};
-
-export default nextConfig;
-`;
-            }
-            needsWrite = true;
-            console.log('✅ Fixed Next.js config - removed invalid experimental.turbo');
-          }
-
-          // Add turbopack.root if not present (to fix lockfile detection issues)
-          if (!configContent.includes('turbopack')) {
-            console.log('🔧 Adding turbopack.root to Next.js config...');
-            if (configContent.includes('module.exports')) {
-              // CommonJS - add turbopack to existing config
-              configContent = configContent.replace(
-                /const\s+nextConfig\s*=\s*\{/,
-                `const nextConfig = {\n  turbopack: {\n    root: __dirname,\n  },`
-              );
-            } else if (configContent.includes('export default')) {
-              // ESM - add turbopack to existing config
-              configContent = configContent.replace(
-                /const\s+nextConfig\s*=\s*\{/,
-                `const nextConfig = {\n  turbopack: {\n    root: process.cwd(),\n  },`
-              );
-            }
-            needsWrite = true;
-            console.log('✅ Added turbopack.root to Next.js config');
-          }
-
-          if (needsWrite) {
-            fsSync.writeFileSync(configPath, configContent);
-          }
-
-        } else {
-          // Create next.config.js with turbopack.root
-          const newConfigPath = path.join(repoPath, 'next.config.js');
-          const newConfig = `/** @type {import('next').NextConfig} */
-const nextConfig = {
-  turbopack: {
-    root: __dirname,
-  },
-};
-
-module.exports = nextConfig;
-`;
-          fsSync.writeFileSync(newConfigPath, newConfig);
-          console.log('✅ Created next.config.js with turbopack.root');
-        }
-      } catch (configError) {
-        console.log('⚠️ Could not modify Next.js config:', configError.message);
-      }
-    }
-
-    // Collect output for error analysis
-    let serverOutput = '';
-    let serverErrorOutput = '';
-    let processExited = false;
-    let exitCode = null;
-
-    const serverProcess = exec(startCommand, {
-      cwd: repoPath,
-      env: {
-        ...process.env,
-        HOST: '0.0.0.0',
-        PORT: port.toString(),
-        SKIP_PREFLIGHT_CHECK: 'true',  // Skip CRA dependency check (avoids conflicts with parent node_modules)
-        BROWSER: 'none',  // Don't open browser automatically
-        NODE_OPTIONS: '--openssl-legacy-provider',  // Fix for Node.js 17+ with old webpack
-        // Next.js: disable Turbopack to avoid lockfile issues in parent directories
-        NEXT_PRIVATE_LOCAL_WEBPACK: '1',  // Force webpack instead of turbopack
-        __NEXT_DISABLE_MEMORY_WATCHER: '1',  // Disable memory watcher
-        NEXT_TELEMETRY_DISABLED: '1',  // Disable telemetry
-      },
-      maxBuffer: 10 * 1024 * 1024
-    });
-
-    // Track actual port from server output
-    let detectedPort = null;
-
-    // Log server output and collect for error analysis
-    serverProcess.stdout?.on('data', (data) => {
-      const output = data.toString();
-      serverOutput += output;
-      const trimmedOutput = output.trim();
-      console.log(`[Server] ${trimmedOutput}`);
-
-      // Stream to frontend via SSE
-      addServerLog(workstationId, { type: 'stdout', message: trimmedOutput });
-
-      // Detect actual port from server output
-      // Vite: "Local: http://localhost:3000/" or "Network: http://192.168.x.x:3000/"
-      // React: "On Your Network: http://192.168.x.x:3000"
-      // Next.js: "started server on 0.0.0.0:3000"
-      const portMatches = output.match(/(?:localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|0\.0\.0\.0):(\d{4,5})/g);
-      if (portMatches && !detectedPort) {
-        const match = portMatches[0].match(/:(\d{4,5})/);
-        if (match) {
-          detectedPort = parseInt(match[1]);
-          console.log(`🔍 Detected actual port from output: ${detectedPort}`);
-        }
-      }
-    });
-    serverProcess.stderr?.on('data', (data) => {
-      const output = data.toString();
-      serverErrorOutput += output;
-      const trimmedOutput = output.trim();
-      console.log(`[Server Error] ${trimmedOutput}`);
-
-      // Stream to frontend via SSE
-      addServerLog(workstationId, { type: 'stderr', message: trimmedOutput });
-    });
-    serverProcess.on('error', (err) => {
-      console.error(`[Server Process Error] ${err.message}`);
-      serverErrorOutput += `Process error: ${err.message}\n`;
-
-      // Stream to frontend via SSE
-      addServerLog(workstationId, { type: 'error', message: `Process error: ${err.message}` });
-    });
-    serverProcess.on('exit', (code) => {
-      processExited = true;
-      exitCode = code;
-      console.log(`[Server] Process exited with code: ${code}`);
-
-      // Stream to frontend via SSE
-      addServerLog(workstationId, { type: 'info', message: `Process exited with code: ${code}` });
-    });
-
-    // Step 8: Health check
-    // Wait a bit for server to start and output port info
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Use detected port from output if available, otherwise fall back to expected port
-    // For Expo projects, use the Metro port instead of the generic port
-    let actualPort = isExpoProject && metroPort ? metroPort : port;
-    if (detectedPort && detectedPort !== actualPort) {
-      console.log(`🔄 Using detected port ${detectedPort} instead of expected port ${actualPort}`);
-      actualPort = detectedPort;
-    }
-
-    let previewUrl = `http://${LOCAL_IP}:${actualPort}`;
-    console.log(`🏥 Health checking: ${previewUrl}`);
-
-    const maxAttempts = 30; // Reduced from 45 to fail faster if there's an error
-    let healthy = false;
-    let attempts = 0;
-
-    for (let i = 0; i < maxAttempts; i++) {
-      attempts++;
-      await new Promise(r => setTimeout(r, 1000));
-
-      // Check if process crashed early (within first 10 seconds)
-      if (processExited && exitCode !== 0 && i < 10) {
-        console.log(`⚠️ Server process exited early with code ${exitCode}`);
-        break;
-      }
-
-      // Update port if detected during health check loop
-      if (detectedPort && detectedPort !== actualPort) {
-        console.log(`🔄 Port changed: ${actualPort} -> ${detectedPort}`);
-        actualPort = detectedPort;
-        previewUrl = `http://${LOCAL_IP}:${actualPort}`;
-      }
-
-      try {
-        const healthResponse = await axios.get(previewUrl, { timeout: 3000 });
-        if (healthResponse.status < 500) {
-          healthy = true;
-          console.log(`✅ Server ready after ${attempts} attempts`);
-          break;
-        }
-      } catch (err) {
-        // Server not ready yet
-        if (i % 10 === 0) {
-          console.log(`   Attempt ${attempts}...`);
-        }
-      }
-    }
-
-    const totalTime = Date.now() - startTime;
-    console.log(`⏱️ Total time: ${totalTime}ms`);
-
-    // If server failed to start, analyze the error output with AI
-    if (!healthy && (serverErrorOutput || processExited)) {
-      console.log('🔍 Analyzing startup error with AI...');
-      const combinedOutput = serverOutput + '\n' + serverErrorOutput;
-      const errorAnalysis = await aiAnalyzeStartupError(combinedOutput, commands.projectType);
-
-      if (errorAnalysis.hasEnvError && errorAnalysis.envVars.length > 0) {
-        console.log(`⚠️ AI detected missing env vars: ${errorAnalysis.envVars.map(v => v.key).join(', ')}`);
-
-        // Kill the failed process
-        try { serverProcess.kill(); } catch {}
-
-        return res.status(200).json({
-          success: false,
-          requiresEnvVars: true,
-          envVars: errorAnalysis.envVars,
-          projectType: commands.projectType,
-          message: errorAnalysis.errorSummary || 'Il progetto richiede variabili d\'ambiente per avviarsi.',
-          targetFile: '.env'
-        });
-      }
-
-      // Check for common startup errors (command not found, npm install failed, etc.)
-      const errorLower = serverErrorOutput.toLowerCase();
-      const isCommandNotFound = errorLower.includes('command not found') ||
-                                 errorLower.includes('not recognized') ||
-                                 exitCode === 127;
-      const isNpmError = errorLower.includes('npm error') ||
-                         errorLower.includes('npm err!') ||
-                         errorLower.includes('enoent') ||
-                         errorLower.includes('missing script');
-      const isModuleNotFound = errorLower.includes('cannot find module') ||
-                               errorLower.includes('module not found');
-
-      if (processExited && exitCode !== 0) {
-        // Kill any remaining process
-        try { serverProcess.kill(); } catch {}
-
-        let errorMessage = 'Il server non è riuscito ad avviarsi.';
-        let errorDetails = serverErrorOutput || 'Errore sconosciuto';
-
-        if (isCommandNotFound) {
-          const cmdMatch = serverErrorOutput.match(/(\w+): command not found/i);
-          const missingCmd = cmdMatch ? cmdMatch[1] : 'richiesto';
-          errorMessage = `Comando "${missingCmd}" non trovato. Il progetto potrebbe richiedere dipendenze globali non installate.`;
-        } else if (isNpmError) {
-          errorMessage = 'Errore durante l\'installazione delle dipendenze npm.';
-          if (errorLower.includes('missing script')) {
-            errorMessage = 'Script npm non trovato nel package.json.';
-          }
-        } else if (isModuleNotFound) {
-          errorMessage = 'Modulo Node.js mancante. Prova a eseguire "npm install".';
-        }
-
-        console.log(`❌ Server startup failed: ${errorMessage}`);
-
-        return res.status(200).json({
-          success: false,
-          error: errorMessage,
-          errorDetails: errorDetails.substring(0, 500),
-          projectType: commands.projectType,
-          exitCode: exitCode
-        });
-      }
-    }
-
-    // Prepare response with backend info if available
-    const response = {
-      success: true,
-      previewUrl,
-      port: actualPort,
-      serverReady: healthy,
-      projectType: commands.projectType,
-      commands: {
-        install: commands.installCommand,
-        start: startCommand  // Use local variable which includes fallbacks for static sites
-      },
-      timing: {
-        totalMs: totalTime,
-        cached: projectCommandsCache.has(cacheKey) && !req.body.forceRefresh
-      }
-    };
-
-    // Add backend info if detected
-    if (commands.hasBackend && backendPort) {
-      response.hasBackend = true;
-      response.backendUrl = `http://${LOCAL_IP}:${backendPort}`;
-      response.backendPort = backendPort;
-      response.backendCommand = commands.backendCommand;
-      console.log(`🔧 Backend server started at: ${response.backendUrl}`);
-    }
-
-    res.json(response);
 
   } catch (error) {
     console.error('❌ Preview start error:', error);
@@ -7365,7 +6294,7 @@ app.post('/preview/inspect', async (req, res) => {
     element,
     message,
     conversationHistory = [],
-    selectedModel = 'claude-sonnet-4'
+    selectedModel = 'gemini-2-flash'
   } = req.body;
 
   console.log('\n🔍 ═══════════════════════════════════════════════════');
@@ -7383,8 +6312,15 @@ app.post('/preview/inspect', async (req, res) => {
     return res.status(400).json({ error: 'Either element or message is required' });
   }
 
+  // FORCE OVERRIDE: Switch to Gemini if Claude is requested (temporary fix for credit issue)
+  let effectiveModel = selectedModel;
+  if (selectedModel.includes('claude')) {
+    console.log('⚠️ Claude model requested but credit balance is low. Auto-switching to Gemini.');
+    effectiveModel = 'gemini-2-flash';
+  }
+
   // Get model configuration
-  const modelConfig = AI_MODELS[selectedModel] || AI_MODELS['claude-sonnet-4'];
+  const modelConfig = AI_MODELS[effectiveModel] || AI_MODELS['gemini-2-flash'];
   const model = modelConfig.modelId;
   const provider = modelConfig.provider;
 
@@ -7755,8 +6691,8 @@ ESEGUI la modifica richiesta usando i tool!`;
 
             // Determine success based on result content
             const isSuccess = result.startsWith('✅') ||
-                              result.startsWith('Trovati') ||
-                              (result.length > 0 && !result.startsWith('❌') && !result.startsWith('Errore'));
+              result.startsWith('Trovati') ||
+              (result.length > 0 && !result.startsWith('❌') && !result.startsWith('Errore'));
 
             // Send tool result event
             res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: tu.name, success: isSuccess })}\n\n`);
@@ -7775,32 +6711,457 @@ ESEGUI la modifica richiesta usando i tool!`;
           // No more tool calls, we're done
           continueLoop = false;
         }
-      } else {
-        // For non-Anthropic providers, use simple streaming without tools
-        if (provider === 'google') {
-          const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-          const geminiModel = genAI.models.generateContentStream({
-            model: model,
-            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
-          });
+      } else if (provider === 'gemini' || provider === 'google') {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+        if (!GEMINI_API_KEY) {
+          console.error('❌ GEMINI_API_KEY missing');
+          res.write(`data: ${JSON.stringify({ text: "Error: GEMINI_API_KEY is not configured." })}\n\n`);
+          continueLoop = false;
+          break;
+        }
 
-          for await (const chunk of await geminiModel) {
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
+        // Map tools to Gemini format
+        const geminiTools = {
+          functionDeclarations: inspectTools.map(t => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema
+          }))
+        };
+
+        const geminiModel = genAI.getGenerativeModel({
+          model: model,
+          systemInstruction: systemPrompt,
+          tools: [geminiTools]
+        });
+
+        // Build history from currentMessages
+        let chatHistory = [];
+        let lastUserMessage = "";
+
+        // Skip index 0 (system prompt)
+        for (let i = 1; i < currentMessages.length; i++) {
+          const msg = currentMessages[i];
+          const isLast = i === currentMessages.length - 1;
+
+          if (msg.role === 'user') {
+            if (isLast) {
+              // This is the message we want to send now
+              if (Array.isArray(msg.content)) {
+                // It's a tool result batch
+                // We need to construct functionResponses
+                const toolResults = msg.content.filter(c => c.type === 'tool_result');
+                const parts = toolResults.map(tr => ({
+                  functionResponse: {
+                    name: tr.tool || 'unknown_tool', // We need to find the name
+                    response: { result: tr.content }
+                  }
+                }));
+
+                // If there are tool results, this determines the content to send
+                if (parts.length > 0) {
+                  // For the current turn, we use these parts
+                  // BUT sendMessage accepts parts or string.
+                  lastUserMessage = parts;
+                } else {
+                  lastUserMessage = "Proceed"; // Fallback
+                }
+              } else {
+                lastUserMessage = msg.content;
+              }
+            } else {
+              // History item
+              if (Array.isArray(msg.content)) {
+                // Tool result in history
+                const toolResults = msg.content.filter(c => c.type === 'tool_result');
+                const parts = toolResults.map(tr => ({
+                  functionResponse: {
+                    name: tr.tool || 'unknown_tool',
+                    response: { result: tr.content }
+                  }
+                }));
+                if (parts.length > 0) {
+                  chatHistory.push({ role: 'function', parts });
+                }
+              } else {
+                chatHistory.push({ role: 'user', parts: [{ text: msg.content }] });
+              }
+            }
+          } else if (msg.role === 'assistant') {
+            // History item (Model)
+            const parts = [];
+            if (Array.isArray(msg.content)) {
+              const text = msg.content.find(c => c.type === 'text');
+              if (text) parts.push({ text: text.text });
+
+              const toolUses = msg.content.filter(c => c.type === 'tool_use');
+              toolUses.forEach(tu => {
+                parts.push({
+                  functionCall: {
+                    name: tu.name,
+                    args: tu.input
+                  }
+                });
+              });
+            } else {
+              parts.push({ text: msg.content });
+            }
+            chatHistory.push({ role: 'model', parts });
+          }
+        }
+      }
+
+      // Gemini strict requirement: First message in history MUST be 'user' (role: 'user')
+      // And roles must alternate: user -> model -> user -> model
+
+      // 1. Ensure alternation by merging consecutive same-role messages
+      const mergedHistory = [];
+      if (chatHistory.length > 0) {
+        let currentMsg = chatHistory[0];
+
+        for (let i = 1; i < chatHistory.length; i++) {
+          const nextMsg = chatHistory[i];
+          if (currentMsg.role === nextMsg.role) {
+            // Merge parts
+            currentMsg.parts = [...currentMsg.parts, ...nextMsg.parts];
+          } else {
+            mergedHistory.push(currentMsg);
+            currentMsg = nextMsg;
+          }
+        }
+        mergedHistory.push(currentMsg);
+      }
+
+      // 2. Ensure first message is 'user'
+      // If first is 'model' or 'function', we must prepend a dummy user message or merge it
+      if (mergedHistory.length > 0 && mergedHistory[0].role !== 'user') {
+        // In Gemini, 'function' role IS a user-turn effectively (it replies to a model call), but 
+        // startChat history must start with user.
+        // If the history starts with model, we prepend a user message.
+        mergedHistory.unshift({ role: 'user', parts: [{ text: "Context:" }] });
+      }
+
+      chatHistory = mergedHistory;
+
+      // If it's the very first message after system prompt
+      if (chatHistory.length === 0 && !lastUserMessage && currentMessages.length > 1) {
+        // Should not happen if loop logic is correct
+      }
+      if (!lastUserMessage) lastUserMessage = "Inizia l'analisi.";
+
+      try {
+        const chat = geminiModel.startChat({ history: chatHistory });
+        const result = await chat.sendMessageStream(lastUserMessage);
+
+        let fullText = '';
+        let toolCalls = [];
+
+        for await (const chunk of result.stream) {
+          const text = chunk.text();
+          if (text) {
+            fullText += text;
+            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          }
+
+          // Check for function calls
+          const calls = chunk.functionCalls();
+          if (calls && calls.length > 0) {
+            calls.forEach(call => {
+              toolCalls.push({
+                id: `call_${Math.random().toString(36).substr(2, 9)}`,
+                name: call.name,
+                input: call.args
+              });
+            });
+          }
+        }
+
+        if (toolCalls.length > 0) {
+          // Gemini doesn't stream function calls incrementally usually, it gives them at the end or in a chunk
+          // We need to trigger the loop execution
+
+          // Add assistant message to history logic (Anthropic format compatible)
+          const assistantContent = [];
+          if (fullText) assistantContent.push({ type: 'text', text: fullText });
+
+          for (const tc of toolCalls) {
+            assistantContent.push({
+              type: 'tool_use',
+              id: tc.id,
+              name: tc.name, // Gemini provides name
+              input: tc.input // Gemini provides parsed args
+            });
+
+            // Notify frontend
+            res.write(`data: ${JSON.stringify({
+              type: 'tool_input',
+              tool: tc.name,
+              input: tc.input
+            })}\n\n`);
+          }
+
+          currentMessages.push({ role: 'assistant', content: assistantContent });
+
+          // Execution
+          const toolResults = [];
+          for (const tc of toolCalls) {
+            console.log(`🔧 Gemini Executing: ${tc.name}`);
+            const result = await executeInspectTool(tc.name, tc.input, repoPath);
+
+            const isSuccess = !result.startsWith('❌') && !result.startsWith('Errore');
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: tc.name, success: isSuccess })}\n\n`);
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tc.id,
+              tool: tc.name, // Important for Gemini mapping next turn
+              content: result
+            });
+          }
+
+          currentMessages.push({ role: 'user', content: toolResults });
+          // Continue loop
+        } else {
+          continueLoop = false;
+        }
+
+      } catch (error) {
+        console.error('❌ Gemini Error:', error);
+        res.write(`data: ${JSON.stringify({ text: `\n❌ Error: ${error.message}` })}\n\n`);
+        continueLoop = false;
+      }
+
+    } // End of Gemini provider block
+
+    if (false) { // Disabled Groq fallback block
+
+      // ==========================================
+      // GROQ PROVIDER IMPLEMENTATION
+      // ==========================================
+      const GROQ_API_KEY = process.env.GROQ_API_KEY;
+      if (!GROQ_API_KEY) {
+        console.error('❌ GROQ_API_KEY missing');
+        res.write(`data: ${JSON.stringify({ text: "Error: GROQ_API_KEY is not configured on the server." })}\n\n`);
+        continueLoop = false;
+        // break; (Removed illegal break)
+      }
+
+      const axios = require('axios');
+
+      // Map tools to OpenAI format
+      const groqTools = inspectTools.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema
+        }
+      }));
+
+      // Convert messages to OpenAI format (handling Anthropic -> OpenAI conversion)
+      const apiMessages = [
+        { role: 'system', content: systemPrompt }
+      ];
+
+      // Process history (skipping the first "user" message which was system prompt in Anthropic flow)
+      for (let i = 1; i < currentMessages.length; i++) {
+        const m = currentMessages[i];
+
+        if (m.role === 'user') {
+          if (Array.isArray(m.content)) {
+            // Check for tool results
+            const results = m.content.filter(c => c.type === 'tool_result');
+            if (results.length > 0) {
+              for (const res of results) {
+                apiMessages.push({
+                  role: 'tool',
+                  tool_call_id: res.tool_use_id,
+                  content: res.content
+                });
+              }
+              continue;
+            }
+            // Normal content
+            const text = m.content.find(c => c.type === 'text')?.text;
+            if (text) apiMessages.push({ role: 'user', content: text });
+          } else {
+            apiMessages.push({ role: 'user', content: m.content });
+          }
+        }
+        else if (m.role === 'assistant') {
+          if (Array.isArray(m.content)) {
+            const toolUses = m.content.filter(c => c.type === 'tool_use');
+            const text = m.content.find(c => c.type === 'text')?.text || null;
+
+            apiMessages.push({
+              role: 'assistant',
+              content: text,
+              tool_calls: toolUses.map(tu => ({
+                id: tu.id,
+                type: 'function',
+                function: { name: tu.name, arguments: JSON.stringify(tu.input) }
+              }))
+            });
+          } else {
+            apiMessages.push({ role: 'assistant', content: m.content });
+          }
+        }
+      }
+
+      try {
+        const response = await axios.post(
+          'https://api.groq.com/openai/v1/chat/completions',
+          {
+            model: model,
+            messages: apiMessages,
+            tools: groqTools,
+            tool_choice: 'auto',
+            stream: true
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${GROQ_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            responseType: 'stream',
+            timeout: 120000
+          }
+        );
+
+        let fullResponse = '';
+        let toolCallsMap = {};
+
+        for await (const chunk of response.data) {
+          const lines = chunk.toString().split('\n').filter(line => line.trim().startsWith('data:'));
+          for (const line of lines) {
+            const data = line.replace('data: ', '').trim();
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+
+              if (delta?.content) {
+                fullResponse += delta.content;
+                res.write(`data: ${JSON.stringify({ text: delta.content })}\n\n`);
+              }
+
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  if (tc.index !== undefined) {
+                    if (!toolCallsMap[tc.index]) {
+                      toolCallsMap[tc.index] = { id: tc.id, name: '', arguments: '' };
+                    }
+                    if (tc.function?.name) toolCallsMap[tc.index].name = tc.function.name;
+                    if (tc.id) toolCallsMap[tc.index].id = tc.id;
+                    if (tc.function?.arguments) toolCallsMap[tc.index].arguments += tc.function.arguments;
+                  }
+                }
+              }
+            } catch (e) { }
+          }
+        }
+
+        const toolCalls = Object.values(toolCallsMap);
+
+        if (toolCalls.length > 0) {
+          // Add assistant message to history (Anthropic format for consistency)
+          const assistantContent = [];
+          if (fullResponse) assistantContent.push({ type: 'text', text: fullResponse });
+
+          for (const tc of toolCalls) {
+            let args = {};
+            try { args = JSON.parse(tc.arguments); } catch (e) { }
+
+            assistantContent.push({
+              type: 'tool_use',
+              id: tc.id || `call_${Math.random().toString(36).substr(2, 9)}`,
+              name: tc.name,
+              input: args
+            });
+
+            res.write(`data: ${JSON.stringify({
+              type: 'tool_input',
+              tool: tc.name,
+              input: args
+            })}\n\n`);
+          }
+
+          currentMessages.push({ role: 'assistant', content: assistantContent });
+
+          // Execute tools
+          const toolResults = [];
+          for (const tc of toolCalls) {
+            let args = {};
+            try { args = JSON.parse(tc.arguments); } catch (e) { }
+
+            console.log(`🔧 Groq Executing: ${tc.name}`);
+            const result = await executeInspectTool(tc.name, args, repoPath);
+
+            const isSuccess = !result.startsWith('❌') && !result.startsWith('Errore');
+            res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: tc.name, success: isSuccess })}\n\n`);
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: tc.id || assistantContent.find(c => c.name === tc.name).id,
+              content: result
+            });
+          }
+
+          currentMessages.push({ role: 'user', content: toolResults });
+          // Loop continues
+        } else {
+          continueLoop = false;
+        }
+
+      } catch (error) {
+        console.error('❌ Groq API error:', error.response?.data || error.message);
+        res.write(`data: ${JSON.stringify({ text: `\n❌ Error: ${error.message}` })}\n\n`);
+        continueLoop = false;
+      }
+
+    } else {
+      // For non-Anthropic providers, use simple streaming without tools
+      if (provider === 'google') {
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const geminiModel = genAI.getGenerativeModel({ model: model });
+
+        try {
+          const result = await geminiModel.generateContentStream(systemPrompt);
+          for await (const chunk of result.stream) {
             const text = chunk.text();
             if (text) {
               res.write(`data: ${JSON.stringify({ text })}\n\n`);
             }
           }
+        } catch (e) {
+          console.error('Gemini error:', e);
+          res.write(`data: ${JSON.stringify({ text: "Error generating content with Gemini" })}\n\n`);
         }
-        continueLoop = false;
       }
+      continueLoop = false;
     }
 
-    res.write('data: [DONE]\n\n');
-    res.end();
+    // End of stream
+    if (res.writable) {
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
 
   } catch (error) {
     console.error('❌ Preview inspect error:', error);
-    res.status(500).json({ error: error.message });
+    // Only send error if headers haven't been sent
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      // If streaming already started, send error via SSE
+      res.write(`data: ${JSON.stringify({ text: `\n❌ Critical Error: ${error.message}` })}\n\n`);
+      res.end();
+    }
   }
 });
 
@@ -7815,6 +7176,49 @@ function wsWrite(ws, data) {
 }
 
 // OPTIMIZATION 16: WebSocket Server (instead of app.listen for HTTP only)
+// ==========================================
+// CLOUD WORKSTATION ROUTES (CODER V2)
+// For cost-optimized infrastructure
+// ==========================================
+
+app.get('/api/workstations/list', async (req, res) => {
+  try {
+    const userId = req.query.userId || 'admin';
+    // In a real app, you would list workspaces for the authenticated user
+    const workspaces = await coderService.client.get('/api/v2/workspaces', { params: { q: 'owner:me' } });
+    res.json(workspaces.data);
+  } catch (error) {
+    console.error('Workstation list error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/workstations/create', async (req, res) => {
+  try {
+    const { userId, name, repoUrl } = req.body;
+    // Ensure user exists in Coder
+    const coderUser = await coderService.ensureUser(`${userId}@drape.dev`, userId);
+
+    // Create workspace
+    const workspace = await coderService.createWorkspace(coderUser.id, name, repoUrl);
+    res.json(workspace);
+  } catch (error) {
+    console.error('Workstation create error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/workstations/start', async (req, res) => {
+  try {
+    const { workspaceId } = req.body;
+    const result = await coderService.startWorkspace(workspaceId);
+    res.json(result);
+  } catch (error) {
+    console.error('Workstation start error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create HTTP server
 const server = http.createServer(app);
 
@@ -7882,4 +7286,3 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('');
 });
 
-// Get project files from workstation

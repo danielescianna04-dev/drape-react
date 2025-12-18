@@ -1,0 +1,124 @@
+97     return; // Dont broadcast spam messages
+202       content: You are an expert at analyzing application startup errors.
+221 }
+225       content: Project type: ${projectType}
+230 Analyze this error and identify any missing environment variables. If the error is NOT related to environment variables, set hasEnvError to false.
+650     let systemMessage = Sei un assistente AI esperto di programmazione.
+684 Contiene la configurazione per lapp React Native/Expo:
+694 ✅ .env.example - Configurazione per lapp React Native/Expo
+700 REGOLE DORO:
+704 4. Testo fluido e scorrevole;
+738       systemMessage += ❌ VIETATO scrivere paragrafi lunghi DURANTE l\esplorazione!\n;
+749       systemMessage += 👆 VIETATO! L\utente non vede cosa stai pensando!\n\n;
+766       systemMessage += ⚠️ DURANTE l\esplorazione: max 5-8 parole per commento\n;
+768       systemMessage += 🎯 REGOLA D\ORO: Brief comment → Tool call → Brief comment → Tool call → ...\n;
+779       systemMessage += • Qual è l\architettura del progetto?\n;
+840       systemMessage += Tu: Ecco l\analisi completa:\n\nQuesta applicazione è un IDE mobile AI-powered chiamato Drape...\n;
+841       systemMessage += [descrizione completa dettagliata basata su TUTTI i file letti]\n\n;
+842       systemMessage += ⚡ NOTA CRITICA: Nell\esempio sopra, ci sono SEMPRE brevi commenti tra i tool calls\n;
+852       systemMessage += • ❌❌❌ DOPO l\esplorazione scrivi SOLO la sintesi, NON esempi di tool!\n\n;
+949       systemMessage += 1. Se l\utente chiede leggi deploy.txt → USA glob_files(**/deploy.txt) PRIMA\n;
+950       systemMessage += 2. Se l\utente chiede trova tutti i file .ts → USA glob_files(**/*.ts)\n;
+1049         description: Cerca un pattern di testo all\interno dei file del progetto (come grep),
+1350                 res.write(data: ${JSON.stringify({
+1352                 })}\n\n);
+1373             res.write(data: ${JSON.stringify({
+1380             })}\n\n);
+1553                         // Only send text if its not a raw tool call syntax
+1565                         res.write(data: ${JSON.stringify({
+1570                         })}\n\n);
+1613               res.write(data: ${JSON.stringify({
+1619               })}\n\n);
+1701           // Tool use started - send to frontend for UI (but dont execute yet!)
+1709               res.write(data: ${JSON.stringify({
+1714               })}\n\n);
+1807           res.write(data: ${JSON.stringify({
+1811           })}\n\n);
+1822           // Build the assistants message with tool uses
+1869           res.write(data: ${JSON.stringify({
+1871           })}\n\n);
+1883             res.write(data: ${JSON.stringify({
+1885             })}\n\n);
+1887             res.write(data: ${JSON.stringify({
+1889             })}\n\n);
+1969       // For dev server commands, do health check to verify its actually running
+2088     const html = 
+2158           // Ensure were using web platform
+2193     ;
+2226     // Lets deduce: workspace name is derived from repo name usually
+2231     // Since Coders API for exec is complex (needs WebSocket upgrade), 
+2267     // -t force pseudo-terminal (good for colors), but might break some parsers. Lets try without first.
+2378 // In production, this would use Cloud Run workstations public IP or tunnel
+2389     // For development: replace localhost with machines local IP
+2414     // In production: replace localhost with workstations public hostname
+2573     // Fetch file list from GitHub API if its a git project
+2619         // Check if its an authentication issue
+2669                 // Repo returned 404 on the public API - its private
+2689         // If 401/403, its definitely an auth issue (even with token provided)
+2950       // No upstream branch or other error - thats ok
+3029 // POST /workstation/:id/env-analyze - Avvia analisi AI delle variabili dambiente
+3174   const phase1Prompt = Analyze this project and tell me what patterns to search for to find ALL environment variables.
+3193 Be thorough - include ALL patterns used in this language/framework for reading env vars.;
+3291                     const envMatch = line.match(/(?:process\.env\.|import\.meta\.env\.|os\.getenv\([]|os\.environ\[[]|ENV\[[])([A-Z_][A-Z0-9_]*)/i);
+3335   // Se abbiamo trovato variabili direttamente, usiamo lAI solo per arricchire le descrizioni
+3341   const phase3Prompt = I found these environment variables in a project: ${varsList}
+3343 Heres the code context where they are used:
+3346 For each variable, provide a description of what its used for based on the code context.
+3349   {key: VAR_NAME, description: what its used for, isSecret: true/false, defaultValue: if found}
+3358 - Only return variables the user would need to configure in a .env file to run the project;
+3399   // Aggiungi tutte le variabili trovate direttamente con regex che lAI potrebbe aver perso
+3470 // GET /workstation/:id/env-variables - Legge le variabili dambiente dal .env del progetto
+3552         // Merge AI variables with existing (AI vars that dont exist in .env)
+3570 // POST /workstation/:id/env-variables - Aggiunge o aggiorna una variabile dambiente nel .env
+3672 // DELETE /workstation/:id/env-variables/:key - Elimina una variabile dambiente
+3750     // Check if its a comment (description)
+3793     // List files in workstation (assuming its accessible via gcloud)
+3946               // More changes ahead, dont add context yet
+3978     // Create directory if it doesnt exist
+4593     // If 404, repo might be private and we dont have access
+4628   // Create repos directory if it doesnt exist
+4721           // DONT add the directory itself, just recurse into it
+4774       // We use git ls-files if its a git repo, otherwise find
+4775       // Lets use find to be generic and robust
+4794       // For now, lets treat it as needs clone or empty to avoid crashing UI
+4891     const script = 
+4903     .replace(/\n/g,  ); // simple sanitization
+4975     // Check if its a git repo
+5122       // Caution: echo on mac might differ. Lets send raw bytes to stdin of the ssh process.
+5126       // Lets use a temporary PROPER way with spawn.
+5222                 // Skip files that cant be read as text
+5676         // File doesnt exist, skip
+5696     const prompt = Analyze this project and return ONLY valid JSON:
+5715 - For older AngularJS: might need grunt server and port 8888;
+5815     // Check if this is a static HTML project that wasnt detected
+5929         // For other errors, dont retry
+6015         content: You are a project analyzer. Given a file tree, identify which files to read to understand how to run the project.
+6027 Select maximum 5-7 most important files. DO NOT select source code files (*.js, *.ts, *.py in src/ folders).
+6053         content: You are a DevOps expert. Analyze the project and determine how to run it.
+6073 - For Flask: ALWAYS use pip3 install -r requirements.txt and python3 -m flask run (never python3 app.py because it doesnt support host binding)
+6087 - json-server typically runs on port 5000 or 3001
+6166         // Fallback to local? No, lets fail hard to debug
+6279         // File doesnt exist, will create new
+6419           // grep returns error if no matches, thats ok
+6444       const elementDescription = element ? 
+6452  : ;
+6460         : \n\nL\utente vuole modificare questo elemento. Analizza e proponi come procedere.;
+6462       const systemPrompt = Sei un assistente AI specializzato nella modifica di codice UI.
+6464 Lutente sta usando un IDE mobile${element ?  e ha selezionato un elemento nella preview della sua app :  e vuole modificare il progetto}.
+6466 1. ${element ? Identificare il file responsabile di questo elemento : Capire cosa l\utente vuole modificare}
+6473 1. ${element ? Se i file forniti contengono l\elemento, usa edit_file per modificarlo : Usa glob_files o search_in_files per trovare i file da modificare}
+6489 ESEGUI la modifica richiesta usando i tool!;
+6696                 res.write(data: ${JSON.stringify({
+6700                 })}\n\n);
+6749             // Continue loop to get AIs response to tool results
+6751             // No more tool calls, were done
+6794                   // Its a tool result batch
+6889         // If its the very first message after system prompt
+6893         if (!lastUserMessage) lastUserMessage = Inizia lanalisi.;
+6923             // Gemini doesnt stream function calls incrementally usually, it gives them at the end or in a chunk
+6939               res.write(data: ${JSON.stringify({
+6943               })}\n\n);
+7126               res.write(data: ${JSON.stringify({
+7130               })}\n\n);
+7197       // Only send error if headers havent been sent
+7293           // Call the same handler that /ai/chat uses (well extract it to a function)

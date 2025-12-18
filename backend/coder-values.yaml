@@ -1,0 +1,38 @@
+coder:
+  env:
+    - name: CODER_PG_CONNECTION_URL
+      value: "postgresql://coder:coder@coder-db-postgresql:5432/coder?sslmode=disable"
+    - name: CODER_EXPERIMENTAL
+      value: "true"
+
+  service:
+    type: LoadBalancer
+
+  # Critical: Fit into e2-standard-2 (2 vCPU)
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+# We will use a simple in-cluster Postgres for cost savings
+postgresql:
+  enabled: true
+  auth:
+    username: coder
+    password: coder
+    database: coder
+  persistence:
+    enabled: true
+    size: 10Gi
+  # Postgres needs to fit too!
+  primary:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"

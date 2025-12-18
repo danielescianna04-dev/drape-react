@@ -58,6 +58,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [loading, setLoading] = useState(true);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Git data states
   const [commits, setCommits] = useState<GitCommit[]>([]);
@@ -77,19 +79,18 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   useEffect(() => {
     if (visible) {
-      loadAccountInfo();
-      loadGitData();
-
-      const shimmerLoop = RNAnimated.loop(
-        RNAnimated.sequence([
-          RNAnimated.timing(shimmerAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-          RNAnimated.timing(shimmerAnim, { toValue: 0, duration: 1000, useNativeDriver: true }),
-        ])
-      );
-      shimmerLoop.start();
-      return () => shimmerLoop.stop();
+      // Sequence: Load accounts -> Then load Git data (once accounts are checked)
+      loadAccountInfo().then(() => {
+        setAccountsLoaded(true);
+      });
     }
   }, [visible, currentWorkstation?.id]);
+
+  useEffect(() => {
+    if (visible && accountsLoaded) {
+      loadGitData();
+    }
+  }, [visible, accountsLoaded, linkedAccount, currentWorkstation?.id]);
 
   const expandToTab = useCallback(() => {
     onClose();
@@ -140,32 +141,46 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (!currentWorkstation?.id) return;
 
     setGitLoading(true);
+    setErrorMsg(null);
     try {
       const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+      console.log('📦 Loading Git Data. RepoUrl:', repoUrl);
+
       if (repoUrl && repoUrl.includes('github.com')) {
-        const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+        // Robust regex to capture owner and repo, handling optional .git suffix
+        const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+
         if (match) {
           const [, owner, repo] = match;
-          const token = linkedAccount?.accessToken;
+          console.log('🎯 Parsed:', owner, '/', repo);
 
           try {
+            // Get token for the linked account
+            let token: string | null = null;
+            if (linkedAccount) {
+              token = await gitAccountService.getToken(linkedAccount, userId);
+              console.log('🔑 Using token from account:', linkedAccount.username);
+            } else {
+              console.log('⚠️ No linked account, attempting public access');
+            }
+
             const [commitsData, branchesData] = await Promise.all([
-              githubService.getCommits(owner, repo, token),
-              githubService.getBranches(owner, repo, token),
+              githubService.getCommits(owner, repo, token || undefined),
+              githubService.getBranches(owner, repo, token || undefined),
             ]);
 
             const formattedCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => ({
               hash: c.sha,
               shortHash: c.sha.substring(0, 7),
-              message: c.commit.message.split('\n')[0],
-              author: c.commit.author.name,
-              authorEmail: c.commit.author.email,
-              authorAvatar: c.author?.avatar_url,
-              authorLogin: c.author?.login,
-              date: new Date(c.commit.author.date),
+              message: c.message.split('\n')[0],
+              author: c.author.name,
+              authorEmail: c.author.email,
+              authorAvatar: c.author.avatar_url,
+              authorLogin: c.author.login,
+              date: new Date(c.author.date),
               isHead: index === 0,
               branch: index === 0 ? currentBranch : undefined,
-              url: c.html_url,
+              url: c.url,
             }));
 
             const formattedBranches: GitBranch[] = branchesData.map((b: any) => ({
@@ -180,10 +195,18 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             setBranches(formattedBranches);
             setCurrentBranch(currentB);
             setIsGitRepo(true);
-          } catch (apiError) {
-            console.log('GitHub API error, using cached data:', apiError);
+          } catch (apiError: any) {
+            console.log('❌ GitHub API error:', apiError);
+            setErrorMsg(apiError.message || 'Impossibile caricare i dati della repository');
+            // Try to load cached data or keep partial state if available?
           }
+        } else {
+          console.log('❌ Invalid GitHub URL format');
+          setErrorMsg('URL repository non valido');
         }
+      } else {
+        console.log('❌ No valid GitHub URL found in workstation');
+        setErrorMsg('Nessuna repository GitHub collegata');
       }
     } catch (error) {
       console.error('Error loading git data:', error);
@@ -206,10 +229,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
     setActionLoading(action);
     try {
+      // Get token properly
+      const token = await gitAccountService.getToken(linkedAccount, userId);
+
       const response = await fetch(`${config.apiUrl}/workstation/${currentWorkstation.id}/git/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: linkedAccount.accessToken }),
+        body: JSON.stringify({ token }),
       });
 
       if (response.ok) {
@@ -252,7 +278,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       statusBarTranslucent
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.modalContainer} onPress={() => {}}>
+        <Pressable style={styles.modalContainer} onPress={() => { }}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -388,6 +414,19 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.3)" />
                   </TouchableOpacity>
                 ))}
+                {commits.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="git-commit-outline" size={40} color="rgba(255,255,255,0.2)" />
+                    <Text style={styles.emptyStateText}>
+                      {errorMsg || 'Nessun commit trovato'}
+                    </Text>
+                    {errorMsg && (
+                      <TouchableOpacity onPress={() => loadGitData()} style={styles.retryButton}>
+                        <Text style={styles.retryText}>Riprova</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
                 {commits.length > 8 && (
                   <TouchableOpacity style={styles.showMoreBtn} onPress={expandToTab}>
                     <Text style={styles.showMoreText}>Mostra tutti ({commits.length})</Text>
@@ -745,5 +784,17 @@ const styles = StyleSheet.create({
   accountName: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.6)',
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 6,
+  },
+  retryText: {
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '500',
   },
 });

@@ -72,6 +72,7 @@ export interface WorkstationInfo {
   webUrl?: string;
   folderId?: string | null;
   repositoryUrl?: string;
+  githubUrl?: string; // Alternative to repositoryUrl for GitHub links
   githubAccountUsername?: string; // Account GitHub collegato a questo progetto
   createdAt: Date;
   lastOpened?: Date; // Last time project was opened

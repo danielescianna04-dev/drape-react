@@ -64,7 +64,7 @@ const storage = {
     }
     return await SecureStore.getItemAsync(key);
   },
-  
+
   async setItem(key: string, value: string): Promise<void> {
     if (Platform.OS === 'web') {
       localStorage.setItem(key, value);
@@ -72,7 +72,7 @@ const storage = {
       await SecureStore.setItemAsync(key, value);
     }
   },
-  
+
   async deleteItem(key: string): Promise<void> {
     if (Platform.OS === 'web') {
       localStorage.removeItem(key);
@@ -103,16 +103,16 @@ class GitHubService {
       console.warn('OAuth flow is only supported on web platform');
       return;
     }
-    
+
     const redirectUri = window.location.origin;
     const scope = 'repo,user:email,read:user';
     const state = Math.random().toString(36).substring(7);
-    
+
     // Save state for verification
     localStorage.setItem('github_oauth_state', state);
-    
+
     const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${redirectUri}&scope=${scope}&state=${state}`;
-    
+
     window.location.href = authUrl;
   }
 
@@ -125,7 +125,7 @@ class GitHubService {
         console.error('State mismatch');
         return false;
       }
-      
+
       // Exchange code for token via backend
       const response = await axios.post(`${BACKEND_URL}/github/exchange-code`, {
         code,
@@ -134,19 +134,19 @@ class GitHubService {
 
       if (response.data.access_token) {
         await storage.setItem(TOKEN_KEY, response.data.access_token);
-        
+
         // Fetch and store user info
         const user = await this.fetchCurrentUser();
         if (user) {
           await storage.setItem(USER_KEY, JSON.stringify(user));
         }
-        
+
         // Clean up
         localStorage.removeItem('github_oauth_state');
-        
+
         return true;
       }
-      
+
       return false;
     } catch (error) {
       console.error('OAuth callback error:', error);
@@ -188,7 +188,7 @@ class GitHubService {
           affiliation: 'owner,collaborator',
         },
       });
-      
+
       const repos: GitHubRepository[] = response.data.map((repo: any) => ({
         id: repo.id.toString(),
         name: repo.name,
@@ -202,7 +202,7 @@ class GitHubService {
         cloneUrl: repo.clone_url,
         avatarUrl: repo.owner.avatar_url,
       }));
-      
+
       return repos;
     } catch (error) {
       console.error('Fetch repos error:', error);
@@ -317,6 +317,74 @@ class GitHubService {
     } catch (error) {
       console.error('Fetch commit details error:', error);
       throw error;
+    }
+  }
+  // Get commits using owner and repo directly
+  async getCommits(owner: string, repo: string, token?: string, page = 1, perPage = 30): Promise<GitHubCommit[]> {
+    try {
+      const authToken = token || await this.getStoredToken();
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+
+      const response = await axios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
+        headers,
+        params: {
+          page,
+          per_page: perPage,
+        },
+      });
+
+      const commits: GitHubCommit[] = response.data.map((commit: any) => ({
+        sha: commit.sha,
+        message: commit.commit.message,
+        author: {
+          name: commit.commit.author.name,
+          email: commit.commit.author.email,
+          date: new Date(commit.commit.author.date),
+          avatar_url: commit.author?.avatar_url,
+          login: commit.author?.login,
+        },
+        committer: {
+          name: commit.commit.committer.name,
+          email: commit.commit.committer.email,
+          date: new Date(commit.commit.committer.date),
+        },
+        url: commit.html_url,
+      }));
+
+      return commits;
+    } catch (error: any) {
+      console.error('Get commits error:', error);
+      if (error.response?.status === 404) {
+        throw new Error('Repository non trovato o privato');
+      }
+      throw error;
+    }
+  }
+
+  // Get branches using owner and repo
+  async getBranches(owner: string, repo: string, token?: string): Promise<any[]> {
+    try {
+      const authToken = token || await this.getStoredToken();
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+
+      const response = await axios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/branches`, {
+        headers,
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Get branches error:', error);
+      return [];
     }
   }
 }
