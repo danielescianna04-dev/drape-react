@@ -1,14 +1,24 @@
-coder:
+coderd:
+  # Force Open Source Image
+  image: "ghcr.io/coder/coder:v2.16.0"
+  
+  service:
+    type: LoadBalancer
+
+  # Allow writing to filesystem (needed for OSS image cache/home)
+  securityContext:
+    readOnlyRootFilesystem: false
+
   env:
     - name: CODER_PG_CONNECTION_URL
       value: "postgresql://coder:coder@coder-db-postgresql:5432/coder?sslmode=disable"
     - name: CODER_EXPERIMENTAL
-      value: "true"
+      value: "false"
+    - name: CODER_WILDCARD_ACCESS_URL
+      value: "*.drape.info"
+    - name: CODER_ACCESS_URL
+      value: "http://drape.info"
 
-  service:
-    type: LoadBalancer
-
-  # Critical: Fit into e2-standard-2 (2 vCPU)
   resources:
     requests:
       cpu: "250m"
@@ -17,7 +27,7 @@ coder:
       cpu: "1000m"
       memory: "2Gi"
 
-# We will use a simple in-cluster Postgres for cost savings
+# Database Configuration
 postgresql:
   enabled: true
   auth:
@@ -27,7 +37,6 @@ postgresql:
   persistence:
     enabled: true
     size: 10Gi
-  # Postgres needs to fit too!
   primary:
     resources:
       requests:
