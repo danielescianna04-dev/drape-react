@@ -43,20 +43,51 @@ class CoderService {
                 params: { q: email }
             });
 
-            if (searchRes.data.length > 0) {
-                return searchRes.data[0];
+            // Check if users array exists and has items
+            const users = searchRes.data?.users || searchRes.data || [];
+            if (users.length > 0) {
+                return users[0];
             }
 
-            // Create user
-            const createRes = await this.client.post('/api/v2/users', {
+            // Get default organization ID (required by Coder v2.29+)
+            let organizationId;
+            try {
+                const orgsRes = await this.client.get('/api/v2/organizations');
+                const orgs = orgsRes.data || [];
+                const defaultOrg = orgs.find(o => o.is_default) || orgs[0];
+                organizationId = defaultOrg?.id;
+            } catch (orgError) {
+                console.warn('Could not fetch organizations, trying without:', orgError.message);
+            }
+
+            // Create user with organization
+            const userData = {
                 email,
                 username,
                 password: Math.random().toString(36).slice(-10) + "Aa1!", // Random persistent password
                 login_type: 'password'
-            });
+            };
+
+            // Add organization_ids if we have one
+            if (organizationId) {
+                userData.organization_ids = [organizationId];
+            }
+
+            const createRes = await this.client.post('/api/v2/users', userData);
 
             return createRes.data;
         } catch (error) {
+            // Handle 409 Conflict - user already exists
+            if (error.response?.status === 409) {
+                console.log(`   User "${email}" already exists, fetching...`);
+                const searchRes = await this.client.get('/api/v2/users', {
+                    params: { q: username }
+                });
+                const users = searchRes.data?.users || searchRes.data || [];
+                if (users.length > 0) {
+                    return users[0];
+                }
+            }
             console.error('Error ensuring Coder user:', error.response?.data || error.message);
             throw error;
         }
@@ -67,31 +98,40 @@ class CoderService {
      */
     async createWorkspace(userId, workspaceName, repoUrl) {
         try {
-            // 1. Get the template (we assume 'standard-workspace' exists)
-            // In production, you'd cache this ID
-            const templatesRes = await this.client.get('/api/v2/organizations/default/templates');
-            const template = templatesRes.data.find(t => t.name === 'standard-workspace');
+            // 1. Get the default organization
+            const orgsRes = await this.client.get('/api/v2/organizations');
+            const orgs = orgsRes.data || [];
+            const defaultOrg = orgs.find(o => o.is_default) || orgs[0];
+
+            if (!defaultOrg) {
+                throw new Error('No organization found in Coder');
+            }
+
+            // 2. Get the template (we assume 'standard-workspace' exists)
+            const templatesRes = await this.client.get(`/api/v2/organizations/${defaultOrg.id}/templates`);
+            const templates = templatesRes.data || [];
+            const template = templates.find(t => t.name === 'standard-workspace');
 
             if (!template) {
                 throw new Error('Template "standard-workspace" not found. Please upload it first.');
             }
 
-            // 2. Create the workspace
-            const res = await this.client.post(`/api/v2/template/${template.id}/workspaces`, {
+            // 3. Create the workspace - only required fields
+            // POST /api/v2/organizations/{organization}/members/{user}/workspaces
+            const res = await this.client.post(`/api/v2/organizations/${defaultOrg.id}/members/${userId}/workspaces`, {
                 name: workspaceName,
-                owner_id: userId,
-                autostart_if_dormant: true,
-                ttl_ms: 15 * 60 * 1000, // 15 minutes shutdown policy
-                rich_parameter_values: [
-                    // Example of passing parameters if defined in template
-                    // { name: "repo_url", value: repoUrl }
-                ]
+                template_id: template.id
             });
 
             return res.data;
         } catch (error) {
-            // If workspace already exists, try to start it
-            if (error.response?.status === 409) { // Conflict
+            // If workspace already exists (409 Conflict or 400 with name validation), try to get it
+            const isConflict = error.response?.status === 409;
+            const isNameTaken = error.response?.status === 400 &&
+                error.response?.data?.validations?.some(v => v.field === 'name');
+
+            if (isConflict || isNameTaken) {
+                console.log(`   Workspace "${workspaceName}" already exists, fetching...`);
                 return this.getWorkspaceByName(userId, workspaceName);
             }
             console.error('Error creating workspace:', error.response?.data || error.message);
@@ -100,24 +140,38 @@ class CoderService {
     }
 
     async getWorkspaceByName(userId, workspaceName) {
-        // Coder doesn't strictly support "get by name for user" easily in v2 without filtering
-        // But we can filter by owner_id and name
+        // Search by name (Coder API returns { workspaces: [...] })
         const res = await this.client.get('/api/v2/workspaces', {
-            params: { q: `owner:me name:${workspaceName}` } // 'me' works if acting as user, but we are admin
+            params: { q: `name:${workspaceName}` }
         });
-        // Admin filter: q=owner_id:<id> name:<name>
-        // ... implementation detail
-        return res.data[0];
+
+        const workspaces = res.data?.workspaces || res.data || [];
+        const workspace = workspaces.find(w => w.name === workspaceName);
+
+        if (!workspace) {
+            throw new Error(`Workspace "${workspaceName}" not found`);
+        }
+
+        return workspace;
     }
 
     /**
      * Start a stopped workspace
      */
     async startWorkspace(workspaceId) {
-        const buildRes = await this.client.post(`/api/v2/workspaces/${workspaceId}/builds`, {
-            transition: 'start'
-        });
-        return buildRes.data;
+        try {
+            const buildRes = await this.client.post(`/api/v2/workspaces/${workspaceId}/builds`, {
+                transition: 'start'
+            });
+            return buildRes.data;
+        } catch (error) {
+            // 409 = "A workspace build is already active" - workspace is already starting
+            if (error.response?.status === 409) {
+                console.log('   ⏳ Workspace build already in progress, waiting...');
+                return { status: 'already_building' };
+            }
+            throw error;
+        }
     }
 }
 

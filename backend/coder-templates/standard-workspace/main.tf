@@ -173,7 +173,7 @@ resource "coder_app" "preview" {
   # The simple int port tells Coder to use the wildcard subdomain + port
   url          = "http://localhost:8000"
   icon         = "/icon/widgets.svg"
-  subdomain    = true
+  subdomain    = false
   share        = "public"
 }
 
@@ -193,7 +193,7 @@ resource "coder_app" "devserver" {
   display_name = "Dev Server (3000)"
   url          = "http://localhost:3000"
   icon         = "/icon/widgets.svg"
-  subdomain    = true
+  subdomain    = false
   share        = "public"
 }
 
@@ -222,7 +222,7 @@ resource "kubernetes_pod" "main" {
 
     host_aliases {
       ip = "34.118.226.255"
-      hostnames = ["drape.info"]
+      hostnames = ["drape.info", "34.135.209.234.nip.io"]
     }
 
     container {

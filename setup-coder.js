@@ -2,9 +2,9 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
-const CODER_URL = 'http://35.193.11.163';
-const ADMIN_EMAIL = 'admin@drape.dev';
-const ADMIN_PASSWORD = 'AdminPassword123!';
+const CODER_URL = 'http://34.135.209.234.nip.io';
+const ADMIN_EMAIL = 'daniele.scianna04@gmail.com';
+const ADMIN_PASSWORD = 'Rotolone01#@';
 const ADMIN_USERNAME = 'admin';
 
 async function wait(ms) {

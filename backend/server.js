@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const axios = require('axios');
 const http = require('http');
 const WebSocket = require('ws');
@@ -10,6 +11,24 @@ const fsSync = require('fs');
 require('dotenv').config();
 
 const coderService = require('./coder-service');
+const CODER_CLI_PATH = path.join(__dirname, 'bin', 'coder');
+
+/**
+ * Helper to wrap commands in standard SSH using Coder as ProxyCommand
+ * Needed for older Coder versions (v2.16) that don't support "coder ssh -- command"
+ */
+function wrapSsh(wsName, command) {
+  // Escape single quotes in the command for the outer SSH call
+  const escapedCmd = command.replace(/'/g, "'\\''");
+  return `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ProxyCommand="${CODER_CLI_PATH} ssh --stdio ${wsName}" coder.${wsName} '${escapedCmd}'`;
+}
+
+
+// Map Coder API URL to CODER_URL for the CLI
+if (process.env.CODER_API_URL) {
+  process.env.CODER_URL = process.env.CODER_API_URL;
+}
+
 
 // Auto-detect local network IP
 function getLocalIP() {
@@ -298,7 +317,16 @@ const vertex_ai = new VertexAI({
 
 // Middleware
 app.use(cors());
+// Middleware
+app.use(cors());
 app.use(express.json());
+
+// DEBUG: Log all incoming requests with HEADERS
+app.use((req, res, next) => {
+  console.log(`📥 INCOMING: ${req.method} ${req.url}`);
+  console.log('   Headers:', JSON.stringify(req.headers, null, 2));
+  next();
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -600,11 +628,11 @@ const AI_MODELS = {
     description: 'Alibaba via Groq - Ottimo per codice'
   },
   // Google Gemini
-  'gemini-2-flash': {
+  'gemini-2.5-flash': {
     provider: 'gemini',
-    modelId: 'gemini-2.0-flash',
-    name: 'Gemini 2 Flash',
-    description: 'Google - Velocissimo e potente'
+    modelId: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
+    description: 'Google - Ultima versione, incredibilmente veloce e preciso'
   }
 };
 
@@ -956,6 +984,17 @@ REGOLE D'ORO:
       systemMessage += '3. Nella chiamata edit_file(), COPIA ESATTAMENTE il testo che hai letto\n';
       systemMessage += '4. NON riassumere, NON parafrasare - USA IL TESTO IDENTICO!\n';
       systemMessage += '5. Se il file ha "ABC", scrivi edit_file(file, ABC, ABC + nuova riga)\n\n';
+
+      systemMessage += '🚨 RIGORE NELL\'EDITING (INDISPENSABILE):\n';
+      systemMessage += 'Quando modifichi un file (di QUALSIASI linguaggio), DEVI essere meticoloso:\n';
+      systemMessage += '- Se l\'utente chiede di cambiare un testo, cercalo in TUTTE le sue forme nel file.\n';
+      systemMessage += '- In HTML: cambia sia il contenuto del tag che eventuali attributi come data-translate, title, alt, ecc.\n';
+      systemMessage += '- In CSS: controlla se esistono selettori PIÙ SPECIFICI che potrebbero sovrascrivere la tua modifica. Se l\'utente vuole un colore fisso (es. rosso), assicurati di rimuovere eventuali gradienti (`background: linear-gradient`) o proprietà che rendono il testo trasparente (`-webkit-text-fill-color: transparent`). Se necessario, usa `!important` per garantire il risultato.\n';
+      systemMessage += '- In JSON/Config: cambia sia la chiave che il valore se necessario.\n';
+      systemMessage += '- In Codice: aggiorna stringhe, commenti e documentazione correlata.\n';
+      systemMessage += '❌ VIETATO dimenticare attributi o metadati che rispecchiano il testo cambiato.\n';
+      systemMessage += '✅ OBBLIGO: La modifica deve essere COERENTE e COMPLETA in tutto il blocco di codice.\n\n';
+
       systemMessage += '🎯 WORKFLOW CORRETTO:\n';
       systemMessage += 'read_file() → Leggi contenuto esatto → edit_file(file, contenuto_esatto, contenuto_esatto + modifica)\n';
     }
@@ -1113,79 +1152,71 @@ REGOLE D'ORO:
         let result;
         switch (name) {
           case 'read_file':
-            const readRes = await axios.post(`http://localhost:${PORT}/workstation/read-file`, {
-              projectId: projectId,
-              filePath: args.filePath
+            const readRes = await axios.get(`http://localhost:${PORT}/workstation/${projectId}/file-content`, {
+              params: { filePath: args.filePath }
             });
             result = readRes.data.success ? readRes.data.content : `Error: ${readRes.data.error}`;
-            // Cache the result
             if (readRes.data.success) {
               setCachedToolResult(name, args, result);
             }
             return result;
 
           case 'write_file':
-            const writeRes = await axios.post(`http://localhost:${PORT}/workstation/write-file`, {
-              projectId: projectId,
+            const writeRes = await axios.post(`http://localhost:${PORT}/workstation/${projectId}/file-content`, {
               filePath: args.filePath,
               content: args.content
             });
             return writeRes.data.success ? `File ${args.filePath} scritto con successo` : `Error: ${writeRes.data.error}`;
 
           case 'edit_file':
-            const editRes = await axios.post(`http://localhost:${PORT}/workstation/edit-file`, {
-              projectId: projectId,
-              filePath: args.filePath,
-              oldString: args.oldString,
-              newString: args.newString
+            // Logic for cloud edit: Read -> Modify -> Write
+            // 1. Read
+            const curRead = await axios.get(`http://localhost:${PORT}/workstation/${projectId}/file-content`, {
+              params: { filePath: args.filePath }
             });
-            if (editRes.data.success) {
-              // Return the diff if available, otherwise return success message
-              return editRes.data.diffInfo?.diff || `File ${args.filePath} modificato con successo`;
-            } else {
-              return `Error: ${editRes.data.error}`;
+            if (!curRead.data.success) return `Error: Could not read file for editing: ${curRead.data.error}`;
+
+            // 2. Modify (local logic for search & replace)
+            const oldContent = curRead.data.content;
+            if (!oldContent.includes(args.oldString)) {
+              return `Error: Could not find exactly "${args.oldString}" in the file. Make sure you read the file first and provide the exact string.`;
             }
+            const newContent = oldContent.replace(args.oldString, args.newString);
+
+            // 3. Write
+            const curWrite = await axios.post(`http://localhost:${PORT}/workstation/${projectId}/file-content`, {
+              filePath: args.filePath,
+              content: newContent
+            });
+            return curWrite.data.success ? `File ${args.filePath} modificato con successo` : `Error: ${curWrite.data.error}`;
 
           case 'list_files':
-            const listRes = await axios.post(`http://localhost:${PORT}/workstation/list-directory`, {
-              projectId: projectId,
-              directory: args.directory
-            });
-            result = listRes.data.success ? listRes.data.files.map(f => f.name).join(', ') : `Error: ${listRes.data.error}`;
-            if (listRes.data.success) {
-              setCachedToolResult(name, args, result);
-            }
-            return result;
-
           case 'glob_files':
-            const globRes = await axios.post(`http://localhost:${PORT}/workstation/glob-files`, {
-              projectId: projectId,
-              pattern: args.pattern
-            });
-            if (globRes.data.success) {
-              const files = globRes.data.files || [];
-              const fileCount = files.length;
-              const fileList = files.join('\n');
-              result = `Glob pattern: ${args.pattern}\n└─ Found ${fileCount} file(s)\n\n${fileList}`;
-              setCachedToolResult(name, args, result);
-              return result;
+            const listRes = await axios.get(`http://localhost:${PORT}/workstation/${projectId}/files`);
+            if (!listRes.data.success) return `Error: ${listRes.data.error}`;
+            const allFiles = listRes.data.files || [];
+
+            if (name === 'list_files') {
+              const dir = args.directory === '.' ? '' : args.directory;
+              const filtered = allFiles.filter(f => f.startsWith(dir)).slice(0, 50);
+              return filtered.join('\n');
             } else {
-              return `Error: ${globRes.data.error}`;
+              // Simple pattern match for glob
+              const pattern = args.pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*');
+              const regex = new RegExp(`^${pattern}$`);
+              const matched = allFiles.filter(f => regex.test(f)).slice(0, 50);
+              return `Found ${matched.length} files:\n${matched.join('\n')}`;
             }
 
           case 'search_in_files':
-            const searchRes = await axios.post(`http://localhost:${PORT}/workstation/search-files`, {
-              projectId: projectId,
-              pattern: args.pattern
+            const searchRes = await axios.get(`http://localhost:${PORT}/workstation/${projectId}/search`, {
+              params: { query: args.pattern }
             });
             if (searchRes.data.success) {
               const results = searchRes.data.results || [];
               const matchCount = results.length;
               const resultList = results.slice(0, 20).map(r => `${r.file}:${r.line}: ${r.content}`).join('\n');
-              const truncated = matchCount > 20 ? `\n... (showing first 20 of ${matchCount} matches)` : '';
-              result = `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${truncated}`;
-              setCachedToolResult(name, args, result);
-              return result;
+              return `Search "${args.pattern}"\n└─ ${matchCount} match(es)\n\n${resultList}${matchCount > 20 ? '\n...' : ''}`;
             } else {
               return `Error: ${searchRes.data.error}`;
             }
@@ -2212,12 +2243,13 @@ async function executeCommandOnWorkstation(command, workstationId) {
 
   // 1. Identify workspace
   // workstationId format: "ws-<name>" or just "<name>"
-  const wsName = workstationId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
+  // Use workspace name as-is (caller already cleaned it)
+  const wsName = workstationId;
 
   try {
     // 2. Ensure User & Agent
     // We assume admin user for MVP flow
-    const user = await coderService.ensureUser('admin@drape.dev', 'admin');
+    const user = await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
 
     // 3. Find Workspace
     // We need the workspace ID to connect
@@ -2259,16 +2291,24 @@ async function executeCommandOnWorkstation(command, workstationId) {
     const { promisify } = require('util');
     const execAsync = promisify(exec);
 
-    // Use the coder CLI to run the command inside the workspace
-    // We use the full path to ensuring we hit the binary
-    const coderCli = 'coder';
+    // Use the downgraded coder CLI to avoid version mismatch errors
+    const coderCli = CODER_CLI_PATH;
 
     // Construct the SSH command
-    // -t force pseudo-terminal (good for colors), but might break some parsers. Let's try without first.
-    const fullCmd = `${coderCli} ssh ${wsName} -- ${remoteCommand}`;
+    // Only wrap in bash -c if command contains shell operators (&& or ||)
+    // Simple commands work better without the wrapper
+    let fullCmd;
+    const needsShell = remoteCommand.includes('&&') || remoteCommand.includes('||') || remoteCommand.includes(';');
+
+    fullCmd = wrapSsh(wsName, remoteCommand);
+
 
     const { stdout, stderr } = await execAsync(fullCmd, {
-      env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
+      env: {
+        ...process.env,
+        CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN,
+        CODER_URL: process.env.CODER_API_URL || 'http://drape.info'
+      },
       timeout: isBackground ? 10000 : 30000 // Short timeout for launch, longer for normal cmds
     });
 
@@ -4766,7 +4806,7 @@ app.get('/workstation/:projectId/files', async (req, res) => {
     // ===========================================
     const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
     try {
-      await coderService.ensureUser('admin@drape.dev', 'admin');
+      await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
       const { exec } = require('child_process');
       const { promisify } = require('util');
       const execAsync = promisify(exec);
@@ -4777,7 +4817,7 @@ app.get('/workstation/:projectId/files', async (req, res) => {
       const cmd = `find . -maxdepth 4 -not -path '*/.*' -not -path '*/node_modules/*' -not -type d`;
 
       console.log(`☁️  Listing files from cloud: ${wsName}`);
-      const { stdout } = await execAsync(`coder ssh ${wsName} -- ${cmd}`, {
+      const { stdout } = await execAsync(wrapSsh(wsName, cmd), {
         env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
         timeout: 10000
       });
@@ -4835,7 +4875,7 @@ app.get('/workstation/:projectId/file-content', async (req, res) => {
 
     try {
       const cmd = `base64 "${filePath}"`; // cat file | base64 (checking syntax) -> simple 'base64 file' works on linux
-      const { stdout } = await execAsync(`coder ssh ${wsName} -- ${cmd}`, {
+      const { stdout } = await execAsync(wrapSsh(wsName, cmd), {
         env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
         timeout: 5000
       });
@@ -4879,7 +4919,7 @@ app.get('/git/status/:projectId', async (req, res) => {
   const wsName = projectId.replace(/^ws-/, '').replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
 
   try {
-    await coderService.ensureUser('admin@drape.dev', 'admin');
+    await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
@@ -4902,7 +4942,7 @@ app.get('/git/status/:projectId', async (req, res) => {
         fi
     `.replace(/\n/g, ' '); // simple sanitization
 
-    const { stdout } = await execAsync(`coder ssh ${wsName} -- sh -c '${script}'`, {
+    const { stdout } = await execAsync(wrapSsh(wsName, `sh -c '${script}'`), {
       env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
       timeout: 10000
     });
@@ -4974,7 +5014,7 @@ app.post('/git/fetch/:projectId', async (req, res) => {
     const execAsync = promisify(exec);
 
     console.log(`☁️  Git Fetch in cloud: ${wsName}`);
-    await execAsync(`coder ssh ${wsName} -- git fetch --all`, {
+    await execAsync(wrapSsh(wsName, `git fetch --all`), {
       env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
       timeout: 30000
     });
@@ -4999,7 +5039,7 @@ app.post('/git/pull/:projectId', async (req, res) => {
     const execAsync = promisify(exec);
 
     console.log(`☁️  Git Pull in cloud: ${wsName}`);
-    await execAsync(`coder ssh ${wsName} -- git pull`, {
+    await execAsync(wrapSsh(wsName, `git pull`), {
       env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
       timeout: 30000
     });
@@ -5024,7 +5064,7 @@ app.post('/git/push/:projectId', async (req, res) => {
     const execAsync = promisify(exec);
 
     console.log(`☁️  Git Push in cloud: ${wsName}`);
-    await execAsync(`coder ssh ${wsName} -- git push`, {
+    await execAsync(wrapSsh(wsName, `git push`), {
       env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN },
       timeout: 30000
     });
@@ -5069,7 +5109,7 @@ app.post('/workstation/:projectId/file-content', async (req, res) => {
     // 2. Ensure directory exists first
     const dir = path.dirname(filePath);
     if (dir !== '.') {
-      await execAsync(`coder ssh ${wsName} -- mkdir -p "${dir}"`, {
+      await execAsync(wrapSsh(wsName, `mkdir -p "${dir}"`), {
         env: { ...process.env, CODER_SESSION_TOKEN: process.env.CODER_SESSION_TOKEN }
       });
     }
@@ -6063,10 +6103,50 @@ app.post('/preview/start', async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { workstationId, forceRefresh, githubToken, repositoryUrl } = req.body;
+    let { workstationId, forceRefresh, githubToken, repositoryUrl } = req.body;
+    console.log(`   📋 Request params: workstationId=${workstationId}, repositoryUrl=${repositoryUrl || 'NOT PROVIDED'}, hasGithubToken=${!!githubToken}`);
 
     if (!workstationId) {
       return res.status(400).json({ success: false, error: 'workstationId is required' });
+    }
+
+    // If repositoryUrl not provided, try to fetch from Firestore
+    if (!repositoryUrl) {
+      try {
+        // Extract project ID from workstationId (remove ws- prefix)
+        // Note: wsName is lowercase but Firebase document IDs preserve case
+        const projectIdLower = workstationId.startsWith('ws-')
+          ? workstationId.substring(3)
+          : workstationId;
+
+        console.log(`   🔍 Fetching repositoryUrl from Firestore for project: ${projectIdLower}`);
+
+        // First try direct lookup (if ID is already correct)
+        let projectDoc = await db.collection('user_projects').doc(projectIdLower).get();
+
+        // If not found, try to find by case-insensitive match
+        if (!projectDoc.exists) {
+          console.log(`   🔍 Direct lookup failed, trying case-insensitive search...`);
+          const allProjects = await db.collection('user_projects').get();
+          for (const doc of allProjects.docs) {
+            if (doc.id.toLowerCase() === projectIdLower.toLowerCase()) {
+              projectDoc = doc;
+              console.log(`   ✅ Found matching project: ${doc.id}`);
+              break;
+            }
+          }
+        }
+
+        if (projectDoc && projectDoc.exists) {
+          const projectData = projectDoc.data();
+          repositoryUrl = projectData?.repositoryUrl;
+          console.log(`   ✅ Found repositoryUrl in Firestore: ${repositoryUrl || 'none'}`);
+        } else {
+          console.log(`   ⚠️ Project not found in Firestore: ${projectIdLower}`);
+        }
+      } catch (firestoreError) {
+        console.log(`   ⚠️ Could not fetch from Firestore: ${firestoreError.message}`);
+      }
     }
 
     // ===================================
@@ -6076,11 +6156,23 @@ app.post('/preview/start', async (req, res) => {
     console.log(`\n🚀 [Vibe] Starting Cloud Workstation: ${workstationId}`);
 
     // 1. Ensure User 
-    const coderUser = await coderService.ensureUser('admin@drape.dev', 'admin');
+    const coderUser = await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
 
     // 2. Create Workspace (it handles idempotency)
-    // Name must be clean (lowercase, alphanumeric, dashes)
-    const wsName = workstationId.replace(/[^a-z0-9-]/g, '-').toLowerCase().substring(0, 32);
+    // Name must be clean: start with letter, lowercase, alphanumeric and dashes only, no consecutive dashes
+    let wsName = workstationId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')  // Replace invalid chars with dash
+      .replace(/^[^a-z]+/, '')       // Remove leading non-letters (must start with letter)
+      .replace(/-+/g, '-')           // Collapse consecutive dashes
+      .replace(/-$/, '')             // Remove trailing dash
+      .substring(0, 32);
+
+    // Ensure name is not empty and starts with a letter
+    if (!wsName || !/^[a-z]/.test(wsName)) {
+      wsName = 'ws-' + Date.now().toString(36);
+    }
+
     console.log(`   Creating Coder workspace: ${wsName}`);
 
     try {
@@ -6097,28 +6189,288 @@ app.post('/preview/start', async (req, res) => {
       // In a real Vibe implementation, we would wait for it to be ready
       // But for speed, we return the URL and let the frontend handle the "waiting" state
 
-      // Calculate dynamic URL
-      // format: https://<workspace-name>--<username>.coder.drape.dev (if wildcard DNS)
-      // MVP: We return the Coder dashboard URL deep link
-      const dashboardUrl = `${process.env.CODER_API_URL || 'http://35.193.11.163'}/@${coderUser.username}/${wsName}`;
-      const vscodeUrl = `${process.env.CODER_API_URL || 'http://35.193.11.163'}/@${coderUser.username}/${wsName}/apps/vscode`;
+      // Calculate dynamic URLs
+      const coderApiUrl = process.env.CODER_API_URL || 'http://drape.info';
+      const wildcardDomain = process.env.CODER_WILDCARD_DOMAIN || 'drape.info';
+
+      // Dashboard URL (for direct Coder access)
+      const dashboardUrl = `${coderApiUrl}/@${coderUser.username}/${wsName}`;
+
+      // VS Code Web URL via path-based routing (requires auth)
+      const vscodePathUrl = `${coderApiUrl}/@${coderUser.username}/${wsName}/apps/vscode`;
+
+      // VS Code Web URL via LOCAL PROXY (Catch-All)
+      // The backend now proxies any unknown request to Coder on the root path.
+      // This handles all redirects (/login, /static) correctly.
+      const vscodeProxyUrl = `http://${LOCAL_IP}:${PORT}/@${coderUser.username}/${wsName}/apps/vscode/?folder=/home/coder`;
+
+      // Also keep the direct subdomain URL as fallback or for info
+      const vscodeSubdomainUrl = `http://vscode--${wsName}--${coderUser.username}.${wildcardDomain}/?folder=/home/coder`;
+
+      // ===========================================
+      // AUTOMATION: Clone, Install, Start
+      // ===========================================
+      let projectInfo = { defaultPort: 3000, startCommand: 'npm run dev', installCommand: 'npm install', type: null };
+      let automationSuccess = false;
+      let isStaticSite = false;
+
+      // Helper to run commands in workspace
+      const runInWorkspace = async (cmd) => {
+        console.log(`   🔧 Running: ${cmd}`);
+        const result = await executeCommandOnWorkstation(cmd, wsName);
+        if (result.exitCode !== 0) {
+          console.log(`   ⚠️ Command failed: ${result.stderr}`);
+        }
+        return result;
+      };
+
+      try {
+        // Wait for workspace to be fully ready (startup scripts complete)
+        console.log(`   ⏳ Waiting for workspace to be ready...`);
+        let workspaceReady = false;
+        for (let i = 0; i < 30; i++) { // Reduced to 30 to avoid client timeout
+          try {
+            // Check if workspace is ready AND startup scripts are done
+            const readyCheck = await runInWorkspace('pwd && echo READY');
+            const hasReady = readyCheck.stdout && readyCheck.stdout.includes('READY');
+            const scriptsStillRunning = readyCheck.stderr && readyCheck.stderr.includes('startup scripts are still running');
+
+            if (hasReady && !scriptsStillRunning) {
+              workspaceReady = true;
+              console.log(`   ✅ Workspace ready!`);
+              break;
+            } else if (hasReady && scriptsStillRunning) {
+              console.log(`   ⏳ SSH ok but startup scripts still running...`);
+            }
+          } catch (e) {
+            const scriptsRunning = e.message?.includes('startup scripts');
+            if (scriptsRunning) {
+              console.log(`   ⏳ Startup scripts running... (${i + 1}/60)`);
+            } else {
+              console.log(`   ⚠️ Check failed: ${e.message?.substring(0, 50)}`);
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 1000)); // 1s polling
+        }
+
+        if (!workspaceReady) {
+          console.log(`   ⚠️ Workspace not ready after 60s, showing VS Code instead`);
+          throw new Error('Workspace not ready');
+        }
+
+        // 4a. Clone repo if provided and not already cloned
+        if (repositoryUrl) {
+          console.log(`   📦 Checking if repo is cloned...`);
+
+          // Check if .git directory exists (means repo was cloned)
+          const checkResult = await runInWorkspace('test -d /home/coder/project/.git && echo "CLONED" || echo "NOT_CLONED"');
+          const isCloned = checkResult.stdout && checkResult.stdout.trim() === 'CLONED';
+
+          if (!isCloned) {
+            console.log(`   📥 No .git found, cloning ${repositoryUrl}...`);
+
+            // Ensure directory exists and is empty
+            await runInWorkspace('rm -rf /home/coder/project 2>/dev/null; mkdir -p /home/coder/project');
+
+            // Clone with token if available
+            let cloneUrl = repositoryUrl;
+            if (githubToken) {
+              cloneUrl = repositoryUrl.replace('https://', `https://${githubToken}@`);
+            }
+
+            const cloneResult = await runInWorkspace(`git clone ${cloneUrl} /home/coder/project`);
+            if (cloneResult.exitCode !== 0) {
+              console.log(`   ❌ Clone failed: ${cloneResult.stderr?.substring(0, 100)}`);
+            } else {
+              console.log(`   ✅ Clone successful!`);
+            }
+          } else {
+            console.log(`   ✅ Repo already cloned (.git directory found)`);
+          }
+        }
+
+        // 4b. Detect project type
+        console.log(`   🔍 Detecting project type...`);
+
+        // Get file list first
+        const lsResult = await runInWorkspace('ls -1 /home/coder/project 2>/dev/null');
+        const files = (lsResult.stdout || '').split('\n').filter(f => f.trim()).map(f => f.trim());
+        console.log(`   📂 Found ${files.length} files: ${files.slice(0, 5).join(', ')}${files.length > 5 ? '...' : ''}`);
+
+        // Then try to get package.json
+        let packageJson = null;
+        try {
+          const pkgResult = await runInWorkspace('cat /home/coder/project/package.json 2>/dev/null');
+          const pkgContent = (pkgResult.stdout || '').trim();
+          if (pkgContent.startsWith('{')) {
+            packageJson = JSON.parse(pkgContent);
+            console.log(`   📦 Found package.json: ${packageJson.name || 'unnamed'}`);
+          }
+        } catch (e) {
+          console.log(`   ℹ️ No package.json found - static site`);
+        }
+
+        // Detect project type
+        const { detectProjectType } = require('./projectDetector');
+        let detected = detectProjectType(files, packageJson);
+
+        // Override for cloud: use python for static sites (static-server.js not available)
+        if (detected && detected.type === 'static') {
+          detected = {
+            ...detected,
+            startCommand: 'python3 -m http.server 8000 --bind 0.0.0.0',
+            defaultPort: 8000
+          };
+        }
+
+        // Fallback: if no detection but has index.html, treat as static
+        if (!detected && files.includes('index.html')) {
+          detected = {
+            type: 'static',
+            defaultPort: 8000,
+            startCommand: 'python3 -m http.server 8000 --bind 0.0.0.0',
+            installCommand: null,
+            description: 'Static HTML Site'
+          };
+        }
+
+        if (detected) {
+          projectInfo = detected;
+          console.log(`   📋 Detected: ${detected.description} (port ${detected.defaultPort})`);
+        } else {
+          // Fallback: if no package.json, assume static site
+          if (!packageJson) {
+            console.log(`   ℹ️ No package.json, treating as static site (port 8000)`);
+            projectInfo = {
+              type: 'static',
+              defaultPort: 8000,
+              startCommand: null, // Python server already running from template
+              installCommand: null,
+              description: 'Static Site (fallback)'
+            };
+          } else {
+            console.log(`   ⚠️ Could not detect project type, will show VS Code`);
+          }
+        }
+
+        // 4c. Install dependencies (skip for static sites)
+        if (projectInfo.installCommand) {
+          console.log(`   📦 Installing dependencies...`);
+          const projectDir = '/home/coder/project';
+          try {
+            await runInWorkspace(`cd ${projectDir} && ${projectInfo.installCommand}`);
+            console.log(`   ✅ Dependencies installed!`);
+          } catch (e) {
+            console.log(`   ⚠️ Install failed: ${e.message?.substring(0, 50)}`);
+          }
+        }
+
+        // 4d. Start dev server in background
+        // NOTE: Only for Node.js projects. Static sites don't work because
+        // background processes don't survive SSH session termination.
+        // Users can start static servers manually via VS Code terminal.
+        isStaticSite = projectInfo.type === 'static';
+
+        if (projectInfo.startCommand && !isStaticSite) {
+          console.log(`   🚀 Starting dev server...`);
+          const projectDir = '/home/coder/project';
+          // Run in background with nohup, bind to 0.0.0.0
+          let startCmd = projectInfo.startCommand;
+          // Ensure server binds to all interfaces (for npm/yarn projects)
+          if (!startCmd.includes('0.0.0.0') && !startCmd.includes('--host') && !startCmd.includes('--bind')) {
+            if (startCmd.includes('npm') || startCmd.includes('yarn') || startCmd.includes('vite')) {
+              startCmd += ' -- --host 0.0.0.0';
+            }
+          }
+          await runInWorkspace(`cd ${projectDir} && nohup ${startCmd} > /tmp/server.log 2>&1 &`);
+
+          // Wait a moment for server to start
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Reduced from 3s
+
+          // Check if server is responding
+          const previewPort = projectInfo.defaultPort || 3000;
+          // Format: http://{port}--{agent}--{workspace}--{user}.{wildcard_domain}
+          const agentName = 'main'; // Agent name from Terraform template
+          const projectPreviewUrl = `http://${previewPort}--${agentName}--${wsName}--${coderUser.username}.${wildcardDomain}`;
+
+          console.log(`   🔍 Checking if server is ready at port ${previewPort}...`);
+          let serverReady = false;
+          // Only check 3 times max (3 seconds) - don't block forever
+          for (let i = 0; i < 3; i++) {
+            try {
+              const checkResult = await runInWorkspace(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${previewPort} || echo "000"`);
+              const statusCode = checkResult.stdout.trim();
+              if (statusCode.startsWith('2') || statusCode.startsWith('3')) {
+                serverReady = true;
+                console.log(`   ✅ Server is ready!`);
+                break;
+              }
+            } catch (e) { }
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          // Mark success even if server not ready yet - it may start later
+          automationSuccess = true;
+          console.log(`   📋 Server check done (ready: ${serverReady}), continuing...`);
+        }
+
+      } catch (autoError) {
+        console.error('   ⚠️ Automation error:', autoError.message);
+        // Continue anyway, user can use VS Code
+      }
+
+      // For project preview - use PATH-based URLs instead of subdomains 
+      // This is more reliable (avoids -1003 errors on mobile)
+      const previewPort = projectInfo.defaultPort || 3000;
+      const apiBase = process.env.CODER_API_URL || `http://${LOCAL_IP}:${PORT}`;
+
+      let projectPreviewUrl;
+      if (isStaticSite) {
+        // Static sites use the 'preview' app path
+        projectPreviewUrl = `${apiBase}/@${coderUser.username}/${wsName}/apps/preview/`;
+      } else if (previewPort === 3000) {
+        // Node projects use the 'dev' app path
+        projectPreviewUrl = `${apiBase}/@${coderUser.username}/${wsName}/apps/dev/`;
+      } else {
+        // Fallback to subdomain for port-based access (requires wildcard DNS)
+        const agentName = 'main';
+        projectPreviewUrl = `http://${previewPort}--${agentName}--${wsName}--${coderUser.username}.${wildcardDomain}`;
+      }
+
 
       return res.json({
         success: true,
-        previewUrl: vscodeUrl, // Direct link to VS Code Web
-        port: 80,
-        serverReady: true,
-        projectType: 'Cloud Container',
+        // With new template, Python server is always running for static sites
+        // So we can show the preview URL directly
+        previewUrl: `http://${LOCAL_IP}:${PORT}/@${coderUser.username}/${wsName}/apps/${isStaticSite ? 'preview' : 'dev'}/`,
+        proxiedPreviewUrl: `http://${LOCAL_IP}:${PORT}/@${coderUser.username}/${wsName}/apps/${isStaticSite ? 'preview' : 'dev'}/`,
+        proxiedVscodeUrl: `http://${LOCAL_IP}:${PORT}/@${coderUser.username}/${wsName}/apps/vscode/?folder=/home/coder`,
+        vscodeUrl: vscodeSubdomainUrl,
+        vscodeProxyUrl: vscodeProxyUrl,
+        projectPreviewUrl: projectPreviewUrl,
+        dashboardUrl: dashboardUrl,
+        port: previewPort,
+        // Static sites are always ready (Python server runs from template startup)
+        serverReady: isStaticSite ? true : automationSuccess,
+        projectType: projectInfo.description || 'Cloud Container',
+        isStaticSite: isStaticSite,
+        workspaceId: workspace.id,
+        workspaceName: wsName,
         commands: {
-          install: 'Done by Coder',
-          start: 'Done by Coder'
+          install: projectInfo.installCommand || null,
+          start: projectInfo.startCommand || 'python3 -m http.server 8000'
         },
         timing: {
           totalMs: Date.now() - startTime,
-          cached: true
+          cached: false
         },
         isCloudWorkstation: true,
-        dashboardUrl: dashboardUrl
+        automationRan: automationSuccess,
+        message: isStaticSite
+          ? 'Static site cloned! Open VS Code and run: python3 -m http.server 8000'
+          : automationSuccess
+            ? 'Dev server started automatically!'
+            : 'VS Code Web is ready. Clone completed, start dev server manually.'
       });
 
     } catch (coderError) {
@@ -6293,20 +6645,28 @@ app.post('/preview/inspect', async (req, res) => {
     workstationId,
     element,
     message,
-    conversationHistory = [],
-    selectedModel = 'gemini-2-flash'
+    history = [],
+    selectedModel = 'gemini-2.5-flash'
   } = req.body;
-
-  console.log('\n🔍 ═══════════════════════════════════════════════════');
-  console.log('🔍 PREVIEW INSPECT - Element Analysis Request');
-  console.log('🔍 ═══════════════════════════════════════════════════');
-  console.log(`📦 Workstation: ${workstationId}`);
-  console.log(`🏷️ Element: ${element ? `<${element.tag}> ${element.id ? '#' + element.id : ''} ${element.className || ''}` : '(none - general request)'}`);
-  console.log(`💬 User message: ${message || '(none)'}`);
 
   if (!workstationId) {
     return res.status(400).json({ error: 'workstationId is required' });
   }
+
+  // Clean workstation name (consistent with /preview/start)
+  const cleanWsName = workstationId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/^[^a-z]+/, '')
+    .replace(/-+/g, '-')
+    .replace(/-$/, '')
+    .substring(0, 32);
+
+  const effectiveWsName = cleanWsName || workstationId.toLowerCase();
+
+  console.log(`📦 Workstation (clean): ${effectiveWsName}`);
+  console.log(`🏷️ Element: ${element ? `<${element.tag}> ${element.id ? '#' + element.id : ''} ${element.className || ''}` : '(none - general request)'}`);
+  console.log(`💬 User message: ${message || '(none)'}`);
 
   if (!element && !message) {
     return res.status(400).json({ error: 'Either element or message is required' });
@@ -6316,34 +6676,35 @@ app.post('/preview/inspect', async (req, res) => {
   let effectiveModel = selectedModel;
   if (selectedModel.includes('claude')) {
     console.log('⚠️ Claude model requested but credit balance is low. Auto-switching to Gemini.');
-    effectiveModel = 'gemini-2-flash';
+    effectiveModel = 'gemini-2.5-flash';
   }
 
   // Get model configuration
-  const modelConfig = AI_MODELS[effectiveModel] || AI_MODELS['gemini-2-flash'];
+  const modelConfig = AI_MODELS[effectiveModel] || AI_MODELS['gemini-2.5-flash'];
   const model = modelConfig.modelId;
   const provider = modelConfig.provider;
 
+  // Cloud workspaces detection:
+  // All Coder workspaces start with ws- now, so we need a better check
+  // Check if the project exists locally in cloned_repos, otherwise assume cloud
   try {
-    // Resolve repo path
-    let repoPath = path.join(__dirname, 'cloned_repos', workstationId);
+    let isCloudWorkspace = true; // Default to cloud
+    let repoPath = '/home/coder/project';
 
-    if (workstationId.startsWith('ws-')) {
-      const projectIdLower = workstationId.substring(3);
-      const clonedReposDir = path.join(__dirname, 'cloned_repos');
-
-      try {
-        const folders = await fs.readdir(clonedReposDir);
-        const matchingFolder = folders.find(f => f.toLowerCase() === projectIdLower);
-        if (matchingFolder) {
-          repoPath = path.join(clonedReposDir, matchingFolder);
-        }
-      } catch (err) {
-        console.error('Error reading cloned_repos:', err);
-      }
+    // Check if it exists locally first
+    const localRepoPath = path.join(__dirname, 'cloned_repos', effectiveWsName);
+    try {
+      await fs.access(localRepoPath);
+      // Local path exists, use it
+      isCloudWorkspace = false;
+      repoPath = localRepoPath;
+      console.log(`   📂 Local repo found: ${repoPath}`);
+    } catch (err) {
+      // Local path doesn't exist, assume cloud workspace
+      console.log(`   ☁️  Cloud workspace detected (no local repo at ${localRepoPath})`);
     }
 
-    console.log(`📂 Repo path: ${repoPath}`);
+    console.log(`📂 Repo path: ${repoPath} (Cloud: ${isCloudWorkspace})`);
 
     // Build search terms from element (if provided)
     const searchTerms = [];
@@ -6362,43 +6723,32 @@ app.post('/preview/inspect', async (req, res) => {
 
     console.log(`🔎 Search terms: ${searchTerms.length > 0 ? searchTerms.join(', ') : '(none - general request)'}`);
 
-    // Search for files that might contain this element
+    // For cloud workspaces, SKIP pre-search - let AI use its tools (faster!)
+    // For local workspaces, we can still do quick search
     let relevantFiles = [];
-
-    // Use grep to find files containing these terms (search ALL file types)
-    for (const term of searchTerms.slice(0, 5)) {
-      try {
-        // Search in all files, excluding common binary/generated directories and files
-        const { stdout } = await execPromise(
-          `grep -rl "${term}" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=.next --exclude-dir=.nuxt --exclude-dir=coverage --exclude-dir=__pycache__ --exclude="*.min.js" --exclude="*.min.css" --exclude="*.map" --exclude="*.lock" --exclude="package-lock.json" . 2>/dev/null | head -15`,
-          { cwd: repoPath, timeout: 5000 }
-        );
-        const files = stdout.trim().split('\n').filter(f => f);
-        relevantFiles.push(...files);
-      } catch (err) {
-        // grep returns error if no matches, that's ok
-      }
-    }
-
-    // Deduplicate and limit
-    relevantFiles = [...new Set(relevantFiles)].slice(0, 10);
-    console.log(`📄 Relevant files found: ${relevantFiles.length}`);
-
-    // Read content of most relevant files
     const fileContents = [];
-    for (const file of relevantFiles.slice(0, 5)) {
-      try {
-        const filePath = path.join(repoPath, file.replace(/^\.\//, ''));
-        const content = await fs.readFile(filePath, 'utf8');
-        // Truncate large files
-        const truncatedContent = content.length > 3000
-          ? content.substring(0, 3000) + '\n... (truncated)'
-          : content;
-        fileContents.push({ path: file, content: truncatedContent });
-      } catch (err) {
-        console.log(`⚠️ Could not read ${file}: ${err.message}`);
+
+    if (!isCloudWorkspace) {
+      // Local workspace - quick search is fine
+      const termsToSearch = searchTerms.slice(0, 3);
+      for (const term of termsToSearch) {
+        try {
+          const grepCmd = `grep -rl "${term}" --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null | head -5`;
+          const result = await execPromise(grepCmd, { cwd: repoPath, timeout: 3000 });
+          relevantFiles.push(...result.stdout.trim().split('\n').filter(f => f));
+        } catch (err) { /* no matches */ }
+      }
+      relevantFiles = [...new Set(relevantFiles)].slice(0, 5);
+
+      for (const file of relevantFiles) {
+        try {
+          const filePath = path.join(repoPath, file.replace(/^\.\//, ''));
+          let content = await fs.readFile(filePath, 'utf8');
+          fileContents.push({ path: file, content: content.length > 2000 ? content.substring(0, 2000) + '\n...' : content });
+        } catch (err) { /* skip */ }
       }
     }
+    // Cloud workspaces: AI will use search_in_files and read_file tools itself
 
     // Build AI prompt
     const elementDescription = element ? `
@@ -6499,94 +6849,233 @@ ESEGUI la modifica richiesta usando i tool!`;
     ];
 
     // Helper function to execute tool calls for inspect
-    async function executeInspectTool(name, args, projectPath) {
+    async function executeInspectTool(name, args, projectPath, wsId) {
       const { promisify } = require('util');
-      const { exec } = require('child_process');
+      const { exec, spawn } = require('child_process');
       const execPromise = promisify(exec);
+      // glob logic needs adjustment for cloud
       const glob = require('glob');
+
+      // Helper to call Drape Agent if available
+      const callAgent = async (wsId, method, endpoint, data = {}) => {
+        try {
+          // Construct agent URL based on workspace ID
+          // Format: http://agent--{workspace-name}--{username}.{coder-ip}.nip.io
+          const coderApiUrl = process.env.CODER_API_URL || 'http://drape.info';
+          const coderIp = coderApiUrl.replace(/^https?:\/\//, '');
+          // Ensure workspace name has ws- prefix (Coder workspaces use this naming)
+          const wsName = wsId.toLowerCase().startsWith('ws-') ? wsId.toLowerCase() : `ws-${wsId.toLowerCase()}`;
+
+          const agentUrl = `http://agent--${wsName}--admin.${coderIp}.nip.io${endpoint}`;
+          console.log(`   📡 Calling Agent: ${method} ${agentUrl}`);
+
+          const response = await fetch(agentUrl, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: method === 'POST' ? JSON.stringify(data) : undefined,
+            signal: AbortSignal.timeout(10000) // Increase timeout to 10s
+          });
+
+          if (response.ok) {
+            return await response.json();
+          }
+          console.log(`   ⚠️ Agent responded with status ${response.status}`);
+          return null;
+        } catch (e) {
+          console.log(`   ⚠️ Agent communication failed: ${e.message}`);
+          return null;
+        }
+      };
+
+      // Helper for remote file writing
+      const writeRemoteFile = async (wsId, filePath, content) => {
+        console.log(`🚀 writeRemoteFile: Writing ${content.length} bytes to ${filePath}`);
+
+        // Try Drape Agent first (Faster & Safer)
+        const agentResponse = await callAgent(wsId, 'POST', '/write', { filePath, content });
+        if (agentResponse && agentResponse.success) {
+          console.log(`✅ writeRemoteFile: Success (via Agent)`);
+          return;
+        }
+
+        // Fallback to SSH approach
+        console.log(`   🔄 Agent unavailable, falling back to SSH chunked approach...`);
+        const b64 = Buffer.from(content).toString('base64');
+        const chunkSize = 30000;
+        const tempFile = `${filePath}.b64`;
+
+        await executeCommandOnWorkstation(`rm -f "${tempFile}"`, wsId);
+
+        for (let i = 0; i < b64.length; i += chunkSize) {
+          const chunk = b64.substring(i, i + chunkSize);
+          const operator = i === 0 ? '>' : '>>';
+          const chunkCmd = `printf '%s' '${chunk}' ${operator} "${tempFile}"`;
+          await executeCommandOnWorkstation(chunkCmd, wsId);
+        }
+
+        const decodeCmd = `cat "${tempFile}" | base64 -d > "${filePath}" && rm -f "${tempFile}"`;
+        const result = await executeCommandOnWorkstation(decodeCmd, wsId);
+        if (result.exitCode !== 0) {
+          throw new Error(`Fallback write failed: ${result.stderr}`);
+        }
+        console.log(`✅ writeRemoteFile: Success (via SSH Fallback)`);
+      };
+
+      console.log(`🔧 Executing tool: ${name} (Cloud: ${isCloudWorkspace})`);
 
       try {
         switch (name) {
-          case 'read_file':
-            const filePath = path.join(projectPath, args.filePath.replace(/^\.\//, ''));
-            const content = await fs.readFile(filePath, 'utf8');
-            return content.length > 5000 ? content.substring(0, 5000) + '\n... (truncated)' : content;
+          case 'read_file': {
+            // Sanitize path: remove leading ./, project/ prefix, and any \r characters
+            let relativePath = args.filePath.replace(/^\.\//, '').replace(/\r/g, '').trim();
+            if (relativePath.startsWith('project/')) {
+              relativePath = relativePath.replace(/^project\//, '');
+            }
+            const filePath = path.posix.join(projectPath, relativePath);
 
-          case 'edit_file':
-            const editPath = path.join(projectPath, args.filePath.replace(/^\.\//, ''));
-            let fileContent = await fs.readFile(editPath, 'utf8');
+            if (isCloudWorkspace) {
+              const cmd = `cat "${filePath}"`;
+              // FIX: command first, then wsId
+              const result = await executeCommandOnWorkstation(cmd, wsId);
+              // FIX: use result.stdout (if available) or result.output (backward compat)
+              const output = result.stdout !== undefined ? result.stdout : result.output;
 
-            // Normalize line endings for both file content and search strings
+              if (output.includes('No such file') || output.includes('Encountered an error')) {
+                throw new Error(`Remote read failed: ${output}`);
+              }
+              const content = output;
+              return content.length > 5000 ? content.substring(0, 5000) + '\n... (truncated)' : content;
+            } else {
+              const content = await fs.readFile(filePath, 'utf8');
+              return content.length > 5000 ? content.substring(0, 5000) + '\n... (truncated)' : content;
+            }
+          }
+
+          case 'edit_file': {
+            // Sanitize path: remove leading ./, project/ prefix, and any \r characters
+            let relativePath = args.filePath.replace(/^\.\//, '').replace(/\r/g, '').trim();
+            if (relativePath.startsWith('project/')) {
+              relativePath = relativePath.replace(/^project\//, '');
+            }
+            const editPath = path.posix.join(projectPath, relativePath);
+
+            // 1. Read file
+            let fileContent = '';
+            if (isCloudWorkspace) {
+              const cmd = `cat "${editPath}"`;
+              // FIX: command first, then workstationId
+              const result = await executeCommandOnWorkstation(cmd, wsId);
+              const output = result.stdout !== undefined ? result.stdout : result.output;
+
+              if (output.includes('No such file')) throw new Error('File not found');
+              fileContent = output;
+            } else {
+              fileContent = await fs.readFile(editPath, 'utf8');
+            }
+
+            // Normalization logic
             const normalizeLineEndings = (str) => str.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
             const normalizedFileContent = normalizeLineEndings(fileContent);
             const normalizedOldString = normalizeLineEndings(args.oldString);
             const normalizedNewString = normalizeLineEndings(args.newString);
 
-            // Try exact match first
+            // Apply replacement
+            let newContent = null;
+            console.log(`   🔄 edit_file: oldString (${args.oldString?.length || 0} chars): "${args.oldString?.substring(0, 80)}..."`);
+            console.log(`   🔄 edit_file: newString (${args.newString?.length || 0} chars): "${args.newString?.substring(0, 80)}..."`);
+
             if (normalizedFileContent.includes(normalizedOldString)) {
-              const newContent = normalizedFileContent.replace(normalizedOldString, normalizedNewString);
-              await fs.writeFile(editPath, newContent, 'utf8');
-              console.log(`✅ edit_file success: ${args.filePath}`);
-              return `✅ File ${args.filePath} modificato con successo!`;
-            }
+              console.log(`   ✅ Exact match found!`);
+              newContent = normalizedFileContent.replace(normalizedOldString, normalizedNewString);
+            } else {
+              const trimmedOldString = normalizedOldString.trim();
+              if (trimmedOldString.length > 10 && normalizedFileContent.includes(trimmedOldString)) {
+                newContent = normalizedFileContent.replace(trimmedOldString, normalizedNewString.trim());
+              } else {
+                // Fallback: try collapsed whitespace match
+                const collapseWhitespace = (str) => str.replace(/\s+/g, ' ');
+                const collapsedFile = collapseWhitespace(normalizedFileContent);
+                const collapsedOld = collapseWhitespace(normalizedOldString);
 
-            // Try trimmed match (in case of leading/trailing whitespace differences)
-            const trimmedOldString = normalizedOldString.trim();
-            if (trimmedOldString.length > 10 && normalizedFileContent.includes(trimmedOldString)) {
-              const newContent = normalizedFileContent.replace(trimmedOldString, normalizedNewString.trim());
-              await fs.writeFile(editPath, newContent, 'utf8');
-              console.log(`✅ edit_file success (trimmed): ${args.filePath}`);
-              return `✅ File ${args.filePath} modificato con successo!`;
-            }
-
-            // Try matching with collapsed whitespace
-            const collapseWhitespace = (str) => str.replace(/\s+/g, ' ');
-            const collapsedFile = collapseWhitespace(normalizedFileContent);
-            const collapsedOld = collapseWhitespace(normalizedOldString);
-
-            if (collapsedOld.length > 20 && collapsedFile.includes(collapsedOld)) {
-              // Find the actual position in the original file
-              // This is a simplified approach - replace the first occurrence that matches when whitespace is collapsed
-              const lines = normalizedFileContent.split('\n');
-              let found = false;
-              let newLines = [];
-
-              for (let i = 0; i < lines.length && !found; i++) {
-                const lineCollapsed = collapseWhitespace(lines[i]);
-                const oldFirstLine = collapsedOld.split(' ')[0];
-                if (lineCollapsed.includes(oldFirstLine)) {
-                  // Found a potential match, try to replace from here
-                  const remainingContent = lines.slice(i).join('\n');
-                  if (collapseWhitespace(remainingContent).startsWith(collapsedOld.substring(0, 100))) {
-                    // Good enough match, do the replacement
-                    const newContent = normalizedFileContent.replace(
-                      new RegExp(normalizedOldString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 's'),
-                      normalizedNewString
-                    );
-                    if (newContent !== normalizedFileContent) {
-                      await fs.writeFile(editPath, newContent, 'utf8');
-                      console.log(`✅ edit_file success (whitespace-tolerant): ${args.filePath}`);
-                      return `✅ File ${args.filePath} modificato con successo!`;
-                    }
-                  }
-                }
+                // This is risky without proper replacement logic, so we fail for now if exact/trimmed match fails
+                // A better implementation would find the index in original string
               }
             }
 
-            console.log(`❌ edit_file failed: string not found in ${args.filePath}`);
-            console.log(`   Looking for (first 100 chars): ${normalizedOldString.substring(0, 100)}`);
-            return `❌ Errore: Il testo non è stato trovato nel file. Il file potrebbe essere stato modificato.`;
+            if (newContent !== null) {
+              if (isCloudWorkspace) {
+                await writeRemoteFile(wsId, editPath, newContent);
+              } else {
+                await fs.writeFile(editPath, newContent, 'utf8');
+              }
+              console.log(`✅ edit_file success: ${args.filePath}`);
+              return `✅ File ${args.filePath} modificato con successo!`;
+            } else {
+              return `❌ Errore: Testo originale non trovato nel file ${args.filePath}. Assicurati di copiare ESATTAMENTE il testo da sostituire.`;
+            }
+          }
 
-          case 'glob_files':
-            const files = await glob(args.pattern, { cwd: projectPath, nodir: true, ignore: ['node_modules/**', '.git/**'] });
-            return `Trovati ${files.length} file:\n${files.slice(0, 20).join('\n')}${files.length > 20 ? '\n...(altri)' : ''}`;
+          case 'glob_files': {
+            if (isCloudWorkspace) {
+              // Use find commands to simulate glob
+              // args.pattern can be complex, but let's assume simple patterns
+              // For now, list recursive
+              const cmd = `find . -maxdepth 3 -not -path '*/.*' -not -path '*/node_modules/*'`;
+              try {
+                // FIX: command first, then wsId
+                const result = await executeCommandOnWorkstation(`cd ${projectPath} && ${cmd}`, wsId);
+                const output = result.stdout !== undefined ? result.stdout : result.output;
 
-          case 'search_in_files':
-            const { stdout } = await execPromise(
-              `grep -rn "${args.pattern.replace(/"/g, '\\"')}" --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null | head -20`,
-              { cwd: projectPath, timeout: 5000 }
-            );
-            return stdout || 'Nessun risultato trovato';
+                const files = (output || '').split('\n').filter(f => f && f !== '.');
+                return `Trovati ${files.length} file (Cloud scan limited):\n${files.slice(0, 20).join('\n')}`;
+              } catch (err) {
+                console.log('Glob/Find failed remotely:', err.message);
+                return 'Errore nella scansione file remota';
+              }
+            } else {
+              const files = await glob(args.pattern, { cwd: projectPath, nodir: true, ignore: ['node_modules/**', '.git/**'] });
+              return `Trovati ${files.length} file:\n${files.slice(0, 20).join('\n')}${files.length > 20 ? '\n...(altri)' : ''}`;
+            }
+          }
+
+          case 'search_in_files': {
+            const grepCmd = `grep -rn "${args.pattern.replace(/"/g, '\\"')}" --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null | head -20`;
+            if (isCloudWorkspace) {
+              try {
+                // FIX: command first, then wsId
+                const result = await executeCommandOnWorkstation(`cd ${projectPath} && ${grepCmd}`, wsId);
+                const output = result.stdout !== undefined ? result.stdout : result.output;
+                return output || 'Nessun risultato trovato';
+              } catch (err) {
+                // Check if it's just exit code 1 (grep found nothing)
+                // exec error message usually includes exit code
+                if (err.message && (err.message.includes('exit code 1') || err.message.includes('Command failed'))) {
+                  return 'Nessun risultato trovato';
+                }
+                throw err; // Re-throw other errors
+              }
+            } else {
+              try {
+                const { stdout } = await execPromise(grepCmd, { cwd: projectPath, timeout: 5000 });
+                return stdout || 'Nessun risultato trovato';
+              } catch (err) {
+                // Grep returns 1 if no matches
+                return 'Nessun risultato trovato';
+              }
+            }
+          }
+
+          case 'write_to_file': {
+            // Useful for creating new files
+            const writePath = path.posix.join(projectPath, args.filePath.replace(/^\.\//, ''));
+            const content = args.content;
+            if (isCloudWorkspace) {
+              await writeRemoteFile(wsId, writePath, content);
+            } else {
+              await fs.writeFile(writePath, content, 'utf8');
+            }
+            return `✅ File ${args.filePath} creato/sovrascritto con successo!`;
+          }
 
           default:
             return `Tool sconosciuto: ${name}`;
@@ -6604,7 +7093,24 @@ ESEGUI la modifica richiesta usando i tool!`;
     res.setHeader('X-Accel-Buffering', 'no');
 
     // Main loop with tool support (like /ai/chat)
-    let currentMessages = [{ role: 'user', content: systemPrompt }];
+    let currentMessages = [];
+
+    // Inject history if available
+    if (history && Array.isArray(history) && history.length > 0) {
+      // Filter out the last message which is the current one (duplicates systemPrompt)
+      const contextMsgs = history.slice(0, -1);
+
+      contextMsgs.forEach(msg => {
+        if (msg.type === 'user') {
+          currentMessages.push({ role: 'user', content: msg.content });
+        } else if (msg.type === 'text') { // Only sync text responses for now
+          currentMessages.push({ role: 'assistant', content: msg.content });
+        }
+      });
+    }
+
+    // Add current system prompt as the latest user message
+    currentMessages.push({ role: 'user', content: systemPrompt });
     let continueLoop = true;
     let loopCount = 0;
     const MAX_LOOPS = 10;
@@ -6687,7 +7193,7 @@ ESEGUI la modifica richiesta usando i tool!`;
           const toolResults = [];
           for (const tu of toolUseBlocks) {
             console.log(`🔧 Executing tool: ${tu.name}`, JSON.stringify(tu.input).substring(0, 200));
-            const result = await executeInspectTool(tu.name, tu.input, repoPath);
+            const result = await executeInspectTool(tu.name, tu.input, repoPath, effectiveWsName);
 
             // Determine success based on result content
             const isSuccess = result.startsWith('✅') ||
@@ -6721,10 +7227,10 @@ ESEGUI la modifica richiesta usando i tool!`;
           break;
         }
 
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        var genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
         // Map tools to Gemini format
-        const geminiTools = {
+        var geminiTools = {
           functionDeclarations: inspectTools.map(t => ({
             name: t.name,
             description: t.description,
@@ -6732,15 +7238,16 @@ ESEGUI la modifica richiesta usando i tool!`;
           }))
         };
 
-        const geminiModel = genAI.getGenerativeModel({
+        var geminiModel = genAI.getGenerativeModel({
           model: model,
           systemInstruction: systemPrompt,
           tools: [geminiTools]
         });
 
         // Build history from currentMessages
-        let chatHistory = [];
-        let lastUserMessage = "";
+        // Build history from currentMessages
+        var chatHistory = [];
+        var lastUserMessage = "";
 
         // Skip index 0 (system prompt)
         for (let i = 1; i < currentMessages.length; i++) {
@@ -6895,7 +7402,9 @@ ESEGUI la modifica richiesta usando i tool!`;
               input: tc.input // Gemini provides parsed args
             });
 
-            // Notify frontend
+            // Notify frontend - MUST emit tool_start first for UI to render
+            res.write(`data: ${JSON.stringify({ type: 'tool_start', tool: tc.name })}\n\n`);
+
             res.write(`data: ${JSON.stringify({
               type: 'tool_input',
               tool: tc.name,
@@ -6909,7 +7418,7 @@ ESEGUI la modifica richiesta usando i tool!`;
           const toolResults = [];
           for (const tc of toolCalls) {
             console.log(`🔧 Gemini Executing: ${tc.name}`);
-            const result = await executeInspectTool(tc.name, tc.input, repoPath);
+            const result = await executeInspectTool(tc.name, tc.input, repoPath, effectiveWsName);
 
             const isSuccess = !result.startsWith('❌') && !result.startsWith('Errore');
             res.write(`data: ${JSON.stringify({ type: 'tool_result', tool: tc.name, success: isSuccess })}\n\n`);
@@ -7197,7 +7706,7 @@ app.post('/api/workstations/create', async (req, res) => {
   try {
     const { userId, name, repoUrl } = req.body;
     // Ensure user exists in Coder
-    const coderUser = await coderService.ensureUser(`${userId}@drape.dev`, userId);
+    const coderUser = await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
 
     // Create workspace
     const workspace = await coderService.createWorkspace(coderUser.id, name, repoUrl);
@@ -7219,8 +7728,143 @@ app.post('/api/workstations/start', async (req, res) => {
   }
 });
 
+
+// Initialize MANUAL Proxy for Coder (Catch-All Fallback)
+// IMPORTANT: This replaces http-proxy-middleware to solve WebView 404 issues
+// We manually fetch the content from Coder and pipe it back to the client.
+app.all('*', async (req, res) => {
+  // Try to parse Coder App Path structure: /@user/workspace/apps/appname/...
+  const appMatch = req.url.match(/^\/@([^/]+)\/([^/]+)\/apps\/([^/]+)(.*)/);
+
+  let targetUrl;
+  let hostHeader;
+
+  if (appMatch) {
+    // MODE: Keep as current path or use subdomain?
+    // If the template has subdomain=false, Coder expects the path.
+    // We'll proxy directly to the path on the main Coder domain.
+    const coderBase = process.env.CODER_API_URL || 'http://drape.info';
+    targetUrl = `${coderBase}${req.url}`;
+
+    // We still set the Host header to the main domain to be safe
+    const wildcardDomain = process.env.CODER_WILDCARD_DOMAIN || '35.193.11.163.nip.io';
+    hostHeader = wildcardDomain;
+
+    console.log(`🔀 PROXY-PATH: ${req.url} -> ${targetUrl}`);
+  } else {
+    // STANDARD MODE: Proxy as-is (Dashboard, Assets, etc.)
+    const targetBase = process.env.CODER_API_URL || 'http://drape.info';
+    targetUrl = targetBase + req.url;
+    hostHeader = undefined;
+  }
+
+  try {
+    const headers = {
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+
+    // ALWAYS attach session token when proxying to Coder to ensure access
+    if (process.env.CODER_SESSION_TOKEN) {
+      headers['Coder-Session-Token'] = process.env.CODER_SESSION_TOKEN;
+    }
+
+    if (hostHeader) {
+      headers['Host'] = hostHeader;
+    }
+
+    console.log('🔍 AXIOS REQUEST:', { url: targetUrl, headers: headers });
+
+    const response = await axios({
+      method: req.method,
+      url: targetUrl,
+      headers: headers,
+      data: (req.method === 'POST' || req.method === 'PUT') ? req.body : undefined,
+      responseType: 'stream',
+      validateStatus: () => true, // Don't throw on 404/500
+      maxRedirects: 0
+    });
+
+    console.log(`✅ TARGET RESPONDED: ${response.status}`);
+
+    // Forward headers from Coder to Client
+    Object.keys(response.headers).forEach(key => {
+      if (key === 'content-encoding' || key === 'content-length' || key === 'transfer-encoding') return;
+      res.setHeader(key, response.headers[key]);
+    });
+
+    const setCookie = response.headers['set-cookie'];
+    if (setCookie) {
+      const newCookies = setCookie.map(c => c.replace(/Path=\/[^;]*/i, 'Path=/'));
+      res.setHeader('set-cookie', newCookies);
+    }
+
+    res.status(response.status);
+    response.data.pipe(res);
+
+  } catch (error) {
+    console.error('❌ MANUAL PROXY ERROR:', error.message);
+    if (!res.headersSent) {
+      res.status(502).send('Proxy Error: ' + error.message);
+    }
+  }
+});
+
 // Create HTTP server
 const server = http.createServer(app);
+
+// Initialize WebSocket Proxy for Coder (Manual Upgrade Handler)
+// This is required because we replaced http-proxy-middleware with Axios for HTTP
+const httpProxy = require('http-proxy');
+const wsProxy = httpProxy.createProxyServer({
+  ignorePath: false, // Let proxy handle path appending (we rewrite req.url)
+  changeOrigin: true
+});
+
+wsProxy.on('error', (err, req, socket) => {
+  console.error('❌ WS Proxy Error:', err.message);
+  try { socket.end(); } catch (e) { }
+});
+
+server.on('upgrade', (req, socket, head) => {
+  console.log(`🔌 WS UPGRADE REQUEST: ${req.url}`);
+
+  // Parsing logic mirrors HTTP proxy
+  const appMatch = req.url.match(/^\/@([^/]+)\/([^/]+)\/apps\/([^/]+)(.*)/);
+
+  if (appMatch) {
+    const [_, user, workspace, app, rest] = appMatch;
+    const wildcardDomain = process.env.CODER_WILDCARD_DOMAIN || '35.193.11.163.nip.io';
+    const subdomain = `${app}--${workspace}--${user}.${wildcardDomain}`;
+
+    // Target WS URL (Coder handles path relative to subdomain root)
+    const target = `http://${subdomain}`;
+
+    // IMPORTANT: Rewrite req.url to remove the /@admin/... prefix
+    // Coder expects path relative to subdomain root (e.g. /?folder=...)
+    const newUrl = rest || '/';
+    console.log(`🔌 WS REWRITE: ${req.url} -> ${target}${newUrl}`);
+    req.url = newUrl;
+
+    // Headers
+    // req.headers['Coder-Session-Token'] = process.env.CODER_SESSION_TOKEN; // Removed, hinders public access
+    req.headers['Host'] = subdomain;
+    req.headers['Origin'] = `http://${subdomain}`; // Prevent Origin check failure
+
+    wsProxy.ws(req, socket, head, {
+      target: target,
+      headers: req.headers
+    });
+  } else {
+    // Default fallback (e.g. Dashboard HMR or Terminal)
+    wsProxy.ws(req, socket, head, {
+      target: process.env.CODER_API_URL || 'http://drape.info',
+      headers: {
+        'Coder-Session-Token': process.env.CODER_SESSION_TOKEN
+      }
+    });
+  }
+});
 
 // Create WebSocket server
 const wss = new WebSocket.Server({ server, path: '/ws' });

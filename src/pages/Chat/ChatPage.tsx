@@ -39,7 +39,7 @@ const colors = AppColors.dark;
 // Available AI models with custom icon components
 const AI_MODELS = [
   { id: 'claude-sonnet-4', name: 'Claude 4', IconComponent: AnthropicIcon },
-  { id: 'gemini-2-flash', name: 'Gemini 2', IconComponent: GoogleIcon },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5', IconComponent: GoogleIcon },
 ];
 
 interface ChatPageProps {
@@ -500,15 +500,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       if (code && state) {
         const success = await githubService.handleOAuthCallback(code, state);
-        
+
         if (success) {
           const user = await githubService.getStoredUser();
           const repos = await githubService.fetchRepositories();
-          
+
           setGitHubUser(user);
           setGitHubRepositories(repos);
-          
-          
+
+
           // Clean URL
           window.history.replaceState({}, document.title, window.location.pathname);
         }
@@ -520,7 +520,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           const repos = await githubService.fetchRepositories();
           setGitHubUser(user);
           setGitHubRepositories(repos);
-          
+
         }
       }
     };
@@ -625,7 +625,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (!forcedMode) {
       setIsTerminalMode(shouldExecuteCommand);
     }
-    
+
     setInput('');
 
     const messageType = shouldExecuteCommand ? TerminalItemType.COMMAND : TerminalItemType.USER_MESSAGE;
@@ -749,17 +749,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       tabs: state.tabs.map(t =>
                         t.id === tab.id
                           ? {
-                              ...t,
-                              terminalItems: [
-                                ...(t.terminalItems || []),
-                                {
-                                  id: toolResultId,
-                                  type: TerminalItemType.OUTPUT,
-                                  content: formattedOutput,
-                                  timestamp: new Date()
-                                }
-                              ]
-                            }
+                            ...t,
+                            terminalItems: [
+                              ...(t.terminalItems || []),
+                              {
+                                id: toolResultId,
+                                type: TerminalItemType.OUTPUT,
+                                content: formattedOutput,
+                                timestamp: new Date()
+                              }
+                            ]
+                          }
                           : t
                       )
                     }));
@@ -825,12 +825,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       tabs: state.tabs.map(t =>
                         t.id === tab.id
                           ? {
-                              ...t,
-                              terminalItems: [
-                                ...(t.terminalItems || []),
-                                ...formattedToolItems // Spread all items at once
-                              ]
-                            }
+                            ...t,
+                            terminalItems: [
+                              ...(t.terminalItems || []),
+                              ...formattedToolItems // Spread all items at once
+                            ]
+                          }
                           : t
                       )
                     }));
@@ -883,13 +883,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         tabs: state.tabs.map(t =>
                           t.id === tab.id
                             ? {
-                                ...t,
-                                terminalItems: t.terminalItems?.map(item =>
-                                  item.id === streamingMessageId
-                                    ? { ...item, content: streamedContent, isThinking: false }
-                                    : item
-                                )
-                              }
+                              ...t,
+                              terminalItems: t.terminalItems?.map(item =>
+                                item.id === streamingMessageId
+                                  ? { ...item, content: streamedContent, isThinking: false }
+                                  : item
+                              )
+                            }
                             : t
                         )
                       }));
@@ -982,13 +982,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               tabs: state.tabs.map(t =>
                 t.id === currentTab?.id
                   ? {
-                      ...t,
-                      terminalItems: t.terminalItems?.map(item =>
-                        item.id === streamingMessageId
-                          ? { ...item, content: cleanedContent }
-                          : item
-                      )
-                    }
+                    ...t,
+                    terminalItems: t.terminalItems?.map(item =>
+                      item.id === streamingMessageId
+                        ? { ...item, content: cleanedContent }
+                        : item
+                    )
+                  }
                   : t
               )
             }));
@@ -1120,270 +1120,270 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     ]}>
       {/* Content wrapper with sidebar offset */}
       <View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, contentOffsetStyle]}>
-      {currentTab?.type === 'file' ? (
-        <FileViewer
-          visible={true}
-          projectId={currentTab.data?.projectId || ''}
-          filePath={currentTab.data?.filePath || ''}
-          repositoryUrl={currentTab.data?.repositoryUrl || ''}
-          userId={'anonymous'}
-          onClose={() => {}}
-        />
-      ) : currentTab?.type === 'terminal' ? (
-        <TerminalView
-          terminalTabId={currentTab.id}
-          sourceTabId={currentTab.data?.sourceTabId || currentTab.id}
-        />
-      ) : currentTab?.type === 'github' ? (
-        <GitHubView tab={currentTab} />
-      ) : currentTab?.type === 'browser' ? (
-        <BrowserView tab={currentTab} />
-      ) : currentTab?.type === 'preview' ? (
-        <PreviewView tab={currentTab} />
-      ) : currentTab?.type === 'envVars' ? (
-        <EnvVarsView tab={currentTab} />
-      ) : currentTab?.type === 'integration' ? (
-        currentTab.data?.integration === 'supabase' ? (
-          <SupabaseView tab={currentTab} />
-        ) : currentTab.data?.integration === 'figma' ? (
-          <FigmaView tab={currentTab} />
-        ) : null
-      ) : (
-        <>
-        {/* Chat background with gradient */}
-        <LinearGradient
-          colors={AppColors.gradient.dark}
-          locations={[0, 0.3, 0.7, 1]}
-          style={styles.background}
-        >
-          <View style={styles.glowTop} />
-          <View style={styles.glowBottom} />
-        </LinearGradient>
-        <ScrollView
-          ref={scrollViewRef}
-          style={[styles.output, isCardMode && styles.outputCardMode]}
-          contentContainerStyle={[styles.outputContent, { paddingBottom: scrollPaddingBottom }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-        {terminalItems.length === 0 ? (
-          <View style={styles.emptyState}>
-          </View>
+        {currentTab?.type === 'file' ? (
+          <FileViewer
+            visible={true}
+            projectId={currentTab.data?.projectId || ''}
+            filePath={currentTab.data?.filePath || ''}
+            repositoryUrl={currentTab.data?.repositoryUrl || ''}
+            userId={'anonymous'}
+            onClose={() => { }}
+          />
+        ) : currentTab?.type === 'terminal' ? (
+          <TerminalView
+            terminalTabId={currentTab.id}
+            sourceTabId={currentTab.data?.sourceTabId || currentTab.id}
+          />
+        ) : currentTab?.type === 'github' ? (
+          <GitHubView tab={currentTab} />
+        ) : currentTab?.type === 'browser' ? (
+          <BrowserView tab={currentTab} />
+        ) : currentTab?.type === 'preview' ? (
+          <PreviewView tab={currentTab} />
+        ) : currentTab?.type === 'envVars' ? (
+          <EnvVarsView tab={currentTab} />
+        ) : currentTab?.type === 'integration' ? (
+          currentTab.data?.integration === 'supabase' ? (
+            <SupabaseView tab={currentTab} />
+          ) : currentTab.data?.integration === 'figma' ? (
+            <FigmaView tab={currentTab} />
+          ) : null
         ) : (
           <>
-            {(() => {
-              // Filter out null items, empty content items, and "Executing:" placeholders
-              // BUT: Keep items with isThinking=true even if content is empty (to show "Thinking..." indicator)
-              const filtered = terminalItems.filter(item =>
-                item &&
-                item.content != null &&
-                (item.content.trim() !== '' || item.isThinking) &&  // Allow empty content if isThinking
-                item.content !== '...' &&  // Filter out placeholder ellipsis
-                !item.content.startsWith('Executing: ')  // Filter out tool execution indicators (replaced by tool results)
-              );
-
-              return filtered.reduce((acc, item, index, filteredArray) => {
-                // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
-                const prevItem = filteredArray[index - 1];
-                const isOutputAfterTerminalCommand =
-                  item.type === TerminalItemType.OUTPUT &&
-                  prevItem?.type === TerminalItemType.COMMAND &&
-                  isCommand(prevItem.content || '');
-
-                if (isOutputAfterTerminalCommand) {
-                  return acc;
-                }
-
-                // Check if next item exists and is not a user message
-                const nextItem = filteredArray[index + 1];
-                // Show thread line only if CURRENT item is NOT user message AND next item is NOT a user message
-                const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
-                                     nextItem &&
-                                     nextItem.type !== TerminalItemType.USER_MESSAGE;
-                const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
-                const outputItem =
-                  item.type === TerminalItemType.COMMAND &&
-                  isCommand(item.content || '') &&
-                  nextItem?.type === TerminalItemType.OUTPUT
-                    ? nextItem
-                    : undefined;
-
-                // Check if this is the last item and we're loading
-                const isLastItem = index === filteredArray.length - 1;
-                const shouldShowLoading = isLastItem && isLoading;
-
-                acc.push(
-                  <TerminalItemComponent
-                    key={index}
-                    item={item}
-                    isNextItemOutput={isNextItemAI}
-                    outputItem={outputItem}
-                    isLoading={shouldShowLoading}
-                  />
-                );
-                return acc;
-              }, [] as JSX.Element[]);
-            })()}
-          </>
-        )}
-      </ScrollView>
-
-      <Animated.View style={[
-        styles.inputWrapper,
-        isCardMode && styles.inputWrapperCardMode,
-        inputWrapperAnimatedStyle
-      ]}>
-        <LinearGradient
-          colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
-          style={styles.inputGradient}
-          onLayout={(e) => {
-            // Aggiorna l'altezza del widget quando cambia
-            const newHeight = e.nativeEvent.layout.height;
-            widgetHeight.value = withTiming(newHeight, { duration: 100 });
-          }}
-        >
-          {/* Top Controls */}
-          <View style={styles.topControls}>
-            {/* Mode Toggle */}
-            <View style={styles.modeToggleContainer}>
-              <View style={styles.modeToggle}>
-                <TouchableOpacity
-                  onPress={() => handleToggleMode('terminal')}
-                  style={[
-                    styles.modeButton,
-                    isTerminalMode && styles.modeButtonActive,
-                    forcedMode === 'terminal' && styles.modeButtonForced
-                  ]}
-                >
-                  <Animated.View style={isTerminalMode ? terminalModeAnimatedStyle : undefined}>
-                    <Ionicons
-                      name="code-slash"
-                      size={14}
-                      color={isTerminalMode ? AppColors.white.full : '#8A8A8A'}
-                    />
-                  </Animated.View>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleToggleMode('ai')}
-                  style={[
-                    styles.modeButton,
-                    !isTerminalMode && styles.modeButtonActive,
-                    forcedMode === 'ai' && styles.modeButtonForced
-                  ]}
-                >
-                  <Animated.View style={!isTerminalMode ? aiModeAnimatedStyle : undefined}>
-                    <Text style={{
-                      fontSize: 10,
-                      fontWeight: '800',
-                      color: !isTerminalMode ? AppColors.white.full : '#8A8A8A',
-                      letterSpacing: 0.5,
-                    }}>AI</Text>
-                  </Animated.View>
-                </TouchableOpacity>
-              </View>
-
-
-
-            </View>
-
-            {/* Model Selector */}
-            <TouchableOpacity
-              style={styles.modelSelector}
-              onPress={toggleModelSelector}
+            {/* Chat background with gradient */}
+            <LinearGradient
+              colors={AppColors.gradient.dark}
+              locations={[0, 0.3, 0.7, 1]}
+              style={styles.background}
             >
-              <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-              <Ionicons
-                name={showModelSelector ? "chevron-up" : "chevron-down"}
-                size={12}
-                color={AppColors.dark.bodyText}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Main Input Row */}
-          <View style={styles.mainInputRow}>
-            {/* Tools Button */}
-            <TouchableOpacity style={styles.toolsButton}>
-              <Ionicons name="attach" size={24} color="#8A8A8A" />
-            </TouchableOpacity>
-
-            {/* Input Field */}
-            <TextInput
-              style={[styles.input, { textTransform: 'none' }]}
-              value={input}
-              onChangeText={handleInputChange}
-              placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
-              placeholderTextColor={AppColors.dark.bodyText}
-              multiline
-              maxLength={1000}
-              onSubmitEditing={handleSend}
-              keyboardAppearance="dark"
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-              autoComplete="off"
-              textContentType="none"
-              keyboardType="default"
-            />
-
-            {/* Send Button */}
-            <TouchableOpacity
-              onPress={handleSend}
-              disabled={!input.trim() || isLoading}
-              style={styles.sendButton}
-              activeOpacity={0.7}
+              <View style={styles.glowTop} />
+              <View style={styles.glowBottom} />
+            </LinearGradient>
+            <ScrollView
+              ref={scrollViewRef}
+              style={[styles.output, isCardMode && styles.outputCardMode]}
+              contentContainerStyle={[styles.outputContent, { paddingBottom: scrollPaddingBottom }]}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <Ionicons
-                name="arrow-up-circle"
-                size={32}
-                color={input.trim() && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
-              />
-            </TouchableOpacity>
+              {terminalItems.length === 0 ? (
+                <View style={styles.emptyState}>
+                </View>
+              ) : (
+                <>
+                  {(() => {
+                    // Filter out null items, empty content items, and "Executing:" placeholders
+                    // BUT: Keep items with isThinking=true even if content is empty (to show "Thinking..." indicator)
+                    const filtered = terminalItems.filter(item =>
+                      item &&
+                      item.content != null &&
+                      (item.content.trim() !== '' || item.isThinking) &&  // Allow empty content if isThinking
+                      item.content !== '...' &&  // Filter out placeholder ellipsis
+                      !item.content.startsWith('Executing: ')  // Filter out tool execution indicators (replaced by tool results)
+                    );
 
-          </View>
-        </LinearGradient>
+                    return filtered.reduce((acc, item, index, filteredArray) => {
+                      // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
+                      const prevItem = filteredArray[index - 1];
+                      const isOutputAfterTerminalCommand =
+                        item.type === TerminalItemType.OUTPUT &&
+                        prevItem?.type === TerminalItemType.COMMAND &&
+                        isCommand(prevItem.content || '');
 
-        {/* Model Dropdown - positioned outside LinearGradient */}
-        {showModelSelector && (
-          <>
-            <Pressable
-              style={styles.dropdownOverlay}
-              onPress={closeDropdown}
-            />
-            <Animated.View style={[styles.modelDropdown, dropdownAnimatedStyle]}>
-              {AI_MODELS.map((model) => {
-                const IconComponent = model.IconComponent;
-                return (
+                      if (isOutputAfterTerminalCommand) {
+                        return acc;
+                      }
+
+                      // Check if next item exists and is not a user message
+                      const nextItem = filteredArray[index + 1];
+                      // Show thread line only if CURRENT item is NOT user message AND next item is NOT a user message
+                      const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
+                        nextItem &&
+                        nextItem.type !== TerminalItemType.USER_MESSAGE;
+                      const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
+                      const outputItem =
+                        item.type === TerminalItemType.COMMAND &&
+                          isCommand(item.content || '') &&
+                          nextItem?.type === TerminalItemType.OUTPUT
+                          ? nextItem
+                          : undefined;
+
+                      // Check if this is the last item and we're loading
+                      const isLastItem = index === filteredArray.length - 1;
+                      const shouldShowLoading = isLastItem && isLoading;
+
+                      acc.push(
+                        <TerminalItemComponent
+                          key={index}
+                          item={item}
+                          isNextItemOutput={isNextItemAI}
+                          outputItem={outputItem}
+                          isLoading={shouldShowLoading}
+                        />
+                      );
+                      return acc;
+                    }, [] as JSX.Element[]);
+                  })()}
+                </>
+              )}
+            </ScrollView>
+
+            <Animated.View style={[
+              styles.inputWrapper,
+              isCardMode && styles.inputWrapperCardMode,
+              inputWrapperAnimatedStyle
+            ]}>
+              <LinearGradient
+                colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
+                style={styles.inputGradient}
+                onLayout={(e) => {
+                  // Aggiorna l'altezza del widget quando cambia
+                  const newHeight = e.nativeEvent.layout.height;
+                  widgetHeight.value = withTiming(newHeight, { duration: 100 });
+                }}
+              >
+                {/* Top Controls */}
+                <View style={styles.topControls}>
+                  {/* Mode Toggle */}
+                  <View style={styles.modeToggleContainer}>
+                    <View style={styles.modeToggle}>
+                      <TouchableOpacity
+                        onPress={() => handleToggleMode('terminal')}
+                        style={[
+                          styles.modeButton,
+                          isTerminalMode && styles.modeButtonActive,
+                          forcedMode === 'terminal' && styles.modeButtonForced
+                        ]}
+                      >
+                        <Animated.View style={isTerminalMode ? terminalModeAnimatedStyle : undefined}>
+                          <Ionicons
+                            name="code-slash"
+                            size={14}
+                            color={isTerminalMode ? AppColors.white.full : '#8A8A8A'}
+                          />
+                        </Animated.View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleToggleMode('ai')}
+                        style={[
+                          styles.modeButton,
+                          !isTerminalMode && styles.modeButtonActive,
+                          forcedMode === 'ai' && styles.modeButtonForced
+                        ]}
+                      >
+                        <Animated.View style={!isTerminalMode ? aiModeAnimatedStyle : undefined}>
+                          <Text style={{
+                            fontSize: 10,
+                            fontWeight: '800',
+                            color: !isTerminalMode ? AppColors.white.full : '#8A8A8A',
+                            letterSpacing: 0.5,
+                          }}>AI</Text>
+                        </Animated.View>
+                      </TouchableOpacity>
+                    </View>
+
+
+
+                  </View>
+
+                  {/* Model Selector */}
                   <TouchableOpacity
-                    key={model.id}
-                    style={[
-                      styles.modelDropdownItem,
-                      selectedModel === model.id && styles.modelDropdownItemActive
-                    ]}
-                    onPress={() => {
-                      setSelectedModel(model.id);
-                      closeDropdown();
-                    }}
+                    style={styles.modelSelector}
+                    onPress={toggleModelSelector}
                   >
-                    <IconComponent size={16} />
-                    <SafeText style={[
-                      styles.modelDropdownText,
-                      selectedModel === model.id && styles.modelDropdownTextActive
-                    ]}>
-                      {model.name}
-                    </SafeText>
-                    {selectedModel === model.id && (
-                      <Ionicons name="checkmark" size={14} color={AppColors.primary} />
-                    )}
+                    <SafeText style={styles.modelText}>{currentModelName}</SafeText>
+                    <Ionicons
+                      name={showModelSelector ? "chevron-up" : "chevron-down"}
+                      size={12}
+                      color={AppColors.dark.bodyText}
+                    />
                   </TouchableOpacity>
-                );
-              })}
+                </View>
+
+                {/* Main Input Row */}
+                <View style={styles.mainInputRow}>
+                  {/* Tools Button */}
+                  <TouchableOpacity style={styles.toolsButton}>
+                    <Ionicons name="attach" size={24} color="#8A8A8A" />
+                  </TouchableOpacity>
+
+                  {/* Input Field */}
+                  <TextInput
+                    style={[styles.input, { textTransform: 'none' }]}
+                    value={input}
+                    onChangeText={handleInputChange}
+                    placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
+                    placeholderTextColor={AppColors.dark.bodyText}
+                    multiline
+                    maxLength={1000}
+                    onSubmitEditing={handleSend}
+                    keyboardAppearance="dark"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    keyboardType="default"
+                  />
+
+                  {/* Send Button */}
+                  <TouchableOpacity
+                    onPress={handleSend}
+                    disabled={!input.trim() || isLoading}
+                    style={styles.sendButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="arrow-up-circle"
+                      size={32}
+                      color={input.trim() && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
+                    />
+                  </TouchableOpacity>
+
+                </View>
+              </LinearGradient>
+
+              {/* Model Dropdown - positioned outside LinearGradient */}
+              {showModelSelector && (
+                <>
+                  <Pressable
+                    style={styles.dropdownOverlay}
+                    onPress={closeDropdown}
+                  />
+                  <Animated.View style={[styles.modelDropdown, dropdownAnimatedStyle]}>
+                    {AI_MODELS.map((model) => {
+                      const IconComponent = model.IconComponent;
+                      return (
+                        <TouchableOpacity
+                          key={model.id}
+                          style={[
+                            styles.modelDropdownItem,
+                            selectedModel === model.id && styles.modelDropdownItemActive
+                          ]}
+                          onPress={() => {
+                            setSelectedModel(model.id);
+                            closeDropdown();
+                          }}
+                        >
+                          <IconComponent size={16} />
+                          <SafeText style={[
+                            styles.modelDropdownText,
+                            selectedModel === model.id && styles.modelDropdownTextActive
+                          ]}>
+                            {model.name}
+                          </SafeText>
+                          {selectedModel === model.id && (
+                            <Ionicons name="checkmark" size={14} color={AppColors.primary} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </Animated.View>
+                </>
+              )}
             </Animated.View>
           </>
         )}
-      </Animated.View>
-        </>
-      )}
       </View>
     </Animated.View>
   );
@@ -1512,7 +1512,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     maxWidth: 280,
-  },  outputContent: {
+  }, outputContent: {
     padding: 20,
     paddingTop: 20, // Reduced since output already has paddingTop:80
     // paddingBottom managed dynamically via state
@@ -1567,7 +1567,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 10,
-},
+  },
   modeButtonActive: {
     backgroundColor: AppColors.primaryAlpha.a20,
   },

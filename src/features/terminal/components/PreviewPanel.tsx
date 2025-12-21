@@ -87,7 +87,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [startingMessage, setStartingMessage] = useState('');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   // Environment variables state
-  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{key: string; defaultValue: string; description: string; required: boolean}> | null>(null);
+  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
   const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
   const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
   const [isSavingEnv, setIsSavingEnv] = useState(false);
@@ -112,7 +112,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [activeTools, setActiveTools] = useState<string[]>([]);
   const [aiMessages, setAiMessages] = useState<Array<{
-    type: 'text' | 'tool_start' | 'tool_result';
+    type: 'text' | 'tool_start' | 'tool_result' | 'user';
     content: string;
     tool?: string;
     success?: boolean;
@@ -576,7 +576,17 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   };
 
   const handleRefresh = () => {
+    // Clear cache explicitly to ensure new assets (like images/css) are loaded
+    webViewRef.current?.clearCache(true);
+
+    // Force fresh content by updating URL with cache-busting timestamp
+    const baseUrl = currentPreviewUrl.split('?')[0];
+    const newUrl = `${baseUrl}?_t=${Date.now()}`;
+    setCurrentPreviewUrl(newUrl);
+
+    // Explicit reload
     webViewRef.current?.reload();
+
     checkServerStatus();
   };
 
@@ -639,12 +649,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       return;
     }
 
-    // Clear previous response and set loading
+    // Clear previous response accumulator but keep messages history
     setAiResponse('');
-    setAiMessages([]);
+    // setAiMessages([]); // Don't clear history to allow conversation
     setIsAiLoading(true);
 
     const userMessage = message.trim();
+    // Add user message to history locally
+    const newUserMsg = { type: 'user' as const, content: userMessage };
+    setAiMessages(prev => [...prev, newUserMsg]);
+
+    const historyToSend = [...aiMessages, newUserMsg];
+
     const elementData = selectedElement ? {
       tag: selectedElement.tag || 'unknown',
       className: selectedElement.className || '',
@@ -657,16 +673,19 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
     // Clear input immediately for better UX
     setMessage('');
-    const savedElement = selectedElement;
-    setSelectedElement(null);
 
-    // Clear the visual selection overlay in the WebView
+    // Keep selected element active for follow-up questions!
+    // setSelectedElement(null); 
+
+    // Don't clear visual selection overlay so user knows context is still active
+    /* 
     webViewRef.current?.injectJavaScript(`
       if (window.__clearInspectSelection) {
         window.__clearInspectSelection();
       }
       true;
     `);
+    */
 
     try {
       // Use XMLHttpRequest for SSE streaming (works in React Native)
@@ -783,8 +802,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         xhr.send(JSON.stringify({
           workstationId: currentWorkstation.id,
-          element: elementData || savedElement,
+          element: elementData,
           message: userMessage,
+          history: historyToSend,
           selectedModel: 'claude-sonnet-4'
         }));
       });
@@ -1162,7 +1182,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         <>
                           <Ionicons name="play" size={16} color="#fff" />
                           <Text style={styles.envVarsSaveText}>Avvia</Text>
-</>
+                        </>
                       )}
                     </TouchableOpacity>
 
@@ -1491,9 +1511,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           {/* AI Response Panel - Shows when there's a response */}
           {(aiMessages.length > 0 || isAiLoading) && (
             <View style={[styles.aiResponsePanel, { bottom: keyboardHeight > 0 ? keyboardHeight + 70 : insets.bottom + 70 }]}>
+              <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
               <View style={styles.aiResponseHeader}>
                 <View style={styles.aiResponseHeaderLeft}>
-                  <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+                  <View style={styles.headerIconContainer}>
+                    <Ionicons name="sparkles" size={14} color="#fff" />
+                  </View>
                   <Text style={styles.aiResponseTitle}>
                     {activeTools.length > 0 ? `Esecuzione: ${activeTools[activeTools.length - 1]}` : 'Analisi AI'}
                   </Text>
@@ -1504,8 +1527,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 <TouchableOpacity
                   onPress={() => { setAiResponse(''); setAiMessages([]); }}
                   style={styles.aiResponseClose}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.5)" />
+                  <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.4)" />
                 </TouchableOpacity>
               </View>
               <ScrollView
@@ -1528,6 +1552,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   </View>
                 ) : (
                   aiMessages.map((msg, index) => {
+                    if (msg.type === 'user') {
+                      return (
+                        <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
+                          <LinearGradient
+                            colors={['#007AFF', '#0055FF']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.userMessageBubble}
+                          >
+                            <Text style={styles.userMessageText}>{msg.content}</Text>
+                          </LinearGradient>
+                        </View>
+                      );
+                    }
+
                     if (msg.type === 'tool_start' || msg.type === 'tool_result') {
                       // Tool badge rendering (like ChatPage)
                       const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
@@ -1536,6 +1575,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
                         'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
                       };
+
                       const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
                       const isComplete = msg.type === 'tool_result';
                       const isSuccess = msg.success !== false;
@@ -2294,10 +2334,10 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     maxHeight: 300,
-    backgroundColor: 'rgba(20, 20, 30, 0.95)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(15, 15, 25, 0.7)',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -2309,10 +2349,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
   aiResponseHeaderLeft: {
     flexDirection: 'row',
@@ -2334,8 +2374,8 @@ const styles = StyleSheet.create({
   },
   aiResponseScroll: {
     maxHeight: 240,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   aiResponseText: {
     fontSize: 14,
@@ -2356,18 +2396,18 @@ const styles = StyleSheet.create({
   aiMessageRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
-    gap: 10,
+    marginBottom: 8,
+    gap: 8,
   },
   aiThreadContainer: {
     width: 20,
     alignItems: 'center',
-    paddingTop: 4,
+    paddingTop: 6,
   },
   aiThreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   aiMessageContent: {
     flex: 1,
@@ -2396,10 +2436,36 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   aiToolFileName: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.6)',
     marginLeft: 8,
     fontFamily: 'monospace',
     maxWidth: 150,
+  },
+  headerIconContainer: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userMessageBubble: {
+    borderRadius: 16,
+    borderBottomRightRadius: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    maxWidth: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  userMessageText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 18,
   },
 });

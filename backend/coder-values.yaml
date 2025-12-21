@@ -1,6 +1,8 @@
-coderd:
+coder:
   # Force Open Source Image
-  image: "ghcr.io/coder/coder:v2.16.0"
+  image:
+    repository: "ghcr.io/coder/coder"
+    tag: "v2.16.0"
   
   service:
     type: LoadBalancer
@@ -15,9 +17,9 @@ coderd:
     - name: CODER_EXPERIMENTAL
       value: "false"
     - name: CODER_WILDCARD_ACCESS_URL
-      value: "*.drape.info"
+      value: "*.34.135.209.234.nip.io"
     - name: CODER_ACCESS_URL
-      value: "http://drape.info"
+      value: "http://34.135.209.234.nip.io"
 
   resources:
     requests:
