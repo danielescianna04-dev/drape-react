@@ -28,8 +28,18 @@ const { handleWebSocketUpgrade, parseCoderAppPath } = require('./middleware/code
 // Import Express app
 const createApp = require('./app');
 
+// Initialize Firebase Admin if not already initialized
+const admin = require('firebase-admin');
+if (!admin.apps.length) {
+    admin.initializeApp({
+        projectId: 'drape-mobile-ide'
+    });
+    console.log('🔥 Firebase Admin initialized');
+}
+
 // Get local IP for network access
 const LOCAL_IP = getLocalIP();
+
 
 /**
  * Initialize and start the server

@@ -26,20 +26,54 @@ router.get('/:projectId/files', asyncHandler(async (req, res) => {
     projectId = cleanProjectId(projectId);
     const repoPath = getRepoPath(projectId);
 
+    console.log(`📖 GET /workstation/${projectId}/files`);
     console.log('📂 Getting files for project:', projectId);
+
+    // PRE-WARM: Start workspace in background when user opens a project
+    const workstationId = `ws-${projectId.toLowerCase()}`;
+    (async () => {
+        try {
+            const coderService = require('../coder-service');
+            const userEmail = req.query.userEmail || req.query.userId || `${workstationId}@drape.ide`;
+            const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+
+            console.log(`🔥 [Background] Pre-warming workspace for recent project: ${workstationId}`);
+            const coderUser = await coderService.ensureUser(userEmail, username);
+            const ws = await coderService.createWorkspace(coderUser.id, workstationId, repositoryUrl);
+
+            if (ws.latest_build?.job?.status !== 'succeeded') {
+                console.log(`   [Background] Starting workspace ${ws.id}...`);
+                await coderService.startWorkspace(ws.id);
+            }
+            console.log(`✅ [Background] Workspace pre-warm initiated for recent project!`);
+        } catch (bgError) {
+            // Silent fail - don't block the files response
+            console.warn(`⚠️ [Background] Pre-warm failed: ${bgError.message}`);
+        }
+    })();
 
     // Check if directory exists
     try {
         await fs.access(repoPath);
     } catch {
         if (repositoryUrl) {
-            // Clone repository if URL provided
-            const { cloneAndReadRepository } = require('./workstation-helpers');
-            const files = await cloneAndReadRepository(repositoryUrl, projectId);
-            return res.json({ success: true, files });
+            // Try to read files from Firestore (saved by /create endpoint)
+            try {
+                const admin = require('firebase-admin');
+                const db = admin.firestore();
+                const doc = await db.collection('workstation_files').doc(projectId).get();
+                if (doc.exists) {
+                    const data = doc.data();
+                    console.log(`📂 Found ${data.files?.length || 0} files in Firestore for project`);
+                    return res.json({ success: true, files: data.files || [] });
+                }
+            } catch (fsError) {
+                console.error('Error reading from Firestore:', fsError.message);
+            }
         }
         throw new NotFoundError('Project');
     }
+
 
     // Read directory recursively
     async function readDirectory(dirPath, basePath = '') {
@@ -387,6 +421,133 @@ router.post('/edit-multiple-files', asyncHandler(async (req, res) => {
             rolledBack: true
         });
     }
+}));
+
+/**
+ * POST /workstation/create
+ * Create a workstation and fetch GitHub files
+ */
+router.post('/create', asyncHandler(async (req, res) => {
+    const { repositoryUrl, userId, projectId, projectType, projectName, githubToken } = req.body;
+    const axios = require('axios');
+    const admin = require('firebase-admin');
+    const db = admin.firestore();
+
+    console.log('🚀 Creating workstation for:', projectType === 'git' ? repositoryUrl : projectName);
+
+    const workstationId = `ws-${projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+    console.log('Workstation ID:', workstationId);
+
+    // Fetch file list from GitHub API if it's a git project
+    let files = [];
+    if (projectType === 'git' && repositoryUrl) {
+        try {
+            const repoMatch = repositoryUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?$/);
+            if (repoMatch) {
+                const [, owner, repo] = repoMatch;
+                console.log(`📦 Fetching files from GitHub: ${owner}/${repo}`);
+
+                const headers = { 'User-Agent': 'Drape-App' };
+                if (githubToken) {
+                    headers['Authorization'] = `Bearer ${githubToken}`;
+                    console.log('🔐 Using GitHub token for authentication');
+                }
+
+                // Try main branch first, then master
+                let githubResponse;
+                try {
+                    githubResponse = await axios.get(
+                        `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`,
+                        { headers }
+                    );
+                } catch (error) {
+                    console.log('⚠️ main branch not found, trying master...');
+                    githubResponse = await axios.get(
+                        `https://api.github.com/repos/${owner}/${repo}/git/trees/master?recursive=1`,
+                        { headers }
+                    );
+                }
+
+                files = githubResponse.data.tree
+                    .filter(item => item.type === 'blob')
+                    .map(item => item.path)
+                    .filter(path =>
+                        !path.includes('node_modules/') &&
+                        !path.startsWith('.git/') &&
+                        !path.includes('/dist/') &&
+                        !path.includes('/build/')
+                    )
+                    .slice(0, 500);
+
+                console.log(`✅ Found ${files.length} files from GitHub`);
+            }
+        } catch (error) {
+            console.error('⚠️ Error fetching GitHub files:', error.message);
+
+            // Check if it's an authentication issue
+            if (error.response?.status === 401 || error.response?.status === 403) {
+                console.log('🔒 Authentication failed or insufficient permissions');
+                return res.status(401).json({
+                    error: 'Authentication required',
+                    message: githubToken
+                        ? 'The provided token does not have access to this repository'
+                        : 'This repository requires authentication',
+                    requiresAuth: true
+                });
+            }
+
+            // Use basic structure as fallback
+            files = ['README.md', 'package.json', '.gitignore', 'src/index.js', 'src/App.js'];
+            console.log('📝 Using fallback file structure');
+        }
+
+        // Store files in Firestore
+        try {
+            await db.collection('workstation_files').doc(projectId).set({
+                workstationId,
+                files,
+                repositoryUrl,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`💾 Saved ${files.length} files to Firestore`);
+        } catch (error) {
+            console.error('⚠️ Error saving files to Firestore:', error.message);
+        }
+    }
+
+    // OPTIMIZATION: Start Coder Workspace in Background (ALWAYS)
+    // If no email provided, use a default based on workstationId
+    const userEmail = req.body.email || req.body.targetEmail || req.body.userId || `${workstationId}@drape.ide`;
+    (async () => {
+        try {
+            const coderService = require('../coder-service');
+            console.log(`🚀 [Background] Pre-warming workspace ${workstationId}...`);
+
+            // Generate Coder username from email
+            const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+            const coderUser = await coderService.ensureUser(userEmail, username);
+
+            // Create/Start Workspace
+            // IMPORTANT: Use workstationId directly (ws-xxx) to match preview.js logic
+            const ws = await coderService.createWorkspace(coderUser.id, workstationId, repositoryUrl);
+
+            if (ws.latest_build?.job?.status !== 'running' && ws.latest_build?.status !== 'running') {
+                console.log(`   [Background] Starting workspace ${ws.id}...`);
+                await coderService.startWorkspace(ws.id);
+            }
+            console.log(`✅ [Background] Workspace pre-warm initiated!`);
+        } catch (bgError) {
+            console.error(`⚠️ [Background] Pre-warm failed: ${bgError.message}`);
+        }
+    })();
+
+    res.json({
+        workstationId,
+        status: 'running',
+        message: 'Workstation created successfully',
+        repositoryUrl: repositoryUrl || null,
+        filesCount: files.length
+    });
 }));
 
 module.exports = router;
