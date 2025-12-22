@@ -327,7 +327,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout (includes install)
 
+      // Clean username for Coder (from existing userId which is the email)
+      const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+
       console.log('🚀 Calling /preview/start for workstation:', currentWorkstation.id);
+      console.log(`👤 User context: ${userId} (${username})`);
 
       const response = await fetch(`${apiUrl}/preview/start`, {
         method: 'POST',
@@ -338,6 +342,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           workstationId: currentWorkstation.id,
           repositoryUrl: currentWorkstation.repositoryUrl,
           githubToken: githubToken,
+          // NEW: Send user identity
+          userEmail: userId,
+          username: username
         }),
         signal: controller.signal,
       });

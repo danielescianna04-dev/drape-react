@@ -26,9 +26,15 @@ const serverLogsMap = new Map();
  */
 router.post('/start', asyncHandler(async (req, res) => {
     const startTime = Date.now();
-    let { workstationId, forceRefresh, githubToken, repositoryUrl } = req.body;
+    // Extract user info from request, fallback to defaults
+    const { workstationId, forceRefresh, githubToken, repositoryUrl, userEmail, username } = req.body;
 
     console.log(`\n🚀 Preview Start: ${workstationId}`);
+
+    // User Identity Logic
+    const targetEmail = userEmail || 'daniele.scianna04@gmail.com';
+    // Generate valid username from email if not provided
+    const targetUsername = username || targetEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
     if (!workstationId) {
         return res.status(400).json({ error: 'workstationId is required' });
@@ -37,11 +43,12 @@ router.post('/start', asyncHandler(async (req, res) => {
     // Clean workspace name
     const wsName = cleanWorkspaceName(workstationId);
 
-    // Ensure Coder user exists
-    const coderUser = await coderService.ensureUser('daniele.scianna04@gmail.com', 'admin');
+    // Ensure Coder user exists (Multi-User Support)
+    console.log(`   User: ${targetEmail} (${targetUsername})`);
+    const coderUser = await coderService.ensureUser(targetEmail, targetUsername);
 
-    // Create or get workspace
-    console.log(`   Creating/getting workspace: ${wsName}`);
+    // Create or get workspace FOR THIS USER
+    console.log(`   Creating/getting workspace: ${wsName} for user ${coderUser.username}`);
     const workspace = await coderService.createWorkspace(coderUser.id, wsName, repositoryUrl);
     console.log(`   Workspace ID: ${workspace.id}`);
 
@@ -56,45 +63,78 @@ router.post('/start', asyncHandler(async (req, res) => {
     const LOCAL_IP = getLocalIP();
     const PORT = process.env.PORT || 3000;
 
-    // Build URLs
+    // Build URLs with CORRECT USERNAME
     const apiBase = `http://${LOCAL_IP}:${PORT}`;
     const wildcardDomain = CODER_WILDCARD_DOMAIN;
 
-    const vscodeUrl = `${apiBase}/@${coderUser.username}/${wsName}/apps/vscode/?folder=/home/coder`;
-    const previewUrl = `${apiBase}/@${coderUser.username}/${wsName}/apps/preview/`;
-    const devUrl = `${apiBase}/@${coderUser.username}/${wsName}/apps/dev/`;
+    // Use the actual username from Coder (might differ if sanitized)
+    const wsOwner = coderUser.username;
+
+    const vscodeUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/vscode/?folder=/home/coder`;
+    const previewUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/preview/`;
+    const devUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/dev/`;
 
     // Try to detect project type
     let projectInfo = { type: 'unknown', defaultPort: 3000 };
 
-    // Clone repo if needed and detect project
+    // Clone repo if needed
     if (repositoryUrl) {
         try {
             await runInWorkspace(wsName, `test -d /home/coder/project/.git || git clone ${repositoryUrl} /home/coder/project`);
-
-            // Get package.json
-            const pkgResult = await runInWorkspace(wsName, 'cat /home/coder/project/package.json 2>/dev/null');
-            if (pkgResult.stdout) {
-                try {
-                    const packageJson = JSON.parse(pkgResult.stdout);
-                    const lsResult = await runInWorkspace(wsName, 'ls -1 /home/coder/project');
-                    const files = lsResult.stdout.split('\n').filter(f => f.trim());
-
-                    const detected = detectProjectType(files, packageJson);
-                    if (detected) {
-                        projectInfo = detected;
-                        console.log(`   Detected: ${detected.description}`);
-                    }
-                } catch (e) {
-                    console.log('   Could not parse package.json');
-                }
-            }
         } catch (e) {
-            console.log('   Clone/detect warning:', e.message);
+            console.log('   Clone warning:', e.message);
         }
     }
 
-    const isStatic = projectInfo.type === 'static';
+    // LIST FILES RECURSIVELY (Depth 2) to give context
+    let files = [];
+    let configFilesContent = {};
+    try {
+        const lsResult = await runInWorkspace(wsName, 'find /home/coder/project -maxdepth 2 -not -path "*/.*" -not -path "*/node_modules/*"');
+        if (lsResult.stdout) {
+            files = lsResult.stdout.split('\n')
+                .map(f => f.replace('/home/coder/project/', ''))
+                .filter(f => f.trim() && f !== '/home/coder/project');
+        }
+
+        // Read key config files for AI
+        const configFiles = ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'compose.yml', 'Dockerfile', 'app.json'];
+        for (const file of configFiles) {
+            if (files.includes(file) || files.some(f => f.endsWith(file))) {
+                const content = await runInWorkspace(wsName, `cat /home/coder/project/${file} 2>/dev/null | head -n 50`);
+                if (content.stdout) {
+                    configFilesContent[file] = content.stdout;
+                }
+            }
+        }
+
+        // 1. Try AI Analysis first (It's 2025, let's trust AI)
+        const { analyzeProjectWithAI } = require('../services/project-analyzer');
+        const aiResult = await analyzeProjectWithAI(files, configFilesContent);
+
+        if (aiResult) {
+            projectInfo = aiResult;
+            console.log(`🧠 AI Detected: ${projectInfo.description}`);
+            console.log(`   CMD: ${projectInfo.startCommand}`);
+        } else {
+            // 2. Fallback to static rules
+            try {
+                const packageJson = configFilesContent['package.json'] ? JSON.parse(configFilesContent['package.json']) : null;
+                const detected = detectProjectType(files, packageJson);
+                if (detected) {
+                    projectInfo = detected;
+                    console.log(`📦 Static Detected: ${detected.description}`);
+                }
+            } catch (e) {
+                console.log('   Static detection failed:', e.message);
+            }
+        }
+
+    } catch (e) {
+        console.log('   Detection failed:', e.message);
+    }
+
+    const isStatic = projectInfo.type === 'static' || projectInfo.type === 'html';
 
     res.json({
         success: true,

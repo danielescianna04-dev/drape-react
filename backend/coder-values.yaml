@@ -17,9 +17,9 @@ coder:
     - name: CODER_EXPERIMENTAL
       value: "false"
     - name: CODER_WILDCARD_ACCESS_URL
-      value: "*.34.135.209.234.nip.io"
+      value: "*.drape.info"
     - name: CODER_ACCESS_URL
-      value: "http://34.135.209.234.nip.io"
+      value: "http://drape.info"
 
   resources:
     requests:

@@ -39,15 +39,33 @@ function createCoderProxy() {
  * Format: /@user/workspace/apps/appname/...
  */
 function parseCoderAppPath(url) {
-    const match = url.match(/^\/@([^\/]+)\/([^\/]+)\/apps\/([^\/]+)(.*)/);
+    if (!url.startsWith('/@')) return null;
 
-    if (!match) return null;
+    // Robust parsing: /@user/workspace/apps/app/path...
+    // Parts: ['', '@user', 'workspace', 'apps', 'app', ...path]
+    const parts = url.split('/');
+
+    if (parts.length < 5) return null;
+
+    // Extract basic info
+    const user = parts[1].substring(1); // Remove @
+    const workspace = parts[2];
+
+    // Check structure
+    const appsIndex = parts.indexOf('apps');
+    if (appsIndex !== 3) return null; // Must be at index 3: /@u/w/apps/...
+
+    const app = parts[4];
+
+    // Reconstruct remaining path
+    const pathParts = parts.slice(5);
+    const pathStr = '/' + pathParts.join('/');
 
     return {
-        user: match[1],
-        workspace: match[2],
-        app: match[3],
-        path: match[4] || '/'
+        user,
+        workspace,
+        app,
+        path: pathStr
     };
 }
 
