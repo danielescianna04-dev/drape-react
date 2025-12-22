@@ -702,6 +702,22 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         xhr.open('POST', `${apiUrl}/preview/inspect`);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
+        // Multi-user context
+        const state = useTerminalStore.getState();
+        const userId = state.userId || 'anonymous-user';
+        const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+
+        xhr.send(JSON.stringify({
+          description: selectedElement ? `Element <${selectedElement.tag}> with class "${selectedElement.className}"` : 'General Request',
+          userPrompt: userMessage,
+          elementInfo: elementData,
+          projectId: currentWorkstation.id,
+          workstationId: currentWorkstation.id,
+          // Sending user identity
+          userEmail: userId,
+          username: username
+        }));
+
         let lastIndex = 0;
         let fullResponse = '';
 

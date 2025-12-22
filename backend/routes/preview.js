@@ -288,16 +288,23 @@ router.post('/inspect', asyncHandler(async (req, res) => {
         elementInfo,
         projectId,
         workstationId,
-        selectedModel
+        selectedModel,
+        userEmail, // Extract user info
+        username
     } = req.body;
 
     const effectiveProjectId = projectId || workstationId;
+
+    // User Identity Logic
+    const targetEmail = userEmail || 'daniele.scianna04@gmail.com';
+    const targetUsername = username || targetEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
     if (!effectiveProjectId) {
         return res.status(400).json({ error: 'projectId or workstationId required' });
     }
 
     console.log(`\n🔍 Inspect: "${description?.substring(0, 50)}"`);
+    console.log(`   User: ${targetUsername}`);
 
     // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
@@ -311,7 +318,8 @@ router.post('/inspect', asyncHandler(async (req, res) => {
             userPrompt,
             elementInfo,
             projectId: effectiveProjectId,
-            selectedModel
+            selectedModel,
+            username: targetUsername // Pass owner
         })) {
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         }

@@ -37,7 +37,8 @@ router.post('/chat', asyncHandler(async (req, res) => {
         projectId,
         repositoryUrl,
         selectedModel = DEFAULT_AI_MODEL,
-        context: userContext
+        context: userContext,
+        username // Extract username explicitly
     } = req.body;
 
     if (!prompt) {
@@ -48,6 +49,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
     console.log(`   Model: ${selectedModel}`);
     console.log(`   Prompt: ${prompt.substring(0, 100)}...`);
     console.log(`   Project: ${projectId || workstationId || 'none'}`);
+    console.log(`   User: ${username || 'admin (default)'}`);
 
     // Get provider for selected model
     const { provider, modelId, config } = getProviderForModel(selectedModel);
@@ -57,9 +59,9 @@ router.post('/chat', asyncHandler(async (req, res) => {
         await provider.initialize();
     }
 
-    // Create execution context
+    // Create execution context (Multi-User safe)
     const effectiveProjectId = projectId || workstationId;
-    const execContext = effectiveProjectId ? createContext(effectiveProjectId) : null;
+    const execContext = effectiveProjectId ? createContext(effectiveProjectId, { owner: username }) : null;
 
     // Build system message
     const systemMessage = buildSystemMessage(execContext, userContext);

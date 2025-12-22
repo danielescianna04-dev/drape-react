@@ -383,16 +383,21 @@ function createContext(projectId, options = {}) {
     const cleanId = cleanProjectId(projectId);
     const projectPath = options.projectPath || getRepoPath(cleanId);
 
-    // Determine if this is a cloud workspace
     const isCloud = options.isCloud !== undefined
         ? options.isCloud
         : !require('fs').existsSync(projectPath);
+
+    let wsName = options.wsName || cleanId;
+    // Multi-user support: Prefix with owner if provided and not already present
+    if (options.owner && !wsName.includes('/')) {
+        wsName = `${options.owner}/${wsName}`;
+    }
 
     return {
         projectId: cleanId,
         projectPath: isCloud ? '/home/coder/project' : projectPath,
         isCloud,
-        wsName: options.wsName || cleanId
+        wsName
     };
 }
 

@@ -175,6 +175,8 @@ async function* streamInspectElement(params) {
         userPrompt,
         elementInfo,
         projectId,
+        workstationId, // Add this
+        username,      // Add this
         selectedModel = 'gemini-2.5-flash'
     } = params;
 
@@ -186,7 +188,8 @@ async function* streamInspectElement(params) {
         await provider.initialize();
     }
 
-    const context = createContext(projectId);
+    // Pass owner to context for multi-user support
+    const context = createContext(projectId, { owner: username });
 
     let analysisPrompt = `The user selected this element: ${description}\n`;
     if (elementInfo) {

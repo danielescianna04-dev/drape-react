@@ -247,7 +247,8 @@ async function handleWebSocketChat(ws, payload) {
         conversationHistory = [],
         workstationId,
         projectId,
-        selectedModel = DEFAULT_AI_MODEL
+        selectedModel = DEFAULT_AI_MODEL,
+        username // Extract username
     } = payload;
 
     if (!prompt) {
@@ -255,7 +256,7 @@ async function handleWebSocketChat(ws, payload) {
         return;
     }
 
-    console.log(`🤖 WS Chat: ${prompt.substring(0, 50)}...`);
+    console.log(`🤖 WS Chat: ${prompt.substring(0, 50)}... [User: ${username || 'admin'}]`);
 
     try {
         const { provider, modelId, config } = getProviderForModel(selectedModel);
@@ -265,7 +266,8 @@ async function handleWebSocketChat(ws, payload) {
         }
 
         const effectiveProjectId = projectId || workstationId;
-        const execContext = effectiveProjectId ? createContext(effectiveProjectId) : null;
+        // Multi-user context support
+        const execContext = effectiveProjectId ? createContext(effectiveProjectId, { owner: username }) : null;
 
         // Build messages
         const messages = [
