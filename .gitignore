@@ -46,3 +46,6 @@ backend/cloned_repos/
 
 # Windows reserved names
 nul
+
+# Coder Binary
+backend/bin/coder
