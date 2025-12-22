@@ -77,10 +77,17 @@ router.post('/start', asyncHandler(async (req, res) => {
     // Try to detect project type
     let projectInfo = { type: 'unknown', defaultPort: 3000 };
 
-    // Clone repo if needed
+    // Clone repo if needed - use GitHub token for authentication
     if (repositoryUrl) {
         try {
-            await runInWorkspace(wsName, `test -d /home/coder/project/.git || git clone ${repositoryUrl} /home/coder/project`);
+            // Build authenticated URL if token is provided
+            let cloneUrl = repositoryUrl;
+            if (githubToken && repositoryUrl.includes('github.com')) {
+                // Convert https://github.com/user/repo.git to https://TOKEN@github.com/user/repo.git
+                cloneUrl = repositoryUrl.replace('https://github.com', `https://${githubToken}@github.com`);
+                console.log('   Using authenticated clone URL');
+            }
+            await runInWorkspace(wsName, `test -d /home/coder/project/.git || git clone ${cloneUrl} /home/coder/project`);
         } catch (e) {
             console.log('   Clone warning:', e.message);
         }
@@ -136,6 +143,48 @@ router.post('/start', asyncHandler(async (req, res) => {
 
     const isStatic = projectInfo.type === 'static' || projectInfo.type === 'html';
 
+    // ============================================
+    // EXECUTE SERVER STARTUP (for non-static sites)
+    // ============================================
+    let serverStarted = false;
+    if (!isStatic && projectInfo.startCommand) {
+        console.log('🚀 Starting dev server in workspace...');
+
+        try {
+            // 1. Install dependencies if node_modules doesn't exist
+            const hasNodeModules = await runInWorkspace(wsName, 'test -d /home/coder/project/node_modules && echo "yes" || echo "no"');
+            if (hasNodeModules.stdout.trim() === 'no') {
+                console.log('   📦 Installing dependencies...');
+                const installCmd = projectInfo.installCommand || 'npm install';
+                await runInWorkspace(wsName, `cd /home/coder/project && ${installCmd}`);
+                console.log('   ✅ Dependencies installed');
+            }
+
+            // 2. Kill any existing process on the port
+            const port = projectInfo.defaultPort || 3000;
+            await runInWorkspace(wsName, `fuser -k ${port}/tcp 2>/dev/null || true`);
+
+            // 3. Start the dev server in background with nohup
+            const startCmd = projectInfo.startCommand || 'npm run dev';
+            console.log(`   🎯 Starting server: ${startCmd}`);
+
+            // Use nohup to keep process running after SSH disconnects
+            // Redirect output to a log file for debugging
+            await runInWorkspace(wsName,
+                `cd /home/coder/project && nohup sh -c '${startCmd}' > /home/coder/server.log 2>&1 &`
+            );
+
+            console.log('   ✅ Server started in background');
+            serverStarted = true;
+
+            // 4. Wait a bit for server to start
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+        } catch (e) {
+            console.log('   ⚠️ Server start warning:', e.message);
+        }
+    }
+
     res.json({
         success: true,
         previewUrl: isStatic ? previewUrl : devUrl,
@@ -150,6 +199,7 @@ router.post('/start', asyncHandler(async (req, res) => {
             install: projectInfo.installCommand || 'npm install',
             start: projectInfo.startCommand || 'npm run dev'
         },
+        serverStarted: serverStarted,
         timing: { totalMs: Date.now() - startTime },
         isCloudWorkstation: true
     });
