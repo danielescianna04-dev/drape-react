@@ -173,6 +173,25 @@ class CoderService {
             throw error;
         }
     }
+
+    /**
+     * Create a temporary API key (session token) for a user
+     * Requires admin permissions
+     */
+    async createUserToken(userId) {
+        try {
+            console.log(`🔐 Generating session token for user ${userId}...`);
+            const res = await this.client.post(`/api/v2/users/${userId}/keys`, {
+                scope: 'all', // Standard session scope
+                lifetime_seconds: 3600 * 24 // 24 hours
+            });
+            return res.data.key;
+        } catch (error) {
+            console.error('Error creating user token:', error.response?.data || error.message);
+            // Fallback to admin token if this fails (might not have permission for keys API)
+            return this.apiToken;
+        }
+    }
 }
 
 module.exports = new CoderService();

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const CODER_URL = 'http://34.135.209.234.nip.io';
+const CODER_URL = 'http://drape.info';
 const ADMIN_EMAIL = 'daniele.scianna04@gmail.com';
 const ADMIN_PASSWORD = 'Rotolone01#@';
 

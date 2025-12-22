@@ -9,7 +9,6 @@ import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
-import { useAuthStore } from '../../../core/auth/authStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { IconButton } from '../../../shared/components/atoms';
@@ -17,6 +16,7 @@ import { useSidebarOffset } from '../context/SidebarContext';
 import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
+import { fileWatcherService } from '../../../core/services/agentService';
 
 interface Props {
   onClose: () => void;
@@ -86,6 +86,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
   const [isStarting, setIsStarting] = useState(false);
   const [startingMessage, setStartingMessage] = useState('');
+  const [webViewReady, setWebViewReady] = useState(false); // Track if WebView loaded successfully
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   // Environment variables state
   const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
@@ -120,6 +121,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     filePath?: string;
     pattern?: string;
   }>>([]);
+  const [coderToken, setCoderToken] = useState<string | null>(null);
   const aiScrollViewRef = useRef<ScrollView>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
@@ -159,8 +161,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       setServerStatus('stopped');
       setPreviewServerUrl(null);
       setProjectInfo(null);
+      setCoderToken(null);
       setIsStarting(false);
       setWebCompatibilityError(null);
+      setWebViewReady(false); // Reset so loading spinner shows for new project
+
 
       // Disconnect from previous project's logs (will reconnect to new project when server starts)
       serverLogService.disconnect();
@@ -194,6 +199,31 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
   // NOTE: Server is NOT stopped on unmount - only when user clicks X button
   // This allows navigating to other pages while keeping server running
+
+  // HOT RELOAD: Connect to file watcher when server is running
+  useEffect(() => {
+    const workstationId = currentWorkstation?.id;
+    // Get username from workstation info (stored when project was created)
+    const username = currentWorkstation?.githubAccountUsername?.toLowerCase() || 'default';
+    if (serverStatus === 'running' && workstationId && username) {
+      console.log('🔥 [HotReload] Connecting file watcher...');
+
+      fileWatcherService.connect(workstationId, username, (change) => {
+        console.log(`🔥 [HotReload] File changed: ${change.file}, refreshing preview...`);
+        logOutput(`[Hot Reload] ${change.file} changed`, 'preview', 0);
+
+        // Auto-refresh WebView
+        if (webViewRef.current) {
+          webViewRef.current.reload();
+        }
+      });
+    }
+
+    return () => {
+      // Don't disconnect on unmount - keep watching
+      // fileWatcherService.disconnect();
+    };
+  }, [serverStatus, currentWorkstation?.id]);
 
   // Check server status periodically (only when server is running, not when 'checking')
   // Note: When status is 'checking', health checks are started manually in handleStartServer
@@ -241,8 +271,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
   // Update preview URL when project type is detected
   // IMPORTANT: Only update if server is not already running (to avoid overwriting the actual running port)
+  // And ONLY for local projects (no coderToken)
   useEffect(() => {
-    if (projectInfo && projectInfo.defaultPort && apiUrl && serverStatus !== 'running') {
+    if (projectInfo && projectInfo.defaultPort && apiUrl && serverStatus === 'stopped' && !coderToken) {
       // Extract the host from apiUrl (e.g., "http://192.168.1.10:3000" -> "192.168.1.10")
       const urlMatch = apiUrl.match(/https?:\/\/([^:\/]+)/);
       if (urlMatch) {
@@ -256,17 +287,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
-    const maxRetries = 30; // Max 30 retries = 30 seconds of checking
+    const maxRetries = 60; // Max 60 retries = 60 seconds of checking
 
     try {
       console.log(`🔍 Checking server status at: ${urlToCheck} (attempt ${retryCount + 1})`);
 
       // Try to fetch the URL using GET (more reliable than HEAD across different servers)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
 
       const response = await fetch(urlToCheck, {
         method: 'GET',
+        headers: {
+          'Coder-Session-Token': coderToken || '',
+          'Accept': 'text/html'
+        },
         signal: controller.signal,
       });
 
@@ -315,8 +350,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     try {
       // Get GitHub token for private repos
       const userId = useTerminalStore.getState().userId || 'anonymous';
-      // Get user email from auth store (not the Firebase UID!)
-      const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
       let githubToken: string | null = null;
 
       if (currentWorkstation.repositoryUrl) {
@@ -330,11 +363,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout (includes install)
 
-      // Clean username for Coder (from email)
-      const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+      // Clean username for Coder (from existing userId which is the email)
+      const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
       console.log('🚀 Calling /preview/start for workstation:', currentWorkstation.id);
-      console.log(`👤 User context: ${userEmail} (${username})`);
+      console.log(`👤 User context: ${userId} (${username})`);
 
       const response = await fetch(`${apiUrl}/preview/start`, {
         method: 'POST',
@@ -345,8 +378,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           workstationId: currentWorkstation.id,
           repositoryUrl: currentWorkstation.repositoryUrl,
           githubToken: githubToken,
-          // NEW: Send user identity (email, not UID!)
-          userEmail: userEmail,
+          // NEW: Send user identity
+          userEmail: userId,
           username: username
         }),
         signal: controller.signal,
@@ -434,10 +467,13 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         }
       }
 
-      // Update preview URL
+      // Update preview URL and token
       if (result.previewUrl) {
         console.log('🔗 Preview URL:', result.previewUrl);
         setCurrentPreviewUrl(result.previewUrl);
+        if (result.coderToken) {
+          setCoderToken(result.coderToken);
+        }
       }
 
       // Connect to server logs stream (global service keeps connection alive)
@@ -698,7 +734,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     */
 
     try {
-      // Use XMLHttpRequest for SSE streaming (works in React Native)
+      // Use XMLHttpRequest for SSE streaming with polling (React Native compatible)
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
 
@@ -706,27 +742,25 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         // Multi-user context
-        const authState = useAuthStore.getState();
-        const userEmail = authState.user?.email || 'anonymous@drape.dev';
-        const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-
-        xhr.send(JSON.stringify({
-          description: selectedElement ? `Element <${selectedElement.tag}> with class "${selectedElement.className}"` : 'General Request',
-          userPrompt: userMessage,
-          elementInfo: elementData,
-          projectId: currentWorkstation.id,
-          workstationId: currentWorkstation.id,
-          // Sending user identity (email, not UID!)
-          userEmail: userEmail,
-          username: username
-        }));
+        const state = useTerminalStore.getState();
+        const userId = state.userId || 'anonymous-user';
+        const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
         let lastIndex = 0;
         let fullResponse = '';
+        let pollInterval: NodeJS.Timeout | null = null;
 
-        xhr.onprogress = () => {
+        // Add state change listener for debugging
+        xhr.onreadystatechange = () => {
+          console.log('🔄 XHR state:', xhr.readyState, 'status:', xhr.status, 'responseLength:', xhr.responseText?.length || 0);
+        };
+
+        const processResponse = () => {
           const newData = xhr.responseText.substring(lastIndex);
+          if (newData.length === 0) return;
+
           lastIndex = xhr.responseText.length;
+          console.log('📦 Polling received:', newData.length, 'bytes');
 
           // Parse SSE events
           const lines = newData.split('\n');
@@ -739,41 +773,54 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               }
               try {
                 const parsed = JSON.parse(data);
+                console.log('🎯 SSE event received:', parsed.type, parsed);
 
                 // Handle tool events
                 if (parsed.type === 'tool_start') {
                   console.log('🔧 Tool started:', parsed.tool);
                   setActiveTools(prev => [...prev, parsed.tool]);
-                  // Add tool message
                   setAiMessages(prev => [...prev, {
                     type: 'tool_start',
                     content: parsed.tool,
                     tool: parsed.tool
                   }]);
                 } else if (parsed.type === 'tool_input') {
-                  // Update last tool_start message with input details (filePath, pattern)
                   console.log('📥 Tool input:', parsed.tool, parsed.input);
+                  // Add tool to active tools
+                  setActiveTools(prev => prev.includes(parsed.tool) ? prev : [...prev, parsed.tool]);
+
                   setAiMessages(prev => {
                     const updated = [...prev];
-                    for (let i = updated.length - 1; i >= 0; i--) {
-                      if (updated[i].type === 'tool_start' && updated[i].tool === parsed.tool) {
-                        updated[i] = {
-                          ...updated[i],
-                          filePath: parsed.input?.filePath,
-                          pattern: parsed.input?.pattern
-                        };
-                        break;
-                      }
+                    // Check if tool_start already exists for this tool
+                    const existingToolIndex = updated.findIndex(
+                      m => (m.type === 'tool_start' || m.type === 'tool_result') && m.tool === parsed.tool && !m.success
+                    );
+
+                    if (existingToolIndex >= 0) {
+                      // Update existing tool message with input details
+                      updated[existingToolIndex] = {
+                        ...updated[existingToolIndex],
+                        filePath: parsed.input?.filePath,
+                        pattern: parsed.input?.pattern
+                      };
+                    } else {
+                      // Create new tool_start message (Gemini doesn't emit tool_start)
+                      updated.push({
+                        type: 'tool_start',
+                        content: parsed.tool,
+                        tool: parsed.tool,
+                        filePath: parsed.input?.filePath,
+                        pattern: parsed.input?.pattern
+                      });
                     }
                     return updated;
                   });
+
                 } else if (parsed.type === 'tool_result') {
                   console.log('✅ Tool result:', parsed.tool, parsed.success);
                   setActiveTools(prev => prev.filter(t => t !== parsed.tool));
-                  // Update last tool_start message with result
                   setAiMessages(prev => {
                     const updated = [...prev];
-                    // Find last tool_start for this tool and mark it complete
                     for (let i = updated.length - 1; i >= 0; i--) {
                       if ((updated[i].type === 'tool_start' || updated[i].type === 'tool_result') && updated[i].tool === parsed.tool) {
                         updated[i] = {
@@ -787,21 +834,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     return updated;
                   });
                 } else if (parsed.text) {
-                  // Update or add text message - track text per message block
                   setAiMessages(prev => {
                     const last = prev[prev.length - 1];
                     if (last && last.type === 'text') {
-                      // Append to existing text message
                       const updated = [...prev];
                       const newContent = (last.content || '') + parsed.text;
                       updated[updated.length - 1] = {
                         ...last,
                         content: newContent
                       };
-                      fullResponse = newContent; // Keep fullResponse in sync
+                      fullResponse = newContent;
                       return updated;
                     } else {
-                      // Add new text message (fresh start after tool)
                       fullResponse = parsed.text;
                       return [...prev, { type: 'text', content: parsed.text }];
                     }
@@ -815,7 +859,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           }
         };
 
+        // Poll for new data every 100ms (React Native doesn't support onprogress reliably)
+        pollInterval = setInterval(processResponse, 100);
+
         xhr.onload = () => {
+          if (pollInterval) clearInterval(pollInterval);
+          processResponse(); // Process any remaining data
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve();
           } else {
@@ -823,17 +872,30 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           }
         };
 
-        xhr.onerror = () => reject(new Error('Network error'));
-        xhr.ontimeout = () => reject(new Error('Request timeout'));
+        xhr.onerror = () => {
+          if (pollInterval) clearInterval(pollInterval);
+          reject(new Error('Network error'));
+        };
+        xhr.ontimeout = () => {
+          if (pollInterval) clearInterval(pollInterval);
+          reject(new Error('Request timeout'));
+        };
 
         xhr.send(JSON.stringify({
+          description: selectedElement ? `Element <${selectedElement.tag}> with class "${selectedElement.className}"` : 'General Request',
+          userPrompt: userMessage,
+          elementInfo: elementData,
+          projectId: currentWorkstation.id,
           workstationId: currentWorkstation.id,
+          userEmail: userId,
+          username: username,
           element: elementData,
           message: userMessage,
           history: historyToSend,
           selectedModel: 'claude-sonnet-4'
         }));
       });
+
 
     } catch (error: any) {
       console.error('❌ Inspect request failed:', error);
@@ -1333,7 +1395,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               ) : (
                 // Server running - show WebView
                 <>
-                  {isLoading && (
+                  {/* Show loading spinner until WebView is ready */}
+                  {(!webViewReady || isLoading) && (
                     <View style={styles.loadingContainer}>
                       <ActivityIndicator size="large" color={AppColors.primary} />
                       <Text style={styles.loadingText}>Caricamento anteprima...</Text>
@@ -1357,8 +1420,45 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   )}
                   <WebView
                     ref={webViewRef}
-                    source={{ uri: currentPreviewUrl }}
-                    style={styles.webView}
+                    source={{
+                      uri: currentPreviewUrl,
+                      headers: {
+                        'Coder-Session-Token': coderToken || '',
+                        'session_token': coderToken || ''
+                      }
+                    }}
+                    style={[
+                      styles.webView,
+                      { opacity: webViewReady ? 1 : 0, position: webViewReady ? 'relative' : 'absolute' }
+                    ]}
+
+                    injectedJavaScriptBeforeContentLoaded={`
+                      (function() {
+                        const token = "${coderToken || ''}";
+                        if (token) {
+                          const cookieOptions = "; path=/; SameSite=Lax";
+                          document.cookie = "session_token=" + token + cookieOptions;
+                          document.cookie = "coder_session=" + token + cookieOptions;
+                          document.cookie = "coder_session_token=" + token + cookieOptions;
+                          console.log("🍪 Session cookies injected");
+
+                          // If we are at the login page, it means the initial request lacked cookies.
+                          // Setting cookies and reloading should fix it.
+                          if (window.location.pathname.includes('/login') && !window.__drapeReloaded) {
+                            window.__drapeReloaded = true;
+                            if (window.ReactNativeWebView) {
+                              window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                                type: 'AUTH_REDIRECT', 
+                                message: 'Detected login page, injecting cookies and reloading...' 
+                              }));
+                            }
+                            window.location.reload();
+                          }
+                        }
+                      })();
+                      true;
+                    `}
+
                     onLoadStart={(syntheticEvent) => {
                       const { nativeEvent } = syntheticEvent;
                       console.log('🔵 WebView load start:', nativeEvent.url);
@@ -1420,16 +1520,29 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       setIsLoading(false);
                     }}
                     onLoadProgress={({ nativeEvent }) => {
-                      console.log('⏳ WebView progress:', nativeEvent.progress);
+                      if (nativeEvent.progress === 1) {
+                        setIsLoading(false);
+                      }
                     }}
                     onNavigationStateChange={(navState) => {
                       console.log('🧭 Navigation state:', navState.url, navState.loading);
                       setCanGoBack(navState.canGoBack);
                       setCanGoForward(navState.canGoForward);
+
+                      // Ensure isLoading is synced with navigation
+                      if (navState.loading) {
+                        setIsLoading(true);
+                      } else if (!navState.loading) {
+                        setIsLoading(false);
+                      }
                     }}
                     onMessage={(event) => {
                       try {
                         const data = JSON.parse(event.nativeEvent.data);
+
+                        if (data.type === 'AUTH_REDIRECT') {
+                          console.log('🔐 [Auth] ' + data.message);
+                        }
 
                         if (data.type === 'PAGE_INFO') {
                           console.log('📄 Page info:', data);
@@ -1439,7 +1552,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           console.log(`   Ready state: ${data.readyState}`);
                           console.log(`   Has bundle: ${data.hasBundle}`);
                           console.log(`   Scripts:`, data.scripts);
+
+                          // Mark WebView as ready if we have real content (scripts or children)
+                          if (data.scripts?.length > 0 || data.rootChildren > 0 || data.hasContent) {
+                            console.log('✅ WebView content verified, showing preview');
+                            setWebViewReady(true);
+                          }
                         }
+
 
                         if (data.type === 'JS_ERROR') {
                           // Ignore generic "Script error" CORS errors - they don't provide useful info
@@ -1513,7 +1633,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       const { nativeEvent } = syntheticEvent;
                       console.error('🔴 WebView HTTP error:', nativeEvent.statusCode);
                       console.error('   URL:', nativeEvent.url);
+
+                      // Auto-retry on 502 (Bad Gateway) - server might still be starting
+                      if (nativeEvent.statusCode === 502 && webViewRef.current) {
+                        console.log('🔄 502 detected, auto-retrying in 2s...');
+                        setTimeout(() => {
+                          if (webViewRef.current) {
+                            webViewRef.current.reload();
+                          }
+                        }, 2000);
+                      }
                     }}
+
                     javaScriptEnabled={true}
                     domStorageEnabled={true}
                     startInLoadingState={true}
@@ -1528,6 +1659,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     shouldRasterizeIOS={true}
                     cacheEnabled={true}
                     cacheMode="LOAD_CACHE_ELSE_NETWORK"
+                    sharedCookiesEnabled={true}
                   />
                 </>
               )}

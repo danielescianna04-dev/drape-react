@@ -16,6 +16,8 @@ const { streamInspectElement } = require('../services/ai-inspect');
 
 // Import Coder service (already instantiated)
 const coderService = require('../coder-service');
+const agentClient = require('../services/agent-client');
+
 
 // Server logs storage for SSE
 const serverLogsMap = new Map();
@@ -32,16 +34,24 @@ router.post('/start', asyncHandler(async (req, res) => {
     console.log(`\n🚀 Preview Start: ${workstationId}`);
 
     // User Identity Logic
-    const targetEmail = userEmail || 'daniele.scianna04@gmail.com';
-    // Generate valid username from email if not provided
-    const targetUsername = username || targetEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    let targetEmail = userEmail || 'daniele.scianna04@gmail.com';
+
+    // Fix: If userEmail is an ID (no @), create a fake email for Coder
+    if (!targetEmail.includes('@')) {
+        targetEmail = `${targetEmail}@drape.ide`;
+    }
+
+    // Generate valid username from email (or ID)
+    const rawName = username || targetEmail.split('@')[0];
+    const targetUsername = rawName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
     if (!workstationId) {
         return res.status(400).json({ error: 'workstationId is required' });
     }
 
-    // Clean workspace name
-    const wsName = cleanWorkspaceName(workstationId);
+    // Use the raw workstationId (e.g. "ws-abc123") as the workspace name directly
+    // This matches what is stored in Firestore by /workstation/create
+    const wsName = workstationId;
 
     // Ensure Coder user exists (Multi-User Support)
     console.log(`   User: ${targetEmail} (${targetUsername})`);
@@ -52,11 +62,30 @@ router.post('/start', asyncHandler(async (req, res) => {
     const workspace = await coderService.createWorkspace(coderUser.id, wsName, repositoryUrl);
     console.log(`   Workspace ID: ${workspace.id}`);
 
-    // Start if stopped
-    if (workspace.latest_build?.job?.status !== 'running') {
-        console.log('   Starting workspace...');
-        await coderService.startWorkspace(workspace.id);
+    // Start if stopped or build not succeeded
+    const buildStatus = workspace.latest_build?.job?.status;
+
+    // Define wsOwner early (needed for agent calls)
+    const wsOwner = coderUser.username;
+
+    if (buildStatus !== 'succeeded') {
+        if (buildStatus !== 'running' && buildStatus !== 'pending') {
+            console.log('   Starting workspace...');
+            await coderService.startWorkspace(workspace.id);
+        } else {
+            console.log(`   ⏳ Workspace build already in progress (${buildStatus})...`);
+        }
+
+        // Wait for workspace to be FULLY READY by checking the Agent
+        console.log('   ⏳ Waiting for workspace to be fully ready...');
+        const agentReady = await agentClient.waitForAgent(wsOwner, wsName, coderUser.id, 180000); // 3 min
+        if (!agentReady) {
+            console.warn('   ⚠️ Agent not ready after 3 minutes, proceeding with caution...');
+        } else {
+            console.log('   ✅ Workspace agent is ready!');
+        }
     }
+
 
     // Get local IP for URLs
     const { getLocalIP } = require('../utils/helpers');
@@ -67,29 +96,40 @@ router.post('/start', asyncHandler(async (req, res) => {
     const apiBase = `http://${LOCAL_IP}:${PORT}`;
     const wildcardDomain = CODER_WILDCARD_DOMAIN;
 
-    // Use the actual username from Coder (might differ if sanitized)
-    const wsOwner = coderUser.username;
+    // wsOwner already defined above
 
     const vscodeUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/vscode/?folder=/home/coder`;
-    const previewUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/preview/`;
+
     const devUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/dev/`;
+    const previewUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/preview/`;
 
     // Try to detect project type
     let projectInfo = { type: 'unknown', defaultPort: 3000 };
 
-    // Clone repo if needed - use GitHub token for authentication
+    // Clone repo if needed
     if (repositoryUrl) {
         try {
-            // Build authenticated URL if token is provided
             let cloneUrl = repositoryUrl;
-            if (githubToken && repositoryUrl.includes('github.com')) {
-                // Convert https://github.com/user/repo.git to https://TOKEN@github.com/user/repo.git
-                cloneUrl = repositoryUrl.replace('https://github.com', `https://${githubToken}@github.com`);
-                console.log('   Using authenticated clone URL');
+            if (githubToken && repositoryUrl.includes('github.com') && !repositoryUrl.includes('@')) {
+                // Inject token for private repos: https://token@github.com/...
+                cloneUrl = repositoryUrl.replace('https://', `https://${githubToken}@`);
             }
-            await runInWorkspace(wsName, `test -d /home/coder/project/.git || git clone ${cloneUrl} /home/coder/project`);
+
+            console.log(`   Preparing workspace project: ${wsName}...`);
+
+            // Clone via Drape Agent (NO SSH FALLBACK)
+            console.log('   🚀 Executing clone via Drape Agent...');
+            const prepareCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project; else cd /home/coder/project && (git pull || echo "Pull skipped"); fi`;
+
+            const result = await agentClient.exec(wsOwner, wsName, coderUser.id, prepareCmd);
+            if (result.exitCode === 0) {
+                console.log('   ✅ Repository ready.');
+            } else {
+                console.warn('   ⚠️ Clone issue:', result.stderr || result.stdout);
+            }
+
         } catch (e) {
-            console.log('   Clone warning:', e.message);
+            console.error('   Clone error:', e.message);
         }
     }
 
@@ -97,27 +137,66 @@ router.post('/start', asyncHandler(async (req, res) => {
     let files = [];
     let configFilesContent = {};
     try {
-        const lsResult = await runInWorkspace(wsName, 'find /home/coder/project -maxdepth 2 -not -path "*/.*" -not -path "*/node_modules/*"');
+        // List files via Agent (NO SSH)
+        const lsResult = await agentClient.exec(wsOwner, wsName, coderUser.id, 'find /home/coder/project -maxdepth 2 -not -path "*/.*" -not -path "*/node_modules/*"');
+
         if (lsResult.stdout) {
             files = lsResult.stdout.split('\n')
                 .map(f => f.replace('/home/coder/project/', ''))
                 .filter(f => f.trim() && f !== '/home/coder/project');
         }
 
+        // FALLBACK: If no files found in workspace, try Firestore
+        if (files.length === 0 && workstationId) {
+            console.log('   ⚠️ No files in workspace, trying Firestore fallback...');
+            try {
+                const admin = require('firebase-admin');
+                const db = admin.firestore();
+                // Query by workstationId field since document ID (projectId) might be case-sensitive
+                const snapshot = await db.collection('workstation_files')
+                    .where('workstationId', '==', workstationId)
+                    .limit(1)
+                    .get();
+
+                if (!snapshot.empty) {
+                    const doc = snapshot.docs[0];
+                    if (doc.data().files) {
+                        files = doc.data().files;
+                        console.log(`   📂 Loaded ${files.length} files from Firestore (via workstationId query)`);
+                    }
+                } else {
+                    // Legacy fallback: try ID directly (just in case)
+                    const projectId = workstationId.replace(/^ws-/, '');
+                    const doc = await db.collection('workstation_files').doc(projectId).get();
+                    if (doc.exists && doc.data().files) {
+                        files = doc.data().files;
+                        console.log(`   📂 Loaded ${files.length} files from Firestore (via ID)`);
+                    }
+                }
+
+            } catch (fsError) {
+                console.error('   Firestore fallback failed:', fsError.message);
+            }
+        }
+
         // Read key config files for AI
         const configFiles = ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'pom.xml', 'compose.yml', 'Dockerfile', 'app.json'];
         for (const file of configFiles) {
             if (files.includes(file) || files.some(f => f.endsWith(file))) {
-                const content = await runInWorkspace(wsName, `cat /home/coder/project/${file} 2>/dev/null | head -n 50`);
+                const content = await agentClient.exec(wsOwner, wsName, coderUser.id, `cat /home/coder/project/${file} 2>/dev/null | head -n 50`);
                 if (content.stdout) {
                     configFilesContent[file] = content.stdout;
                 }
             }
         }
 
+        console.log(`   📂 Files found: ${files.length}, configs: ${Object.keys(configFilesContent).join(', ') || 'none'}`);
+
         // 1. Try AI Analysis first (It's 2025, let's trust AI)
         const { analyzeProjectWithAI } = require('../services/project-analyzer');
+
         const aiResult = await analyzeProjectWithAI(files, configFilesContent);
+
 
         if (aiResult) {
             projectInfo = aiResult;
@@ -143,46 +222,154 @@ router.post('/start', asyncHandler(async (req, res) => {
 
     const isStatic = projectInfo.type === 'static' || projectInfo.type === 'html';
 
-    // ============================================
-    // EXECUTE SERVER STARTUP (for non-static sites)
-    // ============================================
-    let serverStarted = false;
+    // AUTO-START SERVER LOGIC
     if (!isStatic && projectInfo.startCommand) {
-        console.log('🚀 Starting dev server in workspace...');
+        console.log(`🚀 Starting server for ${wsName}...`);
 
-        try {
-            // 1. Install dependencies if node_modules doesn't exist
-            const hasNodeModules = await runInWorkspace(wsName, 'test -d /home/coder/project/node_modules && echo "yes" || echo "no"');
-            if (hasNodeModules.stdout.trim() === 'no') {
-                console.log('   📦 Installing dependencies...');
-                const installCmd = projectInfo.installCommand || 'npm install';
-                await runInWorkspace(wsName, `cd /home/coder/project && ${installCmd}`);
-                console.log('   ✅ Dependencies installed');
+        // 1. Run install command if needed (e.g., node_modules missing)
+        if (projectInfo.type === 'node' || configFilesContent['package.json']) {
+            try {
+                const checkNodeModules = await agentClient.exec(wsOwner, wsName, coderUser.id, 'ls /home/coder/project/node_modules');
+
+                if (checkNodeModules.exitCode !== 0) {
+                    console.log('   Dependencies missing. Installing...');
+                    // Add a system log for the UI
+                    if (serverLogsMap.has(workstationId)) {
+                        serverLogsMap.get(workstationId).logs.push({
+                            id: `install-${Date.now()}`,
+                            content: 'Dependencies missing. Running install...',
+                            type: 'system',
+                            timestamp: new Date()
+                        });
+                    }
+
+                    const installCmd = `cd /home/coder/project && ${projectInfo.installCommand || 'npm install'}`;
+                    await agentClient.exec(wsOwner, wsName, coderUser.id, installCmd);
+                }
+            } catch (e) {
+                console.log('   Install step failed/skipped:', e.message);
             }
-
-            // 2. Kill any existing process on the port
-            const port = projectInfo.defaultPort || 3000;
-            await runInWorkspace(wsName, `fuser -k ${port}/tcp 2>/dev/null || true`);
-
-            // 3. Start the dev server in background with nohup
-            const startCmd = projectInfo.startCommand || 'npm run dev';
-            console.log(`   🎯 Starting server: ${startCmd}`);
-
-            // Use nohup to keep process running after SSH disconnects
-            // Redirect output to a log file for debugging
-            await runInWorkspace(wsName,
-                `cd /home/coder/project && nohup sh -c '${startCmd}' > /home/coder/server.log 2>&1 &`
-            );
-
-            console.log('   ✅ Server started in background');
-            serverStarted = true;
-
-            // 4. Wait a bit for server to start
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-        } catch (e) {
-            console.log('   ⚠️ Server start warning:', e.message);
         }
+
+        // 2. Start the server in background
+        // We use nohup and & to detach the process
+        // IMPORTANT: Always use port 3000 to match Coder template's "dev" app configuration
+        const port = 3000; // Force port 3000 regardless of AI detection
+
+        // Kill any existing server processes first to avoid port conflicts
+        console.log('   Cleaning up old server processes...');
+        const cleanupCmd = 'pkill -f "http.server" || true; pkill -f "node.*dev" || true; sleep 1';
+        await agentClient.exec(wsOwner, wsName, coderUser.id, cleanupCmd);
+
+        // Modify startCommand to use port 3000 if it's a static server
+        let startCmd = projectInfo.startCommand || 'npm run dev';
+        if (startCmd.includes('http.server')) {
+            // Python http.server - replace any port with 3000 and bind to all interfaces
+            startCmd = 'python3 -m http.server 3000 --bind 0.0.0.0';
+        } else if (startCmd.includes('serve')) {
+            // serve package - add port flag
+            startCmd = startCmd.replace(/(-p|--port)\s*\d+/g, '') + ' -l 3000';
+        }
+
+        // SMART CWD: Check if the project is inside a subdirectory (common with git clone)
+        let projectDir = '/home/coder/project';
+        try {
+            const lsCmd = 'ls -F /home/coder/project | grep "/" | head -n 2';
+            const lsOut = await agentClient.exec(wsOwner, wsName, coderUser.id, lsCmd);
+
+            const dirs = lsOut.stdout ? lsOut.stdout.trim().split('\n').filter(Boolean) : [];
+            // If we have exactly one directory and it's not hidden
+            if (dirs.length === 1) {
+                const subDir = dirs[0].replace('/', ''); // remove trailing slash
+                console.log(`   📂 Smart CWD: Detected subdirectory '${subDir}'. Entering...`);
+                projectDir = `/home/coder/project/${subDir}`;
+            }
+        } catch (e) {
+            console.warn('   Smart CWD check failed, staying in root:', e.message);
+        }
+
+        const fullStartCmd = `cd "${projectDir}" && export HOST=0.0.0.0 && export PORT=${port} && nohup ${startCmd} > /home/coder/server.log 2>&1 &`;
+        console.log(`   Executing: ${fullStartCmd}`);
+        await agentClient.exec(wsOwner, wsName, coderUser.id, fullStartCmd);
+
+
+
+        // 3. Start log tailing in background
+        const tailLogs = async () => {
+            let lastSize = 0;
+            const logFile = '/home/coder/server.log';
+
+            // Wait a bit for the file to be created
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            for (let i = 0; i < 100; i++) { // Tail for 5 minutes (100 * 3s)
+                try {
+                    const result = await agentClient.exec(wsOwner, wsName, coderUser.id, `tail -c +${lastSize + 1} ${logFile}`);
+                    if (result.stdout) {
+                        const newLogs = result.stdout.split('\n').filter(l => l.trim());
+                        if (serverLogsMap.has(workstationId)) {
+                            const entry = serverLogsMap.get(workstationId);
+                            newLogs.forEach(line => {
+                                const logItem = {
+                                    id: `app-${Date.now()}-${Math.random()}`,
+                                    content: line,
+                                    type: 'output',
+                                    timestamp: new Date()
+                                };
+                                entry.logs.push(logItem);
+                                // Notify listeners
+                                entry.listeners.forEach(res => {
+                                    res.write(`data: ${JSON.stringify(logItem)}\n\n`);
+                                });
+                            });
+                        }
+                        // Update lastSize based on what we read
+                        const sizeResult = await agentClient.exec(wsOwner, wsName, coderUser.id, `wc -c < ${logFile}`);
+                        lastSize = parseInt(sizeResult.stdout) || lastSize;
+                    }
+                } catch (e) { }
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                if (!serverLogsMap.has(workstationId)) break;
+            }
+        };
+        tailLogs();
+
+        // Add a system log for the UI
+        if (serverLogsMap.has(workstationId)) {
+            serverLogsMap.get(workstationId).logs.push({
+                id: `start-${Date.now()}`,
+                content: `Starting server with: ${projectInfo.startCommand}`,
+                type: 'system',
+                timestamp: new Date()
+            });
+        }
+    }
+
+    // Wait for server to be actually ready (avoid 502 in frontend)
+    const targetUrl = isStatic ? previewUrl : devUrl;
+    console.log(`   ⏳ Waiting for server to be ready at ${targetUrl}...`);
+
+    let serverReady = false;
+    for (let i = 0; i < 15; i++) { // Try for 30 seconds (15 * 2s)
+        try {
+            const axios = require('axios');
+            const response = await axios.get(targetUrl, {
+                timeout: 5000,
+                validateStatus: (status) => status < 500 // Accept anything that isn't 5xx
+            });
+            if (response.status < 500) {
+                serverReady = true;
+                console.log(`   ✅ Server ready! Status: ${response.status}`);
+                break;
+            }
+        } catch (e) {
+            // Server not ready yet, continue waiting
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    if (!serverReady) {
+        console.log('   ⚠️ Server health check timeout, returning anyway');
     }
 
     res.json({
@@ -199,36 +386,12 @@ router.post('/start', asyncHandler(async (req, res) => {
             install: projectInfo.installCommand || 'npm install',
             start: projectInfo.startCommand || 'npm run dev'
         },
-        serverStarted: serverStarted,
         timing: { totalMs: Date.now() - startTime },
-        isCloudWorkstation: true
+        isCloudWorkstation: true,
+        coderToken: await coderService.createUserToken(coderUser.id)
     });
 }));
-
-/**
- * Run command in workspace helper
- */
-async function runInWorkspace(wsName, command) {
-    const CODER_CLI_PATH = process.env.CODER_CLI_PATH || 'coder';
-    const escapedCmd = command.replace(/'/g, "'\\''");
-    const sshCmd = `ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 -o ProxyCommand="${CODER_CLI_PATH} ssh --stdio ${wsName}" coder.${wsName} '${escapedCmd}'`;
-
-    try {
-        const { stdout, stderr } = await execAsync(sshCmd, {
-            env: { ...process.env },
-            timeout: 30000,
-            maxBuffer: 10 * 1024 * 1024
-        });
-        return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode: 0 };
-    } catch (error) {
-        return {
-            stdout: error.stdout?.toString().trim() || '',
-            stderr: error.stderr?.toString().trim() || error.message,
-            exitCode: error.code || 1
-        };
-    }
-}
-
+// SSH fallback removed - using Agent-only architecture for performance
 /**
  * GET /preview/logs/:workstationId
  * SSE stream for server logs
@@ -380,6 +543,70 @@ router.post('/inspect', asyncHandler(async (req, res) => {
 
     res.write('data: [DONE]\n\n');
     res.end();
+}));
+
+/**
+ * GET /preview/expo-qr/:workstationId
+ * Generate Expo Go QR code for React Native projects
+ */
+router.get('/expo-qr/:workstationId', asyncHandler(async (req, res) => {
+    const { workstationId } = req.params;
+    const { userId, username } = req.query;
+
+    if (!userId || !username) {
+        return res.status(400).json({ error: 'userId and username required' });
+    }
+
+    const wsName = cleanWorkspaceName(workstationId);
+    const wsOwner = username.toLowerCase();
+
+    // Expo typically runs on port 8081
+    const expoUrl = `exp://${CODER_API_URL.replace(/https?:\/\//, '')}/@${wsOwner}/${wsName}/apps/expo`;
+    const expoLanUrl = `exp://192.168.1.1:8081`; // LAN fallback
+
+    // Generate QR code as data URL (simple implementation)
+    // In production, use a QR library like 'qrcode'
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(expoUrl)}`;
+
+    res.json({
+        success: true,
+        expoUrl,
+        expoLanUrl,
+        qrCodeUrl: qrApiUrl,
+        instructions: [
+            '1. Install Expo Go on your phone',
+            '2. Scan this QR code with Expo Go',
+            '3. The app will load on your device'
+        ]
+    });
+}));
+
+/**
+ * GET /preview/context/:workstationId
+ * Get full project context for AI
+ */
+router.get('/context/:workstationId', asyncHandler(async (req, res) => {
+    const { workstationId } = req.params;
+    const { userId, username } = req.query;
+
+    if (!userId || !username) {
+        return res.status(400).json({ error: 'userId and username required' });
+    }
+
+    const wsName = cleanWorkspaceName(workstationId);
+    const wsOwner = username.toLowerCase();
+
+    // Get user
+    const sanitizedEmail = `${userId}@drape.ide`;
+    const coderUser = await coderService.ensureUser(sanitizedEmail, wsOwner);
+
+    // Get project context
+    const context = await agentClient.getProjectContext(wsOwner, wsName, coderUser.id);
+
+    res.json({
+        success: true,
+        projectContext: context
+    });
 }));
 
 module.exports = router;

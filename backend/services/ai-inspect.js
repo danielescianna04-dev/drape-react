@@ -15,22 +15,24 @@ const { DEFAULT_AI_MODEL } = require('../utils/constants');
 /**
  * System message for inspect mode
  */
-const INSPECT_SYSTEM_MESSAGE = `You are an expert UI/UX developer analyzing a selected element in a mobile app.
+const INSPECT_SYSTEM_MESSAGE = `Sei un esperto sviluppatore UI/UX che analizza elementi selezionati in un'app web.
 
-Your task: Analyze the selected element and help the user modify it.
+RISPONDI SEMPRE IN ITALIANO.
 
-IMPORTANT RULES:
-1. First, understand what element was selected from the context
-2. Use the glob_files tool to find relevant files (React Native components, styles, etc.)
-3. Use read_file to examine the specific component code
-4. Identify where the element is defined and styled
-5. Suggest or apply modifications based on the user's request
-6. Use edit_file to make changes when asked
+Il tuo compito: Analizza l'elemento selezionato e aiuta l'utente a modificarlo.
 
-When making changes:
-- Be precise with your file edits
-- Match the existing code style
-- Test your changes make sense syntactically`;
+REGOLE:
+1. Usa glob_files per trovare i file rilevanti (componenti, stili, ecc.)
+2. Usa read_file per esaminare il codice
+3. Identifica dove l'elemento è definito e stilizzato
+4. Usa edit_file per applicare le modifiche richieste
+5. Sii diretto e conciso nelle risposte
+
+Quando modifichi:
+- Sii preciso con le modifiche ai file
+- Mantieni lo stile del codice esistente
+- Dopo ogni modifica, conferma cosa hai fatto`;
+
 
 /**
  * Analyze a UI element and suggest modifications
@@ -224,7 +226,8 @@ async function* streamInspectElement(params) {
                 fullText += chunk.text;
                 yield { type: 'text', text: chunk.text };
             } else if (chunk.type === 'tool_start') {
-                yield { type: 'tool_start', name: chunk.name };
+                yield { type: 'tool_start', tool: chunk.name };
+
             } else if (chunk.type === 'tool_call') {
                 toolCalls.push(chunk.toolCall);
                 yield { type: 'tool_input', tool: chunk.toolCall.name, input: chunk.toolCall.input };

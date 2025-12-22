@@ -6,13 +6,19 @@ const LOCAL_IP = process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.1.10';
 const LOCAL_URL = `http://${LOCAL_IP}:3000`;
 const LOCAL_WS_URL = `ws://${LOCAL_IP}:3000`;
 
+// Coder (workspace) URL
+const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'http://drape.info';
+
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production';
 
 export const config = {
   // Backend URLs
   apiUrl: process.env.EXPO_PUBLIC_API_URL || (isProduction ? PRODUCTION_URL : LOCAL_URL),
   wsUrl: process.env.EXPO_PUBLIC_WS_URL || (isProduction ? PRODUCTION_URL.replace('https://', 'wss://') : LOCAL_WS_URL),
-  
+
+  // Coder workspace URL (for Agent communication)
+  coderUrl: CODER_URL,
+
   // Endpoints
   endpoints: {
     health: '/health',
@@ -21,7 +27,7 @@ export const config = {
     terminal: '/terminal/execute',
     chat: '/ai/chat',
   },
-  
+
   // AI Models
   aiModels: {
     auto: 'auto',
@@ -29,20 +35,20 @@ export const config = {
     claude: 'claude-3',
     gemini: 'gemini-pro',
   },
-  
+
   // GitHub OAuth
   github: {
     clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || '',
     redirectUri: 'drape://github-callback',
   },
-  
+
   // Google Cloud Project
   googleCloud: {
     projectId: 'drape-mobile-ide',
     region: 'us-central1',
     repository: 'drape-repo',
   },
-  
+
   // Configuration
   settings: {
     enableLogging: !isProduction,

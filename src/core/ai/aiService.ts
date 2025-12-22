@@ -127,6 +127,58 @@ export class AIService {
       throw error;
     }
   }
+
+  /**
+   * Send message with full project context
+   * Fetches project files and key contents before sending to AI
+   */
+  async sendMessageWithContext(
+    messages: AIMessage[],
+    workstationId: string,
+    userId: string,
+    username: string,
+    model: string = 'auto'
+  ): Promise<AIResponse> {
+    try {
+      // Fetch project context from the agent
+      const contextResponse = await axios.get(
+        `${this.baseUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`,
+        { timeout: 10000 }
+      );
+
+      const context = contextResponse.data.projectContext || { files: [], contents: {} };
+
+      // Build context string
+      let contextStr = '';
+      if (context.files.length > 0) {
+        contextStr += `Project files:\n${context.files.slice(0, 30).join('\n')}\n\n`;
+      }
+      if (Object.keys(context.contents).length > 0) {
+        contextStr += `Key files content:\n${Object.entries(context.contents)
+          .map(([file, content]) => `--- ${file} ---\n${content}`)
+          .join('\n\n')}\n\n`;
+      }
+
+      // Prepend context to the last user message
+      const enhancedMessages = messages.map((msg, idx) => {
+        if (idx === messages.length - 1 && msg.role === 'user' && contextStr) {
+          return {
+            ...msg,
+            content: `[Project Context]\n${contextStr}\n[User Question]\n${msg.content}`
+          };
+        }
+        return msg;
+      });
+
+      console.log('🧠 [AI] Sending message with project context');
+      return this.sendMessage(enhancedMessages, model);
+
+    } catch (error) {
+      // If context fetch fails, send without context
+      console.warn('⚠️ [AI] Failed to get project context, sending without:', error);
+      return this.sendMessage(messages, model);
+    }
+  }
 }
 
 export const aiService = new AIService();

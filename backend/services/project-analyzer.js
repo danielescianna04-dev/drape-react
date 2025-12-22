@@ -6,7 +6,115 @@
 const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
 
+/**
+ * FAST PATH: Instant detection for common project types
+ * Skips AI entirely for well-known patterns
+ */
+function fastDetect(files, configFiles) {
+    const packageJson = configFiles['package.json'];
+
+    // Check for package.json patterns
+    if (packageJson) {
+        try {
+            const pkg = JSON.parse(packageJson);
+            const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+            const scripts = pkg.scripts || {};
+
+            // React (Vite or CRA)
+            if (deps.react) {
+                if (deps.vite || scripts.dev?.includes('vite')) {
+                    return {
+                        type: 'react-vite',
+                        description: 'React + Vite application',
+                        installCommand: 'npm install',
+                        startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                        defaultPort: 3000
+                    };
+                }
+                // Create React App
+                if (deps['react-scripts']) {
+                    return {
+                        type: 'react-cra',
+                        description: 'Create React App',
+                        installCommand: 'npm install',
+                        startCommand: 'PORT=3000 npm start',
+                        defaultPort: 3000
+                    };
+                }
+            }
+
+            // Vue
+            if (deps.vue) {
+                return {
+                    type: 'vue',
+                    description: 'Vue.js application',
+                    installCommand: 'npm install',
+                    startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                    defaultPort: 3000
+                };
+            }
+
+            // Next.js
+            if (deps.next) {
+                return {
+                    type: 'nextjs',
+                    description: 'Next.js application',
+                    installCommand: 'npm install',
+                    startCommand: 'PORT=3000 npm run dev',
+                    defaultPort: 3000
+                };
+            }
+
+            // Generic Node with dev script
+            if (scripts.dev) {
+                return {
+                    type: 'node',
+                    description: 'Node.js application',
+                    installCommand: 'npm install',
+                    startCommand: 'PORT=3000 npm run dev',
+                    defaultPort: 3000
+                };
+            }
+        } catch (e) {
+            // JSON parse failed, continue to AI
+        }
+    }
+
+    // Static site (HTML only)
+    if (files.some(f => f.endsWith('index.html')) && !configFiles['package.json']) {
+        return {
+            type: 'static',
+            description: 'Static HTML website',
+            installCommand: 'echo "No install needed"',
+            startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0',
+            defaultPort: 3000
+        };
+    }
+
+    // Python (Flask/Django)
+    if (configFiles['requirements.txt'] || files.some(f => f.endsWith('.py'))) {
+        if (files.some(f => f.includes('app.py') || f.includes('main.py'))) {
+            return {
+                type: 'python',
+                description: 'Python web application',
+                installCommand: 'pip install -r requirements.txt 2>/dev/null || true',
+                startCommand: 'python3 app.py || python3 main.py',
+                defaultPort: 3000
+            };
+        }
+    }
+
+    return null; // No fast match, use AI
+}
+
 async function analyzeProjectWithAI(files, configFiles = {}) {
+    // FAST PATH: Try instant detection first
+    const fastResult = fastDetect(files, configFiles);
+    if (fastResult) {
+        console.log(`⚡ Fast detected: ${fastResult.description}`);
+        return fastResult;
+    }
+
     console.log('🧠 AI analyzing project structure...');
 
     const prompt = `
@@ -26,9 +134,11 @@ Determine the following:
 4. Default Port (e.g. 3000, 8080, 5000). Look for port configurations in the files.
 5. Description (Short description of the stack).
 
-IMPORTANT: 
-- For 'Start Command', ensure it binds to 0.0.0.0 (host) if possible, so it's accessible externally.
-- If it's a static site (HTML/CSS only), user 'python3 -m http.server 8080' or similar.
+IMPORTANT RULES FOR PORTS & BINDING:
+- You MUST utilize port 3000 for dynamic web applications (React, Vue, Node, etc.). Add 'PORT=3000' to the command if necessary.
+- You MUST utilize port 8000 for static sites. Use 'python3 -m http.server 8000' explicitly.
+- The Start Command MUST bind to host 0.0.0.0 (e.g. --host 0.0.0.0). This is CRITICAL.
+- DO NOT use ports 8080, 5000 or others. Only 3000 and 8000 are exposed.
 
 Return ONLY a JSON object in this format (no markdown):
 {
