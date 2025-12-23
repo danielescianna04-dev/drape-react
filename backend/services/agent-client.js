@@ -53,26 +53,49 @@ class AgentClient {
     }
 
     /**
-     * Execute a shell command instantly
+     * Execute a shell command using the Agent Gateway
+     * The gateway runs in GKE and forwards requests directly to workspace pods
      */
     async exec(owner, wsName, userId, command, cwd = '/home/coder/project') {
         try {
-            const client = await this.getClient(owner, wsName, userId);
+            // Get admin token for API calls
+            const adminToken = process.env.CODER_SESSION_TOKEN;
 
-            // Call the agent's /exec endpoint
-            const res = await client.post('/exec', { command, cwd });
+            // First, get the workspace to find the workspace ID
+            const wsRes = await axios.get(`${this.coderUrl}/api/v2/workspaces`, {
+                params: { q: `name:${wsName}` },
+                headers: { 'Coder-Session-Token': adminToken }
+            });
+
+            const workspace = wsRes.data?.workspaces?.[0];
+            if (!workspace) {
+                throw new Error(`Workspace ${wsName} not found`);
+            }
+
+            // Get gateway URL from environment or use default
+            const gatewayUrl = process.env.AGENT_GATEWAY_URL || 'http://drape-agent-gateway.coder.svc.cluster.local';
+
+            // Call the gateway with workspace ID
+            const execUrl = `${gatewayUrl}/exec/${workspace.id}`;
+
+            console.log(`   🔗 Calling gateway: POST ${execUrl}`);
+
+            const res = await axios.post(execUrl,
+                { command: `cd ${cwd} 2>/dev/null; ${command}` },
+                {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 60000
+                }
+            );
 
             return {
                 stdout: res.data.stdout || '',
                 stderr: res.data.stderr || '',
-                exitCode: res.data.exitCode
+                exitCode: res.data.exitCode || (res.data.success ? 0 : 1)
             };
         } catch (error) {
-            // Handle Axios errors (connection refused, 404, etc)
             const msg = error.response?.data?.error || error.message;
             console.error(`🛑 Agent exec failed: ${msg}`);
-
-            // Return format compatible with old runInWorkspace
             return {
                 stdout: '',
                 stderr: `Agent Error: ${msg}`,

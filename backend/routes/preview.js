@@ -23,6 +23,104 @@ const agentClient = require('../services/agent-client');
 const serverLogsMap = new Map();
 
 /**
+ * POST /preview/clone
+ * Clone repository to workspace (called when opening a project)
+ * This ensures files are available for browsing before starting preview
+ */
+router.post('/clone', asyncHandler(async (req, res) => {
+    const { workstationId, repositoryUrl, githubToken } = req.body;
+
+    console.log(`\n📂 Clone Request: ${workstationId}`);
+    console.log(`   📦 Repository URL: ${repositoryUrl || '(NONE)'}`);
+
+    if (!workstationId) {
+        return res.status(400).json({ error: 'workstationId is required' });
+    }
+
+    if (!repositoryUrl) {
+        return res.status(400).json({ error: 'repositoryUrl is required', cloned: false });
+    }
+
+    // FORCE USER TO ADMIN (for now)
+    const targetEmail = 'daniele.scianna04@gmail.com';
+    const targetUsername = 'admin';
+
+    try {
+        // Ensure Coder user exists
+        const coderUser = await coderService.ensureUser(targetEmail, targetUsername);
+        const wsOwner = coderUser.username;
+        const wsName = workstationId;
+
+        // Get or create workspace
+        let workspace;
+        try {
+            workspace = await coderService.getWorkspaceByName(coderUser.id, wsName);
+            console.log(`   ✅ Workspace exists: ${wsName}`);
+        } catch (e) {
+            console.log(`   📦 Creating workspace: ${wsName}...`);
+            workspace = await coderService.createWorkspace(coderUser.id, wsName, repositoryUrl);
+        }
+
+        if (!workspace) {
+            return res.status(500).json({ error: 'Workspace not available', cloned: false });
+        }
+
+        // Make sure workspace is running
+        if (workspace.latest_build?.status === 'stopped') {
+            console.log(`   ▶️ Starting stopped workspace...`);
+            await coderService.startWorkspace(workspace.id);
+            // Wait a bit for workspace to start
+            await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+
+        // Prepare clone URL with token for private repos
+        let cloneUrl = repositoryUrl;
+        if (githubToken && repositoryUrl.includes('github.com') && !repositoryUrl.includes('@')) {
+            cloneUrl = repositoryUrl.replace('https://', `https://${githubToken}@`);
+        }
+
+        console.log(`   🚀 Cloning repository via Drape Agent...`);
+
+        // Clone the repo (or pull if already exists)
+        const cloneCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project 2>&1; else cd /home/coder/project && git pull 2>&1 || echo "Pull skipped"; fi`;
+
+        const result = await agentClient.exec(wsOwner, wsName, coderUser.id, cloneCmd);
+
+        if (result.exitCode === 0) {
+            console.log(`   ✅ Repository cloned successfully`);
+
+            // List files to return
+            const lsResult = await agentClient.exec(wsOwner, wsName, coderUser.id, 'find /home/coder/project -maxdepth 3 -not -path "*/.*" -not -path "*/node_modules/*" | head -100');
+            const files = (lsResult.stdout || '').split('\n')
+                .map(f => f.replace('/home/coder/project/', ''))
+                .filter(f => f.trim() && f !== '/home/coder/project');
+
+            return res.json({
+                success: true,
+                cloned: true,
+                filesCount: files.length,
+                message: 'Repository cloned successfully'
+            });
+        } else {
+            console.warn(`   ⚠️ Clone issue:`, result.stderr || result.stdout);
+            return res.json({
+                success: false,
+                cloned: false,
+                error: result.stderr || result.stdout || 'Clone failed',
+                message: 'Clone failed'
+            });
+        }
+    } catch (error) {
+        console.error(`   ❌ Clone error:`, error.message);
+        return res.status(500).json({
+            success: false,
+            cloned: false,
+            error: error.message
+        });
+    }
+}));
+
+/**
  * POST /preview/start
  * Start project preview
  */
@@ -32,41 +130,77 @@ router.post('/start', asyncHandler(async (req, res) => {
     const { workstationId, forceRefresh, githubToken, repositoryUrl, userEmail, username } = req.body;
 
     console.log(`\n🚀 Preview Start: ${workstationId}`);
+    console.log(`   📦 Repository URL received: ${repositoryUrl || '(NONE)'}`);
+    console.log(`   🔐 GitHub Token received: ${githubToken ? 'YES' : 'NO'}`);
 
-    // User Identity Logic
-    let targetEmail = userEmail || 'daniele.scianna04@gmail.com';
-
-    // Fix: If userEmail is an ID (no @), create a fake email for Coder
-    if (!targetEmail.includes('@')) {
-        targetEmail = `${targetEmail}@drape.ide`;
-    }
-
-    // Generate valid username from email (or ID)
-    const rawName = username || targetEmail.split('@')[0];
-    const targetUsername = rawName.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+    // FORCE USER TO ADMIN (Matching the workspace owner on Coder)
+    const targetEmail = 'daniele.scianna04@gmail.com';
+    const targetUsername = 'admin';
 
     if (!workstationId) {
         return res.status(400).json({ error: 'workstationId is required' });
     }
+
+    // FALLBACK: If repositoryUrl not provided, try to fetch from Firestore
+    let effectiveRepoUrl = repositoryUrl;
+    if (!effectiveRepoUrl && workstationId) {
+        try {
+            console.log('   🔍 Repository URL not provided, fetching from Firestore...');
+            const admin = require('firebase-admin');
+            const db = admin.firestore();
+
+            // Try to find the workstation document by ID
+            console.log(`   📂 Looking for document: workstations/${workstationId}`);
+            const wsDoc = await db.collection('workstations').doc(workstationId).get();
+            if (wsDoc.exists) {
+                const data = wsDoc.data();
+                console.log(`   📄 Document found! Keys: ${Object.keys(data).join(', ')}`);
+                effectiveRepoUrl = data.repositoryUrl || data.githubUrl || null;
+                console.log(`   ✅ Found repository URL in Firestore: ${effectiveRepoUrl || '(NONE)'}`);
+            } else {
+                console.log(`   ⚠️ Document not found by ID, trying query...`);
+                // Try querying by workstationId field
+                const snapshot = await db.collection('workstations')
+                    .where('id', '==', workstationId)
+                    .limit(1)
+                    .get();
+                if (!snapshot.empty) {
+                    const data = snapshot.docs[0].data();
+                    console.log(`   📄 Document found via query! Keys: ${Object.keys(data).join(', ')}`);
+                    effectiveRepoUrl = data.repositoryUrl || data.githubUrl || null;
+                    console.log(`   ✅ Found repository URL via query: ${effectiveRepoUrl || '(NONE)'}`);
+                } else {
+                    console.log(`   ❌ No document found in Firestore for workstationId: ${workstationId}`);
+                }
+            }
+        } catch (fsError) {
+            console.warn('   ⚠️ Could not fetch repository URL from Firestore:', fsError.message);
+        }
+    }
+
+    // Final log
+    console.log(`   📦 Effective Repository URL: ${effectiveRepoUrl || '(NONE - CLONE WILL BE SKIPPED)'}`);
+
 
     // Use the raw workstationId (e.g. "ws-abc123") as the workspace name directly
     // This matches what is stored in Firestore by /workstation/create
     const wsName = workstationId;
 
     // Ensure Coder user exists (Multi-User Support)
-    console.log(`   User: ${targetEmail} (${targetUsername})`);
+    console.log(`   User Identity Lookup: ${targetEmail} (Requested: ${targetUsername})`);
     const coderUser = await coderService.ensureUser(targetEmail, targetUsername);
 
+    // CRITICAL: Use username from Coder (should be 'admin')
+    const wsOwner = coderUser.username;
+    console.log(`   Authenticated as Coder user: ${wsOwner} (ID: ${coderUser.id})`);
+
     // Create or get workspace FOR THIS USER
-    console.log(`   Creating/getting workspace: ${wsName} for user ${coderUser.username}`);
+    console.log(`   Target Workspace: ${wsName} (Owner: ${wsOwner})`);
     const workspace = await coderService.createWorkspace(coderUser.id, wsName, repositoryUrl);
-    console.log(`   Workspace ID: ${workspace.id}`);
+    console.log(`   Workspace ID: ${workspace.id} (Real Owner ID: ${workspace.owner_id})`);
 
     // Start if stopped or build not succeeded
     const buildStatus = workspace.latest_build?.job?.status;
-
-    // Define wsOwner early (needed for agent calls)
-    const wsOwner = coderUser.username;
 
     if (buildStatus !== 'succeeded') {
         if (buildStatus !== 'running' && buildStatus !== 'pending') {
@@ -98,39 +232,48 @@ router.post('/start', asyncHandler(async (req, res) => {
 
     // wsOwner already defined above
 
-    const vscodeUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/vscode/?folder=/home/coder`;
+    // Use LOCAL backend as proxy (apiBase) so mobile devices can reach it
+    // The coderProxyMiddleware will forward /@... requests to Coder
+    const vscodeUrl = `${apiBase}/@${wsOwner}/${wsName}/apps/vscode/?folder=/home/coder`;
 
-    const devUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/dev/`;
-    const previewUrl = `${CODER_API_URL}/@${wsOwner}/${wsName}/apps/preview/`;
+    const devUrl = `${apiBase}/@${wsOwner}/${wsName}/apps/dev/`;
+    const previewUrl = `${apiBase}/@${wsOwner}/${wsName}/apps/dev/`;
 
     // Try to detect project type
     let projectInfo = { type: 'unknown', defaultPort: 3000 };
 
     // Clone repo if needed
-    if (repositoryUrl) {
+    if (effectiveRepoUrl) {
         try {
-            let cloneUrl = repositoryUrl;
-            if (githubToken && repositoryUrl.includes('github.com') && !repositoryUrl.includes('@')) {
+            let cloneUrl = effectiveRepoUrl;
+            if (githubToken && effectiveRepoUrl.includes('github.com') && !effectiveRepoUrl.includes('@')) {
                 // Inject token for private repos: https://token@github.com/...
-                cloneUrl = repositoryUrl.replace('https://', `https://${githubToken}@`);
+                cloneUrl = effectiveRepoUrl.replace('https://', `https://${githubToken}@`);
             }
 
-            console.log(`   Preparing workspace project: ${wsName}...`);
+            console.log(`   📂 Preparing workspace project: ${wsName}...`);
+            console.log(`   🔗 Clone URL: ${cloneUrl.includes('@') ? '[TOKEN HIDDEN]' : cloneUrl}`);
 
             // Clone via Drape Agent (NO SSH FALLBACK)
-            console.log('   🚀 Executing clone via Drape Agent...');
-            const prepareCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project; else cd /home/coder/project && (git pull || echo "Pull skipped"); fi`;
+            console.log('   🚀 Executing git clone via Drape Agent...');
+            const prepareCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project 2>&1; else cd /home/coder/project && (git pull 2>&1 || echo "Pull skipped"); fi`;
 
             const result = await agentClient.exec(wsOwner, wsName, coderUser.id, prepareCmd);
+            console.log(`   📋 Clone result - Exit: ${result.exitCode}`);
+            console.log(`   📋 Clone stdout: ${(result.stdout || '').substring(0, 500)}`);
+            console.log(`   📋 Clone stderr: ${(result.stderr || '').substring(0, 500)}`);
+
             if (result.exitCode === 0) {
-                console.log('   ✅ Repository ready.');
+                console.log('   ✅ Repository cloned successfully!');
             } else {
                 console.warn('   ⚠️ Clone issue:', result.stderr || result.stdout);
             }
 
         } catch (e) {
-            console.error('   Clone error:', e.message);
+            console.error('   ❌ Clone error:', e.message);
         }
+    } else {
+        console.log('   ⏭️ No repository URL - skipping clone step');
     }
 
     // LIST FILES RECURSIVELY (Depth 2) to give context

@@ -9,6 +9,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useAuthStore } from '../../../core/auth/authStore';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { IconButton } from '../../../shared/components/atoms';
@@ -350,10 +351,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     try {
       // Get GitHub token for private repos
       const userId = useTerminalStore.getState().userId || 'anonymous';
+      // Get user email from auth store (not the Firebase UID!)
+      const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
       let githubToken: string | null = null;
 
-      if (currentWorkstation.repositoryUrl) {
-        const tokenResult = await gitAccountService.getTokenForRepo(userId, currentWorkstation.repositoryUrl);
+      // Use repositoryUrl OR githubUrl (fallback)
+      const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
+      console.log('📦 Repository URL to use:', repoUrl || '(NONE)');
+
+      if (repoUrl) {
+        const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
         githubToken = tokenResult?.token || null;
         console.log('🔐 Preview: GitHub token found:', !!githubToken);
       }
@@ -363,11 +370,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout (includes install)
 
-      // Clean username for Coder (from existing userId which is the email)
-      const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
+      // Clean username for Coder (from email, not UID!)
+      const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
       console.log('🚀 Calling /preview/start for workstation:', currentWorkstation.id);
-      console.log(`👤 User context: ${userId} (${username})`);
+      console.log(`👤 User context: ${userEmail} (${username})`);
 
       const response = await fetch(`${apiUrl}/preview/start`, {
         method: 'POST',
@@ -376,10 +383,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         },
         body: JSON.stringify({
           workstationId: currentWorkstation.id,
-          repositoryUrl: currentWorkstation.repositoryUrl,
+          repositoryUrl: repoUrl, // Use the fallback URL (repositoryUrl OR githubUrl)
           githubToken: githubToken,
-          // NEW: Send user identity
-          userEmail: userId,
+          // NEW: Send user identity (email, not UID!)
+          userEmail: userEmail,
           username: username
         }),
         signal: controller.signal,

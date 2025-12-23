@@ -77,7 +77,7 @@ router.post('/workstations',
                 status: workspace.latest_build?.job?.status || 'unknown',
                 urls: {
                     vscode: `${apiBase}/@${coderUser.username}/${wsName}/apps/vscode/?folder=/home/coder`,
-                    preview: `${apiBase}/@${coderUser.username}/${wsName}/apps/preview/`,
+                    preview: `${apiBase}/@${coderUser.username}/${wsName}/apps/dev/`,
                     dev: `${apiBase}/@${coderUser.username}/${wsName}/apps/dev/`
                 }
             }

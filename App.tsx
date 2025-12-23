@@ -28,6 +28,9 @@ import { VSCodeSidebar } from './src/features/terminal/components/VSCodeSidebar'
 import { FileViewer } from './src/features/terminal/components/FileViewer';
 import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
+import { config } from './src/config/config';
+import { useCloneStatusStore } from './src/core/clone/cloneStatusStore';
+import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 
 console.log('App.tsx loaded');
 
@@ -845,359 +848,387 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
       <SafeAreaProvider style={{ backgroundColor: '#000' }}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <NetworkConfigProvider>
-        <ErrorBoundary>
-        {currentScreen === 'home' && (
-          <Animated.View
-            key="home-screen"
-            entering={FadeIn.duration(300)}
-            exiting={FadeOut.duration(200)}
-            style={{ flex: 1 }}
-          >
-            <ProjectsHomeScreen
-              onCreateProject={() => setCurrentScreen('create')}
-              onImportProject={() => setShowImportModal(true)}
-              onMyProjects={() => setCurrentScreen('allProjects')}
-              onSettings={() => setCurrentScreen('settings')}
-              onOpenProject={async (workstation) => {
-                const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
+          <NetworkConfigProvider>
+            <ErrorBoundary>
+              {currentScreen === 'home' && (
+                <Animated.View
+                  key="home-screen"
+                  entering={FadeIn.duration(300)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <ProjectsHomeScreen
+                    onCreateProject={() => setCurrentScreen('create')}
+                    onImportProject={() => setShowImportModal(true)}
+                    onMyProjects={() => setCurrentScreen('allProjects')}
+                    onSettings={() => setCurrentScreen('settings')}
+                    onOpenProject={async (workstation) => {
+                      const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
-                // For Git projects, check auth BEFORE navigating
-                let authToken: string | null = null;
-                if (githubUrl) {
-                  console.log('🔐 [onOpenProject-Home] Checking auth BEFORE navigation...');
-                  authToken = await checkAuthBeforeOpen(
-                    githubUrl,
-                    workstation.name,
-                    workstation.githubAccountUsername
-                  );
+                      // For Git projects, check auth BEFORE navigating
+                      let authToken: string | null = null;
+                      if (githubUrl) {
+                        console.log('🔐 [onOpenProject-Home] Checking auth BEFORE navigation...');
+                        authToken = await checkAuthBeforeOpen(
+                          githubUrl,
+                          workstation.name,
+                          workstation.githubAccountUsername
+                        );
 
-                  // checkAuthBeforeOpen returns:
-                  // - token string: use this token
-                  // - empty string '': no token but proceed (public repo or will auth later)
-                  // - null: user cancelled auth (don't proceed)
-                  if (authToken === null) {
-                    console.log('🔐 [onOpenProject-Home] Auth cancelled, not navigating');
-                    return; // Don't navigate - user cancelled auth
-                  }
-                }
-
-                // Auth OK or not a git project - proceed with navigation
-                console.log('✅ [onOpenProject-Home] Auth OK, navigating to terminal...');
-
-                // Check if we're switching to a DIFFERENT project
-                const currentWorkstation = useTerminalStore.getState().currentWorkstation;
-                const isSameProject = currentWorkstation?.id === workstation.id ||
-                                      currentWorkstation?.projectId === workstation.projectId;
-
-                console.log('🔄 [onOpenProject-Home] isSameProject:', isSameProject,
-                  'current:', currentWorkstation?.id, 'new:', workstation.id);
-
-                // Only clear terminal items when switching to a DIFFERENT project
-                if (!isSameProject) {
-                  // Clear global terminal log
-                  clearGlobalTerminalLog();
-
-                  // Find the most recent chat for this project
-                  const { chatHistory } = useTerminalStore.getState();
-                  const projectChats = chatHistory.filter(c =>
-                    c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
-                  );
-                  const mostRecentChat = projectChats.sort((a, b) =>
-                    new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
-                  )[0];
-
-                  const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
-
-                  if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
-                    // Load the most recent chat with its messages
-                    console.log('📥 [onOpenProject-Home] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
-                    if (preNavTabId) {
-                      updateTab(preNavTabId, {
-                        title: mostRecentChat.title,
-                        data: { chatId: mostRecentChat.id },
-                        terminalItems: mostRecentChat.messages
-                      });
-                    }
-                  } else {
-                    // No existing chat - clear items and start fresh
-                    console.log('🗑️ [onOpenProject-Home] Different project - clearing tab:', preNavTabId);
-                    if (preNavTabId) {
-                      clearTerminalItems(preNavTabId);
-                    }
-                  }
-                } else {
-                  console.log('✅ [onOpenProject-Home] Same project - preserving chat messages');
-                }
-
-                setWorkstation(workstation);
-                setCurrentScreen('terminal');
-
-                setTimeout(async () => {
-                  const { activeTabId, tabs } = useTabStore.getState();
-                  const currentTab = tabs.find(t => t.id === activeTabId);
-
-                  if (currentTab && githubUrl) {
-                    // Check if project is already cloned - skip clone if so
-                    if (workstation.cloned) {
-                      console.log('✅ [onOpenProject-Home] Project already cloned, skipping clone');
-                      // Don't add "loaded" message if same project - just preserve existing chat
-                      if (!isSameProject) {
-                        addTerminalItemToStore(currentTab.id, {
-                          id: `loaded-${Date.now()}`,
-                          type: 'system',
-                          content: `Progetto "${workstation.name}" caricato`,
-                          timestamp: new Date(),
-                        });
+                        // checkAuthBeforeOpen returns:
+                        // - token string: use this token
+                        // - empty string '': no token but proceed (public repo or will auth later)
+                        // - null: user cancelled auth (don't proceed)
+                        if (authToken === null) {
+                          console.log('🔐 [onOpenProject-Home] Auth cancelled, not navigating');
+                          return; // Don't navigate - user cancelled auth
+                        }
                       }
-                    } else {
-                      // Project not cloned yet - do the clone
-                      await cloneRepositoryWithAuth(
-                        workstation.projectId || workstation.id,
-                        githubUrl,
-                        currentTab.id,
-                        workstation.name,
-                        workstation.githubAccountUsername,
-                        authToken // Pass the pre-authenticated token
-                      );
-                    }
-                  }
-                }, 100);
-              }}
-            />
-          </Animated.View>
-        )}
 
-        {currentScreen === 'create' && (
-          <Animated.View
-            key="create-screen"
-            entering={SlideInRight.duration(300)}
-            exiting={FadeOut.duration(200)}
-            style={{ flex: 1 }}
-          >
-            <CreateProjectScreen
-              onBack={() => setCurrentScreen('home')}
-              onCreate={(workstation) => {
-                setWorkstation(workstation);
-                setCurrentScreen('terminal');
+                      // Auth OK or not a git project - proceed with navigation
+                      console.log('✅ [onOpenProject-Home] Auth OK, navigating to terminal...');
 
-                // Add welcome message to chat
-                setTimeout(() => {
-                  const { activeTabId, tabs } = useTabStore.getState();
-                  const currentTab = tabs.find(t => t.id === activeTabId);
+                      // Check if we're switching to a DIFFERENT project
+                      const currentWorkstation = useTerminalStore.getState().currentWorkstation;
+                      const isSameProject = currentWorkstation?.id === workstation.id ||
+                        currentWorkstation?.projectId === workstation.projectId;
 
-                  if (currentTab) {
-                    clearTerminalItems(currentTab.id);
-                    addTerminalItemToStore(currentTab.id, {
-                      id: `welcome-${Date.now()}`,
-                      type: 'system',
-                      content: `Project "${workstation.name}" created successfully!`,
-                      timestamp: new Date(),
-                    });
-                    addTerminalItemToStore(currentTab.id, {
-                      id: `info-${Date.now()}`,
-                      type: 'output',
-                      content: `Language: ${workstation.language || 'Not specified'}\nYou can start coding or ask the AI for help.`,
-                      timestamp: new Date(),
-                    });
-                  }
-                }, 100);
-              }}
-            />
-          </Animated.View>
-        )}
+                      console.log('🔄 [onOpenProject-Home] isSameProject:', isSameProject,
+                        'current:', currentWorkstation?.id, 'new:', workstation.id);
 
-        {currentScreen === 'terminal' && (
-          <Animated.View
-            key="terminal-screen"
-            entering={FadeIn.duration(400)}
-            exiting={FadeOut.duration(200)}
-            style={{ flex: 1 }}
-          >
-            <VSCodeSidebar
-              onExit={() => setCurrentScreen('home')}
-            >
-              {(tab, isCardMode, cardDimensions) => {
-                // Render different components based on tab type
-                if (tab.type === 'file') {
-                  return (
-                    <FileViewer
-                      visible={true}
-                      filePath={tab.data?.filePath || ''}
-                      projectId={tab.data?.projectId || ''}
-                      repositoryUrl={tab.data?.repositoryUrl}
-                      userId={tab.data?.userId || 'anonymous'}
-                      onClose={() => {}}
-                    />
-                  );
-                }
-
-                // Default to ChatPage for all other types
-                return (
-                  <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
-                );
-              }}
-            </VSCodeSidebar>
-          </Animated.View>
-        )}
-
-        {currentScreen === 'allProjects' && (
-          <Animated.View
-            key="all-projects-screen"
-            entering={SlideInRight.duration(300)}
-            exiting={FadeOut.duration(200)}
-            style={{ flex: 1 }}
-          >
-            <AllProjectsScreen
-              onClose={() => setCurrentScreen('home')}
-              onOpenProject={async (workstation) => {
-                const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
-
-                // For Git projects, check auth BEFORE navigating
-                let authToken: string | null = null;
-                if (githubUrl) {
-                  console.log('🔐 [onOpenProject-All] Checking auth BEFORE navigation...');
-                  authToken = await checkAuthBeforeOpen(
-                    githubUrl,
-                    workstation.name,
-                    workstation.githubAccountUsername
-                  );
-
-                  // checkAuthBeforeOpen returns:
-                  // - token string: use this token
-                  // - empty string '': no token but proceed (public repo or will auth later)
-                  // - null: user cancelled auth (don't proceed)
-                  if (authToken === null) {
-                    console.log('🔐 [onOpenProject-All] Auth cancelled, not navigating');
-                    return; // Don't navigate - user cancelled auth
-                  }
-                }
-
-                // Auth OK or not a git project - proceed with navigation
-                console.log('✅ [onOpenProject-All] Auth OK, navigating to terminal...');
-
-                // Check if we're switching to a DIFFERENT project
-                const currentWorkstation = useTerminalStore.getState().currentWorkstation;
-                const isSameProject = currentWorkstation?.id === workstation.id ||
-                                      currentWorkstation?.projectId === workstation.projectId;
-
-                console.log('🔄 [onOpenProject-All] isSameProject:', isSameProject,
-                  'current:', currentWorkstation?.id, 'new:', workstation.id);
-
-                // Only clear terminal items when switching to a DIFFERENT project
-                if (!isSameProject) {
-                  // Clear global terminal log
-                  clearGlobalTerminalLog();
-
-                  // Find the most recent chat for this project
-                  const { chatHistory } = useTerminalStore.getState();
-                  const projectChats = chatHistory.filter(c =>
-                    c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
-                  );
-                  const mostRecentChat = projectChats.sort((a, b) =>
-                    new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
-                  )[0];
-
-                  const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
-
-                  if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
-                    // Load the most recent chat with its messages
-                    console.log('📥 [onOpenProject-All] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
-                    if (preNavTabId) {
-                      updateTab(preNavTabId, {
-                        title: mostRecentChat.title,
-                        data: { chatId: mostRecentChat.id },
-                        terminalItems: mostRecentChat.messages
-                      });
-                    }
-                  } else {
-                    // No existing chat - clear items and start fresh
-                    console.log('🗑️ [onOpenProject-All] Different project - clearing tab:', preNavTabId);
-                    if (preNavTabId) {
-                      clearTerminalItems(preNavTabId);
-                    }
-                  }
-                } else {
-                  console.log('✅ [onOpenProject-All] Same project - preserving chat messages');
-                }
-
-                setWorkstation(workstation);
-                setCurrentScreen('terminal');
-
-                setTimeout(async () => {
-                  const { activeTabId, tabs } = useTabStore.getState();
-                  const currentTab = tabs.find(t => t.id === activeTabId);
-
-                  if (currentTab && githubUrl) {
-                    // Check if project is already cloned - skip clone if so
-                    if (workstation.cloned) {
-                      console.log('✅ [onOpenProject-All] Project already cloned, skipping clone');
-                      // Don't add "loaded" message if same project - just preserve existing chat
+                      // Only clear terminal items when switching to a DIFFERENT project
                       if (!isSameProject) {
-                        addTerminalItemToStore(currentTab.id, {
-                          id: `loaded-${Date.now()}`,
-                          type: 'system',
-                          content: `Progetto "${workstation.name}" caricato`,
-                          timestamp: new Date(),
-                        });
+                        // Clear global terminal log
+                        clearGlobalTerminalLog();
+
+                        // Find the most recent chat for this project
+                        const { chatHistory } = useTerminalStore.getState();
+                        const projectChats = chatHistory.filter(c =>
+                          c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
+                        );
+                        const mostRecentChat = projectChats.sort((a, b) =>
+                          new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+                        )[0];
+
+                        const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
+
+                        if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
+                          // Load the most recent chat with its messages
+                          console.log('📥 [onOpenProject-Home] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
+                          if (preNavTabId) {
+                            updateTab(preNavTabId, {
+                              title: mostRecentChat.title,
+                              data: { chatId: mostRecentChat.id },
+                              terminalItems: mostRecentChat.messages
+                            });
+                          }
+                        } else {
+                          // No existing chat - clear items and start fresh
+                          console.log('🗑️ [onOpenProject-Home] Different project - clearing tab:', preNavTabId);
+                          if (preNavTabId) {
+                            clearTerminalItems(preNavTabId);
+                          }
+                        }
+                      } else {
+                        console.log('✅ [onOpenProject-Home] Same project - preserving chat messages');
                       }
-                    } else {
-                      // Project not cloned yet - do the clone
-                      await cloneRepositoryWithAuth(
-                        workstation.projectId || workstation.id,
-                        githubUrl,
-                        currentTab.id,
-                        workstation.name,
-                        workstation.githubAccountUsername,
-                        authToken // Pass the pre-authenticated token
+
+                      setWorkstation(workstation);
+                      setCurrentScreen('terminal');
+
+                      setTimeout(async () => {
+                        const { activeTabId, tabs } = useTabStore.getState();
+                        const currentTab = tabs.find(t => t.id === activeTabId);
+
+                        if (currentTab && githubUrl) {
+                          // Start clone status tracking
+                          const repoName = githubUrl.split('/').pop()?.replace('.git', '') || 'repository';
+                          useCloneStatusStore.getState().startClone(workstation.id, repoName);
+
+                          // ALWAYS trigger clone to ensure files are in Coder workspace
+                          // This is a background operation that doesn't block the UI
+                          console.log('📂 [onOpenProject-Home] Triggering clone to sync files...');
+                          fetch(`${config.apiUrl}/preview/clone`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              workstationId: workstation.id,
+                              repositoryUrl: githubUrl,
+                              githubToken: authToken || null,
+                            }),
+                          }).then(r => r.json()).then(result => {
+                            if (result.success) {
+                              console.log('✅ [Clone] Files synced to workspace');
+                              useCloneStatusStore.getState().completeClone(workstation.id);
+                              // Clear file cache so it refreshes with new files
+                              useFileCacheStore.getState().clearCache(workstation.id);
+                            } else {
+                              console.warn('⚠️ [Clone] Sync issue:', result.error || result.message);
+                              useCloneStatusStore.getState().failClone(workstation.id, result.error || result.message);
+                            }
+                          }).catch(e => {
+                            console.warn('Clone sync error:', e.message);
+                            useCloneStatusStore.getState().failClone(workstation.id, e.message);
+                          });
+
+                          // Show loaded message
+                          if (!isSameProject) {
+                            addTerminalItemToStore(currentTab.id, {
+                              id: `loaded-${Date.now()}`,
+                              type: 'system',
+                              content: `Progetto "${workstation.name}" caricato`,
+                              timestamp: new Date(),
+                            });
+                          }
+
+                          // If not marked as cloned, do the full clone with auth
+                          if (!workstation.cloned) {
+                            await cloneRepositoryWithAuth(
+                              workstation.projectId || workstation.id,
+                              githubUrl,
+                              currentTab.id,
+                              workstation.name,
+                              workstation.githubAccountUsername,
+                              authToken // Pass the pre-authenticated token
+                            );
+                          }
+                        }
+                      }, 100);
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {currentScreen === 'create' && (
+                <Animated.View
+                  key="create-screen"
+                  entering={SlideInRight.duration(300)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <CreateProjectScreen
+                    onBack={() => setCurrentScreen('home')}
+                    onCreate={(workstation) => {
+                      setWorkstation(workstation);
+                      setCurrentScreen('terminal');
+
+                      // Add welcome message to chat
+                      setTimeout(() => {
+                        const { activeTabId, tabs } = useTabStore.getState();
+                        const currentTab = tabs.find(t => t.id === activeTabId);
+
+                        if (currentTab) {
+                          clearTerminalItems(currentTab.id);
+                          addTerminalItemToStore(currentTab.id, {
+                            id: `welcome-${Date.now()}`,
+                            type: 'system',
+                            content: `Project "${workstation.name}" created successfully!`,
+                            timestamp: new Date(),
+                          });
+                          addTerminalItemToStore(currentTab.id, {
+                            id: `info-${Date.now()}`,
+                            type: 'output',
+                            content: `Language: ${workstation.language || 'Not specified'}\nYou can start coding or ask the AI for help.`,
+                            timestamp: new Date(),
+                          });
+                        }
+                      }, 100);
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {currentScreen === 'terminal' && (
+                <Animated.View
+                  key="terminal-screen"
+                  entering={FadeIn.duration(400)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <VSCodeSidebar
+                    onExit={() => setCurrentScreen('home')}
+                  >
+                    {(tab, isCardMode, cardDimensions) => {
+                      // Render different components based on tab type
+                      if (tab.type === 'file') {
+                        return (
+                          <FileViewer
+                            visible={true}
+                            filePath={tab.data?.filePath || ''}
+                            projectId={tab.data?.projectId || ''}
+                            repositoryUrl={tab.data?.repositoryUrl}
+                            userId={tab.data?.userId || 'anonymous'}
+                            onClose={() => { }}
+                          />
+                        );
+                      }
+
+                      // Default to ChatPage for all other types
+                      return (
+                        <ChatPage tab={tab} isCardMode={isCardMode} cardDimensions={cardDimensions} />
                       );
-                    }
-                  }
-                }, 100);
-              }}
-            />
-          </Animated.View>
-        )}
+                    }}
+                  </VSCodeSidebar>
+                </Animated.View>
+              )}
 
-        {currentScreen === 'settings' && (
-          <Animated.View
-            key="settings-screen"
-            entering={SlideInRight.duration(300)}
-            exiting={FadeOut.duration(200)}
-            style={{ flex: 1 }}
-          >
-            <SettingsScreen
-              onClose={() => setCurrentScreen('home')}
-            />
-          </Animated.View>
-        )}
-      </ErrorBoundary>
-      </NetworkConfigProvider>
-      </View>
+              {currentScreen === 'allProjects' && (
+                <Animated.View
+                  key="all-projects-screen"
+                  entering={SlideInRight.duration(300)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <AllProjectsScreen
+                    onClose={() => setCurrentScreen('home')}
+                    onOpenProject={async (workstation) => {
+                      const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
-      <ImportGitHubModal
-        visible={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        onImport={handleImportRepo}
-        isLoading={isImporting}
-      />
-      <GitHubAuthModal
-        visible={showAuthModal}
-        onClose={() => {
-          setShowAuthModal(false);
-          setPendingRepoUrl('');
-        }}
-        onAuthenticated={(token) => {
-          setShowAuthModal(false);
-          if (pendingRepoUrl) {
-            handleImportRepo(pendingRepoUrl, token);
+                      // For Git projects, check auth BEFORE navigating
+                      let authToken: string | null = null;
+                      if (githubUrl) {
+                        console.log('🔐 [onOpenProject-All] Checking auth BEFORE navigation...');
+                        authToken = await checkAuthBeforeOpen(
+                          githubUrl,
+                          workstation.name,
+                          workstation.githubAccountUsername
+                        );
+
+                        // checkAuthBeforeOpen returns:
+                        // - token string: use this token
+                        // - empty string '': no token but proceed (public repo or will auth later)
+                        // - null: user cancelled auth (don't proceed)
+                        if (authToken === null) {
+                          console.log('🔐 [onOpenProject-All] Auth cancelled, not navigating');
+                          return; // Don't navigate - user cancelled auth
+                        }
+                      }
+
+                      // Auth OK or not a git project - proceed with navigation
+                      console.log('✅ [onOpenProject-All] Auth OK, navigating to terminal...');
+
+                      // Check if we're switching to a DIFFERENT project
+                      const currentWorkstation = useTerminalStore.getState().currentWorkstation;
+                      const isSameProject = currentWorkstation?.id === workstation.id ||
+                        currentWorkstation?.projectId === workstation.projectId;
+
+                      console.log('🔄 [onOpenProject-All] isSameProject:', isSameProject,
+                        'current:', currentWorkstation?.id, 'new:', workstation.id);
+
+                      // Only clear terminal items when switching to a DIFFERENT project
+                      if (!isSameProject) {
+                        // Clear global terminal log
+                        clearGlobalTerminalLog();
+
+                        // Find the most recent chat for this project
+                        const { chatHistory } = useTerminalStore.getState();
+                        const projectChats = chatHistory.filter(c =>
+                          c.repositoryId === workstation.id || c.repositoryId === workstation.projectId
+                        );
+                        const mostRecentChat = projectChats.sort((a, b) =>
+                          new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()
+                        )[0];
+
+                        const { activeTabId: preNavTabId, updateTab } = useTabStore.getState();
+
+                        if (mostRecentChat && mostRecentChat.messages && mostRecentChat.messages.length > 0) {
+                          // Load the most recent chat with its messages
+                          console.log('📥 [onOpenProject-All] Loading recent chat:', mostRecentChat.id, 'with', mostRecentChat.messages.length, 'messages');
+                          if (preNavTabId) {
+                            updateTab(preNavTabId, {
+                              title: mostRecentChat.title,
+                              data: { chatId: mostRecentChat.id },
+                              terminalItems: mostRecentChat.messages
+                            });
+                          }
+                        } else {
+                          // No existing chat - clear items and start fresh
+                          console.log('🗑️ [onOpenProject-All] Different project - clearing tab:', preNavTabId);
+                          if (preNavTabId) {
+                            clearTerminalItems(preNavTabId);
+                          }
+                        }
+                      } else {
+                        console.log('✅ [onOpenProject-All] Same project - preserving chat messages');
+                      }
+
+                      setWorkstation(workstation);
+                      setCurrentScreen('terminal');
+
+                      setTimeout(async () => {
+                        const { activeTabId, tabs } = useTabStore.getState();
+                        const currentTab = tabs.find(t => t.id === activeTabId);
+
+                        if (currentTab && githubUrl) {
+                          // Check if project is already cloned - skip clone if so
+                          if (workstation.cloned) {
+                            console.log('✅ [onOpenProject-All] Project already cloned, skipping clone');
+                            // Don't add "loaded" message if same project - just preserve existing chat
+                            if (!isSameProject) {
+                              addTerminalItemToStore(currentTab.id, {
+                                id: `loaded-${Date.now()}`,
+                                type: 'system',
+                                content: `Progetto "${workstation.name}" caricato`,
+                                timestamp: new Date(),
+                              });
+                            }
+                          } else {
+                            // Project not cloned yet - do the clone
+                            await cloneRepositoryWithAuth(
+                              workstation.projectId || workstation.id,
+                              githubUrl,
+                              currentTab.id,
+                              workstation.name,
+                              workstation.githubAccountUsername,
+                              authToken // Pass the pre-authenticated token
+                            );
+                          }
+                        }
+                      }, 100);
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {currentScreen === 'settings' && (
+                <Animated.View
+                  key="settings-screen"
+                  entering={SlideInRight.duration(300)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <SettingsScreen
+                    onClose={() => setCurrentScreen('home')}
+                  />
+                </Animated.View>
+              )}
+            </ErrorBoundary>
+          </NetworkConfigProvider>
+        </View>
+
+        <ImportGitHubModal
+          visible={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onImport={handleImportRepo}
+          isLoading={isImporting}
+        />
+        <GitHubAuthModal
+          visible={showAuthModal}
+          onClose={() => {
+            setShowAuthModal(false);
             setPendingRepoUrl('');
-          }
-        }}
-      />
-      <GitAuthPopup />
-      <StatusBar style="light" />
-    </SafeAreaProvider>
+          }}
+          onAuthenticated={(token) => {
+            setShowAuthModal(false);
+            if (pendingRepoUrl) {
+              handleImportRepo(pendingRepoUrl, token);
+              setPendingRepoUrl('');
+            }
+          }}
+        />
+        <GitAuthPopup />
+        <StatusBar style="light" />
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

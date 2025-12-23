@@ -6,6 +6,7 @@ import { workstationService } from '../../../core/workstation/workstationService
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -65,8 +66,17 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     }
   }, [searchQuery, searchMode, projectId, repositoryUrl]);
 
-  const loadFiles = async () => {
+  const loadFiles = async (forceRefresh = false) => {
     try {
+      // Check cache first (unless force refresh)
+      const cachedFiles = useFileCacheStore.getState().getFiles(projectId);
+      if (cachedFiles && !forceRefresh) {
+        console.log(`📁 [FileExplorer] Using cached files (${cachedFiles.length})`);
+        setFiles(cachedFiles);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
@@ -97,6 +107,10 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl, gitToken || undefined);
       console.log('📂 Files received from backend:', fileList.length);
       console.log('📂 First 10 files:', fileList.slice(0, 10));
+
+      // Save to cache
+      useFileCacheStore.getState().setFiles(projectId, fileList, repositoryUrl);
+
       setFiles(fileList);
     } catch (err: any) {
       console.error('Error loading files:', err);

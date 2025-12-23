@@ -34,11 +34,30 @@ class CoderService {
     }
 
     /**
+     * Get user by username
+     */
+    async getUserByUsername(username) {
+        try {
+            const res = await this.client.get('/api/v2/users', {
+                params: { q: username }
+            });
+            const users = res.data?.users || res.data || [];
+            return users.find(u => u.username === username);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
      * Create or get a Coder user for the given email
-      */
+     */
     async ensureUser(email, username) {
         try {
-            // Search for user
+            // First try by username since that's more reliable in our setup
+            const byName = await this.getUserByUsername(username);
+            if (byName) return byName;
+
+            // Search for user by email
             const searchRes = await this.client.get('/api/v2/users', {
                 params: { q: email }
             });

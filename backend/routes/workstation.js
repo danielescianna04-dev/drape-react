@@ -52,12 +52,53 @@ router.get('/:projectId/files', asyncHandler(async (req, res) => {
         }
     })();
 
-    // Check if directory exists
+    // Check if directory exists locally
+    let localDirExists = false;
     try {
         await fs.access(repoPath);
+        localDirExists = true;
     } catch {
+        // Directory doesn't exist locally - try to read from Coder workspace
+        console.log(`   📂 Local path not found, trying Coder workspace...`);
+
+        try {
+            const agentClient = require('../services/agent-client');
+            const coderService = require('../coder-service');
+
+            // Use admin user for now
+            const targetEmail = 'daniele.scianna04@gmail.com';
+            const targetUsername = 'admin';
+            const coderUser = await coderService.ensureUser(targetEmail, targetUsername);
+
+            // The workstationId might be the projectId itself (for Firestore-created workstations)
+            const wsName = projectId;
+
+            // Try to get files from Coder workspace
+            const lsResult = await agentClient.exec(coderUser.username, wsName, coderUser.id,
+                'find /home/coder/project -maxdepth 4 -type f -not -path "*/.*" -not -path "*/node_modules/*" 2>/dev/null | head -200');
+
+            if (lsResult.exitCode === 0 && lsResult.stdout) {
+                const files = lsResult.stdout.split('\n')
+                    .filter(f => f.trim() && f.includes('/home/coder/project/'))
+                    .map(f => {
+                        const relativePath = f.replace('/home/coder/project/', '');
+                        const name = relativePath.split('/').pop();
+                        return {
+                            name,
+                            type: 'file',
+                            path: relativePath
+                        };
+                    });
+
+                console.log(`   ✅ Found ${files.length} files in Coder workspace`);
+                return res.json({ success: true, files });
+            }
+        } catch (coderError) {
+            console.warn(`   ⚠️ Could not read from Coder workspace: ${coderError.message}`);
+        }
+
+        // Fallback to Firestore
         if (repositoryUrl) {
-            // Try to read files from Firestore (saved by /create endpoint)
             try {
                 const admin = require('firebase-admin');
                 const db = admin.firestore();

@@ -182,7 +182,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   };
 
   const handleOpenWorkstation = async (ws: any) => {
-    const repoUrl = ws.githubUrl || '';
+    const repoUrl = ws.repositoryUrl || ws.githubUrl || '';
 
     // If it's a git project, check auth BEFORE opening
     if (repoUrl) {
@@ -218,10 +218,32 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         console.error('Error checking visibility:', error);
         // Continue anyway - let FileExplorer handle the error
       }
+
+      // ✅ Clone repository in background so files are available
+      console.log('📂 Triggering clone for project files...');
+      try {
+        fetch(`${apiUrl}/preview/clone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workstationId: ws.id,
+            repositoryUrl: repoUrl,
+            githubToken: savedToken,
+          }),
+        }).then(res => res.json()).then(result => {
+          if (result.success) {
+            console.log('✅ Repository cloned, files available for browsing');
+          } else {
+            console.warn('⚠️ Clone result:', result.message || result.error);
+          }
+        }).catch(e => console.warn('Clone background error:', e.message));
+      } catch (e) {
+        console.warn('Failed to trigger clone:', e);
+      }
     }
 
     // Auth OK or not a git project - open it
-    console.log('✅ Auth OK, opening project');
+    console.log('✅ Opening project');
     setWorkstation(ws);
     setSelectedProjectId(ws.projectId || ws.id);
     setSelectedRepoUrl(repoUrl);

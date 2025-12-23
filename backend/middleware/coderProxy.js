@@ -117,6 +117,8 @@ async function proxyToCoder(req, res, appInfo = null) {
             headers['Host'] = wildcardDomain;
         }
 
+        console.log(`   Target: ${targetUrl}`);
+
         const response = await axios({
             method: req.method,
             url: targetUrl,
@@ -127,6 +129,8 @@ async function proxyToCoder(req, res, appInfo = null) {
             maxRedirects: 0,
             timeout: 30000
         });
+
+        console.log(`   Response: ${response.status}`);
 
         // Forward response headers
         Object.entries(response.headers).forEach(([key, value]) => {
@@ -146,6 +150,8 @@ async function proxyToCoder(req, res, appInfo = null) {
         response.data.pipe(res);
     } catch (error) {
         console.error('❌ Proxy error:', error.message);
+        console.error('   Error code:', error.code);
+        console.error('   Error url:', targetUrl);
 
         if (!res.headersSent) {
             res.status(502).json({

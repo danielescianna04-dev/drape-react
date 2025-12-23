@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drape-agent-gateway
+  namespace: coder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drape-agent-gateway
+  template:
+    metadata:
+      labels:
+        app: drape-agent-gateway
+    spec:
+      serviceAccountName: coder
+      containers:
+      - name: gateway
+        image: node:20-alpine
+        ports:
+        - containerPort: 8080
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          cat << 'EOF' > /app/gateway.js
+          const http = require('http');
+          const { execSync } = require('child_process');
+
+          const PORT = 8080;
+
+          // Get pod IP from Kubernetes
+          async function getPodIP(workspaceId) {
+              try {
+                  const podName = `dr-${workspaceId}`;
+                  const result = execSync(
+                      `kubectl get pod ${podName} -n coder -o jsonpath='{.status.podIP}'`,
+                      { encoding: 'utf8', timeout: 5000 }
+                  );
+                  return result.replace(/'/g, '').trim();
+              } catch (e) {
+                  console.error('Failed to get pod IP:', e.message);
+                  return null;
+              }
+          }
+
+          // Forward request to agent
+          async function forwardToAgent(podIP, path, body) {
+              return new Promise((resolve, reject) => {
+                  const options = {
+                      hostname: podIP,
+                      port: 13338,
+                      path: path,
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      timeout: 30000
+                  };
+
+                  const req = http.request(options, (res) => {
+                      let data = '';
+                      res.on('data', chunk => data += chunk);
+                      res.on('end', () => {
+                          try {
+                              resolve(JSON.parse(data));
+                          } catch(e) {
+                              resolve({ raw: data });
+                          }
+                      });
+                  });
+
+                  req.on('error', reject);
+                  req.on('timeout', () => reject(new Error('Timeout')));
+                  req.write(JSON.stringify(body));
+                  req.end();
+              });
+          }
+
+          const server = http.createServer(async (req, res) => {
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+              res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+              res.setHeader('Content-Type', 'application/json');
+
+              if (req.method === 'OPTIONS') {
+                  res.writeHead(204);
+                  return res.end();
+              }
+
+              // Health check
+              if (req.url === '/health') {
+                  return res.end(JSON.stringify({ status: 'ok' }));
+              }
+
+              // Parse URL: /exec/{workspaceId}
+              const match = req.url.match(/^\/exec\/([^\/]+)$/);
+              if (!match) {
+                  res.writeHead(404);
+                  return res.end(JSON.stringify({ error: 'Use /exec/{workspaceId}' }));
+              }
+
+              const workspaceId = match[1];
+              console.log(`[${new Date().toISOString()}] Request for workspace: ${workspaceId}`);
+
+              // Get request body
+              let body = '';
+              req.on('data', chunk => body += chunk);
+              req.on('end', async () => {
+                  try {
+                      const data = body ? JSON.parse(body) : {};
+                      
+                      // Get pod IP
+                      const podIP = await getPodIP(workspaceId);
+                      if (!podIP) {
+                          res.writeHead(404);
+                          return res.end(JSON.stringify({ error: 'Workspace not found or not running' }));
+                      }
+
+                      console.log(`   Pod IP: ${podIP}`);
+
+                      // Forward to agent
+                      const result = await forwardToAgent(podIP, '/exec', data);
+                      console.log(`   Result: success=${result.success}`);
+                      
+                      res.end(JSON.stringify(result));
+                  } catch (e) {
+                      console.error('Error:', e.message);
+                      res.writeHead(500);
+                      res.end(JSON.stringify({ error: e.message }));
+                  }
+              });
+          });
+
+          server.listen(PORT, '0.0.0.0', () => {
+              console.log(`Drape Agent Gateway running on port ${PORT}`);
+          });
+          EOF
+          apk add --no-cache kubectl
+          node /app/gateway.js
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drape-agent-gateway
+  namespace: coder
+spec:
+  type: LoadBalancer
+  selector:
+    app: drape-agent-gateway
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP

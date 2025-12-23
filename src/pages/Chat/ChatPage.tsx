@@ -18,6 +18,8 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
+import { CloneWidget } from '../../features/terminal/components/CloneWidget';
+import { useCloneStatusStore } from '../../core/clone/cloneStatusStore';
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
@@ -133,6 +135,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const tabTerminalItems = useMemo(() => currentTab?.terminalItems || [], [currentTab?.terminalItems]);
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
+
+  // Get clone status for current workstation (currentWorkstation is extracted below from useTerminalStore)
+  const workstationId = useTerminalStore(state => state.currentWorkstation?.id);
+  const cloneStatus = useCloneStatusStore(state =>
+    workstationId ? state.getStatus(workstationId) : null
+  );
 
   // DEBUG: Log when terminal items count changes (reduced verbosity)
   useEffect(() => {
@@ -1168,6 +1176,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
+              {/* Clone Widget - shows when cloning/syncing project */}
+              {cloneStatus && (
+                <CloneWidget
+                  isCloning={cloneStatus.isCloning}
+                  success={cloneStatus.success}
+                  error={cloneStatus.error}
+                  repoName={cloneStatus.repoName}
+                  progress={cloneStatus.progress}
+                />
+              )}
+
               {terminalItems.length === 0 ? (
                 <View style={styles.emptyState}>
                 </View>
