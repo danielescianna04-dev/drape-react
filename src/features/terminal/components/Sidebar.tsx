@@ -35,6 +35,9 @@ import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 
+// 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
+const USE_HOLY_GRAIL = true;
+
 interface Props {
   onClose: () => void;
   onOpenAllProjects?: () => void;
@@ -222,17 +225,24 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       // ✅ Clone repository in background so files are available
       console.log('📂 Triggering clone for project files...');
       try {
-        fetch(`${apiUrl}/preview/clone`, {
+        // 🚀 HOLY GRAIL: Use Fly.io project create endpoint
+        const cloneEndpoint = USE_HOLY_GRAIL
+          ? `${apiUrl}/fly/project/create`
+          : `${apiUrl}/preview/clone`;
+
+        fetch(cloneEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            workstationId: ws.id,
+            // Holy Grail uses projectId, Legacy uses workstationId
+            projectId: USE_HOLY_GRAIL ? ws.id : undefined,
+            workstationId: USE_HOLY_GRAIL ? undefined : ws.id,
             repositoryUrl: repoUrl,
             githubToken: savedToken,
           }),
         }).then(res => res.json()).then(result => {
           if (result.success) {
-            console.log('✅ Repository cloned, files available for browsing');
+            console.log(`✅ Repository cloned via ${USE_HOLY_GRAIL ? 'Holy Grail' : 'Legacy'}`);
           } else {
             console.warn('⚠️ Clone result:', result.message || result.error);
           }

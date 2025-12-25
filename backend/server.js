@@ -32,7 +32,8 @@ const createApp = require('./app');
 const admin = require('firebase-admin');
 if (!admin.apps.length) {
     admin.initializeApp({
-        projectId: 'drape-mobile-ide'
+        projectId: 'drape-mobile-ide',
+        storageBucket: 'drape-mobile-ide.appspot.com'
     });
     console.log('🔥 Firebase Admin initialized');
 }

@@ -7,6 +7,10 @@ import { config } from '../../config/config';
 const COLLECTION = 'user_projects';
 const API_BASE_URL = config.apiUrl;
 
+// 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
+const USE_HOLY_GRAIL = true;
+const FLY_API_BASE = `${config.apiUrl}/fly`;
+
 export interface UserProject {
   id: string;
   name: string;
@@ -113,7 +117,7 @@ export const workstationService = {
       };
 
       const docRef = await addDoc(collection(db, COLLECTION), project);
-      
+
       return {
         ...project,
         id: docRef.id
@@ -152,7 +156,22 @@ export const workstationService = {
   async createWorkstationForProject(project: UserProject, token?: string): Promise<{ workstationId: string; status: string }> {
     try {
       let result;
-      
+
+      // 🚀 HOLY GRAIL: Use Fly.io API for project creation
+      if (USE_HOLY_GRAIL) {
+        console.log('🚀 [HolyGrail] Creating project:', project.id);
+        result = await axios.post(`${FLY_API_BASE}/project/create`, {
+          projectId: project.id,
+          repositoryUrl: project.repositoryUrl,
+        });
+        console.log('🚀 [HolyGrail] Project created:', result.data);
+        return {
+          workstationId: project.id,
+          status: 'created'
+        };
+      }
+
+      // Legacy Coder path
       if (project.type === 'git' && project.repositoryUrl) {
         // Progetto Git - clona da repository
         result = await axios.post(`${API_BASE_URL}/workstation/create`, {
@@ -171,7 +190,7 @@ export const workstationService = {
           projectType: 'personal'
         });
       }
-      
+
       return result.data;
     } catch (error: any) {
       // Use console.log for expected auth errors (401) to avoid error overlay
@@ -186,6 +205,17 @@ export const workstationService = {
 
   async getWorkstationFiles(workstationId: string, repositoryUrl?: string, githubToken?: string): Promise<string[]> {
     try {
+      // 🚀 HOLY GRAIL: Use Fly.io API
+      if (USE_HOLY_GRAIL) {
+        console.log('🚀 [HolyGrail] Getting files for:', workstationId);
+        const response = await axios.get(`${FLY_API_BASE}/project/${workstationId}/files`, {
+          timeout: 30000
+        });
+        console.log('🚀 [HolyGrail] Got', response.data.files?.length || 0, 'files');
+        return (response.data.files || []).map((f: any) => typeof f === 'string' ? f : f.path);
+      }
+
+      // Legacy Coder path below
       const url = repositoryUrl
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${workstationId}/files`;
@@ -280,6 +310,16 @@ export const workstationService = {
   // Leggi contenuto file
   async getFileContent(projectId: string, filePath: string, repositoryUrl?: string): Promise<string> {
     try {
+      // 🚀 HOLY GRAIL: Use Fly.io API
+      if (USE_HOLY_GRAIL) {
+        console.log('🚀 [HolyGrail] Reading file:', filePath);
+        const response = await axios.get(
+          `${FLY_API_BASE}/project/${projectId}/file?path=${encodeURIComponent(filePath)}`
+        );
+        return response.data.content;
+      }
+
+      // Legacy Coder path
       const url = repositoryUrl
         ? `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}`;
@@ -295,6 +335,17 @@ export const workstationService = {
   // Salva contenuto file
   async saveFileContent(projectId: string, filePath: string, content: string, repositoryUrl?: string): Promise<void> {
     try {
+      // 🚀 HOLY GRAIL: Use Fly.io API
+      if (USE_HOLY_GRAIL) {
+        console.log('🚀 [HolyGrail] Saving file:', filePath);
+        await axios.post(`${FLY_API_BASE}/project/${projectId}/file`, {
+          path: filePath,
+          content
+        });
+        return;
+      }
+
+      // Legacy Coder path
       await axios.post(`${API_BASE_URL}/workstation/${projectId}/file-content`, {
         filePath,
         content,
@@ -481,7 +532,7 @@ export const workstationService = {
   // Helper per estrarre nome repository
   getRepositoryName(repositoryUrl: string): string {
     if (!repositoryUrl) return 'unknown';
-    
+
     try {
       const url = new URL(repositoryUrl);
       const pathParts = url.pathname.split('/');
@@ -500,7 +551,7 @@ export const workstationService = {
       /^https:\/\/gitlab\.com\/[\w\-\.]+\/[\w\-\.]+/,
       /^https:\/\/bitbucket\.org\/[\w\-\.]+\/[\w\-\.]+/
     ];
-    
+
     return patterns.some(pattern => pattern.test(url));
   },
 

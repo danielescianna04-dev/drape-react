@@ -19,6 +19,9 @@ import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
 
+// 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
+const USE_HOLY_GRAIL = true;
+
 interface Props {
   onClose: () => void;
   previewUrl: string;
@@ -123,6 +126,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     pattern?: string;
   }>>([]);
   const [coderToken, setCoderToken] = useState<string | null>(null);
+  const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
   const aiScrollViewRef = useRef<ScrollView>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
@@ -373,19 +377,25 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       // Clean username for Coder (from email, not UID!)
       const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
 
-      console.log('🚀 Calling /preview/start for workstation:', currentWorkstation.id);
+      // 🚀 HOLY GRAIL: Use Fly.io preview endpoint
+      const previewEndpoint = USE_HOLY_GRAIL
+        ? `${apiUrl}/fly/preview/start`
+        : `${apiUrl}/preview/start`;
+
+      console.log(`🚀 Calling ${USE_HOLY_GRAIL ? 'Holy Grail' : 'Legacy'} preview for:`, currentWorkstation.id);
       console.log(`👤 User context: ${userEmail} (${username})`);
 
-      const response = await fetch(`${apiUrl}/preview/start`, {
+      const response = await fetch(previewEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workstationId: currentWorkstation.id,
-          repositoryUrl: repoUrl, // Use the fallback URL (repositoryUrl OR githubUrl)
+          // Holy Grail uses projectId, Legacy uses workstationId
+          projectId: USE_HOLY_GRAIL ? currentWorkstation.id : undefined,
+          workstationId: USE_HOLY_GRAIL ? undefined : currentWorkstation.id,
+          repositoryUrl: repoUrl,
           githubToken: githubToken,
-          // NEW: Send user identity (email, not UID!)
           userEmail: userEmail,
           username: username
         }),
@@ -405,9 +415,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       // Check if env vars are required
       if (result.requiresEnvVars) {
         console.log('⚠️ Environment variables required');
-        console.log(`   Vars: ${result.envVars?.map((v: any) => v.key).join(', ')}`);
-
-        // Update project info
         if (result.projectType) {
           setProjectInfo({
             type: result.projectType,
@@ -417,18 +424,37 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             description: result.projectType
           });
         }
-
-        // Set required env vars for the form
         setRequiredEnvVars(result.envVars || []);
         setEnvTargetFile(result.targetFile || '.env');
-
-        // Initialize values as empty (defaults shown as placeholders only)
         setEnvVarValues({});
-
         logSystem(result.message || 'Configurazione variabili d\'ambiente richiesta', 'preview');
         setIsStarting(false);
         return;
       }
+
+      // Update preview URL and token
+      if (result.previewUrl) {
+        console.log('🔗 Preview URL:', result.previewUrl);
+        setCurrentPreviewUrl(result.previewUrl);
+        if (result.coderToken) {
+          setCoderToken(result.coderToken);
+        }
+        if (result.machineId) {
+          console.log('🆔 Fly Machine ID:', result.machineId);
+          setFlyMachineId(result.machineId);
+        }
+      }
+
+      if (result.projectType) {
+        setProjectInfo({
+          type: result.projectType,
+          defaultPort: 3000,
+          startCommand: '',
+          installCommand: '',
+          description: result.projectType
+        });
+      }
+
 
       // Check if server startup failed
       if (result.success === false) {
@@ -745,7 +771,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
 
-        xhr.open('POST', `${apiUrl}/preview/inspect`);
+        // 🚀 HOLY GRAIL: Use Fly.io inspect endpoint
+        const inspectEndpoint = USE_HOLY_GRAIL
+          ? `${apiUrl}/fly/inspect`
+          : `${apiUrl}/preview/inspect`;
+
+        xhr.open('POST', inspectEndpoint);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         // Multi-user context
@@ -1431,7 +1462,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       uri: currentPreviewUrl,
                       headers: {
                         'Coder-Session-Token': coderToken || '',
-                        'session_token': coderToken || ''
+                        'session_token': coderToken || '',
+                        // 🚀 HOLY GRAIL: Force routing to specific MicroVM
+                        // The flyMachineId state and its update logic are assumed to be defined elsewhere in the component.
+                        // This change only applies the header if flyMachineId is available.
+                        // For example, in handleStartServer:
+                        // if (result.machineId) {
+                        //     console.log('🆔 Fly Machine ID:', result.machineId);
+                        //     setFlyMachineId(result.machineId);
+                        // }
+                        // And the state declaration:
+                        // const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
+                        ...(flyMachineId ? { 'Fly-Force-Instance-Id': flyMachineId } : {})
                       }
                     }}
                     style={[
@@ -1501,7 +1543,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
                       try {
                         const rootElement = document.getElementById('root');
-                        const hasContent = rootElement && rootElement.children.length > 0;
+                        // Check root element OR body children (for static sites/directory listing)
+                        const bodyChildren = document.body ? document.body.children.length : 0;
+                        const hasContent = (rootElement && rootElement.children.length > 0) || bodyChildren > 0;
                         const bodyBgColor = window.getComputedStyle(document.body).backgroundColor;
 
                         // Check if bundle script is loaded

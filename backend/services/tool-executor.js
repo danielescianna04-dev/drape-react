@@ -1,6 +1,11 @@
 /**
  * Drape Backend - Tool Executor Service
  * Unified tool execution for AI agents
+ * 
+ * Supports three modes:
+ * 1. Local: Direct filesystem access
+ * 2. Cloud (Coder): SSH to Coder workspace (legacy)
+ * 3. Holy Grail: Use Fly.io orchestrator/storage (new)
  */
 
 const fs = require('fs').promises;
@@ -12,6 +17,20 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const { cleanProjectId, unescapeString, getRepoPath } = require('../utils/helpers');
 const { FILE_LIMITS, IGNORED_DIRS } = require('../utils/constants');
+
+// Holy Grail services (lazy loaded to avoid circular deps)
+let orchestrator = null;
+let storageService = null;
+
+function getOrchestrator() {
+    if (!orchestrator) orchestrator = require('./workspace-orchestrator');
+    return orchestrator;
+}
+
+function getStorageService() {
+    if (!storageService) storageService = require('./storage-service');
+    return storageService;
+}
 
 /**
  * Tool execution cache for read-only operations
@@ -139,7 +158,7 @@ const tools = {
      * Read file contents
      */
     async read_file({ filePath }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
 
         // Check cache
         const cacheKey = { filePath, projectPath };
@@ -147,12 +166,21 @@ const tools = {
         if (cached) return cached;
 
         let content;
+        const cleanFilePath = filePath.replace(/^\.\//, '');
 
-        if (isCloud) {
-            const fullPath = path.posix.join('/home/coder/project', filePath.replace(/^\.\//, ''));
+        if (isHolyGrail) {
+            // Holy Grail: Read from Firestore storage
+            const storage = getStorageService();
+            const result = await storage.readFile(projectId, cleanFilePath);
+            if (!result.success) {
+                return `❌ Error: File not found: ${filePath}`;
+            }
+            content = result.content;
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
             content = await readRemoteFile(wsName, fullPath);
         } else {
-            const fullPath = path.join(projectPath, filePath.replace(/^\.\//, ''));
+            const fullPath = path.join(projectPath, cleanFilePath);
             content = await fs.readFile(fullPath, 'utf8');
         }
 
@@ -171,14 +199,19 @@ const tools = {
      * Write file contents
      */
     async write_file({ filePath, content }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
         const unescapedContent = unescapeString(content);
+        const cleanFilePath = filePath.replace(/^\.\//, '');
 
-        if (isCloud) {
-            const fullPath = path.posix.join('/home/coder/project', filePath.replace(/^\.\//, ''));
+        if (isHolyGrail) {
+            // Holy Grail: Write to storage + sync to VM if active
+            const orch = getOrchestrator();
+            await orch.writeFile(projectId, cleanFilePath, unescapedContent);
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
             await writeRemoteFile(wsName, fullPath, unescapedContent);
         } else {
-            const fullPath = path.join(projectPath, filePath.replace(/^\.\//, ''));
+            const fullPath = path.join(projectPath, cleanFilePath);
             const dir = path.dirname(fullPath);
             await fs.mkdir(dir, { recursive: true });
             await fs.writeFile(fullPath, unescapedContent, 'utf8');
@@ -195,45 +228,52 @@ const tools = {
      * Edit file with search/replace
      */
     async edit_file({ filePath, oldText, newText }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanFilePath = filePath.replace(/^\.\//, '');
 
-        let fullPath;
         let originalContent;
 
-        if (isCloud) {
-            fullPath = path.posix.join('/home/coder/project', filePath.replace(/^\.\//, ''));
+        // Read the original file
+        if (isHolyGrail) {
+            const storage = getStorageService();
+            const result = await storage.readFile(projectId, cleanFilePath);
+            if (!result.success) {
+                return `❌ Error: File not found: ${filePath}`;
+            }
+            originalContent = result.content;
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
             originalContent = await readRemoteFile(wsName, fullPath);
         } else {
-            fullPath = path.join(projectPath, filePath.replace(/^\.\//, ''));
+            const fullPath = path.join(projectPath, cleanFilePath);
             originalContent = await fs.readFile(fullPath, 'utf8');
         }
 
         const unescapedOld = unescapeString(oldText);
         const unescapedNew = unescapeString(newText);
 
-        // Try exact match first
-        if (!originalContent.includes(unescapedOld)) {
-            // Try trimmed match
+        // Try exact match first, then trimmed
+        let newContent;
+        if (originalContent.includes(unescapedOld)) {
+            newContent = originalContent.replace(unescapedOld, unescapedNew);
+        } else {
             const trimmedOld = unescapedOld.trim();
             if (!originalContent.includes(trimmedOld)) {
                 return `❌ Error: Text not found in file ${filePath}. Make sure to copy the EXACT text to replace.`;
             }
-            // Use trimmed version
-            const newContent = originalContent.replace(trimmedOld, unescapedNew.trim());
+            newContent = originalContent.replace(trimmedOld, unescapedNew.trim());
+        }
 
-            if (isCloud) {
-                await writeRemoteFile(wsName, fullPath, newContent);
-            } else {
-                await fs.writeFile(fullPath, newContent, 'utf8');
-            }
+        // Write the modified file
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            await orch.writeFile(projectId, cleanFilePath, newContent);
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
+            await writeRemoteFile(wsName, fullPath, newContent);
         } else {
-            const newContent = originalContent.replace(unescapedOld, unescapedNew);
-
-            if (isCloud) {
-                await writeRemoteFile(wsName, fullPath, newContent);
-            } else {
-                await fs.writeFile(fullPath, newContent, 'utf8');
-            }
+            const fullPath = path.join(projectPath, cleanFilePath);
+            await fs.writeFile(fullPath, newContent, 'utf8');
         }
 
         // Invalidate cache
@@ -246,7 +286,7 @@ const tools = {
      * Find files with glob pattern
      */
     async glob_files({ pattern }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
 
         // Check cache
         const cacheKey = { pattern, projectPath };
@@ -255,7 +295,21 @@ const tools = {
 
         let files;
 
-        if (isCloud) {
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            // Convert simple glob patterns to find arguments
+            // This is an approximation. For full glob support we should filter in JS.
+            let findName = '';
+            if (pattern.match(/\*\.[a-zA-Z0-9]+$/)) {
+                // Extracts extension like *.css from **/*.css
+                const ext = pattern.match(/\*\.([a-zA-Z0-9]+)$/)[1];
+                findName = `-name "*.${ext}"`;
+            }
+
+            const cmd = `find . -type f ${findName} -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' | head -100`;
+            const result = await orch.exec(projectId, cmd);
+            files = result.stdout.split('\n').filter(f => f && f !== '.');
+        } else if (isCloud) {
             const result = await executeRemoteCommand(wsName,
                 `cd /home/coder/project && find . -maxdepth 5 -not -path '*/.*' -not -path '*/node_modules/*' -type f | head -100`
             );
@@ -280,7 +334,7 @@ const tools = {
      * Search in files
      */
     async search_in_files({ pattern }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
 
         // Check cache
         const cacheKey = { pattern, projectPath };
@@ -292,7 +346,14 @@ const tools = {
 
         let stdout;
 
-        if (isCloud) {
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            // Escape double quotes for shell
+            const cleanPattern = pattern.replace(/"/g, '\\"');
+            const cmd = `grep -rn "${cleanPattern}" --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null | head -30`;
+            const result = await orch.exec(projectId, cmd);
+            stdout = result.stdout;
+        } else if (isCloud) {
             const result = await executeRemoteCommand(wsName, `cd /home/coder/project && ${grepCmd}`);
             stdout = result.stdout;
         } else {
@@ -317,13 +378,16 @@ const tools = {
      * Execute shell command
      */
     async execute_command({ command }, context) {
-        const { projectPath, isCloud, wsName } = context;
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
 
         console.log(`💻 Executing: ${command}`);
 
         let result;
 
-        if (isCloud) {
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            result = await orch.exec(projectId, command);
+        } else if (isCloud) {
             result = await executeRemoteCommand(wsName, `cd /home/coder/project && ${command}`);
         } else {
             try {
@@ -378,14 +442,19 @@ async function executeTool(toolName, args, context) {
 
 /**
  * Create execution context
+ * @param {string} projectId - Project ID
+ * @param {object} options - Context options including isHolyGrail flag
  */
 function createContext(projectId, options = {}) {
     const cleanId = cleanProjectId(projectId);
     const projectPath = options.projectPath || getRepoPath(cleanId);
 
-    const isCloud = options.isCloud !== undefined
+    // Holy Grail mode takes precedence over Cloud mode
+    const isHolyGrail = options.isHolyGrail || false;
+
+    const isCloud = !isHolyGrail && (options.isCloud !== undefined
         ? options.isCloud
-        : !require('fs').existsSync(projectPath);
+        : !require('fs').existsSync(projectPath));
 
     let wsName = options.wsName || cleanId;
     // Multi-user support: Prefix with owner if provided and not already present
@@ -395,9 +464,11 @@ function createContext(projectId, options = {}) {
 
     return {
         projectId: cleanId,
-        projectPath: isCloud ? '/home/coder/project' : projectPath,
+        projectPath: isHolyGrail ? '/home/coder/project' : (isCloud ? '/home/coder/project' : projectPath),
         isCloud,
-        wsName
+        isHolyGrail,
+        wsName,
+        machineId: options.machineId // For Fly.io routing
     };
 }
 

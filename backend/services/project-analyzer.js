@@ -37,7 +37,7 @@ function fastDetect(files, configFiles) {
                         type: 'react-cra',
                         description: 'Create React App',
                         installCommand: 'npm install',
-                        startCommand: 'PORT=3000 npm start',
+                        startCommand: 'env PORT=3000 HOST=0.0.0.0 npm start',
                         defaultPort: 3000
                     };
                 }
@@ -60,7 +60,7 @@ function fastDetect(files, configFiles) {
                     type: 'nextjs',
                     description: 'Next.js application',
                     installCommand: 'npm install',
-                    startCommand: 'PORT=3000 npm run dev',
+                    startCommand: 'npm run dev -- -p 3000 -H 0.0.0.0',
                     defaultPort: 3000
                 };
             }
@@ -71,7 +71,7 @@ function fastDetect(files, configFiles) {
                     type: 'node',
                     description: 'Node.js application',
                     installCommand: 'npm install',
-                    startCommand: 'PORT=3000 npm run dev',
+                    startCommand: 'env PORT=3000 HOST=0.0.0.0 npm run dev',
                     defaultPort: 3000
                 };
             }
@@ -80,13 +80,17 @@ function fastDetect(files, configFiles) {
         }
     }
 
-    // Static site (HTML only)
-    if (files.some(f => f.endsWith('index.html')) && !configFiles['package.json']) {
+    // Static site (HTML only) - Check this even if package.json exists (could be empty/dummy)
+    const isStatic = files.some(f => f.endsWith('index.html'));
+    const pkg = configFiles['package.json'] ? JSON.parse(configFiles['package.json']) : null;
+    const hasNoDeps = pkg && !pkg.dependencies && !pkg.devDependencies;
+
+    if (isStatic && (!pkg || hasNoDeps)) {
         return {
             type: 'static',
             description: 'Static HTML website',
             installCommand: 'echo "No install needed"',
-            startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0',
+            startCommand: 'npx -y http-server -p 3000 -c-1',
             defaultPort: 3000
         };
     }

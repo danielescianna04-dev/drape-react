@@ -82,9 +82,9 @@ router.post('/clone', asyncHandler(async (req, res) => {
         console.log(`   🚀 Cloning repository via Drape Agent...`);
 
         // Clone the repo (or pull if already exists)
-        const cloneCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project 2>&1; else cd /home/coder/project && git pull 2>&1 || echo "Pull skipped"; fi`;
+        const cloneCmd = `cd /home/coder && if [ ! -d "project/.git" ]; then rm -rf project && git clone ${cloneUrl} project 2>&1; else cd project && git pull 2>&1 || echo "Pull skipped"; fi`;
 
-        const result = await agentClient.exec(wsOwner, wsName, coderUser.id, cloneCmd);
+        const result = await agentClient.exec(wsOwner, wsName, coderUser.id, cloneCmd, '/home/coder');
 
         if (result.exitCode === 0) {
             console.log(`   ✅ Repository cloned successfully`);
@@ -256,9 +256,9 @@ router.post('/start', asyncHandler(async (req, res) => {
 
             // Clone via Drape Agent (NO SSH FALLBACK)
             console.log('   🚀 Executing git clone via Drape Agent...');
-            const prepareCmd = `if [ ! -d "/home/coder/project/.git" ]; then rm -rf /home/coder/project && git clone ${cloneUrl} /home/coder/project 2>&1; else cd /home/coder/project && (git pull 2>&1 || echo "Pull skipped"); fi`;
+            const prepareCmd = `cd /home/coder && if [ ! -d "project/.git" ]; then rm -rf project && git clone ${cloneUrl} project 2>&1; else cd project && (git pull 2>&1 || echo "Pull skipped"); fi`;
 
-            const result = await agentClient.exec(wsOwner, wsName, coderUser.id, prepareCmd);
+            const result = await agentClient.exec(wsOwner, wsName, coderUser.id, prepareCmd, '/home/coder');
             console.log(`   📋 Clone result - Exit: ${result.exitCode}`);
             console.log(`   📋 Clone stdout: ${(result.stdout || '').substring(0, 500)}`);
             console.log(`   📋 Clone stderr: ${(result.stderr || '').substring(0, 500)}`);
@@ -366,7 +366,8 @@ router.post('/start', asyncHandler(async (req, res) => {
     const isStatic = projectInfo.type === 'static' || projectInfo.type === 'html';
 
     // AUTO-START SERVER LOGIC
-    if (!isStatic && projectInfo.startCommand) {
+    // Always start server if a start command is available, even for static sites
+    if (projectInfo.startCommand) {
         console.log(`🚀 Starting server for ${wsName}...`);
 
         // 1. Run install command if needed (e.g., node_modules missing)

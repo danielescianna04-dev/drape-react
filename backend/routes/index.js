@@ -15,6 +15,7 @@ const previewRoutes = require('./preview');
 const terminalRoutes = require('./terminal');
 const apiRoutes = require('./api');
 const expoRoutes = require('./expo');
+const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
 
 // Health check - top level
 router.get('/health', (req, res) => {
@@ -36,6 +37,7 @@ router.use('/preview', previewRoutes);
 router.use('/terminal', terminalRoutes);
 router.use('/api', apiRoutes);
 router.use('/expo-preview', expoRoutes);
+router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
 
 // API info
 router.get('/', (req, res) => {

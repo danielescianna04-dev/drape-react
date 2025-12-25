@@ -1,0 +1,36 @@
+# Fly.io configuration for Drape Workspace
+# This is a "Machines" app - each user gets their own ephemeral machine
+
+app = "drape-workspaces"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DRAPE_AGENT_PORT = "13338"
+
+[[services]]
+  internal_port = 13338
+  protocol = "tcp"
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
