@@ -110,6 +110,8 @@ class FlyService {
                         DRAPE_AGENT_PORT: '13338',
                         ...options.env
                     },
+                    // Expose ports to allow access via Fly's Public Load Balancer
+                    // (Required for Local Backend to reach Remote VMs)
                     services: [
                         {
                             ports: [
@@ -117,7 +119,7 @@ class FlyService {
                                 { port: 80, handlers: ['http'] }
                             ],
                             protocol: 'tcp',
-                            internal_port: 13338 // Drape Agent port
+                            internal_port: 13338
                         }
                     ]
                 }
@@ -131,7 +133,7 @@ class FlyService {
             const elapsed = Date.now() - startTime;
             console.log(`✅ [Fly] MicroVM created in ${elapsed}ms`);
             console.log(`   ID: ${response.data.id}`);
-            console.log(`   State: ${response.data.state}`);
+            console.log(`   IP: ${response.data.private_ip}`);
 
             return {
                 id: response.data.id,
@@ -140,8 +142,8 @@ class FlyService {
                 region: response.data.region,
                 privateIp: response.data.private_ip,
                 createdAt: response.data.created_at,
-                // Construct the agent URL
-                agentUrl: `https://${machineId}.fly.dev`
+                // Use Public URL + Fly-Force-Instance-Id header for routing
+                agentUrl: `https://${this.appName}.fly.dev`
             };
         } catch (error) {
             console.error(`❌ [Fly] Failed to create MicroVM:`, error.response?.data || error.message);

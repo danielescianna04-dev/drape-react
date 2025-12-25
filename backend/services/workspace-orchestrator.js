@@ -12,6 +12,7 @@
 
 const flyService = require('./fly-service');
 const storageService = require('./storage-service');
+const redisService = require('./redis-service');
 const axios = require('axios');
 
 // Cache of active VMs per project
@@ -35,9 +36,9 @@ class WorkspaceOrchestrator {
         console.log(`\n🚀 [Orchestrator] Getting VM for project: ${projectId}`);
 
         // Anti-Collision: Ensure only this project's machine is running
-        // This prevents Fly.io load balancer from routing traffic to old project VMs
+        // [DEPRECATED Phase 2]: Gateway now routes traffic via private IP/Header.
         const machineName = `ws-${projectId}`.substring(0, 30);
-        await flyService.ensureSingleActiveMachine(machineName);
+        // await flyService.ensureSingleActiveMachine(machineName);
 
         // Check if we already have an active VM for this project
         const cached = activeVMs.get(projectId);
@@ -225,7 +226,7 @@ class WorkspaceOrchestrator {
         await storageService.saveFile(projectId, filePath, content);
 
         // Sync to VM if active (for hot reload)
-        let vm = activeVMs.get(projectId);
+        let vm = await redisService.getVMSession(projectId);
 
         // Recovery: If not in cache, check if VM exists in Fly
         if (!vm) {
@@ -525,9 +526,12 @@ class WorkspaceOrchestrator {
     /**
      * Schedule automatic cleanup of idle VMs
      */
+    /**
+     * Schedule automatic cleanup of idle VMs
+     */
     _scheduleCleanup(projectId) {
         setTimeout(async () => {
-            const cached = activeVMs.get(projectId);
+            const cached = await redisService.getVMSession(projectId);
             if (!cached) return;
 
             const idleTime = Date.now() - cached.lastUsed;
@@ -539,6 +543,72 @@ class WorkspaceOrchestrator {
                 this._scheduleCleanup(projectId);
             }
         }, 5 * 60 * 1000); // Check every 5 minutes
+    }
+
+    /**
+     * Reconcile State (Hydration + Reaper)
+     * 
+     * 1. Fetches all running machines from Fly.io.
+     * 2. Adopts any machines that aren't in our State (Cache).
+     * 
+     * This ensures that restarting the Backend doesn't kill user sessions.
+     */
+    async reconcileState() {
+        console.log('🔄 [Orchestrator] Reconciling state with Fly.io...');
+        try {
+            const machines = await flyService.listMachines();
+            const activeSessions = await redisService.getAllSessions();
+            const sessionMap = new Map(activeSessions.map(s => [s.machineId, s]));
+
+            let adoptedCount = 0;
+
+            for (const machine of machines) {
+                // Only care about started workspace machines
+                if (!machine.name.startsWith('ws-') || machine.state !== 'started') continue;
+
+                if (!sessionMap.has(machine.id)) {
+                    // FOUND ORPHAN (Running in Cloud, missing in Cache)
+                    // ADOPT IT!
+                    const projectId = machine.config?.env?.PROJECT_ID || machine.name.substring(3); // recover ID
+
+                    console.log(`👶 [Orchestrator] Adopting orphan VM: ${machine.name} (${machine.id})`);
+
+                    await redisService.saveVMSession(projectId, {
+                        id: machine.id,
+                        machineId: machine.id,
+                        vmId: machine.id, // Legacy compat
+                        name: machine.name,
+                        projectId: projectId,
+                        region: machine.region,
+                        privateIp: machine.private_ip,
+                        agentUrl: `https://${flyService.appName}.fly.dev`,
+                        createdAt: machine.created_at,
+                        lastUsed: Date.now() // Reset timeout
+                    });
+                    adoptedCount++;
+                }
+            }
+
+            if (adoptedCount > 0) {
+                console.log(`✅ [Orchestrator] Adopted ${adoptedCount} active VMs. Persistence achieved.`);
+            } else {
+                // console.log('✅ [Orchestrator] State is in sync.');
+            }
+
+        } catch (error) {
+            console.error('❌ [Orchestrator] Reconciliation failed:', error.message);
+        }
+    }
+
+    /**
+     * Start the Reaper Loop
+     */
+    startReaper() {
+        // Run immediately on start
+        this.reconcileState();
+
+        // Then every 5 minutes
+        setInterval(() => this.reconcileState(), 5 * 60 * 1000);
     }
 }
 

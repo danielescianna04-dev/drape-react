@@ -442,6 +442,20 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         if (result.machineId) {
           console.log('🆔 Fly Machine ID:', result.machineId);
           setFlyMachineId(result.machineId);
+
+          // Phase 2: Set Gateway Session Cookie
+          // This tells the backend Gateway which VM to route our requests to
+          try {
+            await fetch(`${apiUrl}/fly/session`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ machineId: result.machineId }),
+              credentials: 'include' // Important for CORS cookies
+            });
+            console.log('✅ Gateway session cookie set');
+          } catch (e) {
+            console.warn('⚠️ Failed to set gateway session:', e);
+          }
         }
       }
 

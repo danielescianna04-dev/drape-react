@@ -238,7 +238,7 @@ router.post('/preview/stop', asyncHandler(async (req, res) => {
  * Get system status and active VMs
  */
 router.get('/status', asyncHandler(async (req, res) => {
-    const activeVMs = orchestrator.getActiveVMs();
+    const activeVMs = await orchestrator.getActiveVMs();
     const flyHealth = await flyService.healthCheck();
 
     res.json({
@@ -264,6 +264,30 @@ router.get('/health', (req, res) => {
         architecture: 'holy-grail',
         timestamp: new Date().toISOString()
     });
+});
+
+/**
+ * POST /fly/session
+ * Set routing cookie for the Gateway
+ */
+router.post('/session', (req, res) => {
+    const { machineId } = req.body;
+    if (!machineId) {
+        return res.status(400).json({ error: 'machineId required' });
+    }
+
+    // Set cookie valid for session
+    // SameSite=None; Secure required for iframes if cross-site, 
+    // but here we are on same domain (sub paths), so Lax is fine.
+    // However, if we move to subdomains later, we might need adjustments.
+    // For now, simple cookie.
+    res.cookie('drape_vm_id', machineId, {
+        httpOnly: true, // Not accessible by JS (good for security)
+        sameSite: 'Lax',
+        path: '/'
+    });
+
+    res.json({ success: true, message: 'Session set' });
 });
 
 /**
@@ -328,7 +352,7 @@ router.post('/reload', asyncHandler(async (req, res) => {
     console.log(`🔄 [Fly] Reloading project: ${projectId}`);
 
     // Get active VM and resync files
-    const activeVMs = orchestrator.getActiveVMs();
+    const activeVMs = await orchestrator.getActiveVMs();
     const vm = activeVMs.find(v => v.projectId === projectId);
 
     if (vm) {

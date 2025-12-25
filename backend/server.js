@@ -56,7 +56,14 @@ async function startServer() {
     // ===========================================
     // CREATE HTTP SERVER
     // ===========================================
-    const server = http.createServer(app);
+    const vmRouter = require('./middleware/vm-router');
+
+    // Gateway Logic: VM Router -> Express App
+    const server = http.createServer((req, res) => {
+        vmRouter(req, res, () => {
+            app(req, res);
+        });
+    });
 
     // ===========================================
     // WEBSOCKET PROXY FOR CODER
