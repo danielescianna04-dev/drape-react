@@ -14,6 +14,7 @@ const flyService = require('./fly-service');
 const storageService = require('./storage-service');
 const redisService = require('./redis-service');
 const axios = require('axios');
+const serverLogService = require('./server-log-service');
 
 // Cache of active VMs per project
 const activeVMs = new Map();
@@ -334,38 +335,37 @@ class WorkspaceOrchestrator {
             console.error(`⚠️ [Orchestrator] Verification failed: ${error.message}`);
         }
 
-        // Install dependencies if needed
-        if (projectInfo.installCommand) {
-            console.log(`📦 [Orchestrator] Installing dependencies...`);
-            const checkModules = await flyService.exec(vm.agentUrl, 'ls node_modules 2>/dev/null', '/home/coder/project', vm.machineId);
+        // Setup (Install + Start) via Smart Agent (Async)
+        if (projectInfo.installCommand || projectInfo.startCommand) {
+            const install = projectInfo.installCommand || 'true';
+            const start = projectInfo.startCommand || 'true';
 
-            if (checkModules.exitCode !== 0) {
-                // Pass 5-minute timeout for installation (300000ms)
-                await flyService.exec(vm.agentUrl, projectInfo.installCommand, '/home/coder/project', vm.machineId, 300000);
+            // Ensure proper binding for common frameworks
+            let finalStart = start;
+            if ((start.includes('npm start') || start.includes('react-scripts start') || start.includes('vite')) && !start.includes('--host')) {
+                finalStart = `${start} -- --host 0.0.0.0`;
             }
-        }
 
-        // Start the server
-        if (projectInfo.startCommand) {
-            console.log(`🚀 [Orchestrator] Starting server: ${projectInfo.startCommand}`);
+            const setupCommand = `${install} && ${finalStart}`;
+            console.log(`🚀 [Orchestrator] Triggering Async Setup: ${setupCommand}`);
 
-            // Run in background and exit immediately - use setsid to fully detach
-            const startCmd = `cd /home/coder/project && setsid ${projectInfo.startCommand} > /tmp/server.log 2>&1 &`;
-
-            // Use a very short timeout - we don't need to wait for the server
             try {
-                await axios.post(`${vm.agentUrl}/exec`, {
-                    command: startCmd,
-                    cwd: '/home/coder'
+                // Call the new /setup endpoint on the agent
+                await axios.post(`${vm.agentUrl}/setup`, {
+                    command: setupCommand
                 }, {
-                    timeout: 5000,
+                    timeout: 5000, // Short timeout, agent returns immediately
                     headers: { 'Fly-Force-Instance-Id': vm.machineId }
                 });
+                console.log(`   ✅ Setup triggered in background. Agent will handle the rest.`);
+
+                // Start log streaming
+                this.startLogStreaming(projectId, vm);
             } catch (e) {
-                // Timeout is expected - server is running in background
-                console.log(`   Server started in background (${e.message})`);
+                console.error(`   ⚠️ Failed to trigger setup: ${e.message}`);
             }
         }
+
 
         // Construct preview URL
         const previewUrl = `${vm.agentUrl}`;
@@ -375,10 +375,55 @@ class WorkspaceOrchestrator {
             machineId: vm.machineId,
             previewUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
             agentUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
-            projectType: projectInfo.type,
+            projectType: projectInfo.description || projectInfo.type,
             port: projectInfo.port
         };
     }
+
+    /**
+     * Start log streaming from VM to server-log-service
+     */
+    async startLogStreaming(projectId, vm) {
+        console.log(`📡 [Orchestrator] Starting log streaming for ${projectId}...`);
+
+        let lastSize = 0;
+        const logFile = '/home/coder/server.log';
+        const workstationId = projectId; // Unified ID
+
+        // Initial system log
+        serverLogService.addLog(workstationId, '🔄 Connecting to server logs...', 'system');
+
+        const tailInterval = setInterval(async () => {
+            // Stop if VM is no longer in active cache
+            if (!activeVMs.has(projectId)) {
+                clearInterval(tailInterval);
+                return;
+            }
+
+            try {
+                // Read new logs using tail
+                const result = await flyService.exec(vm.agentUrl, `tail -c +${lastSize + 1} ${logFile}`, '/home/coder', vm.machineId);
+
+                if (result.stdout && result.stdout.trim()) {
+                    const lines = result.stdout.split('\n').filter(l => l.trim());
+                    lines.forEach(line => {
+                        serverLogService.addLog(workstationId, line, 'output');
+                    });
+
+                    // Update size (best effort)
+                    const sizeResult = await flyService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId);
+                    const newSize = parseInt(sizeResult.stdout);
+                    if (!isNaN(newSize)) lastSize = newSize;
+                }
+            } catch (err) {
+                // Silent fail if file not ready yet
+            }
+        }, 3000);
+
+        // Limit streaming to 30 mins to avoid leaks
+        setTimeout(() => clearInterval(tailInterval), 30 * 60 * 1000);
+    }
+
 
     /**
      * Stop and cleanup a project's VM
@@ -518,6 +563,11 @@ class WorkspaceOrchestrator {
             return files;
 
         } catch (error) {
+            if (error.response?.status === 404) {
+                const url = `https://github.com/${owner}/${repo}`;
+                console.error(`❌ [GitHub] Repository not found at ${url}`);
+                throw new Error(`GitHub repository not found: ${owner}/${repo}. Please verify the URL is correct and the repository is public.`);
+            }
             console.error(`❌ [GitHub] Fetch failed:`, error.message);
             throw error;
         }
@@ -573,7 +623,7 @@ class WorkspaceOrchestrator {
 
                     console.log(`👶 [Orchestrator] Adopting orphan VM: ${machine.name} (${machine.id})`);
 
-                    await redisService.saveVMSession(projectId, {
+                    const vmInfo = {
                         id: machine.id,
                         machineId: machine.id,
                         vmId: machine.id, // Legacy compat
@@ -584,8 +634,16 @@ class WorkspaceOrchestrator {
                         agentUrl: `https://${flyService.appName}.fly.dev`,
                         createdAt: machine.created_at,
                         lastUsed: Date.now() // Reset timeout
-                    });
+                    };
+
+                    await redisService.saveVMSession(projectId, vmInfo);
+                    activeVMs.set(projectId, vmInfo);
+
+                    // Resume log streaming for this adopted VM
+                    this.startLogStreaming(projectId, vmInfo);
+
                     adoptedCount++;
+
                 }
             }
 

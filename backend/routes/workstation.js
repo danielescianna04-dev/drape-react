@@ -591,4 +591,104 @@ router.post('/create', asyncHandler(async (req, res) => {
     });
 }));
 
+/**
+ * POST /workstation/create-with-template
+ * Create a workstation with a technology-specific template
+ */
+router.post('/create-with-template', asyncHandler(async (req, res) => {
+    const { projectName, technology, userId, projectId } = req.body;
+    const admin = require('firebase-admin');
+    const db = admin.firestore();
+    const { generateTemplateFiles } = require('../services/project-templates');
+    const storageService = require('../services/storage-service');
+
+    console.log(`\n🚀 Creating project with template:`);
+    console.log(`   📁 Name: ${projectName}`);
+    console.log(`   💻 Technology: ${technology}`);
+    console.log(`   👤 User: ${userId}`);
+
+    if (!projectName || !technology || !userId) {
+        return res.status(400).json({
+            error: 'Missing required fields: projectName, technology, userId'
+        });
+    }
+
+    // Generate workstation ID
+    const wsId = projectId || `ws-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const workstationId = `ws-${wsId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+
+    // Get template files
+    const template = generateTemplateFiles(technology, projectName);
+    if (!template) {
+        return res.status(400).json({ error: `Unknown technology: ${technology}` });
+    }
+
+    console.log(`   📦 Template: ${template.description}`);
+    console.log(`   📄 Files: ${Object.keys(template.files).length}`);
+
+    // Convert files object to array for storage
+    const filesArray = Object.entries(template.files).map(([filePath, content]) => ({
+        path: filePath,
+        content
+    }));
+
+    // Store project metadata and files
+    try {
+        // Create project document in 'projects' collection (for app to find it)
+        await db.collection('projects').doc(wsId).set({
+            id: wsId,
+            name: projectName,
+            type: 'template',
+            technology,
+            templateDescription: template.description,
+            startCommand: template.startCommand,
+            userId,
+            status: 'ready',
+            cloned: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastAccessed: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Use storageService to save files (stores in projects/{id}/files)
+        const saveResult = await storageService.saveFiles(wsId, filesArray);
+        console.log(`   ✅ Saved ${saveResult.savedCount} files via storageService`);
+
+        console.log(`   ✅ Project saved to Firestore`);
+    } catch (error) {
+        console.error('❌ Error saving to Firestore:', error.message);
+        return res.status(500).json({ error: 'Failed to save project', details: error.message });
+    }
+
+    // Optionally: Start a VM with the template files
+    // This happens in background during first preview
+
+    res.json({
+        success: true,
+        projectId: wsId,
+        workstationId,
+        projectName,
+        technology,
+        templateDescription: template.description,
+        startCommand: template.startCommand,
+        filesCount: filesArray.length,
+        files: filesArray.map(f => ({ path: f.path, name: f.name }))
+    });
+}));
+
+/**
+ * GET /workstation/templates
+ * List all available project templates
+ */
+router.get('/templates', asyncHandler(async (req, res) => {
+    const { getAvailableTemplates } = require('../services/project-templates');
+
+    const templates = getAvailableTemplates();
+
+    res.json({
+        success: true,
+        templates
+    });
+}));
+
 module.exports = router;
+

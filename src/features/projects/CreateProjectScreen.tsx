@@ -137,16 +137,37 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         setIsCreating(false);
         return;
       }
-      const project = await workstationService.savePersonalProject(projectName, userId);
+
+      // Call the new template endpoint
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: projectName.trim(),
+          technology: selectedLanguage,
+          userId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to create project');
+      }
+
+      console.log('✅ Project created with template:', result);
 
       const workstation = {
-        id: project.id,
-        projectId: project.id,
+        id: result.projectId,
+        projectId: result.projectId,
         name: projectName,
         language: selectedLanguage,
-        status: 'creating' as const,
+        technology: selectedLanguage,
+        templateDescription: result.templateDescription,
+        status: 'ready' as const,
         createdAt: new Date(),
-        files: [],
+        files: result.files || [],
         folderId: null,
       };
 
@@ -157,6 +178,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       setIsCreating(false);
     }
   };
+
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
   const canProceed = step === 1 ? projectName.trim().length > 0 : step === 2 ? selectedLanguage !== '' : true;
@@ -380,7 +402,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             </View>
             <View style={styles.summaryInfo}>
               <Text style={styles.summaryLabel}>Tipo</Text>
-              <Text style={styles.summaryValue}>Progetto vuoto</Text>
+              <Text style={styles.summaryValue}>Template {selectedLang?.name}</Text>
             </View>
           </View>
         </LinearGradient>

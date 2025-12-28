@@ -23,11 +23,41 @@ function fastDetect(files, configFiles) {
             // React (Vite or CRA)
             if (deps.react) {
                 if (deps.vite || scripts.dev?.includes('vite')) {
+                    // Robust Vite allowedHosts patch using inline Node.js script
+                    // This safely handles existing server blocks and avoids duplicates
+                    const patchScriptContent = `
+const fs = require('fs');
+const file = fs.existsSync('vite.config.ts') ? 'vite.config.ts' : (fs.existsSync('vite.config.js') ? 'vite.config.js' : null);
+if (!file) {
+  fs.writeFileSync('vite.config.js', 'export default { server: { host: "0.0.0.0", port: 3000, strictPort: true, allowedHosts: true, cors: true } }');
+  process.exit(0);
+}
+let c = fs.readFileSync(file, 'utf8');
+if (c.includes('allowedHosts: true') || c.includes('allowedHosts: [') || c.includes('allowedHosts: "')) process.exit(0);
+
+// Robust injection for Vite
+if (c.includes('server: {')) {
+  c = c.replace('server: {', 'server: { allowedHosts: true, cors: true, host: "0.0.0.0", port: 3000, strictPort: true, ');
+} else if (c.includes('defineConfig({')) {
+  c = c.replace('defineConfig({', 'defineConfig({ server: { allowedHosts: true, cors: true, host: "0.0.0.0", port: 3000, strictPort: true }, ');
+} else if (c.includes('export default {')) {
+  c = c.replace('export default {', 'export default { server: { allowedHosts: true, cors: true, host: "0.0.0.0", port: 3000, strictPort: true }, ');
+} else {
+  // If we can't find a good injection point, try to wrap the existing export or add at the end
+  console.log('Could not find standard injection point, adding server block at the end');
+  c += '\\n// Drape Injection\\nexport const drapeServer = { host: "0.0.0.0", port: 3000, strictPort: true, allowedHosts: true, cors: true };';
+}
+fs.writeFileSync(file, c);
+`;
+                    const b64 = Buffer.from(patchScriptContent).toString('base64');
+
                     return {
                         type: 'react-vite',
                         description: 'React + Vite application',
                         installCommand: 'npm install',
-                        startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                        // Use base64 to avoid shell escaping hell
+                        // Force clear port 3000 and use --strictPort to ensure consistency
+                        startCommand: `(fuser -k 3000/tcp || true) && echo "${b64}" | base64 -d | node && npm run dev -- --host 0.0.0.0 --port 3000 --strictPort`,
                         defaultPort: 3000
                     };
                 }

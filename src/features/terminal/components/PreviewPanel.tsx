@@ -81,11 +81,13 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [canGoForward, setCanGoForward] = useState(false);
   // Initialize from global store - preserves state when switching tabs
   const [serverStatus, setServerStatusLocal] = useState<'checking' | 'running' | 'stopped'>(globalServerStatus);
+  const serverStatusRef = useRef<'checking' | 'running' | 'stopped'>(globalServerStatus);
 
   // Wrapper to update both local and global state
   const setServerStatus = (status: 'checking' | 'running' | 'stopped') => {
     setServerStatusLocal(status);
     setPreviewServerStatus(status);
+    serverStatusRef.current = status;
   };
 
   const [isStarting, setIsStarting] = useState(false);
@@ -127,6 +129,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }>>([]);
   const [coderToken, setCoderToken] = useState<string | null>(null);
   const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
+  const flyMachineIdRef = useRef<string | null>(null);
   const aiScrollViewRef = useRef<ScrollView>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
@@ -290,53 +293,94 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   }, [projectInfo, apiUrl, serverStatus]);
 
+  // Fallback: Force WebView ready if server is running but detection failed
+  useEffect(() => {
+    if (serverStatus === 'running' && !webViewReady) {
+      const timer = setTimeout(() => {
+        console.log('⚠️ Forcing WebView ready due to timeout');
+        setWebViewReady(true);
+      }, 5000); // 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [serverStatus, webViewReady]);
+
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
-    const maxRetries = 60; // Max 60 retries = 60 seconds of checking
+    const maxRetries = 300; // Max 300 retries = 5 minutes of checking (needed for slow npm installs)
 
     try {
       console.log(`🔍 Checking server status at: ${urlToCheck} (attempt ${retryCount + 1})`);
 
       // Try to fetch the URL using GET (more reliable than HEAD across different servers)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout (increased from 10s)
 
       const response = await fetch(urlToCheck, {
         method: 'GET',
+        cache: 'no-store',
+        credentials: 'include',
         headers: {
           'Coder-Session-Token': coderToken || '',
-          'Accept': 'text/html'
+          'Accept': 'text/html',
+          'X-Drape-Check': 'true', // Help agent distinguish checks
+          ...(flyMachineIdRef.current ? { 'Fly-Force-Instance-Id': flyMachineIdRef.current } : {}),
         },
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      // Consider any status < 500 as "server is running" (2xx, 3xx, 4xx all mean server is up)
-      // 4xx just means the specific path isn't found, but server is responding
-      if (response.status < 500) {
+      const agentStatus = response.headers.get('X-Drape-Agent-Status');
+
+      // Status Check Logic
+      if (response.status >= 200 && response.status < 400 && agentStatus !== 'waiting') {
         console.log(`✅ Server is running! Status: ${response.status}`);
-        // Only log the first time (when transitioning from checking to running)
-        if (serverStatus !== 'running') {
+        if (serverStatusRef.current !== 'running') {
           logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
         }
         setServerStatus('running');
-        // Update the preview URL state if we used an override
-        if (urlOverride && urlOverride !== currentPreviewUrl) {
-          setCurrentPreviewUrl(urlOverride);
+      } else if (response.status === 403 || response.status === 503 || agentStatus === 'waiting') {
+        // 403 often means Vite Host Check blocked, 503 or waiting means booting
+        if (agentStatus === 'waiting') {
+          console.log('📡 Agent is in waiting mode (installing dependencies)...');
+        }
+
+        // Try to reach the agent's health endpoint to confirm VM is alive
+        try {
+          const healthUrl = urlToCheck.endsWith('/') ? `${urlToCheck}health` : `${urlToCheck}/health`;
+          const healthRes = await fetch(healthUrl, {
+            headers: { 'Fly-Force-Instance-Id': flyMachineIdRef.current || '' },
+            credentials: 'include',
+            signal: controller.signal
+          });
+          const healthData = await healthRes.json();
+          if (healthData.status === 'ok') {
+            console.log('📡 Agent is alive and responsive.');
+          }
+        } catch (e: any) {
+          console.log(`📡 Agent health check failed: ${e.message}`);
+        }
+
+        console.log(`⚠️ Server not ready (status ${response.status}). Retrying...`);
+        if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
+          setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
       } else {
-        console.log(`⚠️ Server error. Status: ${response.status}`);
-        // Retry if we're still checking
-        if (serverStatus === 'checking' && retryCount < maxRetries) {
-          setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 1000);
+        console.log(`⚠️ Server returned status: ${response.status}. Retrying...`);
+        if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
+          setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
       }
-    } catch (error) {
-      console.log(`❌ Server check failed: ${error.message}`);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log(`❌ Server check timed out after 30s (Attempt ${retryCount + 1})`);
+      } else {
+        console.log(`❌ Server check failed: ${error.message} (Attempt ${retryCount + 1})`);
+      }
+
       // Retry if server isn't ready yet and we're still in checking mode
-      if (serverStatus === 'checking' && retryCount < maxRetries) {
-        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 1000);
+      if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
+        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 3000); // Longer wait after error
       }
     }
   };
@@ -442,6 +486,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         if (result.machineId) {
           console.log('🆔 Fly Machine ID:', result.machineId);
           setFlyMachineId(result.machineId);
+          flyMachineIdRef.current = result.machineId;
 
           // Phase 2: Set Gateway Session Cookie
           // This tells the backend Gateway which VM to route our requests to
@@ -1438,22 +1483,67 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     )}
                   </View>
                 </View>
-              ) : serverStatus === 'checking' ? (
-                // Checking server status
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color={AppColors.primary} />
-                  <Text style={styles.loadingText}>Connessione al server...</Text>
+              ) : serverStatus === 'checking' || (serverStatus === 'running' && !webViewReady) ? (
+                // Server starting or WebView not ready - show start screen with loading state
+                <View style={styles.startScreen}>
+                  {/* ChatPage gradient background */}
+                  <LinearGradient
+                    colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
+                    locations={[0, 0.3, 0.7, 1]}
+                    style={StyleSheet.absoluteFill}
+                  >
+                    <View style={styles.glowTop} />
+                    <View style={styles.glowBottom} />
+                  </LinearGradient>
+
+                  {/* Close button top right */}
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
+                  </TouchableOpacity>
+
+                  {/* iPhone 15 Pro style mockup with loading */}
+                  <View style={styles.iphoneMockup}>
+                    {/* Status bar area */}
+                    <View style={styles.statusBarArea}>
+                      <Text style={styles.fakeTime}>9:41</Text>
+                      <View style={styles.dynamicIsland} />
+                      <View style={styles.fakeStatusIcons}>
+                        <Ionicons name="wifi" size={10} color="#fff" />
+                        <Ionicons name="battery-full" size={10} color="#fff" />
+                      </View>
+                    </View>
+
+                    {/* Screen content - loading animation */}
+                    <View style={[styles.iphoneScreen, { justifyContent: 'center', alignItems: 'center' }]}>
+                      <ActivityIndicator size="large" color={AppColors.primary} />
+                      <Text style={{ color: 'rgba(255, 255, 255, 0.6)', marginTop: 16, fontSize: 14 }}>
+                        {serverStatus === 'checking' ? 'Avvio server...' : 'Caricamento app...'}
+                      </Text>
+                    </View>
+
+                    {/* Side buttons */}
+                    <View style={styles.iphoneSideButton} />
+                    <View style={styles.iphoneVolumeUp} />
+                    <View style={styles.iphoneVolumeDown} />
+                  </View>
+
+                  {/* Bottom hint */}
+                  <View style={styles.startBottomSection}>
+                    <View style={[styles.startButton, { opacity: 0.5 }]}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                    <Text style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 12, marginTop: 12 }}>
+                      {serverStatus === 'checking' ? 'Installazione dipendenze...' : 'Caricamento preview...'}
+                    </Text>
+                  </View>
                 </View>
               ) : (
-                // Server running - show WebView
+                // Server running AND WebView ready - show WebView
                 <>
-                  {/* Show loading spinner until WebView is ready */}
-                  {(!webViewReady || isLoading) && (
-                    <View style={styles.loadingContainer}>
-                      <ActivityIndicator size="large" color={AppColors.primary} />
-                      <Text style={styles.loadingText}>Caricamento anteprima...</Text>
-                    </View>
-                  )}
                   {webCompatibilityError && (
                     <View style={styles.errorOverlay}>
                       <View style={styles.errorCard}>
@@ -1487,7 +1577,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         // }
                         // And the state declaration:
                         // const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
-                        ...(flyMachineId ? { 'Fly-Force-Instance-Id': flyMachineId } : {})
+                        ...(flyMachineId ? { 'Fly-Force-Instance-Id': flyMachineId } : {}),
+                        'Cookie': `drape_vm_id=${flyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
                       }
                     }}
                     style={[
@@ -1498,12 +1589,28 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     injectedJavaScriptBeforeContentLoaded={`
                       (function() {
                         const token = "${coderToken || ''}";
+                        const vmId = "${flyMachineId || ''}";
                         if (token) {
                           const cookieOptions = "; path=/; SameSite=Lax";
+                          document.cookie = "coder_session_token=" + token + cookieOptions;
                           document.cookie = "session_token=" + token + cookieOptions;
+                          document.cookie = "coder_session=" + token + cookieOptions;
+                        }
+                        if (vmId) {
+                           document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
+                        }
                           document.cookie = "coder_session=" + token + cookieOptions;
                           document.cookie = "coder_session_token=" + token + cookieOptions;
                           console.log("🍪 Session cookies injected");
+                        }
+
+                        // 🚀 HOLY GRAIL: Inject Fly.io machine routing cookie
+                        const flyMachineId = "${flyMachineId || ''}";
+                        if (flyMachineId) {
+                          const cookieOptions = "; path=/; SameSite=Lax";
+                          document.cookie = "drape_vm_id=" + flyMachineId + cookieOptions;
+                          console.log("🚀 Fly.io machine ID cookie injected:", flyMachineId);
+                        }
 
                           // If we are at the login page, it means the initial request lacked cookies.
                           // Setting cookies and reloading should fix it.
@@ -1525,6 +1632,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     onLoadStart={(syntheticEvent) => {
                       const { nativeEvent } = syntheticEvent;
                       console.log('🔵 WebView load start:', nativeEvent.url);
+                      // Only reset readiness if we are not in a forced "running" state
+                      // or if this is a genuine navigation to a new page (not just a reload loop)
+                      if (serverStatus !== 'running') {
+                        setWebViewReady(false);
+                      }
                       setIsLoading(true);
                     }}
                     onLoadEnd={(syntheticEvent) => {
@@ -1532,58 +1644,92 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       console.log('✅ WebView load end:', nativeEvent.url);
 
                       // Inject error listener and check content
-                      setTimeout(() => {
-                        webViewRef.current?.injectJavaScript(`
-                      // Capture all errors
-                      window.addEventListener('error', (e) => {
-                        window.ReactNativeWebView?.postMessage(JSON.stringify({
-                          type: 'JS_ERROR',
-                          message: e.message,
-                          filename: e.filename,
-                          lineno: e.lineno,
-                          colno: e.colno
-                        }));
-                      });
+                      // Start polling for content immediately
+                      webViewRef.current?.injectJavaScript(`
+                        (function() {
+                          // Error listeners
+                          window.addEventListener('error', function(e) {
+                            window.ReactNativeWebView?.postMessage(JSON.stringify({
+                              type: 'JS_ERROR',
+                              message: e.message
+                            }));
+                          });
 
-                      // Capture console errors
-                      const originalError = console.error;
-                      console.error = function(...args) {
-                        originalError.apply(console, args);
-                        window.ReactNativeWebView?.postMessage(JSON.stringify({
-                          type: 'CONSOLE_ERROR',
-                          args: args.map(a => String(a))
-                        }));
-                      };
+                          // Debug logging for content inspection
+                          const root = document.getElementById('root');
+                          const rootChildren = root ? root.children.length : 0;
+                          const bodyContent = document.body ? document.body.innerText.slice(0, 100) : 'No body';
+                          
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                            type: 'debug',
+                            url: window.location.href,
+                            title: document.title,
+                            rootExists: !!root,
+                            rootChildren: rootChildren,
+                            bodyPreview: bodyContent
+                          }));
 
-                      try {
-                        const rootElement = document.getElementById('root');
-                        // Check root element OR body children (for static sites/directory listing)
-                        const bodyChildren = document.body ? document.body.children.length : 0;
-                        const hasContent = (rootElement && rootElement.children.length > 0) || bodyChildren > 0;
-                        const bodyBgColor = window.getComputedStyle(document.body).backgroundColor;
+                          const hasContent = (rootChildren > 0) || (document.body && document.body.children.length > 0);
+                          
+                          if (hasContent) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'navigationState',
+                              canGoBack: window.history.length > 1, 
+                              canGoForward: false,
+                              currentUrl: window.location.href,
+                              title: document.title,
+                              hasContent: true 
+                            }));
+                          }
 
-                        // Check if bundle script is loaded
-                        const scripts = Array.from(document.scripts).map(s => s.src);
-                        const hasBundle = scripts.some(src => src.includes('bundle'));
+                          let attempts = 0;
+                          const maxAttempts = 40; // 20 seconds
+                          
+                          function checkContent() {
+                            attempts++;
+                            try {
+                              const root = document.getElementById('root');
+                              const rootChildren = root ? root.children.length : 0;
+                              const bodyChildren = document.body ? document.body.children.length : 0;
+                              const hasContent = (rootChildren > 0) || bodyChildren > 0;
+                              
+                              const scripts = Array.from(document.scripts).map(function(s) { return s.src; });
+                              const hasBundle = scripts.some(function(s) { return s.includes('bundle'); });
+                              
+                              // Success (React mounted) or Timeout (give up and show what we have)
+                              if (rootChildren > 0 || attempts >= maxAttempts) {
+                                window.ReactNativeWebView?.postMessage(JSON.stringify({
+                                  type: 'PAGE_INFO',
+                                  hasContent: hasContent,
+                                  rootChildren: rootChildren,
+                                  scripts: scripts,
+                                  hasBundle: hasBundle,
+                                  forceReady: attempts >= maxAttempts
+                                }));
+                                return true; // Stop polling
+                              }
+                            } catch(e) {
+                              // Ignore errors during check
+                            }
+                            return false; // Continue polling
+                          }
 
-                        window.ReactNativeWebView?.postMessage(JSON.stringify({
-                          type: 'PAGE_INFO',
-                          hasContent: hasContent,
-                          rootChildren: rootElement ? rootElement.children.length : 0,
-                          backgroundColor: bodyBgColor,
-                          readyState: document.readyState,
-                          scripts: scripts,
-                          hasBundle: hasBundle
-                        }));
-                      } catch (e) {
-                        console.error('Page info error:', e);
-                      }
-                      true;
-                    `);
-                      }, 2000);
+                          // Check immediately
+                          if (!checkContent()) {
+                            // Poll every 500ms
+                            const interval = setInterval(function() {
+                              if (checkContent()) {
+                                clearInterval(interval);
+                              }
+                            }, 500);
+                          }
+                        })();
+                        true;
+                      `);
 
                       setIsLoading(false);
                     }}
+
                     onLoadProgress={({ nativeEvent }) => {
                       if (nativeEvent.progress === 1) {
                         setIsLoading(false);
@@ -1618,10 +1764,15 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           console.log(`   Has bundle: ${data.hasBundle}`);
                           console.log(`   Scripts:`, data.scripts);
 
-                          // Mark WebView as ready if we have real content (scripts or children)
-                          if (data.scripts?.length > 0 || data.rootChildren > 0 || data.hasContent) {
-                            console.log('✅ WebView content verified, showing preview');
+                          // Mark WebView as ready ONLY if React has actually rendered content
+                          // rootChildren > 0 means React has mounted something in the DOM
+                          // Just having scripts is not enough - we need actual rendered content
+                          if (data.rootChildren > 0 || data.forceReady) {
+                            console.log(data.forceReady ? '⚠️ Preview timeout, forcing show' : '✅ WebView content verified, showing preview');
                             setWebViewReady(true);
+                          } else if (data.scripts?.length > 0) {
+                            // Scripts loading but no content yet - keep waiting
+                            console.log('⏳ Scripts loading, waiting for React to render...');
                           }
                         }
 
@@ -1641,6 +1792,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           console.error('🟠 Console Error in WebView:', data.args);
                         }
 
+                        if (data.type === 'debug') {
+                          console.log('🐞 WebView Debug:', JSON.stringify(data, null, 2));
+                          return;
+                        }
                         if (data.type === 'ELEMENT_SELECTED') {
                           console.log('Element selected:', data.element);
 

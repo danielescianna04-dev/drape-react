@@ -25,7 +25,13 @@ proxy.on('error', (err, req, res) => {
 module.exports = async (req, res, next) => {
     // 1. Skip API routes / System routes (let Express handle them)
     // Note: using req.url because this is raw Node request
-    if (req.url.startsWith('/fly/') || req.url.startsWith('/api/') || req.url === '/health') {
+    const systemRoutes = [
+        '/fly/', '/api/', '/ai/', '/github/', '/git/',
+        '/workstation/', '/preview/', '/terminal/',
+        '/expo-preview/', '/health'
+    ];
+
+    if (systemRoutes.some(route => req.url.startsWith(route))) {
         return next();
     }
 

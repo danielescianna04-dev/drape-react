@@ -204,9 +204,15 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
     const elapsed = Date.now() - startTime;
     console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
 
+    // Use local backend as proxy for preview (enables proper cookie-based routing)
+    const { getLocalIP } = require('../utils/helpers');
+    const LOCAL_IP = getLocalIP();
+    const PORT = process.env.PORT || 3000;
+    const localPreviewUrl = `http://${LOCAL_IP}:${PORT}/`;
+
     res.json({
         success: true,
-        previewUrl: result.previewUrl,
+        previewUrl: localPreviewUrl, // Use local proxy URL
         agentUrl: result.agentUrl,
         machineId: result.machineId,
         projectType: projectInfo.description || projectInfo.type,

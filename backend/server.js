@@ -184,6 +184,9 @@ async function startServer() {
     // ===========================================
     // INITIALIZE SERVICES
     // ===========================================
+    const orchestrator = require('./services/workspace-orchestrator');
+    orchestrator.startReaper();
+
 
     console.log('🤖 Initializing AI providers...');
     try {

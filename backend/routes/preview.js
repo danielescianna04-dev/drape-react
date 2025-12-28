@@ -19,8 +19,7 @@ const coderService = require('../coder-service');
 const agentClient = require('../services/agent-client');
 
 
-// Server logs storage for SSE
-const serverLogsMap = new Map();
+const serverLogService = require('../services/server-log-service');
 
 /**
  * POST /preview/clone
@@ -375,25 +374,18 @@ router.post('/start', asyncHandler(async (req, res) => {
             try {
                 const checkNodeModules = await agentClient.exec(wsOwner, wsName, coderUser.id, 'ls /home/coder/project/node_modules');
 
-                if (checkNodeModules.exitCode !== 0) {
-                    console.log('   Dependencies missing. Installing...');
-                    // Add a system log for the UI
-                    if (serverLogsMap.has(workstationId)) {
-                        serverLogsMap.get(workstationId).logs.push({
-                            id: `install-${Date.now()}`,
-                            content: 'Dependencies missing. Running install...',
-                            type: 'system',
-                            timestamp: new Date()
-                        });
-                    }
+                console.log('   Dependencies missing. Installing...');
+                // Add a system log for the UI
+                serverLogService.addLog(workstationId, 'Dependencies missing. Running install...', 'system');
 
-                    const installCmd = `cd /home/coder/project && ${projectInfo.installCommand || 'npm install'}`;
-                    await agentClient.exec(wsOwner, wsName, coderUser.id, installCmd);
-                }
+                const installCmd = `cd /home/coder/project && ${projectInfo.installCommand || 'npm install'}`;
+
+                await agentClient.exec(wsOwner, wsName, coderUser.id, installCmd);
             } catch (e) {
                 console.log('   Install step failed/skipped:', e.message);
             }
         }
+
 
         // 2. Start the server in background
         // We use nohup and & to detach the process
@@ -450,44 +442,25 @@ router.post('/start', asyncHandler(async (req, res) => {
                 try {
                     const result = await agentClient.exec(wsOwner, wsName, coderUser.id, `tail -c +${lastSize + 1} ${logFile}`);
                     if (result.stdout) {
-                        const newLogs = result.stdout.split('\n').filter(l => l.trim());
-                        if (serverLogsMap.has(workstationId)) {
-                            const entry = serverLogsMap.get(workstationId);
-                            newLogs.forEach(line => {
-                                const logItem = {
-                                    id: `app-${Date.now()}-${Math.random()}`,
-                                    content: line,
-                                    type: 'output',
-                                    timestamp: new Date()
-                                };
-                                entry.logs.push(logItem);
-                                // Notify listeners
-                                entry.listeners.forEach(res => {
-                                    res.write(`data: ${JSON.stringify(logItem)}\n\n`);
-                                });
-                            });
-                        }
+                        const newLines = result.stdout.split('\n').filter(l => l.trim());
+                        newLines.forEach(line => {
+                            serverLogService.addLog(workstationId, line, 'output');
+                        });
+
                         // Update lastSize based on what we read
                         const sizeResult = await agentClient.exec(wsOwner, wsName, coderUser.id, `wc -c < ${logFile}`);
                         lastSize = parseInt(sizeResult.stdout) || lastSize;
                     }
                 } catch (e) { }
                 await new Promise(resolve => setTimeout(resolve, 3000));
-                if (!serverLogsMap.has(workstationId)) break;
             }
         };
         tailLogs();
 
         // Add a system log for the UI
-        if (serverLogsMap.has(workstationId)) {
-            serverLogsMap.get(workstationId).logs.push({
-                id: `start-${Date.now()}`,
-                content: `Starting server with: ${projectInfo.startCommand}`,
-                type: 'system',
-                timestamp: new Date()
-            });
-        }
+        serverLogService.addLog(workstationId, `Starting server with: ${projectInfo.startCommand}`, 'system');
     }
+
 
     // Wait for server to be actually ready (avoid 502 in frontend)
     const targetUrl = isStatic ? previewUrl : devUrl;
@@ -551,22 +524,11 @@ router.get('/logs/:workstationId', (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.flushHeaders();
 
-    if (!serverLogsMap.has(workstationId)) {
-        serverLogsMap.set(workstationId, { logs: [], listeners: new Set() });
-    }
-
-    const entry = serverLogsMap.get(workstationId);
-
-    // Send existing logs
-    entry.logs.forEach(log => {
-        res.write(`data: ${JSON.stringify(log)}\n\n`);
-    });
-
-    entry.listeners.add(res);
+    serverLogService.addListener(workstationId, res);
 
     req.on('close', () => {
         console.log(`📺 SSE disconnected: ${workstationId}`);
-        entry.listeners.delete(res);
+        serverLogService.removeListener(workstationId, res);
     });
 });
 

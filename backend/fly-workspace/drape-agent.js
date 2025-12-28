@@ -37,12 +37,14 @@ async function parseBody(req) {
 }
 
 // Send JSON response
-function sendJson(res, data, status = 200) {
+function sendJson(req, res, data, status = 200) {
+    const origin = req.headers.origin || '*';
     res.writeHead(status, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Credentials': 'true'
     });
     res.end(JSON.stringify(data));
 }
@@ -109,10 +111,12 @@ const server = http.createServer(async (req, res) => {
 
     // CORS preflight
     if (req.method === 'OPTIONS') {
+        const origin = req.headers.origin || '*';
         res.writeHead(204, {
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': origin,
             'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Credentials': 'true'
         });
         res.end();
         return;
@@ -122,11 +126,11 @@ const server = http.createServer(async (req, res) => {
 
     try {
         // API routes (start with /health, /exec, /files, /file, /clone)
-        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone'].some(route => pathname.startsWith(route));
+        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup'].some(route => pathname.startsWith(route));
 
         // Health check (explicit)
         if (pathname === '/health') {
-            return sendJson(res, {
+            return sendJson(req, res, {
                 status: 'ok',
                 agent: 'drape-fly',
                 projectDir: PROJECT_DIR,
@@ -136,27 +140,102 @@ const server = http.createServer(async (req, res) => {
 
         // PROXY: Forward non-API requests to preview server on port 3000
         if (!isApiRoute) {
+            const proxyHeaders = { ...req.headers };
+            // Force host to localhost to bypass Vite's host-check (Vite 5/6)
+            proxyHeaders['host'] = 'localhost:3000';
+
             const proxyReq = http.request({
                 hostname: '127.0.0.1',
                 port: 3000,
                 path: req.url,
                 method: req.method,
-                headers: req.headers
+                headers: proxyHeaders
             }, (proxyRes) => {
-                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                // console.log(`[Agent] Proxy: ${req.method} ${pathname} -> Status ${proxyRes.statusCode}`);
+
+                // Inject CORS headers into proxied response
+                const headers = { ...proxyRes.headers };
+                const origin = req.headers.origin || '*';
+                headers['Access-Control-Allow-Origin'] = origin;
+                headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+                headers['Access-Control-Allow-Headers'] = '*';
+                headers['Access-Control-Allow-Credentials'] = 'true';
+
+                res.writeHead(proxyRes.statusCode, headers);
                 proxyRes.pipe(res);
             });
 
             proxyReq.on('error', (err) => {
-                console.log(`[Agent] Proxy error: ${err.message}`);
-                sendJson(res, {
-                    error: 'Preview server not running',
-                    hint: 'Server starting...'
-                }, 503);
+                // console.log(`[Agent] Proxy error: ${err.message}`);
+                // Serve friendly loading page
+                const origin = req.headers.origin || '*';
+                res.writeHead(503, {
+                    'Content-Type': 'text/html',
+                    'Access-Control-Allow-Origin': origin,
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers': '*',
+                    'Access-Control-Allow-Credentials': 'true',
+                    'X-Drape-Agent-Status': 'waiting',
+                    'Cache-Control': 'no-cache, no-store, must-revalidate'
+                });
+                res.end(`
+<!DOCTYPE html>
+<html id="drape-boot-page">
+<head>
+    <title>Drape | Booting Environment...</title>
+    <meta http-equiv="refresh" content="3">
+    <style>
+        body { background: #0b0e14; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }
+        .container { text-align: center; max-width: 400px; padding: 20px; }
+        .spinner { border: 3px solid rgba(99, 102, 241, 0.1); border-top: 3px solid #6366f1; border-radius: 50%; width: 48px; height: 48px; animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite; margin: 0 auto 24px; }
+        h1 { font-size: 20px; font-weight: 600; margin-bottom: 12px; color: #f8fafc; }
+        p { color: #94a3b8; font-size: 15px; line-height: 1.5; }
+        .log-tip { margin-top: 32px; padding: 12px; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 13px; color: #64748b; border: 1px solid rgba(255,255,255,0.05); }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1>Preparing Workstation</h1>
+        <p>We are installing dependencies and starting the dev server. This usually takes 30-60 seconds for React projects.</p>
+        <div class="log-tip">
+            Tip: You can watch the real-time progress in the Terminal tab.
+        </div>
+    </div>
+</body>
+</html>
+                `);
             });
 
             req.pipe(proxyReq);
             return;
+        }
+
+        // Setup (Install + Start) - Detached Background Process
+        if (pathname === '/setup' && req.method === 'POST') {
+            const body = await parseBody(req);
+            const { command } = body;
+
+            if (!command) return sendJson(req, res, { error: 'command required' }, 400);
+
+            console.log(`[Agent] Starting background setup: ${command}`);
+
+            // Run detached via bash for maximum safety
+            const { spawn } = require('child_process');
+            const child = spawn('/bin/bash', ['-c', `nohup ${command} > /home/coder/server.log 2>&1 &`], {
+                cwd: PROJECT_DIR,
+                detached: true,
+                stdio: 'ignore'
+            });
+
+            child.unref();
+
+            return sendJson(req, res, {
+                status: 'started',
+                pid: child.pid,
+                message: 'Background setup started'
+            });
         }
 
         // Execute command
@@ -165,28 +244,28 @@ const server = http.createServer(async (req, res) => {
             const { command, cwd } = body;
 
             if (!command) {
-                return sendJson(res, { error: 'command required' }, 400);
+                return sendJson(req, res, { error: 'command required' }, 400);
             }
 
             const result = await execCommand(command, cwd || PROJECT_DIR);
-            return sendJson(res, result);
+            return sendJson(req, res, result);
         }
 
         // List files
         if (pathname === '/files' && req.method === 'GET') {
             const maxDepth = parseInt(url.searchParams.get('depth')) || 3;
             const files = await listFiles(PROJECT_DIR, maxDepth);
-            return sendJson(res, { files, count: files.length });
+            return sendJson(req, res, { files, count: files.length });
         }
 
         // Read file
         if (pathname === '/file' && req.method === 'GET') {
             const filePath = url.searchParams.get('path');
             if (!filePath) {
-                return sendJson(res, { error: 'path required' }, 400);
+                return sendJson(req, res, { error: 'path required' }, 400);
             }
             const result = await readFile(filePath);
-            return sendJson(res, result, result.success ? 200 : 404);
+            return sendJson(req, res, result, result.success ? 200 : 404);
         }
 
         // Write file
@@ -195,11 +274,11 @@ const server = http.createServer(async (req, res) => {
             const { path: filePath, content } = body;
 
             if (!filePath) {
-                return sendJson(res, { error: 'path required' }, 400);
+                return sendJson(req, res, { error: 'path required' }, 400);
             }
 
             const result = await writeFile(filePath, content || '');
-            return sendJson(res, result);
+            return sendJson(req, res, result);
         }
 
         // Clone repository
@@ -221,18 +300,18 @@ const server = http.createServer(async (req, res) => {
             const cloneCmd = `rm -rf ${PROJECT_DIR}/* ${PROJECT_DIR}/.[!.]* 2>/dev/null; git clone ${cloneUrl} ${PROJECT_DIR}`;
             const result = await execCommand(cloneCmd, '/home/coder');
 
-            return sendJson(res, {
+            return sendJson(req, res, {
                 success: result.exitCode === 0,
                 ...result
             });
         }
 
         // 404 for unknown routes
-        sendJson(res, { error: 'Not found' }, 404);
+        sendJson(req, res, { error: 'Not found' }, 404);
 
     } catch (error) {
         console.error('[Agent] Error:', error);
-        sendJson(res, { error: error.message }, 500);
+        sendJson(req, res, { error: error.message }, 500);
     }
 });
 

@@ -59,7 +59,7 @@ class FlyService {
 
     get DRAPE_IMAGE() {
         // Use the deployment tag from the latest flyctl deploy
-        return process.env.FLY_IMAGE || 'registry.fly.io/drape-workspaces:deployment-01KDBDQE14PTFNVHPW202RRYD1';
+        return process.env.FLY_IMAGE || 'registry.fly.io/drape-workspaces:deployment-01KDBW5PHKMGZZ565TM1QRX8M3';
     }
 
     /**
@@ -96,6 +96,7 @@ class FlyService {
         const machineId = `ws-${projectId}`.substring(0, 30); // Fly has name limits
 
         console.log(`🚀 [Fly] Creating MicroVM: ${machineId} in ${this.FLY_REGION}...`);
+        console.log(`   📦 Image: ${this.DRAPE_IMAGE}`);
         const startTime = Date.now();
 
         try {
