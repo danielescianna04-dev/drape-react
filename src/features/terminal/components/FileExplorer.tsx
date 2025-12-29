@@ -30,8 +30,10 @@ interface Props {
 }
 
 export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthRequired }: Props) => {
-  const [files, setFiles] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Initialize from cache immediately (EVEN IF EXPIRED - Stale-While-Revalidate)
+  const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
+  const [files, setFiles] = useState<string[]>(cachedFiles || []);
+  const [loading, setLoading] = useState(!cachedFiles);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,16 +70,25 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
   const loadFiles = async (forceRefresh = false) => {
     try {
-      // Check cache first (unless force refresh)
-      const cachedFiles = useFileCacheStore.getState().getFiles(projectId);
+      // 1. Get Cached Files (Stale allowed)
+      const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
+      const isCacheValid = useFileCacheStore.getState().isCacheValid(projectId);
+
+      // 2. If we have cache (even stale) and not forcing refresh, show it immediately
       if (cachedFiles && !forceRefresh) {
-        console.log(`📁 [FileExplorer] Using cached files (${cachedFiles.length})`);
+        console.log(`📁 [FileExplorer] Using cached files (${cachedFiles.length}) - Valid: ${isCacheValid}`);
         setFiles(cachedFiles);
         setLoading(false);
-        return;
+
+        // If cache is valid, stop here. If stale, continue to fetch in background.
+        if (isCacheValid) return;
+
+        console.log('stock [FileExplorer] Cache is stale, revalidating in background...');
+      } else {
+        // No cache? Show loading
+        setLoading(true);
       }
 
-      setLoading(true);
       setError(null);
 
       // Get token for this repo (auto-detect provider from URL)

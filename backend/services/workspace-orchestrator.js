@@ -162,6 +162,7 @@ class WorkspaceOrchestrator {
         return {
             success: true,
             filesCount: files.length,
+            files: files,
             elapsed
         };
     }
@@ -286,6 +287,15 @@ class WorkspaceOrchestrator {
      */
     async startPreview(projectId, projectInfo) {
         const vm = await this.getOrCreateVM(projectId);
+
+        // CRITICAL: Clean project folder before sync to avoid stale files
+        console.log(`🧹 [Orchestrator] Cleaning project folder on VM...`);
+        try {
+            await flyService.exec(vm.agentUrl, 'rm -rf /home/coder/project/*', '/home/coder', vm.machineId);
+            console.log(`   ✅ Project folder cleaned`);
+        } catch (e) {
+            console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+        }
 
         // Sync files from storage to VM
         console.log(`📂 [Orchestrator] Syncing files to VM...`);

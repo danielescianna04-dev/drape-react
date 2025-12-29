@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import Markdown from 'react-native-markdown-display';
+import { CollapsibleCodeBlock } from './CollapsibleCodeBlock';
 
 const colors = AppColors.dark;
 
@@ -21,6 +22,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const slideAnim = useRef(new Animated.Value(10)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [dotCount, setDotCount] = useState(1);
   const [loadingDots, setLoadingDots] = useState('.');
 
@@ -178,7 +180,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   if (item.type === ItemType.COMMAND && isTerminalCommand && outputItem) {
     // Only check for actual errors (starting with "Error:" or "ERROR:")
     const hasError = (outputItem.content || '').match(/^Error:/i) ||
-                     (outputItem.content || '').match(/^ERROR:/i);
+      (outputItem.content || '').match(/^ERROR:/i);
     dotColor = hasError ? '#F85149' : '#3FB950'; // Red for error, green for success
   } else if (item.type === ItemType.ERROR) {
     dotColor = '#F85149'; // Red for errors
@@ -186,21 +188,21 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     // Check if this is a tool result (Read, Write, Edit, etc.)
     const content = item.content || '';
     const isToolResult = content.startsWith('Read ') ||
-                        content.startsWith('Write ') ||
-                        content.startsWith('Edit ') ||
-                        content.startsWith('List files') ||
-                        content.startsWith('Search ') ||
-                        content.startsWith('Execute:') ||
-                        content.startsWith('Glob ');
+      content.startsWith('Write ') ||
+      content.startsWith('Edit ') ||
+      content.startsWith('List files') ||
+      content.startsWith('Search ') ||
+      content.startsWith('Execute:') ||
+      content.startsWith('Glob ');
 
     if (isToolResult) {
       // Check if it has an error at the BEGINNING of the content (not in the middle)
       // Only the first 3 lines could contain an actual error message from the tool
       const firstLines = content.split('\n').slice(0, 3).join('\n');
       const hasError = firstLines.match(/^Error:/m) ||
-                       firstLines.match(/^ERROR:/m) ||
-                       firstLines.includes('└─ Error:') ||
-                       firstLines.includes('└─ Failed');
+        firstLines.match(/^ERROR:/m) ||
+        firstLines.includes('└─ Error:') ||
+        firstLines.includes('└─ Failed');
       dotColor = hasError ? '#F85149' : '#3FB950'; // Red for error, green for success
     }
   }
@@ -231,357 +233,351 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
       {/* Main content */}
       <View style={[styles.contentContainer, isUserMessage && styles.userMessageContainer]}>
-      {item.type === ItemType.COMMAND && (
-        (() => {
-          // First check if output is a formatted tool result - if so, hide the COMMAND completely
-          // Note: Glob is NOT included here because we want to show it as OUTPUT
-          const isFormattedToolOutput = outputItem && (
-            (outputItem.content || '').startsWith('Read ') ||
-            (outputItem.content || '').startsWith('Write ') ||
-            (outputItem.content || '').startsWith('Edit ')
-          );
+        {item.type === ItemType.COMMAND && (
+          (() => {
+            // First check if output is a formatted tool result - if so, hide the COMMAND completely
+            // Note: Glob is NOT included here because we want to show it as OUTPUT
+            const isFormattedToolOutput = outputItem && (
+              (outputItem.content || '').startsWith('Read ') ||
+              (outputItem.content || '').startsWith('Write ') ||
+              (outputItem.content || '').startsWith('Edit ')
+            );
 
-          // If it's a formatted tool output, don't render the COMMAND at all
-          if (isFormattedToolOutput) {
-            return null;
-          }
-
-          // Otherwise, render the command normally
-          return isTerminalCommand && outputItem ? (
-            // Terminal command with output - show as card with title
-            (() => {
-              // Only consider it an error if it starts with "Error:" or "ERROR:"
-              const hasError = (outputItem.content || '').match(/^Error:/i) ||
-                               (outputItem.content || '').match(/^ERROR:/i);
-
-              // Check if this is a read file command (cat)
-              const isCatCommand = (item.content || '').trim().startsWith('cat ');
-
-            if (isCatCommand) {
-              // Extract file path and line count from output
-              // Output format: "Reading: filename\n140 lines\n\ncontent..."
-              const outputText = outputItem.content || '';
-              const lines = outputText.split('\n');
-
-              // Extract filename from first line "Reading: filename"
-              const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
-              const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
-
-              // Extract line count from second line "140 lines"
-              const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
-              const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
-
-              // Show inline format: READ filename (X lines)
-              return (
-                <View style={styles.readFileInline}>
-                  <View style={styles.toolBadge}>
-                    <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
-                    <Text style={styles.toolBadgeText}>READ</Text>
-                  </View>
-                  <Text style={styles.readFileName}>{fileName}</Text>
-                  <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
-                </View>
-              );
+            // If it's a formatted tool output, don't render the COMMAND at all
+            if (isFormattedToolOutput) {
+              return null;
             }
 
-            return (
-              <View style={[styles.bashCard, hasError && styles.bashCardError]}>
-                <View style={styles.bashHeader}>
-                  <Text style={styles.bashTitle}>Bash</Text>
-              <TouchableOpacity
-                onPress={() => setIsModalVisible(true)}
-                style={styles.expandButton}
-              >
-                <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.bashContent}>
-              <View style={styles.bashRow}>
-                <Text style={styles.bashLabel}>IN</Text>
-                <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
-              </View>
-              <View style={styles.bashDivider} />
-              <View style={styles.bashRow}>
-                <Text style={styles.bashLabel}>OUT</Text>
-                <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
-              </View>
-            </View>
+            // Otherwise, render the command normally
+            return isTerminalCommand && outputItem ? (
+              // Terminal command with output - show as card with title
+              (() => {
+                // Only consider it an error if it starts with "Error:" or "ERROR:"
+                const hasError = (outputItem.content || '').match(/^Error:/i) ||
+                  (outputItem.content || '').match(/^ERROR:/i);
 
-            {/* Full screen modal */}
-            <Modal
-              visible={isModalVisible}
-              animationType="slide"
-              transparent={false}
-              onRequestClose={() => setIsModalVisible(false)}
-            >
-              <View style={styles.modalContainer}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Bash Output</Text>
-                  <TouchableOpacity
-                    onPress={() => setIsModalVisible(false)}
-                    style={styles.closeButton}
-                  >
-                    <Ionicons name="close" size={24} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.modalContent}>
-                  <View style={styles.modalSection}>
-                    <Text style={styles.modalLabel}>INPUT</Text>
-                    <Text style={styles.modalInput}>{item.content || ''}</Text>
+                // Check if this is a read file command (cat)
+                const isCatCommand = (item.content || '').trim().startsWith('cat ');
+
+                if (isCatCommand) {
+                  // Extract file path and line count from output
+                  // Output format: "Reading: filename\n140 lines\n\ncontent..."
+                  const outputText = outputItem.content || '';
+                  const lines = outputText.split('\n');
+
+                  // Extract filename from first line "Reading: filename"
+                  const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
+                  const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
+
+                  // Extract line count from second line "140 lines"
+                  const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
+                  const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
+
+                  // Show inline format: READ filename (X lines)
+                  return (
+                    <View style={styles.readFileInline}>
+                      <View style={styles.toolBadge}>
+                        <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
+                        <Text style={styles.toolBadgeText}>READ</Text>
+                      </View>
+                      <Text style={styles.readFileName}>{fileName}</Text>
+                      <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
+                    </View>
+                  );
+                }
+
+                return (
+                  <View style={[styles.bashCard, hasError && styles.bashCardError]}>
+                    <View style={styles.bashHeader}>
+                      <Text style={styles.bashTitle}>Bash</Text>
+                      <TouchableOpacity
+                        onPress={() => setIsModalVisible(true)}
+                        style={styles.expandButton}
+                      >
+                        <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.bashContent}>
+                      <View style={styles.bashRow}>
+                        <Text style={styles.bashLabel}>IN</Text>
+                        <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
+                      </View>
+                      <View style={styles.bashDivider} />
+                      <View style={styles.bashRow}>
+                        <Text style={styles.bashLabel}>OUT</Text>
+                        <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
+                      </View>
+                    </View>
+
+                    {/* Full screen modal */}
+                    <Modal
+                      visible={isModalVisible}
+                      animationType="slide"
+                      transparent={false}
+                      onRequestClose={() => setIsModalVisible(false)}
+                    >
+                      <View style={styles.modalContainer}>
+                        <View style={styles.modalHeader}>
+                          <Text style={styles.modalTitle}>Bash Output</Text>
+                          <TouchableOpacity
+                            onPress={() => setIsModalVisible(false)}
+                            style={styles.closeButton}
+                          >
+                            <Ionicons name="close" size={24} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                        <ScrollView style={styles.modalContent}>
+                          <View style={styles.modalSection}>
+                            <Text style={styles.modalLabel}>INPUT</Text>
+                            <Text style={styles.modalInput}>{item.content || ''}</Text>
+                          </View>
+                          <View style={styles.modalDivider} />
+                          <View style={styles.modalSection}>
+                            <Text style={styles.modalLabel}>OUTPUT</Text>
+                            <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
+                          </View>
+                        </ScrollView>
+                      </View>
+                    </Modal>
                   </View>
-                  <View style={styles.modalDivider} />
-                  <View style={styles.modalSection}>
-                    <Text style={styles.modalLabel}>OUTPUT</Text>
-                    <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
-                  </View>
-                </ScrollView>
+                );
+              })()
+            ) : isTerminalCommand ? (
+              <View style={styles.terminalCommand}>
+                <Text style={styles.terminalPrompt}>$ </Text>
+                <Text style={styles.terminalText}>{item.content || ''}</Text>
               </View>
-            </Modal>
+            ) : (
+              <View style={styles.userMessageBlock}>
+                <View style={styles.userMessageCard}>
+                  <Text style={styles.userMessage}>{item.content || ''}</Text>
+                </View>
               </View>
             );
           })()
-        ) : isTerminalCommand ? (
-          <View style={styles.terminalCommand}>
-            <Text style={styles.terminalPrompt}>$ </Text>
-            <Text style={styles.terminalText}>{item.content || ''}</Text>
-          </View>
-        ) : (
+        )}
+
+        {item.type === ItemType.USER_MESSAGE && (
           <View style={styles.userMessageBlock}>
             <View style={styles.userMessageCard}>
               <Text style={styles.userMessage}>{item.content || ''}</Text>
             </View>
           </View>
-        );
-        })()
-      )}
+        )}
 
-      {item.type === ItemType.USER_MESSAGE && (
-        <View style={styles.userMessageBlock}>
-          <View style={styles.userMessageCard}>
-            <Text style={styles.userMessage}>{item.content || ''}</Text>
-          </View>
-        </View>
-      )}
+        {item.type === ItemType.OUTPUT && (
+          // Check if this is a tool executing indicator
+          (item.content || '').startsWith('Executing: ') ? (
+            (() => {
+              const toolName = (item.content || '').replace('Executing: ', '');
+              // Map tool names to friendly names and icons
+              const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                'read_file': { icon: 'document-text-outline', label: 'Reading', color: '#58A6FF' },
+                'glob_files': { icon: 'search-outline', label: 'Searching', color: '#A371F7' },
+                'edit_file': { icon: 'create-outline', label: 'Editing', color: '#3FB950' },
+                'write_file': { icon: 'save-outline', label: 'Writing', color: '#3FB950' },
+                'search_in_files': { icon: 'code-slash-outline', label: 'Searching', color: '#FFA657' },
+                'list_files': { icon: 'folder-outline', label: 'Listing', color: '#58A6FF' },
+              };
+              const config = toolConfig[toolName] || { icon: 'cog-outline', label: 'Executing', color: '#8B949E' };
 
-      {item.type === ItemType.OUTPUT && (
-        // Check if this is a tool executing indicator
-        (item.content || '').startsWith('Executing: ') ? (
-          (() => {
-            const toolName = (item.content || '').replace('Executing: ', '');
-            // Map tool names to friendly names and icons
-            const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-              'read_file': { icon: 'document-text-outline', label: 'Reading', color: '#58A6FF' },
-              'glob_files': { icon: 'search-outline', label: 'Searching', color: '#A371F7' },
-              'edit_file': { icon: 'create-outline', label: 'Editing', color: '#3FB950' },
-              'write_file': { icon: 'save-outline', label: 'Writing', color: '#3FB950' },
-              'search_in_files': { icon: 'code-slash-outline', label: 'Searching', color: '#FFA657' },
-              'list_files': { icon: 'folder-outline', label: 'Listing', color: '#58A6FF' },
-            };
-            const config = toolConfig[toolName] || { icon: 'cog-outline', label: 'Executing', color: '#8B949E' };
-
-            return (
-              <View style={styles.readFileInline}>
-                <View style={[styles.toolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
-                  <Ionicons name={config.icon as any} size={12} color={config.color} />
-                  <Text style={[styles.toolBadgeText, { color: config.color }]}>{config.label.toUpperCase()}</Text>
-                </View>
-                <Animated.View style={{ opacity: pulseAnim }}>
-                  <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)' }]}>...</Text>
-                </Animated.View>
-              </View>
-            );
-          })()
-        ) : // Check if this is a Read tool result
-        (item.content || '').startsWith('Read ') ? (
-          (() => {
-            const content = item.content || '';
-            const lines = content.split('\n');
-            const fullHeader = lines[0]; // "Read filename.ts"
-            const fileName = fullHeader.replace('Read ', ''); // Extract just the filename
-            const stats = lines[1]; // "└─ X lines"
-            const fileContent = lines.slice(3).join('\n'); // Skip empty line
-
-            return (
-              <View style={styles.readFileInline}>
-                <View style={styles.toolBadge}>
-                  <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
-                  <Text style={styles.toolBadgeText}>READ</Text>
-                </View>
-                <Text style={styles.readFileName}>{fileName}</Text>
-              </View>
-            );
-          })()
-        ) : // Check if this is a Glob tool result
-        (item.content || '').startsWith('Glob ') ? (
-          (() => {
-            const content = item.content || '';
-            const lines = content.split('\n');
-            const fullHeader = lines[0]; // "Glob pattern: **/*.ts"
-            const pattern = fullHeader.replace('Glob pattern: ', ''); // Extract pattern
-            const stats = lines[1]; // "└─ Found X file(s)"
-
-            return (
-              <View>
+              return (
                 <View style={styles.readFileInline}>
-                  <View style={[styles.toolBadge, styles.toolBadgeGlob]}>
-                    <Ionicons name="search-outline" size={12} color="#A371F7" />
-                    <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>GLOB</Text>
+                  <View style={[styles.toolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                    <Ionicons name={config.icon as any} size={12} color={config.color} />
+                    <Text style={[styles.toolBadgeText, { color: config.color }]}>{config.label.toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.readFileName}>{pattern}</Text>
+                  <Animated.View style={{ opacity: pulseAnim }}>
+                    <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)' }]}>...</Text>
+                  </Animated.View>
                 </View>
-                {stats && (
-                  <Text style={styles.globStats}>{stats}</Text>
-                )}
-              </View>
-            );
-          })()
-        ) : // Check if this is a file edit output (standalone, without COMMAND)
-        (item.content || '').startsWith('Edit ') ? (
-          (() => {
-            const lines = (item.content || '').split('\n');
-            const editHeader = lines[0]; // "Edit file.txt"
-            const editSubheader = lines[1]; // "└─ Added X lines"
-            const codeLines = lines.slice(2); // Skip empty line and get code
+              );
+            })()
+          ) : // Check if this is a Read tool result
+            (item.content || '').startsWith('Read ') ? (
+              (() => {
+                const content = item.content || '';
+                const lines = content.split('\n');
+                const fullHeader = lines[0]; // "Read filename.ts"
+                const fileName = fullHeader.replace('Read ', ''); // Extract just the filename
+                const stats = lines[1]; // "└─ X lines"
+                const fileContent = lines.slice(3).join('\n'); // Skip empty line
 
-            const fileName = editHeader.replace('Edit ', '');
-
-            return (
-              <View>
-                {/* Header with badge */}
-                <View style={styles.readFileInline}>
-                  <View style={[styles.toolBadge, styles.toolBadgeEdit]}>
-                    <Ionicons name="create-outline" size={12} color="#3FB950" />
-                    <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>EDIT</Text>
+                return (
+                  <View style={styles.readFileInline}>
+                    <View style={styles.toolBadge}>
+                      <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
+                      <Text style={styles.toolBadgeText}>READ</Text>
+                    </View>
+                    <Text style={styles.readFileName}>{fileName}</Text>
                   </View>
-                  <Text style={styles.readFileName}>{fileName}</Text>
-                </View>
-                {editSubheader && (
-                  <Text style={styles.editFileStats}>{editSubheader}</Text>
-                )}
+                );
+              })()
+            ) : // Check if this is a Glob tool result
+              (item.content || '').startsWith('Glob ') ? (
+                (() => {
+                  const content = item.content || '';
+                  const lines = content.split('\n');
+                  const fullHeader = lines[0]; // "Glob pattern: **/*.ts"
+                  const pattern = fullHeader.replace('Glob pattern: ', ''); // Extract pattern
+                  const stats = lines[1]; // "└─ Found X file(s)"
 
-                {/* Card with code only, no header */}
-                <View style={styles.editCard}>
-                  <TouchableOpacity
-                    onPress={() => setIsModalVisible(true)}
-                    style={styles.editExpandButton}
-                  >
-                    <Text style={styles.editExpandText}>Click to expand</Text>
-                  </TouchableOpacity>
-                  <View style={styles.editContent}>
-                    {codeLines.map((line, index) => {
-                      const isAddedLine = line.startsWith('+ ');
-                      const isRemovedLine = line.startsWith('- ');
-                      const isContextLine = line.startsWith('  ');
-
-                      // Skip empty lines at the beginning
-                      if (line.trim() === '' && index === 0) return null;
-
-                      // Calculate line number (starting from 1)
-                      const lineNumber = index + 1;
-
-                      return (
-                        <View
-                          key={index}
-                          style={[
-                            styles.diffLine,
-                            isAddedLine && styles.addedLine,
-                            isRemovedLine && styles.removedLine,
-                          ]}
-                        >
-                          <Text style={styles.lineNumber}>{lineNumber}</Text>
-                          <Text
-                            style={[
-                              styles.terminalOutputLine,
-                              isAddedLine && { color: '#3FB950' },
-                              isRemovedLine && { color: '#F85149' },
-                              isContextLine && { color: '#8B949E' },
-                            ]}
-                          >
-                            {line}
-                          </Text>
+                  return (
+                    <View>
+                      <View style={styles.readFileInline}>
+                        <View style={[styles.toolBadge, styles.toolBadgeGlob]}>
+                          <Ionicons name="search-outline" size={12} color="#A371F7" />
+                          <Text style={[styles.toolBadgeText, { color: '#A371F7' }]}>GLOB</Text>
                         </View>
-                      );
-                    })}
-                  </View>
-                </View>
+                        <Text style={styles.readFileName}>{pattern}</Text>
+                      </View>
+                      {stats && (
+                        <Text style={styles.globStats}>{stats}</Text>
+                      )}
+                    </View>
+                  );
+                })()
+              ) : // Check if this is a file edit output (standalone, without COMMAND)
 
-            {/* Full screen modal for file edit */}
-            <Modal
-              visible={isModalVisible}
-              animationType="slide"
-              transparent={false}
-              onRequestClose={() => setIsModalVisible(false)}
-            >
-              <View style={styles.modalContainer}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>File Edit</Text>
-                  <TouchableOpacity
-                    onPress={() => setIsModalVisible(false)}
-                    style={styles.closeButton}
-                  >
-                    <Ionicons name="close" size={24} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-                <ScrollView style={styles.modalContent}>
-                  <View style={styles.modalSection}>
-                    {(item.content || '').split('\n').map((line, index) => {
-                      const isAddedLine = line.startsWith('+ ');
-                      const isEditHeader = line.startsWith('Edit ');
-                      const isEditSubheader = line.startsWith('└─');
+                (item.content || '').startsWith('Edit ') ? (
+                  (() => {
+                    const lines = (item.content || '').split('\n');
+                    const editHeader = lines[0]; // "Edit file.txt"
+                    const editSubheader = lines[1]; // "└─ Applied change"
+                    const codeLines = lines.slice(2); // Skip empty line and get code
 
-                      return (
-                        <View
-                          key={index}
-                          style={[
-                            isAddedLine && styles.addedLine,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.modalOutput,
-                              isEditHeader && styles.editHeader,
-                              isEditSubheader && styles.editSubheader,
-                              isAddedLine && { color: '#3FB950' },
-                            ]}
-                          >
-                            {line}
-                          </Text>
+                    const fileName = editHeader.replace('Edit ', '');
+
+                    // Inline expansion state specific to this item rendering
+                    // Note: Since we are inside a map/render function, we can't use hooks here directly for *each* item if not careful.
+                    // But TerminalItem IS the component for individual item.
+                    // So we can use a state in TerminalItem component.
+                    // However, TerminalItem renders ONE item. So `isDiffExpanded` state is fine.
+
+                    return (
+                      <View>
+                        {/* Header with badge */}
+                        <View style={styles.readFileInline}>
+                          <View style={[styles.toolBadge, styles.toolBadgeEdit]}>
+                            <Ionicons name="create-outline" size={12} color="#3FB950" />
+                            <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>EDIT</Text>
+                          </View>
+                          <Text style={styles.readFileName}>{fileName}</Text>
                         </View>
-                      );
-                    })}
+
+                        {/* Card with collapsible code */}
+                        <View style={[styles.editCard, !isExpanded && { maxHeight: 'auto' }]}>
+                          <View style={styles.editContent}>
+                            {codeLines.slice(0, isExpanded ? undefined : 4).map((line, index) => {
+                              const isAddedLine = line.startsWith('+ ');
+                              const isRemovedLine = line.startsWith('- ');
+                              const isContextLine = line.startsWith('  ');
+
+                              // Calculate line number (approximate since we don't have context)
+                              const lineNumber = index + 1;
+
+                              return (
+                                <View
+                                  key={index}
+                                  style={[
+                                    styles.diffLine,
+                                    isAddedLine && styles.addedLine,
+                                    isRemovedLine && styles.removedLine,
+                                  ]}
+                                >
+                                  {/* Removing line numbers for diffs as they might be misleading without proper context counting */}
+                                  {/* <Text style={styles.lineNumber}>{lineNumber}</Text> */}
+                                  <Text
+                                    style={[
+                                      styles.terminalOutputLine,
+                                      isAddedLine && { color: '#3FB950' },
+                                      isRemovedLine && { color: '#F85149' },
+                                      isContextLine && { color: '#8B949E' },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {line}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+
+                            {!isExpanded && codeLines.length > 4 && (
+                              <View style={styles.expandOverlay}>
+                                <LinearGradient
+                                  colors={['transparent', 'rgba(20, 20, 20, 0.95)']}
+                                  style={styles.gradientOverlay}
+                                />
+                                <TouchableOpacity
+                                  onPress={() => setIsExpanded(true)}
+                                  style={styles.showMoreButton}
+                                >
+                                  <Text style={styles.showMoreText}>Show {codeLines.length - 4} more lines</Text>
+                                  <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                                </TouchableOpacity>
+                              </View>
+                            )}
+
+                            {isExpanded && codeLines.length > 4 && (
+                              <TouchableOpacity
+                                onPress={() => setIsExpanded(false)}
+                                style={styles.showLessButton}
+                              >
+                                <Text style={styles.showMoreText}>Show less</Text>
+                                <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })()
+                ) : isTerminalCommand ? (
+                  // Regular terminal output
+                  <Text style={styles.terminalOutput}>{item.content || ''}</Text>
+                ) : (
+                  <View style={styles.assistantMessageContent}>
+                    {showThinking && !item.content ? (
+                      <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
+                    ) : (
+                      <View style={{ overflow: 'hidden', flex: 1 }}>
+                        <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
+                      </View>
+                    )}
                   </View>
-                </ScrollView>
-              </View>
-            </Modal>
-              </View>
-            );
-          })()
-        ) : isTerminalCommand ? (
-          // Regular terminal output
-          <Text style={styles.terminalOutput}>{item.content || ''}</Text>
-        ) : (
-          <View style={styles.assistantMessageContent}>
-            {showThinking && !item.content ? (
-              <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
-            ) : (
-              <View style={{ overflow: 'hidden', flex: 1 }}>
-                <Markdown style={markdownStyles}>{item.content || ''}</Markdown>
-              </View>
-            )}
+                )
+        )}
+
+        {item.type === ItemType.ERROR && (
+          <View style={styles.messageBlock}>
+            <Text style={styles.errorName}>Error</Text>
+            <Text style={styles.errorMessage}>{item.content || ''}</Text>
           </View>
-        )
-      )}
+        )}
 
-      {item.type === ItemType.ERROR && (
-        <View style={styles.messageBlock}>
-          <Text style={styles.errorName}>Error</Text>
-          <Text style={styles.errorMessage}>{item.content || ''}</Text>
-        </View>
-      )}
+        {item.type === ItemType.SYSTEM && (
+          item.content === 'Cloning repository to workstation' ? (
+            // Show as Git Clone card when it's the cloning message (finished loading)
+            <View style={styles.loadingCard}>
+              <View style={styles.loadingHeader}>
+                <Text style={styles.loadingTitle}>Git Clone</Text>
+              </View>
+              <View style={styles.loadingBody}>
+                <View style={styles.loadingRow}>
+                  <Text style={styles.loadingLabel}>STATUS</Text>
+                  <Text style={styles.loadingStatus}>{item.content}</Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            // Normal system message
+            <View style={styles.systemBlock}>
+              <Text style={styles.systemText}>{item.content || ''}</Text>
+            </View>
+          )
+        )}
 
-      {item.type === ItemType.SYSTEM && (
-        item.content === 'Cloning repository to workstation' ? (
-          // Show as Git Clone card when it's the cloning message (finished loading)
+        {item.type === ItemType.LOADING && (
           <View style={styles.loadingCard}>
             <View style={styles.loadingHeader}>
               <Text style={styles.loadingTitle}>Git Clone</Text>
@@ -589,47 +585,27 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             <View style={styles.loadingBody}>
               <View style={styles.loadingRow}>
                 <Text style={styles.loadingLabel}>STATUS</Text>
-                <Text style={styles.loadingStatus}>{item.content}</Text>
+                <Text style={styles.loadingStatus}>
+                  {item.content || ''}
+                  {'.'.repeat(dotCount)}
+                </Text>
               </View>
             </View>
           </View>
-        ) : (
-          // Normal system message
-          <View style={styles.systemBlock}>
-            <Text style={styles.systemText}>{item.content || ''}</Text>
-          </View>
-        )
-      )}
+        )}
 
-      {item.type === ItemType.LOADING && (
-        <View style={styles.loadingCard}>
-          <View style={styles.loadingHeader}>
-            <Text style={styles.loadingTitle}>Git Clone</Text>
-          </View>
-          <View style={styles.loadingBody}>
-            <View style={styles.loadingRow}>
-              <Text style={styles.loadingLabel}>STATUS</Text>
-              <Text style={styles.loadingStatus}>
-                {item.content || ''}
-                {'.'.repeat(dotCount)}
+        {item.type === ItemType.BACKEND_LOG && (
+          <View style={styles.backendLogBlock}>
+            <View style={styles.backendLogHeader}>
+              <Ionicons name="server-outline" size={12} color="#8B949E" />
+              <Text style={styles.backendLogLabel}>BACKEND</Text>
+              <Text style={styles.backendLogTime}>
+                {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
               </Text>
             </View>
+            <Text style={styles.backendLogText}>{item.content || ''}</Text>
           </View>
-        </View>
-      )}
-
-      {item.type === ItemType.BACKEND_LOG && (
-        <View style={styles.backendLogBlock}>
-          <View style={styles.backendLogHeader}>
-            <Ionicons name="server-outline" size={12} color="#8B949E" />
-            <Text style={styles.backendLogLabel}>BACKEND</Text>
-            <Text style={styles.backendLogTime}>
-              {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}
-            </Text>
-          </View>
-          <Text style={styles.backendLogText}>{item.content || ''}</Text>
-        </View>
-      )}
+        )}
       </View>
     </Animated.View>
   );
@@ -798,6 +774,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8B949E',
     marginBottom: 8,
+  },
+  expandOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  gradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  showMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    zIndex: 10,
+  },
+  showLessButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  showMoreText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#8B949E',
   },
   editCard: {
     backgroundColor: 'rgba(20, 20, 20, 0.95)',
@@ -1089,6 +1109,28 @@ const styles = StyleSheet.create({
 });
 
 // Markdown styles (Claude Code-inspired)
+// Define rules outside component to avoid recreation
+
+const markdownRules = {
+  fence: (node, children, parent, styles) => {
+    return (
+      <CollapsibleCodeBlock
+        key={node.key}
+        content={node.content}
+        language={node.source}
+      />
+    );
+  },
+  code_block: (node, children, parent, styles) => {
+    return (
+      <CollapsibleCodeBlock
+        key={node.key}
+        content={node.content}
+      />
+    );
+  },
+};
+
 const markdownStyles = {
   body: {
     fontSize: 15,

@@ -91,6 +91,7 @@ interface TerminalState {
   previewUrl: string | null;
   previewServerStatus: 'checking' | 'running' | 'stopped';
   previewServerUrl: string | null; // The actual running server URL
+  flyMachineId: string | null; // Fly.io VM machine ID for session routing
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
@@ -137,6 +138,7 @@ interface TerminalState {
   setPreviewUrl: (url: string | null) => void;
   setPreviewServerStatus: (status: 'checking' | 'running' | 'stopped') => void;
   setPreviewServerUrl: (url: string | null) => void;
+  setFlyMachineId: (id: string | null) => void;
   setIsToolsExpanded: (value: boolean) => void;
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
@@ -176,6 +178,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   previewUrl: null,
   previewServerStatus: 'stopped',
   previewServerUrl: null,
+  flyMachineId: null,
   isToolsExpanded: false,
   isSidebarOpen: false,
   autocompleteOptions: [],
@@ -390,6 +393,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setPreviewUrl: (url) => set({ previewUrl: url }),
   setPreviewServerStatus: (status) => set({ previewServerStatus: status }),
   setPreviewServerUrl: (url) => set({ previewServerUrl: url }),
+  setFlyMachineId: (id) => set({ flyMachineId: id }),
   setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
   setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
   setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),

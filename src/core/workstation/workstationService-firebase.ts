@@ -14,7 +14,7 @@ const FLY_API_BASE = `${config.apiUrl}/fly`;
 export interface UserProject {
   id: string;
   name: string;
-  type: 'git' | 'personal';
+  type: 'git' | 'personal' | 'template';
   repositoryUrl?: string; // Per progetti Git
   githubAccountUsername?: string; // Account GitHub collegato a questo progetto
   userId: string;
@@ -153,7 +153,7 @@ export const workstationService = {
   },
 
   // Crea workstation per progetto
-  async createWorkstationForProject(project: UserProject, token?: string): Promise<{ workstationId: string; status: string }> {
+  async createWorkstationForProject(project: UserProject, token?: string): Promise<{ workstationId: string; status: string; files?: string[] }> {
     try {
       let result;
 
@@ -476,9 +476,9 @@ export const workstationService = {
   // Update lastAccessed timestamp when project is opened
   async updateLastAccessed(projectId: string): Promise<void> {
     try {
-      const cleanId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
-      console.log('🕐 Updating lastAccessed for project:', cleanId);
-      await updateDoc(doc(db, COLLECTION, cleanId), {
+      // Use the original projectId - AI-generated projects use full 'ws-' prefix
+      console.log('🕐 Updating lastAccessed for project:', projectId);
+      await updateDoc(doc(db, COLLECTION, projectId), {
         lastAccessed: new Date(),
       });
       console.log('✅ lastAccessed updated');

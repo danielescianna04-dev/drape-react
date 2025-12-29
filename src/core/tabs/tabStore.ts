@@ -21,6 +21,7 @@ interface TabStore {
   removeTab: (id: string) => void;
   removeTabsByWorkstation: (workstationId: string) => void;
   resetTabs: () => void;
+  clearTabs: () => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
   addTerminalItem: (tabId: string, item: any) => void;
@@ -39,7 +40,7 @@ export const useTabStore = create<TabStore>((set) => ({
     }
   ],
   activeTabId: 'chat-main',
-  
+
   addTab: (tab) => set((state) => {
     // Check if tab already exists
     const exists = state.tabs.find(t => t.id === tab.id);
@@ -55,7 +56,7 @@ export const useTabStore = create<TabStore>((set) => ({
       activeTabId: tab.id,
     };
   }),
-  
+
   removeTab: (id) => set((state) => {
     // Keep all chats in chatHistory - only delete manually from ChatPanel
     const newTabs = state.tabs.filter(t => t.id !== id);
@@ -150,6 +151,29 @@ export const useTabStore = create<TabStore>((set) => ({
     console.log('🗑️ [TabStore] Tabs reset complete - only chat-main remains');
   },
 
+  clearTabs: () => {
+    console.log('🗑️🗑️🗑️ [TabStore] === CLEAR TABS (KEEP CHAT) ===');
+    set((state) => {
+      // Keep only chat tabs
+      const chatTabs = state.tabs.filter(t => t.type === 'chat');
+      // If no chat tabs, create default one
+      if (chatTabs.length === 0) {
+        chatTabs.push({
+          id: 'chat-main',
+          type: 'chat',
+          title: 'Nuova Conversazione',
+          data: { chatId: Date.now().toString() },
+          terminalItems: []
+        });
+      }
+
+      return {
+        tabs: chatTabs,
+        activeTabId: chatTabs[0].id
+      };
+    });
+  },
+
   setActiveTab: (id) => set({ activeTabId: id }),
 
   updateTab: (id, updates) => set((state) => ({
@@ -200,11 +224,11 @@ export const useTabStore = create<TabStore>((set) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
           ? {
-              ...t,
-              terminalItems: (t.terminalItems || []).map(item =>
-                item.type === oldType ? { ...item, ...updates } : item
-              )
-            }
+            ...t,
+            terminalItems: (t.terminalItems || []).map(item =>
+              item.type === oldType ? { ...item, ...updates } : item
+            )
+          }
           : t
       ),
     }));

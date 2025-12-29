@@ -34,6 +34,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
+import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -367,10 +368,18 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         language: 'Unknown',
         status: wsResult.status as any,
         createdAt: project.createdAt,
-        files: [],
+        files: wsResult.files || [],
         repositoryUrl: project.repositoryUrl,
         folderId: null,
       };
+
+      // SEED CACHE: If files returned, cache them immediately
+      if (wsResult.files && wsResult.files.length > 0) {
+        console.log(`🚀 [Sidebar] Seeding cache for imported project: ${wsResult.files.length} files`);
+        // For file explorer, we store simpler paths - ensure they are strings
+        const filePaths = wsResult.files.map((f: any) => typeof f === 'string' ? f : f.path);
+        useFileCacheStore.getState().setFiles(project.id, filePaths);
+      }
 
       addWorkstation(workstation);
       setShowImportModal(false);
@@ -532,12 +541,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       <GitHubAuthModal
         visible={showAuthModal}
         repositoryUrl={pendingRepoUrl}
-        onAuthenticate={async (token) => {
+        onAuthenticated={async (token) => {
           setShowAuthModal(false);
           await handleImportRepo(pendingRepoUrl, token);
           setPendingRepoUrl('');
         }}
-        onCancel={() => {
+        onClose={() => {
           setShowAuthModal(false);
           setPendingRepoUrl('');
         }}
@@ -636,260 +645,7 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
   );
 };
 
-const ProjectsList = ({ onClose, addTerminalItem }: { onClose: () => void; addTerminalItem: any }) => {
-  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ projectId: string } | null>(null);
 
-  const {
-    workstations,
-    addWorkstation,
-    setWorkstation,
-    removeWorkstation,
-    projectFolders,
-    addProjectFolder,
-    toggleFolderExpanded,
-    removeProjectFolder,
-    moveProjectToFolder,
-    reorderWorkstations
-  } = useTerminalStore();
-
-  const handleCreateProject = (name: string, language: string) => {
-    const newWorkstation = {
-      id: 'ws-' + Date.now(),
-      name,
-      language,
-      status: 'idle' as const,
-      createdAt: new Date(),
-      files: [],
-      folderId: null,
-    };
-    addWorkstation(newWorkstation);
-  };
-
-  const handleImportFromGitHub = (repoUrl: string) => {
-    console.log('🔵 handleImportFromGitHub called with:', repoUrl);
-    try {
-      console.log('🔵 Processing repo URL...');
-      const repoName = String(repoUrl || '').split('/').pop()?.replace('.git', '') || 'Imported';
-      console.log('🔵 Repo name:', repoName);
-
-      const newWorkstation = {
-        id: 'ws-' + Date.now(),
-        name: String(repoName),
-        language: 'Unknown',
-        status: 'idle' as const,
-        createdAt: new Date(),
-        files: [],
-        repositoryUrl: String(repoUrl || ''),
-        folderId: null,
-      };
-      console.log('🔵 New workstation:', newWorkstation);
-
-      console.log('🔵 Adding workstation...');
-      addWorkstation(newWorkstation);
-      console.log('🔵 Workstation added successfully');
-    } catch (error) {
-      console.error('🔴 Import error:', error);
-    }
-  };
-
-  const handleCreateFolder = (name: string) => {
-    const folder = {
-      id: 'folder-' + Date.now(),
-      name,
-      parentId: null,
-      isExpanded: true,
-      createdAt: new Date(),
-    };
-    addProjectFolder(folder);
-  };
-
-  const handleOpenWorkstation = (ws: any) => {
-    setWorkstation(ws);
-    addTerminalItem({
-      id: Date.now().toString(),
-      type: 'output',
-      content: `Opened workstation: ${ws.name || 'Unnamed Project'}`,
-      timestamp: new Date(),
-    });
-    onClose();
-  };
-
-  const handleMoveToFolder = (projectId: string, folderId: string | null) => {
-    moveProjectToFolder(projectId, folderId);
-    setContextMenu(null);
-  };
-
-  return (
-    <View style={styles.list}>
-      <NewProjectModal
-        visible={showNewProjectModal}
-        onClose={() => setShowNewProjectModal(false)}
-        onConfirm={handleCreateProject}
-      />
-
-      <Modal
-        visible={showImportModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowImportModal(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ width: '100%', maxWidth: 400, backgroundColor: AppColors.dark.surfaceAlt, borderRadius: 16, padding: 24 }}>
-            <Text style={{ fontSize: 20, fontWeight: '600', color: AppColors.white.full, marginBottom: 20 }}>Import GitHub Repo</Text>
-            <TextInput
-              style={{ backgroundColor: AppColors.white.w06, borderRadius: 8, padding: 12, color: AppColors.white.full, marginBottom: 20 }}
-              placeholder="https://github.com/user/repo.git"
-              placeholderTextColor={AppColors.white.w40}
-              onSubmitEditing={(e) => {
-                const url = String(e.nativeEvent.text || '').trim();
-                if (url) {
-                  handleImportFromGitHub(url);
-                  setShowImportModal(false);
-                }
-              }}
-            />
-            <TouchableOpacity
-              style={{ backgroundColor: AppColors.white.w10, padding: 12, borderRadius: 8, alignItems: 'center' }}
-              onPress={() => setShowImportModal(false)}
-            >
-              <Text style={{ color: AppColors.white.full }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <NewFolderModal
-        visible={showNewFolderModal}
-        onClose={() => setShowNewFolderModal(false)}
-        onConfirm={handleCreateFolder}
-      />
-
-      <View style={styles.actionButtonsContainer}>
-        <TouchableOpacity
-          style={styles.compactButton}
-          onPress={() => setShowNewProjectModal(true)}
-        >
-          <Ionicons name="grid-outline" size={20} color={AppColors.primary} />
-          <Text style={styles.compactButtonText}>Nuovo</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.compactButton}
-          onPress={() => setShowImportModal(true)}
-        >
-          <Ionicons name="logo-github" size={20} color={AppColors.primary} />
-          <Text style={styles.compactButtonText}>Importa</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.compactButton}
-          onPress={() => setShowNewFolderModal(true)}
-        >
-          <Ionicons name="folder-open-outline" size={20} color="#FFA500" />
-          <Text style={styles.compactButtonText}>Cartella</Text>
-        </TouchableOpacity>
-      </View>
-
-      {projectFolders.length === 0 && workstations.length === 0 ? (
-        <EmptyState
-          icon="folder-outline"
-          title="Nessun progetto"
-        />
-      ) : (
-        <>
-          {projectFolders.map((folder) => (
-            <DropZoneFolder
-              key={folder.id}
-              folder={folder}
-              isExpanded={folder.isExpanded}
-              onToggle={() => toggleFolderExpanded(folder.id)}
-              onDelete={() => {
-                removeProjectFolder(folder.id);
-              }}
-            >
-              {workstations
-                .filter((w) => w.folderId === folder.id)
-                .map((ws) => (
-                  <TouchableOpacity
-                    key={ws.id}
-                    style={styles.projectItemInFolder}
-                    onPress={() => handleOpenWorkstation(ws)}
-                  >
-                    <View style={styles.projectHeader}>
-                      <Ionicons name="document" size={14} color={AppColors.primary} />
-                      <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
-                      <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
-                        <Ionicons name="trash-outline" size={14} color="#FF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-            </DropZoneFolder>
-          ))}
-
-          {workstations
-            .filter((w) => !w.folderId)
-            .map((ws) => (
-              <TouchableOpacity
-                key={ws.id}
-                style={styles.projectItem}
-                onPress={() => handleOpenWorkstation(ws)}
-              >
-                <View style={styles.projectHeader}>
-                  <Ionicons name="document" size={16} color={AppColors.primary} />
-                  <SafeText style={styles.projectName} numberOfLines={1}>{ws.name || 'Unnamed Project'}</SafeText>
-                  <TouchableOpacity onPress={(e) => handleDeleteWorkstation(ws.id, e)} style={styles.deleteButton}>
-                    <Ionicons name="trash-outline" size={16} color="#FF4444" />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            ))}
-        </>
-      )}
-
-      {contextMenu && (
-        <Modal
-          visible={true}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setContextMenu(null)}
-        >
-          <TouchableOpacity
-            style={styles.contextMenuOverlay}
-            activeOpacity={1}
-            onPress={() => setContextMenu(null)}
-          >
-            <View style={styles.contextMenu}>
-              <Text style={styles.contextMenuTitle}>Sposta in:</Text>
-
-              <TouchableOpacity
-                style={styles.contextMenuItem}
-                onPress={() => handleMoveToFolder(contextMenu.projectId, null)}
-              >
-                <Ionicons name="home-outline" size={18} color={AppColors.primary} />
-                <Text style={styles.contextMenuText}>Root</Text>
-              </TouchableOpacity>
-
-              {projectFolders.map((folder) => (
-                <TouchableOpacity
-                  key={folder.id}
-                  style={styles.contextMenuItem}
-                  onPress={() => handleMoveToFolder(contextMenu.projectId, folder.id)}
-                >
-                  <Ionicons name="folder" size={18} color="#FFA500" />
-                  <Text style={styles.contextMenuText}>{folder.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      )}
-    </View>
-  );
-};
 
 // Modal component separato per evitare problemi di sintassi
 const ImportModal = ({ visible, onClose, onImport }: { visible: boolean; onClose: () => void; onImport: (url: string) => void }) => (

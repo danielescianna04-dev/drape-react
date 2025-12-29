@@ -55,6 +55,7 @@ router.post('/project/create', asyncHandler(async (req, res) => {
         success: true,
         projectId,
         filesCount,
+        files: (result && result.files) ? result.files.map(f => typeof f === 'string' ? f : f.path) : [],
         timing: { totalMs: elapsed },
         architecture: 'holy-grail'
     });

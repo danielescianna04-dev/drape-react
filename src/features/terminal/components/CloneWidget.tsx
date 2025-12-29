@@ -26,10 +26,10 @@ export const CloneWidget = ({ isCloning, progress, success, error, repoName }: P
                     <ActivityIndicator size="small" color={AppColors.primary} />
                 )}
                 {success && (
-                    <Ionicons name="checkmark-circle" size={24} color={AppColors.success} />
+                    <Ionicons name="checkmark-circle" size={18} color={AppColors.success} />
                 )}
                 {error && (
-                    <Ionicons name="alert-circle" size={24} color={AppColors.error} />
+                    <Ionicons name="alert-circle" size={18} color={AppColors.error} />
                 )}
             </View>
 
@@ -60,37 +60,45 @@ const styles = StyleSheet.create({
     container: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: AppColors.white.w06,
-        borderRadius: 12,
-        padding: 12,
-        marginHorizontal: 16,
-        marginVertical: 8,
+        backgroundColor: '#1E1E1E', // Darker surface
+        borderRadius: 24, // Pill shape
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        alignSelf: 'center', // Center content
+        marginVertical: 12,
         borderWidth: 1,
-        borderColor: AppColors.white.w10,
+        borderColor: 'rgba(255,255,255,0.08)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+        maxWidth: '90%',
     },
     iconContainer: {
-        marginRight: 12,
-        width: 24,
-        height: 24,
+        marginRight: 10,
+        width: 18,
+        height: 18,
         alignItems: 'center',
         justifyContent: 'center',
     },
     textContainer: {
-        flex: 1,
+        flex: 0, // shrink to content
     },
     title: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: AppColors.white.w80,
+        fontSize: 13,
+        fontWeight: '500',
+        color: AppColors.white.w90,
     },
     subtitle: {
-        fontSize: 12,
+        fontSize: 11,
         color: AppColors.white.w50,
-        marginTop: 2,
+        marginTop: 0,
+        display: 'none', // Hide subtitle to make it cleaner
     },
     errorText: {
         fontSize: 11,
         color: AppColors.error,
-        marginTop: 4,
+        marginTop: 2,
     },
 });

@@ -587,24 +587,26 @@ router.post('/create', asyncHandler(async (req, res) => {
         status: 'running',
         message: 'Workstation created successfully',
         repositoryUrl: repositoryUrl || null,
-        filesCount: files.length
+        filesCount: files.length,
+        files: files.map(f => typeof f === 'string' ? f : f.path)
     });
 }));
 
 /**
  * POST /workstation/create-with-template
- * Create a workstation with a technology-specific template
+ * Create a workstation with AI-generated code using Claude
  */
 router.post('/create-with-template', asyncHandler(async (req, res) => {
-    const { projectName, technology, userId, projectId } = req.body;
+    const { projectName, technology, description, userId, projectId } = req.body;
     const admin = require('firebase-admin');
     const db = admin.firestore();
-    const { generateTemplateFiles } = require('../services/project-templates');
+    const { getProviderForModel } = require('../services/ai-providers');
     const storageService = require('../services/storage-service');
 
-    console.log(`\n🚀 Creating project with template:`);
+    console.log(`\n🚀 Creating AI-powered project:`);
     console.log(`   📁 Name: ${projectName}`);
     console.log(`   💻 Technology: ${technology}`);
+    console.log(`   📝 Description: ${description?.substring(0, 50)}...`);
     console.log(`   👤 User: ${userId}`);
 
     if (!projectName || !technology || !userId) {
@@ -615,33 +617,196 @@ router.post('/create-with-template', asyncHandler(async (req, res) => {
 
     // Generate workstation ID
     const wsId = projectId || `ws-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const workstationId = `ws-${wsId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
 
-    // Get template files
-    const template = generateTemplateFiles(technology, projectName);
-    if (!template) {
-        return res.status(400).json({ error: `Unknown technology: ${technology}` });
+    // Get Claude provider
+    const { provider, modelId } = getProviderForModel('claude-3.5-sonnet');
+
+    if (!provider.client && provider.isAvailable()) {
+        await provider.initialize();
     }
 
-    console.log(`   📦 Template: ${template.description}`);
-    console.log(`   📄 Files: ${Object.keys(template.files).length}`);
+    // Premium system prompt for high-quality code generation with COMPLETE structure
+    const systemPrompt = `You are an elite full-stack developer. Create a COMPLETE, production-ready ${technology} project.
 
-    // Convert files object to array for storage
-    const filesArray = Object.entries(template.files).map(([filePath, content]) => ({
-        path: filePath,
-        content
-    }));
+PROJECT INFO:
+- Name: ${projectName}
+- Stack: ${technology}
+- Description: ${description || 'A modern web application'}
+
+MANDATORY FILE STRUCTURE - You MUST create ALL of these files:
+
+For React projects, include:
+1. package.json - with all dependencies (react, react-dom, react-router-dom, etc.)
+2. index.html - entry HTML with proper meta tags, fonts, viewport
+3. src/index.js or src/main.jsx - React entry point
+4. src/App.jsx - Main app component with routing
+5. src/index.css - Global styles with CSS variables, reset, utilities
+6. src/components/Header.jsx - Navigation header component
+7. src/components/Footer.jsx - Footer component
+8. src/components/Hero.jsx - Hero section component
+9. src/pages/Home.jsx - Home page
+10. src/pages/About.jsx - About page (if applicable)
+11. At least 2-3 more components specific to the project description
+
+DESIGN REQUIREMENTS (CRITICAL):
+- Dark theme: background #0a0a0f, cards rgba(255,255,255,0.05)
+- Accent: purple gradient (#8B5CF6 to #EC4899) or cyan (#06B6D4)
+- Glassmorphism: backdrop-blur-md, semi-transparent backgrounds
+- Typography: Inter font from Google Fonts
+- Mobile-first: base styles for mobile, media queries for larger screens
+- Smooth transitions (0.3s ease) on all interactive elements
+- Hover effects on buttons, cards, links
+- Proper spacing: 16px base, 24px sections, 48px major sections
+- Box shadows for depth
+- Border-radius: 12px for cards, 8px for buttons
+
+CONTENT REQUIREMENTS:
+- Real, meaningful placeholder content (not lorem ipsum)
+- At least 3-5 sections on the home page
+- Navigation with 3-4 links
+- Call-to-action buttons
+- Feature cards or content blocks
+- Footer with links and copyright
+
+CODE QUALITY:
+- Clean, readable JSX
+- Proper component decomposition
+- CSS custom properties for theming
+- Semantic HTML5 elements
+- Accessibility attributes (alt, aria-label, etc.)
+
+OUTPUT FORMAT:
+Respond with ONLY valid JSON. Each key = file path, each value = complete file content.
+NO markdown, NO explanation, NO code blocks - ONLY the raw JSON object.
+
+Example structure:
+{
+  "package.json": "{ \\"name\\": \\"app\\"... }",
+  "index.html": "<!DOCTYPE html>...",
+  "src/index.jsx": "import React...",
+  "src/App.jsx": "import { BrowserRouter }...",
+  "src/index.css": ":root { --bg: #0a0a0f; }...",
+  "src/components/Header.jsx": "export default function...",
+  ...more files
+}
+
+Generate the COMPLETE project now. Include at least 8-10 files minimum.`;
+
+    let filesArray = [];
+    let templateDescription = `AI-generated ${technology} project`;
+
+    try {
+        console.log('   🤖 Calling Claude to generate project...');
+
+        const messages = [
+            { role: 'user', content: systemPrompt }
+        ];
+
+        let filesObj;
+        let attempts = 0;
+        const maxAttempts = 2;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            console.log(`   🤖 Calling Claude to generate project (attempt ${attempts}/${maxAttempts})...`);
+
+            // Use streaming to avoid timeout for long-running requests
+            let responseText = '';
+            const stream = provider.chatStream(messages, {
+                model: modelId,
+                maxTokens: 32000,
+                temperature: 0.7
+            });
+
+            for await (const chunk of stream) {
+                if (chunk.type === 'text') {
+                    responseText += chunk.text;
+                } else if (chunk.type === 'done') {
+                    responseText = chunk.fullText || responseText;
+                }
+            }
+
+            console.log('   📦 Claude response received, parsing files...');
+
+            // Try to extract JSON from response
+            try {
+                // Try direct parse first
+                filesObj = JSON.parse(responseText);
+                break; // Success, exit loop
+            } catch (e) {
+                // Try to find JSON in response and sanitize it
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    try {
+                        filesObj = JSON.parse(jsonMatch[0]);
+                        break; // Success, exit loop
+                    } catch (e2) {
+                        // JSON is malformed, ask Claude to fix it
+                        if (attempts < maxAttempts) {
+                            console.log(`   ⚠️ JSON parse error, asking Claude to fix: ${e2.message.substring(0, 100)}`);
+                            messages.push({ role: 'assistant', content: responseText });
+                            messages.push({
+                                role: 'user',
+                                content: `Your response had a JSON syntax error: "${e2.message}". 
+
+Please fix the JSON and respond with ONLY the corrected, valid JSON object. Make sure all strings are properly escaped and the JSON is complete.`
+                            });
+                        } else {
+                            throw new Error('Could not parse JSON after retries: ' + e2.message);
+                        }
+                    }
+                } else {
+                    throw new Error('Could not find JSON in Claude response');
+                }
+            }
+        }
+
+        // Convert to array format and fix escaped newlines
+        filesArray = Object.entries(filesObj).map(([filePath, content]) => {
+            let fileContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+            // Convert escaped newlines to real newlines
+            fileContent = fileContent.replace(/\\n/g, '\n');
+            // Convert escaped tabs
+            fileContent = fileContent.replace(/\\t/g, '\t');
+            return {
+                path: filePath.startsWith('/') ? filePath.slice(1) : filePath,
+                content: fileContent
+            };
+        });
+
+        console.log(`   ✅ Generated ${filesArray.length} files`);
+        templateDescription = `AI-generated: ${description?.substring(0, 100) || projectName}`;
+
+    } catch (aiError) {
+        console.error('   ⚠️ AI generation failed, falling back to template:', aiError.message);
+
+        // Fallback to static template
+        const { generateTemplateFiles } = require('../services/project-templates');
+        const template = generateTemplateFiles(technology, projectName);
+
+        if (template) {
+            filesArray = Object.entries(template.files).map(([filePath, content]) => ({
+                path: filePath,
+                content
+            }));
+            templateDescription = template.description;
+        } else {
+            // Minimal fallback
+            filesArray = [
+                { path: 'index.html', content: `<!DOCTYPE html><html><head><title>${projectName}</title></head><body><h1>${projectName}</h1></body></html>` }
+            ];
+        }
+    }
 
     // Store project metadata and files
     try {
-        // Create project document in 'projects' collection (for app to find it)
-        await db.collection('projects').doc(wsId).set({
+        await db.collection('user_projects').doc(wsId).set({
             id: wsId,
             name: projectName,
-            type: 'template',
+            type: 'ai-generated',
             technology,
-            templateDescription: template.description,
-            startCommand: template.startCommand,
+            description: description || '',
+            templateDescription,
             userId,
             status: 'ready',
             cloned: true,
@@ -649,29 +814,22 @@ router.post('/create-with-template', asyncHandler(async (req, res) => {
             lastAccessed: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // Use storageService to save files (stores in projects/{id}/files)
         const saveResult = await storageService.saveFiles(wsId, filesArray);
         console.log(`   ✅ Saved ${saveResult.savedCount} files via storageService`);
-
         console.log(`   ✅ Project saved to Firestore`);
     } catch (error) {
         console.error('❌ Error saving to Firestore:', error.message);
         return res.status(500).json({ error: 'Failed to save project', details: error.message });
     }
 
-    // Optionally: Start a VM with the template files
-    // This happens in background during first preview
-
     res.json({
         success: true,
         projectId: wsId,
-        workstationId,
         projectName,
         technology,
-        templateDescription: template.description,
-        startCommand: template.startCommand,
+        templateDescription,
         filesCount: filesArray.length,
-        files: filesArray.map(f => ({ path: f.path, name: f.name }))
+        files: filesArray.map(f => ({ path: f.path }))
     });
 }));
 

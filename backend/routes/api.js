@@ -14,6 +14,8 @@ const router = express.Router();
 const { asyncHandler, NotFoundError } = require('../middleware/errorHandler');
 const { validateBody, schema } = require('../middleware/validator');
 const coderService = require('../coder-service');
+const { getProviderForModel } = require('../services/ai-providers');
+const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const { cleanWorkspaceName, getLocalIP } = require('../utils/helpers');
 
 const LOCAL_IP = getLocalIP();
@@ -194,6 +196,54 @@ router.get('/health', asyncHandler(async (req, res) => {
         success: health.status === 'ok',
         coder: health
     });
+}));
+
+/**
+ * POST /api/ai/recommend
+ * Recommend technology stack based on description
+ */
+router.post('/ai/recommend', validateBody({
+    description: schema().required().string()
+}), asyncHandler(async (req, res) => {
+    const { description } = req.body;
+    console.log(`🤖 AI Recommendation requested for: "${description.substring(0, 50)}..."`);
+
+    try {
+        const { provider, modelId } = getProviderForModel(DEFAULT_AI_MODEL);
+
+        if (!provider.client && provider.isAvailable()) {
+            await provider.initialize();
+        }
+
+        const prompt = `
+            You are an expert software architect.
+            Analyze the following project description and recommend the best specific technology ID from this list:
+            [javascript, typescript, python, react, node, cpp, java, swift, kotlin, go, rust, html]
+            
+            Description: "${description}"
+            
+            Return ONLY the ID of the single best match. Do not explain. Do not use markdown.
+            Example response: react
+        `;
+
+        const messages = [{ role: 'user', content: prompt }];
+        const response = await provider.chat(messages, { model: modelId, maxTokens: 20 });
+        const recommendedId = response.text.trim().toLowerCase();
+
+        console.log(`✅ AI Recommended: ${recommendedId}`);
+
+        res.json({
+            success: true,
+            recommendation: recommendedId
+        });
+    } catch (error) {
+        console.error('❌ AI Recommendation failed:', error);
+        // Fallback to javascript if AI fails
+        res.json({
+            success: true,
+            recommendation: 'javascript'
+        });
+    }
 }));
 
 module.exports = router;

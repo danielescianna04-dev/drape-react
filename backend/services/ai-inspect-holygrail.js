@@ -91,7 +91,7 @@ async function* streamInspectElementHolyGrail(params) {
                 yield { type: 'tool_start', tool: chunk.name };
             } else if (chunk.type === 'tool_call') {
                 toolCalls.push(chunk.toolCall);
-                yield { type: 'tool_input', tool: chunk.toolCall.name, input: chunk.toolCall.input };
+                yield { type: 'tool_input', tool: chunk.toolCall.name, input: chunk.toolCall.input, id: chunk.toolCall.id };
             } else if (chunk.type === 'done' && chunk.toolCalls) {
                 toolCalls = chunk.toolCalls;
             }
@@ -118,12 +118,11 @@ async function* streamInspectElementHolyGrail(params) {
                 const result = await executeTool(tc.name, tc.input, context);
                 const isSuccess = result.startsWith('✅') || !result.startsWith('❌');
 
-                yield { type: 'tool_result', tool: tc.name, success: isSuccess };
+                yield { type: 'tool_result', tool: tc.name, success: isSuccess, id: tc.id };
 
                 toolResults.push({
                     type: 'tool_result',
                     tool_use_id: tc.id,
-                    tool: tc.name,
                     content: result
                 });
             }

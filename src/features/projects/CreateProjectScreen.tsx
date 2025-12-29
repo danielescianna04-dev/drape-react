@@ -12,12 +12,15 @@ import {
   Dimensions,
   Platform,
   Animated,
+  LayoutAnimation,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
+import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -45,6 +48,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
+  const [description, setDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -109,13 +113,54 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         return;
       }
       Keyboard.dismiss();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setStep(2);
     } else if (step === 2) {
+      if (!description.trim()) {
+        Alert.alert('Attenzione', 'Inserisci una descrizione per l\'applicazione');
+        return;
+      }
+      Keyboard.dismiss();
+
+      // AI Analysis
+      analyzeRequirements();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setStep(3);
+    } else if (step === 3) {
       if (!selectedLanguage) {
         Alert.alert('Attenzione', 'Seleziona un linguaggio');
         return;
       }
-      setStep(3);
+      Keyboard.dismiss();
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setStep(4);
+    }
+  };
+
+  const analyzeRequirements = async () => {
+    try {
+      // Don't re-analyze if we already have a selection or if description hasn't changed enough?
+      // For now, always analyze to give fresh recommendation
+
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${apiUrl}/api/ai/recommend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: description.trim() }),
+      });
+
+      const result = await response.json();
+      if (result.success && result.recommendation) {
+        // Find matching language
+        const match = languages.find(l => l.id === result.recommendation);
+        if (match) {
+          setSelectedLanguage(match.id);
+          // Optional: Show a toast or small indicator that AI selected this
+        }
+      }
+    } catch (error) {
+      console.error("AI recommendation failed", error);
+      // Fail silently, let user choose
     }
   };
 
@@ -146,6 +191,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         body: JSON.stringify({
           projectName: projectName.trim(),
           technology: selectedLanguage,
+          description: description.trim(),
           userId,
         }),
       });
@@ -181,11 +227,15 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
-  const canProceed = step === 1 ? projectName.trim().length > 0 : step === 2 ? selectedLanguage !== '' : true;
+  // Step 1: Name, Step 2: Desc, Step 3: Tech, Step 4: Review
+  const canProceed = step === 1 ? projectName.trim().length > 0
+    : step === 2 ? description.trim().length > 0
+      : step === 3 ? selectedLanguage !== ''
+        : true;
 
   const progressWidth = progressAnim.interpolate({
-    inputRange: [1, 2, 3],
-    outputRange: ['33%', '66%', '100%'],
+    inputRange: [1, 2, 3, 4],
+    outputRange: ['25%', '50%', '75%', '100%'],
   });
 
   const renderStep1 = () => (
@@ -196,56 +246,46 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       ]}
     >
       <View style={styles.stepHeader}>
-        <View style={styles.stepBadge}>
-          <Text style={styles.stepBadgeText}>PASSO 1</Text>
-        </View>
         <Text style={styles.stepTitle}>Come vuoi chiamarlo?</Text>
         <Text style={styles.stepSubtitle}>Scegli un nome memorabile per il tuo progetto</Text>
       </View>
 
       <View style={styles.inputSection}>
-        <View style={[styles.inputWrapper, inputFocused && styles.inputWrapperFocused]}>
-          <LinearGradient
-            colors={inputFocused
-              ? ['rgba(139, 92, 246, 0.12)', 'rgba(139, 92, 246, 0.04)']
-              : ['rgba(255,255,255,0.04)', 'rgba(255,255,255,0.02)']}
-            style={styles.inputGradient}
-          >
-            <View style={styles.inputContainer}>
-              <View style={[styles.inputIcon, inputFocused && styles.inputIconFocused]}>
-                <Ionicons
-                  name="folder"
-                  size={20}
-                  color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.35)'}
-                />
+        <Pressable
+          style={[styles.inputContainer, inputFocused && styles.inputContainerFocused]}
+          onPress={() => inputRef.current?.focus()}
+        >
+          <Ionicons
+            name="cube-outline"
+            size={22}
+            color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+            style={styles.inputIcon}
+          />
+          <TextInput
+            ref={inputRef}
+            style={styles.textInput}
+            placeholder="Nome del progetto"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={projectName}
+            onChangeText={setProjectName}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              Keyboard.dismiss();
+              if (projectName.trim()) handleNext();
+            }}
+          />
+          {projectName.length > 0 && (
+            <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
+              <View style={styles.clearBtnInner}>
+                <Ionicons name="close" size={12} color="#fff" />
               </View>
-              <TextInput
-                ref={inputRef}
-                style={styles.textInput}
-                placeholder="Nome del progetto"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                value={projectName}
-                onChangeText={setProjectName}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={() => {
-                  Keyboard.dismiss();
-                  if (projectName.trim()) handleNext();
-                }}
-              />
-              {projectName.length > 0 && (
-                <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
-                  <View style={styles.clearBtnInner}>
-                    <Ionicons name="close" size={14} color="rgba(255,255,255,0.5)" />
-                  </View>
-                </TouchableOpacity>
-              )}
-            </View>
-          </LinearGradient>
-        </View>
+            </TouchableOpacity>
+          )}
+        </Pressable>
 
         {projectName.length > 0 && (
           <View style={styles.previewRow}>
@@ -285,63 +325,25 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       ]}
     >
       <View style={styles.stepHeader}>
-        <View style={styles.stepBadge}>
-          <Text style={styles.stepBadgeText}>PASSO 2</Text>
-        </View>
-        <Text style={styles.stepTitle}>Scegli la tecnologia</Text>
-        <Text style={styles.stepSubtitle}>Quale linguaggio utilizzerai?</Text>
+        <Text style={styles.stepTitle}>Descrivimi l'applicazione</Text>
+        <Text style={styles.stepSubtitle}>Spiega cosa vuoi che faccia questa app. L'IA la genererà per te (mobile-first).</Text>
       </View>
 
-      {selectedLang && (
-        <View style={styles.selectedBanner}>
-          <LinearGradient
-            colors={[`${selectedLang.color}18`, `${selectedLang.color}08`]}
-            style={styles.selectedBannerGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <View style={[styles.selectedBannerIcon, { backgroundColor: `${selectedLang.color}20` }]}>
-              <Ionicons name={selectedLang.icon as any} size={18} color={selectedLang.color} />
-            </View>
-            <Text style={[styles.selectedBannerText, { color: selectedLang.color }]}>
-              {selectedLang.name}
-            </Text>
-            <Ionicons name="checkmark-circle" size={20} color={selectedLang.color} />
-          </LinearGradient>
+      <View style={styles.inputSection}>
+        <View style={[styles.inputContainer, styles.textAreaContainer, inputFocused && styles.inputContainerFocused]}>
+          <TextInput
+            style={[styles.textInput, styles.textArea]}
+            placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={description}
+            onChangeText={setDescription}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            multiline
+            textAlignVertical="top"
+          />
         </View>
-      )}
-
-      <View style={styles.languagesGrid}>
-        {languages.map((lang) => {
-          const isSelected = selectedLanguage === lang.id;
-          return (
-            <TouchableOpacity
-              key={lang.id}
-              style={[styles.langCard, isSelected && styles.langCardSelected]}
-              onPress={() => setSelectedLanguage(lang.id)}
-              activeOpacity={0.7}
-            >
-              <LinearGradient
-                colors={isSelected
-                  ? [`${lang.color}20`, `${lang.color}08`]
-                  : ['rgba(255,255,255,0.04)', 'rgba(255,255,255,0.02)']}
-                style={styles.langCardGradient}
-              >
-                <View style={[styles.langIcon, { backgroundColor: `${lang.color}18` }]}>
-                  <Ionicons name={lang.icon as any} size={22} color={lang.color} />
-                </View>
-                <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '600' }]}>
-                  {lang.name}
-                </Text>
-                {isSelected && (
-                  <View style={[styles.langCheckBadge, { backgroundColor: lang.color }]}>
-                    <Ionicons name="checkmark" size={10} color="#fff" />
-                  </View>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          );
-        })}
+        <Text style={styles.hintText}>Più dettagli fornisci, migliore sarà il risultato.</Text>
       </View>
     </Animated.View>
   );
@@ -354,70 +356,98 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       ]}
     >
       <View style={styles.stepHeader}>
-        <View style={[styles.stepBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-          <Text style={[styles.stepBadgeText, { color: '#10B981' }]}>RIEPILOGO</Text>
-        </View>
+        <Text style={styles.stepTitle}>Tecnologia Consigliata</Text>
+        <Text style={styles.stepSubtitle}>L'IA suggerisce lo stack migliore per la tua idea</Text>
+      </View>
+
+      <View style={styles.languagesGrid}>
+        {languages.map((lang) => {
+          const isSelected = selectedLanguage === lang.id;
+          return (
+            <TouchableOpacity
+              key={lang.id}
+              style={[
+                styles.langCard,
+                isSelected && { borderColor: lang.color, backgroundColor: 'rgba(255,255,255,0.08)' }
+              ]}
+              onPress={() => setSelectedLanguage(lang.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.langCardInner}>
+                <View style={styles.langIconBox}>
+                  <Ionicons name={lang.icon as any} size={28} color={lang.color} />
+                </View>
+                <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
+                  {lang.name}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </Animated.View>
+  );
+
+  const renderStep4 = () => (
+    <Animated.View
+      style={[
+        styles.stepContent,
+        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+      ]}
+    >
+      <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>Tutto pronto!</Text>
         <Text style={styles.stepSubtitle}>Verifica i dettagli prima di creare</Text>
       </View>
 
       <View style={styles.summaryCard}>
-        <LinearGradient
-          colors={['rgba(139, 92, 246, 0.08)', 'rgba(139, 92, 246, 0.02)']}
-          style={styles.summaryCardGradient}
-        >
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="folder" size={20} color={AppColors.primary} />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>Nome</Text>
-              <Text style={styles.summaryValue}>{projectName}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-              <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryIconBox}>
+            <Ionicons name="folder-outline" size={24} color="#fff" />
           </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.summaryRow}>
-            <View style={[styles.summaryIconBox, { backgroundColor: `${selectedLang?.color}15` }]}>
-              <Ionicons name={selectedLang?.icon as any} size={20} color={selectedLang?.color} />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>Linguaggio</Text>
-              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
-            </View>
-            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
-              <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
+          <View style={styles.summaryInfo}>
+            <Text style={styles.summaryLabel}>Nome Progetto</Text>
+            <Text style={styles.summaryValue}>{projectName}</Text>
           </View>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
+            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.summaryDivider} />
+        <View style={styles.summaryDivider} />
 
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="layers" size={20} color={AppColors.primary} />
-            </View>
-            <View style={styles.summaryInfo}>
-              <Text style={styles.summaryLabel}>Tipo</Text>
-              <Text style={styles.summaryValue}>Template {selectedLang?.name}</Text>
-            </View>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryIconBox}>
+            <Ionicons name="document-text-outline" size={24} color="#fff" />
           </View>
-        </LinearGradient>
+          <View style={styles.summaryInfo}>
+            <Text style={styles.summaryLabel}>Descrizione</Text>
+            <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
+          </View>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
+            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.summaryDivider} />
+
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryIconBox}>
+            <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
+          </View>
+          <View style={styles.summaryInfo}>
+            <Text style={styles.summaryLabel}>Tecnologia</Text>
+            <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
+          </View>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(3)}>
+            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
-
       <View style={styles.readyBanner}>
-        <LinearGradient
-          colors={['rgba(16, 185, 129, 0.1)', 'rgba(16, 185, 129, 0.02)']}
-          style={styles.readyBannerGradient}
-        >
-          <Ionicons name="rocket" size={24} color="#10B981" />
-          <Text style={styles.readyText}>
-            Premi <Text style={styles.readyHighlight}>"Crea Progetto"</Text> per iniziare!
-          </Text>
-        </LinearGradient>
+        <Text style={styles.readyText}>
+          Tutto corretto? Clicca <Text style={styles.readyHighlight}>Crea Progetto</Text> per iniziare.
+        </Text>
       </View>
     </Animated.View>
   );
@@ -448,33 +478,47 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       {/* Progress bar */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressBar}>
-          <Animated.View style={[styles.progressFill, { width: progressWidth }]}>
-            <LinearGradient
-              colors={[AppColors.primary, '#9333EA']}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            />
-          </Animated.View>
-        </View>
-        <View style={styles.progressSteps}>
-          {['Nome', 'Linguaggio', 'Conferma'].map((label, idx) => (
-            <View key={idx} style={styles.progressStep}>
-              <View style={[styles.progressDot, step > idx && styles.progressDotActive]}>
-                {step > idx + 1 ? (
-                  <Ionicons name="checkmark" size={10} color="#fff" />
-                ) : (
-                  <View style={[styles.progressDotInner, step === idx + 1 && styles.progressDotInnerActive]} />
-                )}
-              </View>
-              <Text style={[styles.progressLabel, step >= idx + 1 && styles.progressLabelActive]}>
-                {label}
-              </Text>
+      {/* Segmented Progress Bar */}
+      <View style={styles.segmentContainer}>
+        {[1, 2, 3, 4].map((s) => {
+          const isActive = s <= step;
+          const isCurrent = s === step;
+          const isCompleted = s < step;
+
+          return (
+            <View
+              key={s}
+              style={[
+                styles.segment,
+                { backgroundColor: 'rgba(255,255,255,0.1)' }
+              ]}
+            >
+              {(isActive) && (
+                <Animated.View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    {
+                      width: isCurrent ? progressAnim.interpolate({
+                        inputRange: [s - 1, s],
+                        outputRange: ['0%', '100%'],
+                        extrapolate: 'clamp'
+                      }) : '100%',
+                      borderRadius: 2,
+                      overflow: 'hidden'
+                    }
+                  ]}
+                >
+                  <LinearGradient
+                    colors={isCompleted ? [AppColors.primary, '#9333EA'] : ['#fff', '#fff']}
+                    style={StyleSheet.absoluteFill}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  />
+                </Animated.View>
+              )}
             </View>
-          ))}
-        </View>
+          );
+        })}
       </View>
 
       {/* Content */}
@@ -491,6 +535,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
         {step === 3 && renderStep3()}
+        {step === 4 && renderStep4()}
       </ScrollView>
 
       {/* Bottom Button - Hidden when keyboard is visible */}
@@ -498,7 +543,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         <View style={styles.bottomBar}>
           <TouchableOpacity
             style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
-            onPress={step === 3 ? handleCreate : handleNext}
+            onPress={step === 4 ? handleCreate : handleNext}
             disabled={!canProceed || isCreating}
             activeOpacity={0.85}
           >
@@ -513,11 +558,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
               ) : (
                 <>
                   <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                    {step === 3 ? 'Crea Progetto' : 'Continua'}
+                    {step === 4 ? 'Crea Progetto' : 'Continua'}
                   </Text>
                   {canProceed && (
                     <View style={styles.actionBtnIconBox}>
-                      <Ionicons name={step === 3 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
+                      <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
                     </View>
                   )}
                 </>
@@ -526,6 +571,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
           </TouchableOpacity>
         </View>
       )}
+
+      <LoadingModal
+        visible={isCreating}
+        message="Creating project..."
+      />
     </View>
   );
 };
@@ -562,13 +612,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 56,
-    paddingBottom: 16,
+    paddingTop: 52, // Reduced from 60
+    paddingBottom: 12, // Reduced from 20
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 40, // Slightly smaller
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -577,148 +627,108 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#fff',
   },
-  // Progress
-  progressContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 8,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressSteps: {
+  // Segmented Progress
+  segmentContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  progressStep: {
-    alignItems: 'center',
+    paddingHorizontal: 24,
     gap: 6,
+    marginBottom: 8,
+    height: 4,
   },
-  progressDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  segment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  progressDotActive: {
-    backgroundColor: AppColors.primary,
-  },
-  progressDotInner: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  progressDotInnerActive: {
-    backgroundColor: '#fff',
-  },
-  progressLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.35)',
-  },
-  progressLabelActive: {
-    color: 'rgba(255,255,255,0.7)',
+    overflow: 'hidden',
   },
   // Content
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 120,
+    paddingHorizontal: 24,
+    paddingTop: 16, // Reduced from 24
+    paddingBottom: 100,
   },
   stepContent: {
     flex: 1,
   },
   stepHeader: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24, // Reduced from 40
   },
   stepBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
     backgroundColor: 'rgba(139, 92, 246, 0.15)',
-    borderRadius: 20,
-    marginBottom: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
   },
   stepBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: AppColors.primary,
     letterSpacing: 1,
   },
   stepTitle: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     color: '#fff',
-    marginBottom: 8,
+    marginBottom: 6,
     textAlign: 'center',
+    letterSpacing: -0.5,
   },
   stepSubtitle: {
-    fontSize: 15,
+    fontSize: 14,
     color: 'rgba(255,255,255,0.5)',
     textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: '90%',
   },
   // Step 1 - Input
   inputSection: {
     marginBottom: 32,
   },
-  inputWrapper: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  inputWrapperFocused: {
-    borderColor: AppColors.primary,
-  },
-  inputGradient: {
-    padding: 4,
-  },
+  // Removed inputWrapper, inputGradient
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 56,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 32,
+    paddingHorizontal: 20,
+    height: 64,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 8,
+  },
+  inputContainerFocused: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: AppColors.primary,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   inputIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  inputIconFocused: {
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    marginRight: 16,
   },
   textInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 20,
     color: '#fff',
-    fontWeight: '500',
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
   clearBtn: {
-    padding: 4,
+    padding: 6,
   },
   clearBtnInner: {
     width: 24,
@@ -731,6 +741,7 @@ const styles = StyleSheet.create({
   previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     marginTop: 12,
     paddingHorizontal: 4,
@@ -741,229 +752,240 @@ const styles = StyleSheet.create({
   },
   previewName: {
     color: '#10B981',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   // Suggestions
   suggestionsSection: {
-    marginTop: 8,
+    marginTop: 4,
   },
   suggestionsTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.3)',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 14,
+    letterSpacing: 1,
+    marginBottom: 12,
+    marginLeft: 4,
   },
   suggestionChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   suggestionChip: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   suggestionChipActive: {
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
     borderColor: AppColors.primary,
   },
   suggestionChipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     color: 'rgba(255,255,255,0.5)',
   },
   suggestionChipTextActive: {
-    color: AppColors.primary,
+    color: '#fff',
   },
   // Step 2 - Languages
   selectedBanner: {
     marginBottom: 24,
-    borderRadius: 14,
+    borderRadius: 20,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   selectedBannerGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    gap: 10,
+    gap: 12,
   },
   selectedBannerIcon: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   selectedBannerText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
     flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
   },
   languagesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+    justifyContent: 'space-between',
   },
   langCard: {
-    width: CARD_WIDTH,
-    borderRadius: 14,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    width: SCREEN_WIDTH / 2 - 30,
+    height: 110,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: 18,
   },
   langCardSelected: {
-    borderColor: 'rgba(139, 92, 246, 0.4)',
+    // Handled inline for dynamic color
   },
-  langCardGradient: {
-    aspectRatio: 0.85,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    position: 'relative',
+  langCardInner: {
+    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  langIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
+  langIconBox: {
+    width: 32,
+    height: 32,
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   langName: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center',
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.6)',
   },
-  langCheckBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
+  langNameSelected: {
+    color: '#fff',
+    fontWeight: '700',
   },
   // Step 3 - Summary
+  // Step 3 - Summary
   summaryCard: {
-    borderRadius: 18,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 32,
     borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.15)',
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 24,
     marginBottom: 24,
-  },
-  summaryCardGradient: {
-    padding: 20,
   },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 16,
   },
   summaryIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryInfo: {
     flex: 1,
-    marginLeft: 14,
   },
   summaryLabel: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '600',
     color: 'rgba(255,255,255,0.4)',
     textTransform: 'uppercase',
+    marginBottom: 4,
     letterSpacing: 0.5,
-    marginBottom: 2,
   },
   summaryValue: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#fff',
-  },
-  editBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   summaryDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    marginVertical: 16,
+    marginVertical: 20,
+    marginLeft: 64, // Align with text
+  },
+  editBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   readyBanner: {
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  readyBannerGradient: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 18,
-    gap: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    marginTop: 10,
   },
   readyText: {
-    flex: 1,
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   readyHighlight: {
     color: '#10B981',
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  // Bottom bar
+  // Bottom Bar
   bottomBar: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 40,
-    backgroundColor: 'rgba(10, 10, 15, 0.95)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(139, 92, 246, 0.1)',
+    bottom: 30, // Floating
+    left: 20,
+    right: 20,
   },
   actionBtn: {
-    borderRadius: 16,
+    height: 56,
+    borderRadius: 28, // Pill
     overflow: 'hidden',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   actionBtnDisabled: {
-    opacity: 0.5,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   actionBtnGradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
     gap: 10,
   },
   actionBtnText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#fff',
+    letterSpacing: 0.5,
   },
   actionBtnTextDisabled: {
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.3)',
   },
   actionBtnIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  textAreaContainer: {
+    height: 160,
+    alignItems: 'flex-start',
+    paddingTop: 20,
+    borderRadius: 24,
+  },
+  textArea: {
+    height: '100%',
+    lineHeight: 24,
+  },
+  hintText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    marginLeft: 12,
+    fontStyle: 'italic',
+  }
 });

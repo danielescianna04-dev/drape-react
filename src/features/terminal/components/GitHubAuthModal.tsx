@@ -16,6 +16,7 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onAuthenticated: (token: string) => void;
+  repositoryUrl?: string; // Optional repository name/URL
 }
 
 type AuthStep = 'options' | 'pat' | 'device-flow';
@@ -28,7 +29,7 @@ interface DeviceFlowData {
   interval: number;
 }
 
-export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) => {
+export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryUrl }: Props) => {
   const [step, setStep] = useState<AuthStep>('options');
   const [pat, setPat] = useState('');
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowData | null>(null);
@@ -167,10 +168,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
       onAuthenticated(pat.trim());
     }
   };
-  
+
   const handleOpenVerification = () => {
-    if(deviceFlow?.verification_uri) {
-        Linking.openURL(deviceFlow.verification_uri);
+    if (deviceFlow?.verification_uri) {
+      Linking.openURL(deviceFlow.verification_uri);
     }
   }
 
@@ -188,7 +189,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated }: Props) =>
   const renderOptions = () => (
     <>
       <Text style={styles.title}>Autenticazione richiesta</Text>
-      <Text style={styles.subtitle}>Questo repository è privato. Scegli un metodo di autenticazione.</Text>
+      <Text style={styles.subtitle}>
+        {repositoryUrl ? `Il repository "${repositoryUrl.split('/').pop()?.replace('.git', '')}" è privato.` : 'Questo repository è privato.'}
+        {' '}Scegli un metodo di autenticazione.
+      </Text>
       <TouchableOpacity
         style={styles.optionButton}
         onPress={handleGitHubAuth}

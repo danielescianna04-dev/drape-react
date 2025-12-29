@@ -292,7 +292,7 @@ async function handleWebSocketChat(ws, payload) {
 
         // Build messages
         const messages = [
-            { role: 'system', content: 'You are an expert coding assistant.' }
+            { role: 'system', content: 'You are an expert coding assistant. When generating code for web applications (React, HTML/CSS, etc.), you MUST prioritize mobile-first design and responsiveness. Ensure layouts are optimized for mobile devices by default, using appropriate CSS strategies (e.g., flexbox, grid, media queries). The user wants high-quality, modern, and mobile-optimized UI.' }
         ];
 
         // Add history

@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
@@ -7,7 +8,9 @@ import * as Clipboard from 'expo-clipboard';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useAuthStore } from '../../core/auth/authStore';
 import { GitCommitsScreen } from '../settings/GitCommitsScreen';
+import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import axios from 'axios';
 
 interface Props {
@@ -21,6 +24,16 @@ interface Props {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings }: Props) => {
+  const { user } = useAuthStore();
+  const { gitHubUser } = useTerminalStore();
+
+  const currentHour = new Date().getHours();
+  const greeting = (currentHour >= 5 && currentHour < 18) ? 'Buongiorno' : 'Buonasera';
+
+  // Prioritize Auth user, fallback to GitHub user, then default
+  const userName = user?.displayName || gitHubUser?.name || user?.email?.split('@')[0] || 'Developer';
+  const userAvatar = user?.photoURL || gitHubUser?.avatarUrl;
+  const userEmail = user?.email || gitHubUser?.login || 'Mobile IDE';
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -33,9 +46,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
-  useEffect(() => {
-    loadRecentProjects();
+  // Reload projects when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadRecentProjects();
+    }, [])
+  );
 
+  useEffect(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(shimmerAnim, {
@@ -340,14 +358,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   return (
     <View style={styles.container}>
       {/* Header */}
+      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <View style={styles.logoContainer}>
-            <Ionicons name="code-slash" size={20} color={AppColors.primary} />
-          </View>
-          <View>
-            <Text style={styles.headerTitle}>Drape</Text>
-            <Text style={styles.headerSubtitle}>Mobile IDE</Text>
+          {userAvatar ? (
+            <Image
+              source={{ uri: userAvatar }}
+              style={styles.profileImage}
+            />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.profileInitials}>{userName.substring(0, 1).toUpperCase()}</Text>
+            </View>
+          )}
+          <View style={styles.welcomeTextContainer}>
+            <Text style={styles.headerSubtitle}>{greeting}</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>{userName}</Text>
           </View>
         </View>
 
@@ -649,7 +675,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style={styles.renameModalBackdrop}
           onPress={() => setShowRenameModal(false)}
         >
-          <Pressable style={styles.renameModalContent} onPress={() => {}}>
+          <Pressable style={styles.renameModalContent} onPress={() => { }}>
             <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
             <TextInput
               style={styles.renameInput}
@@ -678,6 +704,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           </Pressable>
         </Pressable>
       </Modal>
+
+      <LoadingModal
+        visible={isDuplicating}
+        message="Duplicating project..."
+      />
     </View>
   );
 };
@@ -1121,5 +1152,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Profile Header Styles
+  profileImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(155, 138, 255, 0.2)',
+  },
+  profilePlaceholder: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  profileInitials: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  welcomeTextContainer: {
+    justifyContent: 'center',
   },
 });

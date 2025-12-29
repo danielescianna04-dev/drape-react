@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
@@ -36,7 +36,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [isGitSheetVisible, setIsGitSheetVisible] = useState(false);
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
-  const { tabs, setActiveTab, addTab } = useTabStore();
+  const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
+
+  // Auto-close sidebar when opening a preview
+  useEffect(() => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if ((activeTab?.type === 'preview' || activeTab?.type === 'browser') && !isSidebarHidden) {
+      console.log('👁️ [VSCodeSidebar] Preview active, auto-hiding sidebar');
+      sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
+      setIsSidebarHidden(true);
+    }
+  }, [activeTabId]); // Only check when active tab changes
 
   // Shared values
   const trackpadTranslation = useSharedValue(0);
@@ -195,7 +205,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
                 { name: 'key-outline', action: handleEnvVarsClick },
-                { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
+                // { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
                 { name: 'settings-outline', action: () => togglePanel('settings') },
               ]}
               onIconChange={() => { }}

@@ -279,7 +279,16 @@ const tools = {
         // Invalidate cache
         clearCache(filePath);
 
-        return `✅ File ${filePath} edited successfully`;
+        // Format diff for frontend
+        const oldLines = unescapedOld.split('\n');
+        const newLines = unescapedNew.split('\n');
+
+        const diffLines = [
+            ...oldLines.map(line => `- ${line}`),
+            ...newLines.map(line => `+ ${line}`)
+        ].join('\n');
+
+        return `Edit ${filePath}\n└─ Applied change\n${diffLines}`;
     },
 
     /**
@@ -463,7 +472,9 @@ function createContext(projectId, options = {}) {
     }
 
     return {
-        projectId: cleanId,
+        // For Holy Grail mode, use ORIGINAL projectId (with ws- prefix) since that's how files are stored in Firestore
+        // For other modes, use clean ID for backwards compatibility
+        projectId: isHolyGrail ? projectId : cleanId,
         projectPath: isHolyGrail ? '/home/coder/project' : (isCloud ? '/home/coder/project' : projectPath),
         isCloud,
         isHolyGrail,
