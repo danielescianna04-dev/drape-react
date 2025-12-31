@@ -18,8 +18,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
-import { CloneWidget } from '../../features/terminal/components/CloneWidget';
-import { useCloneStatusStore } from '../../core/clone/cloneStatusStore';
+
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
 import { GitHubView } from '../../features/terminal/components/views/GitHubView';
@@ -136,11 +135,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const isLoading = currentTab?.isLoading || false;
   const hasChatStarted = tabTerminalItems.length > 0;
 
-  // Get clone status for current workstation (currentWorkstation is extracted below from useTerminalStore)
-  const workstationId = useTerminalStore(state => state.currentWorkstation?.id);
-  const cloneStatus = useCloneStatusStore(state =>
-    workstationId ? state.getStatus(workstationId) : null
-  );
+
 
   // DEBUG: Log when terminal items count changes (reduced verbosity)
   useEffect(() => {
@@ -210,13 +205,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
 
-  // Scroll to end when items count changes (not the array reference)
-  const itemsCount = terminalItems.length;
+  // Scroll to end when items count changes OR last item content updates (streaming)
+  const lastItemContent = terminalItems[terminalItems.length - 1]?.content;
   useEffect(() => {
-    if (itemsCount > 0) {
+    if (terminalItems.length > 0) {
+      // Use animated: true for smooth "following" effect
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
-  }, [itemsCount]);
+  }, [terminalItems.length, lastItemContent]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -1176,16 +1172,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* Clone Widget - shows when cloning/syncing project */}
-              {cloneStatus && (
-                <CloneWidget
-                  isCloning={cloneStatus.isCloning}
-                  success={cloneStatus.success}
-                  error={cloneStatus.error}
-                  repoName={cloneStatus.repoName}
-                  progress={cloneStatus.progress}
-                />
-              )}
 
               {terminalItems.length === 0 ? (
                 <View style={styles.emptyState}>

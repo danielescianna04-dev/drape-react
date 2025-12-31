@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
-import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
+import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -50,6 +50,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [selectedLanguage, setSelectedLanguage] = useState('');
   const [description, setDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [creationTask, setCreationTask] = useState<{ status: string; progress: number; message: string; step?: string } | null>(null);
   const [inputFocused, setInputFocused] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -175,16 +176,20 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const handleCreate = async () => {
     Keyboard.dismiss();
     setIsCreating(true);
+    setCreationTask({ status: 'running', progress: 0, message: 'Starting...', step: 'Initializing' });
+
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
         Alert.alert('Errore', 'Devi essere loggato per creare un progetto');
         setIsCreating(false);
+        setCreationTask(null);
         return;
       }
 
-      // Call the new template endpoint
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+      // 1. Start Task
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -199,29 +204,70 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to create project');
+        throw new Error(result.error || 'Failed to start project creation');
       }
 
-      console.log('✅ Project created with template:', result);
+      console.log('✅ Task started:', result.taskId);
+      const taskId = result.taskId;
 
-      const workstation = {
-        id: result.projectId,
-        projectId: result.projectId,
-        name: projectName,
-        language: selectedLanguage,
-        technology: selectedLanguage,
-        templateDescription: result.templateDescription,
-        status: 'ready' as const,
-        createdAt: new Date(),
-        files: result.files || [],
-        folderId: null,
-      };
+      // 2. Poll Status
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`);
+          const statusData = await statusRes.json();
 
-      onCreate(workstation);
+          if (statusData.success && statusData.task) {
+            const task = statusData.task;
+            console.log('📊 Task Status:', task.progress, task.message);
+
+            setCreationTask({
+              status: task.status,
+              progress: task.progress,
+              message: task.message,
+              step: task.step
+            });
+
+            if (task.status === 'completed') {
+              clearInterval(pollInterval);
+
+              // Success!
+              const workstation = {
+                id: task.result.projectId,
+                projectId: task.result.projectId,
+                name: task.result.projectName,
+                language: task.result.technology,
+                technology: task.result.technology,
+                templateDescription: task.result.templateDescription,
+                status: 'ready' as const,
+                createdAt: new Date(),
+                files: [], // Files are saved in backend, potentially we could fetch them or just let the view handling do it
+                folderId: null,
+              };
+
+              // Short delay to show 100%
+              setTimeout(() => {
+                setIsCreating(false);
+                setCreationTask(null);
+                onCreate(workstation);
+              }, 800);
+
+            } else if (task.status === 'failed') {
+              clearInterval(pollInterval);
+              throw new Error(task.error || 'Creation failed');
+            }
+          }
+        } catch (pollError) {
+          console.error('Polling error:', pollError);
+          // Don't stop polling immediately on network hiccup, but maybe limit retries?
+          // For now, let it continue or user can cancel (if we add cancel button)
+        }
+      }, 1000);
+
     } catch (error) {
       console.error('Error creating project:', error);
       Alert.alert('Errore', 'Impossibile creare il progetto. Riprova.');
       setIsCreating(false);
+      setCreationTask(null);
     }
   };
 
@@ -572,9 +618,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         </View>
       )}
 
-      <LoadingModal
+      <CreationProgressModal
         visible={isCreating}
-        message="Creating project..."
+        progress={creationTask?.progress || 0}
+        status={creationTask?.message || 'Preparing...'}
+        step={creationTask?.step}
       />
     </View>
   );

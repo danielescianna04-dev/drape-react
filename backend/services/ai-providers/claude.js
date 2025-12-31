@@ -47,7 +47,24 @@ class ClaudeProvider extends BaseAIProvider {
                 continue;
             }
 
-            formattedMessages.push(msg);
+            // Deep clean tool_results in user messages to prevent 400 errors
+            if (msg.role === 'user' && Array.isArray(msg.content)) {
+                const cleanContent = msg.content.map(block => {
+                    if (block.type === 'tool_result') {
+                        // FORCEFULLY strip 'tool' and other illegal props by rebuilding the object
+                        return {
+                            type: 'tool_result',
+                            tool_use_id: block.tool_use_id,
+                            content: block.content,
+                            is_error: block.is_error
+                        };
+                    }
+                    return block;
+                });
+                formattedMessages.push({ role: 'user', content: cleanContent });
+            } else {
+                formattedMessages.push(msg);
+            }
         }
 
         return { messages: formattedMessages, system: systemMessage };
@@ -73,6 +90,14 @@ class ClaudeProvider extends BaseAIProvider {
         if (options.tools && options.tools.length > 0) {
             requestParams.tools = this.formatTools(options.tools);
         }
+
+        // DEBUG: Deep inspection of messages before sending
+        try {
+            const userMsg = requestParams.messages.find(m => m.role === 'user' && Array.isArray(m.content) && m.content.some(c => c.type === 'tool_result'));
+            if (userMsg) {
+                console.log('🕵️ CLAUDE PROVIDER - OUTGOING TOOL RESULT:', JSON.stringify(userMsg.content.find(c => c.type === 'tool_result'), null, 2));
+            }
+        } catch (e) { }
 
         const response = await this.client.messages.create(requestParams);
 
@@ -120,6 +145,14 @@ class ClaudeProvider extends BaseAIProvider {
         if (options.tools && options.tools.length > 0) {
             requestParams.tools = this.formatTools(options.tools);
         }
+
+        // DEBUG: Deep inspection of messages before sending (STREAM)
+        try {
+            const userMsg = requestParams.messages.find(m => m.role === 'user' && Array.isArray(m.content) && m.content.some(c => c.type === 'tool_result'));
+            if (userMsg) {
+                console.log('🕵️ CLAUDE PROVIDER - OUTGOING TOOL RESULT (STREAM):', JSON.stringify(userMsg.content.find(c => c.type === 'tool_result'), null, 2));
+            }
+        } catch (e) { }
 
         const stream = await this.client.messages.create(requestParams);
 

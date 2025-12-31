@@ -295,10 +295,35 @@ async function handleWebSocketChat(ws, payload) {
             { role: 'system', content: 'You are an expert coding assistant. When generating code for web applications (React, HTML/CSS, etc.), you MUST prioritize mobile-first design and responsiveness. Ensure layouts are optimized for mobile devices by default, using appropriate CSS strategies (e.g., flexbox, grid, media queries). The user wants high-quality, modern, and mobile-optimized UI.' }
         ];
 
-        // Add history
-        for (const msg of conversationHistory.slice(-10)) {
+        // Add history with SANITIZATION
+        for (const msg of conversationHistory.slice(-20)) { // Increased context window slightly
             if (msg.role === 'user' || msg.type === 'user') {
-                messages.push({ role: 'user', content: msg.content });
+                // Sanitize content if it's an array (Claude style tool results)
+                let cleanContent = msg.content;
+                if (Array.isArray(msg.content)) {
+                    cleanContent = msg.content.map(block => {
+                        if (block.type === 'tool_result') {
+                            return {
+                                type: 'tool_result',
+                                tool_use_id: String(block.tool_use_id),
+                                content: String(block.content),
+                                is_error: block.is_error // Keep is_error if present
+                            };
+                        }
+                        return block;
+                    });
+                } else if (msg.content && typeof msg.content === 'object' && msg.content.type === 'tool_result') {
+                    // Handle edge case where content is a single object
+                    cleanContent = [{
+                        type: 'tool_result',
+                        tool_use_id: String(msg.content.tool_use_id),
+                        content: String(msg.content.content),
+                        is_error: msg.content.is_error
+                    }];
+                }
+                messages.push({ role: 'user', content: cleanContent });
+            } else if (msg.role === 'assistant' || msg.type === 'text') {
+                messages.push({ role: 'user', content: cleanContent });
             } else if (msg.role === 'assistant' || msg.type === 'text') {
                 messages.push({ role: 'assistant', content: msg.content });
             }
@@ -318,6 +343,12 @@ async function handleWebSocketChat(ws, payload) {
 
             let fullText = '';
             let toolCalls = [];
+
+            // DEBUG: Check messages before sending
+            const lastMsg = currentMessages[currentMessages.length - 1];
+            if (lastMsg.role === 'user' && Array.isArray(lastMsg.content) && lastMsg.content[0]?.type === 'tool_result') {
+                console.log('🔍 Sending tool_result:', JSON.stringify(lastMsg.content[0]));
+            }
 
             for await (const chunk of provider.chatStream(currentMessages, {
                 model: modelId,
@@ -363,14 +394,19 @@ async function handleWebSocketChat(ws, payload) {
 
                     ws.send(JSON.stringify({ type: 'tool_result', tool: tc.name, success: isSuccess }));
 
-                    toolResults.push({
+                    const cleanResult = {
                         type: 'tool_result',
-                        tool_use_id: tc.id,
-                        tool: tc.name,
-                        content: result
-                    });
+                        tool_use_id: String(tc.id),
+                        content: String(result)
+                    };
+                    // Ensure ABSOLUTELY no other keys exist
+                    delete cleanResult.tool;
+
+                    toolResults.push(cleanResult);
+                    console.log('📦 Cleaned tool_result:', JSON.stringify(cleanResult));
                 }
 
+                console.log('📦 toolResults dump:', JSON.stringify(toolResults)); // DEBUG
                 currentMessages.push({ role: 'user', content: toolResults });
             } else {
                 continueLoop = false;

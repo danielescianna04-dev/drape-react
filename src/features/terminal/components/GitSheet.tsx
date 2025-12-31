@@ -142,74 +142,134 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
     setGitLoading(true);
     setErrorMsg(null);
+
     try {
+      // 1. Fetch Local Data (Primary Source)
+      // This ensures we always have something to show, even if GitHub API fails
+      console.log('📦 Loading Local Git Data...');
+      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
+      const localData = await localResponse.json();
+
+      let finalCommits: GitCommit[] = [];
+      let finalBranches: GitBranch[] = [];
+      let finalGitStatus: GitStatus | null = null;
+      let finalCurrentBranch = 'main';
+      let isGithubConnected = false;
+
+      if (localData.isGitRepo) {
+        setIsGitRepo(true);
+        finalBranches = localData.branches || [];
+        finalGitStatus = localData.status || null;
+        finalCurrentBranch = localData.currentBranch || 'main';
+
+        if (localData.commits) {
+          finalCommits = localData.commits;
+        }
+      }
+
+      // 2. Fetch GitHub Data (Secondary Source - for avatars/enrichment)
       const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-      console.log('📦 Loading Git Data. RepoUrl:', repoUrl);
 
       if (repoUrl && repoUrl.includes('github.com')) {
-        // Robust regex to capture owner and repo, handling optional .git suffix
-        const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        try {
+          console.log('🌐 Attempting to fetch from GitHub...', repoUrl);
+          // Robust regex to capture owner and repo
+          const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
 
-        if (match) {
-          const [, owner, repo] = match;
-          console.log('🎯 Parsed:', owner, '/', repo);
+          if (match) {
+            const [, owner, repo] = match;
+            console.log('🎯 GitHub Target:', owner, '/', repo);
 
-          try {
-            // Get token for the linked account
+            // Get token
             let token: string | null = null;
+
+            // First check linked account
             if (linkedAccount) {
               token = await gitAccountService.getToken(linkedAccount, userId);
-              console.log('🔑 Using token from account:', linkedAccount.username);
-            } else {
-              console.log('⚠️ No linked account, attempting public access');
             }
 
+            // If no token from linked account, try to find ANY github account
+            if (!token) {
+              const validAccount = gitAccounts.find(a => a.provider === 'github');
+              if (validAccount) {
+                console.log('🔑 Using fallback GitHub account:', validAccount.username);
+                token = await gitAccountService.getToken(validAccount, userId);
+              }
+            }
+
+            // Fetch from GitHub
+            // We fetch from GitHub to get the authoritative remote history and branches
             const [commitsData, branchesData] = await Promise.all([
               githubService.getCommits(owner, repo, token || undefined),
-              githubService.getBranches(owner, repo, token || undefined),
+              githubService.getBranches(owner, repo, token || undefined)
             ]);
 
-            const formattedCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => ({
-              hash: c.sha,
-              shortHash: c.sha.substring(0, 7),
-              message: c.message.split('\n')[0],
-              author: c.author.name,
-              authorEmail: c.author.email,
-              authorAvatar: c.author.avatar_url,
-              authorLogin: c.author.login,
-              date: new Date(c.author.date),
-              isHead: index === 0,
-              branch: index === 0 ? currentBranch : undefined,
-              url: c.url,
-            }));
+            if (commitsData && commitsData.length > 0) {
+              console.log(`✅ Fetched ${commitsData.length} commits from GitHub`);
 
-            const formattedBranches: GitBranch[] = branchesData.map((b: any) => ({
-              name: b.name,
-              isCurrent: b.name === 'main' || b.name === 'master',
-              isRemote: false,
-            }));
+              // Transform GitHub commits
+              const githubCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => ({
+                hash: c.sha,
+                shortHash: c.sha.substring(0, 7),
+                message: c.message.split('\n')[0],
+                author: c.author.name,
+                authorEmail: c.author.email,
+                authorAvatar: c.author.avatar_url,
+                authorLogin: c.author.login,
+                date: new Date(c.author.date),
+                isHead: index === 0,
+                branch: index === 0 ? finalCurrentBranch : undefined,
+                url: c.url,
+              }));
 
-            const currentB = formattedBranches.find(b => b.isCurrent)?.name || 'main';
+              // OVERWRITE local commits with GitHub ones as requested
+              finalCommits = githubCommits;
+              isGithubConnected = true;
+            }
 
-            setCommits(formattedCommits);
-            setBranches(formattedBranches);
-            setCurrentBranch(currentB);
-            setIsGitRepo(true);
-          } catch (apiError: any) {
-            console.log('❌ GitHub API error:', apiError);
-            setErrorMsg(apiError.message || 'Impossibile caricare i dati della repository');
-            // Try to load cached data or keep partial state if available?
+            if (branchesData && branchesData.length > 0) {
+              console.log(`✅ Fetched ${branchesData.length} branches from GitHub`);
+              const githubBranches: GitBranch[] = branchesData.map((b: any) => ({
+                name: b.name,
+                isCurrent: b.name === finalCurrentBranch, // Best guess matching local current branch
+                isRemote: true,
+              }));
+
+              // If we have local branches, we should try to merge or list them separately?
+              // The UI separates them if they have `isRemote: true`
+              // Let's append them if they are not already in the list
+              const existingNames = new Set(finalBranches.map(b => b.name));
+              const newRemoteBranches = githubBranches.filter(b => !existingNames.has(b.name));
+
+              finalBranches = [...finalBranches, ...newRemoteBranches];
+            }
           }
-        } else {
-          console.log('❌ Invalid GitHub URL format');
-          setErrorMsg('URL repository non valido');
+        } catch (ghError: any) {
+          console.warn('⚠️ GitHub fetch failed (suppressed):', ghError.message);
+          // User requested "NEVER show GitHub errors".
+          // We silently failover to local data or empty state.
         }
-      } else {
-        console.log('❌ No valid GitHub URL found in workstation');
-        setErrorMsg('Nessuna repository GitHub collegata');
       }
+
+      // Update state
+      if (finalCommits.length > 0) {
+        setCommits(finalCommits);
+      } else if (!localData.isGitRepo) {
+        // Only set error if it's strictly not a git repo, otherwise empty state is fine
+        // setErrorMsg('Nessuna repository Git trovata'); // Actually, even this might be annoying?
+        // Let's just let it show empty state if commits are 0
+      }
+
+      setBranches(finalBranches);
+      setGitStatus(finalGitStatus);
+      setCurrentBranch(finalCurrentBranch);
+
     } catch (error) {
       console.error('Error loading git data:', error);
+      // Generic error only if catastrophic
+      if (commits.length === 0) {
+        setErrorMsg('Impossibile caricare i dati');
+      }
     } finally {
       setGitLoading(false);
     }
@@ -372,9 +432,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : activeSection === 'commits' ? (
               <View style={styles.commitsList}>
+
+
                 {commits.slice(0, 8).map((commit, index) => (
                   <TouchableOpacity
-                    key={commit.hash}
+                    key={commit.hash || index}
                     style={styles.commitItem}
                     onPress={() => commit.url && Linking.openURL(commit.url)}
                     activeOpacity={0.7}
@@ -498,6 +560,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     maxHeight: MODAL_HEIGHT,
+    minHeight: 500, // FORCE HEIGHT
     backgroundColor: '#151517',
     borderRadius: 16,
     overflow: 'hidden',

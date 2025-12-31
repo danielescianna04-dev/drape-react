@@ -7,7 +7,7 @@ interface ProjectState {
   currentWorkstationId: string | null;
   isLoading: boolean;
   userId: string;
-  
+
   // Actions
   loadUserProjects: () => Promise<void>;
   createGitProject: (repositoryUrl: string) => Promise<void>;
@@ -27,12 +27,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   loadUserProjects: async () => {
     const { userId } = get();
     set({ isLoading: true });
-    
+
     try {
       console.log('📋 Loading projects for user:', userId);
       const projects = await workstationService.getUserProjects(userId);
-      console.log('✅ Projects loaded:', projects);
-      
+      console.log('✅ Projects loaded:', projects.length, 'projects -', projects.map(p => p.name).join(', '));
+
       set({ projects, isLoading: false });
     } catch (error) {
       console.error('❌ Failed to load projects:', error);
@@ -71,11 +71,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       // Save to Firebase
       const project = await workstationService.saveGitProject(repositoryUrl, userId);
-      console.log('✅ Git project saved to Firebase:', project);
+      console.log('✅ Git project saved to Firebase:', project.name);
 
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project, githubToken);
-      console.log('✅ Workstation created:', workstation);
+      console.log('✅ Workstation created:', workstation.workstationId);
 
       // Reload projects
       await loadUserProjects();
@@ -96,27 +96,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createPersonalProject: async (name: string) => {
     const { userId, loadUserProjects } = get();
     set({ isLoading: true });
-    
+
     try {
       console.log('📁 Creating personal project:', name);
-      
+
       // Save to Firebase
       const project = await workstationService.savePersonalProject(name, userId);
-      console.log('✅ Personal project saved to Firebase:', project);
-      
+      console.log('✅ Personal project saved to Firebase:', project.name);
+
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project);
-      console.log('✅ Workstation created:', workstation);
-      
+      console.log('✅ Workstation created:', workstation.workstationId);
+
       // Reload projects
       await loadUserProjects();
-      
-      set({ 
+
+      set({
         currentProject: project,
         currentWorkstationId: workstation.workstationId,
-        isLoading: false 
+        isLoading: false
       });
-      
+
     } catch (error) {
       console.error('❌ Failed to create personal project:', error);
       set({ isLoading: false });
@@ -126,20 +126,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   selectProject: async (project: UserProject) => {
     set({ isLoading: true });
-    
+
     try {
-      console.log('🎯 Selecting project:', project);
-      
+      console.log('🎯 Selecting project:', project.name);
+
       // Create workstation for existing project
       const workstation = await workstationService.createWorkstationForProject(project);
-      console.log('✅ Workstation created for existing project:', workstation);
-      
-      set({ 
+      console.log('✅ Workstation created for existing project:', workstation.workstationId);
+
+      set({
         currentProject: project,
         currentWorkstationId: workstation.workstationId,
-        isLoading: false 
+        isLoading: false
       });
-      
+
     } catch (error) {
       console.error('❌ Failed to select project:', error);
       set({ isLoading: false });
@@ -149,23 +149,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   deleteProject: async (projectId: string) => {
     set({ isLoading: true });
-    
+
     try {
       console.log('🗑️ Deleting project:', projectId);
-      
+
       await workstationService.deleteProject(projectId);
       console.log('✅ Project deleted from Firebase');
-      
+
       // Reload projects
       const { loadUserProjects } = get();
       await loadUserProjects();
-      
+
       // Clear current project if it was deleted
       const { currentProject } = get();
       if (currentProject?.id === projectId) {
         set({ currentProject: null, currentWorkstationId: null });
       }
-      
+
     } catch (error) {
       console.error('❌ Failed to delete project:', error);
       set({ isLoading: false });

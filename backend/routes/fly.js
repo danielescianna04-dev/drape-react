@@ -18,12 +18,90 @@
 
 const express = require('express');
 const router = express.Router();
+const { CODER_SESSION_TOKEN } = require('../utils/constants');
 
 const orchestrator = require('../services/workspace-orchestrator');
 const storageService = require('../services/storage-service');
 const flyService = require('../services/fly-service');
 const { asyncHandler } = require('../middleware/errorHandler');
-const { analyzeProjectWithAI } = require('../services/project-analyzer');
+const { analyzeProjectWithAI, analyzeEnvVars } = require('../services/project-analyzer');
+
+/**
+ * GET /fly/project/:id/env
+ * Get Environment Variables (.env)
+ */
+router.get('/project/:id/env', asyncHandler(async (req, res) => {
+    const { id: projectId } = req.params;
+
+    // Read .env file
+    const result = await orchestrator.readFile(projectId, '.env');
+    let variables = [];
+
+    if (result.success && result.content) {
+        // Parse .env content
+        variables = result.content.split('\n')
+            .filter(line => line.trim() && !line.startsWith('#'))
+            .map(line => {
+                const [key, ...parts] = line.split('=');
+                const value = parts.join('=');
+                return {
+                    key: key.trim(),
+                    value: value ? value.trim().replace(/^["']|["']$/g, '') : '',
+                    isSecret: key.toLowerCase().includes('key') || key.toLowerCase().includes('secret')
+                };
+            });
+    }
+
+    res.json({ success: true, variables });
+}));
+
+/**
+ * POST /fly/project/:id/env
+ * Save Environment Variables (.env)
+ */
+router.post('/project/:id/env', asyncHandler(async (req, res) => {
+    const { id: projectId } = req.params;
+    const { variables } = req.body; // Array of { key, value }
+
+    if (!Array.isArray(variables)) {
+        return res.status(400).json({ error: 'variables must be an array' });
+    }
+
+    const content = variables
+        .map(v => `${v.key}=${v.value}`)
+        .join('\n');
+
+    await orchestrator.writeFile(projectId, '.env', content);
+
+    res.json({ success: true, message: 'Environment variables saved' });
+}));
+
+/**
+ * POST /fly/project/:id/env/analyze
+ * Analyze project to find needed env vars
+ */
+router.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
+    const { id: projectId } = req.params;
+    console.log(`🧪 [Fly] Analyzing env vars for: ${projectId}`);
+
+    // Get file list
+    const { files } = await orchestrator.listFiles(projectId);
+    const fileNames = files.map(f => f.path);
+
+    // Read key config files
+    let configFiles = {};
+    for (const configName of ['package.json', 'next.config.js', 'vite.config.js', 'docker-compose.yml', 'app.py', 'settings.py', 'config.js']) {
+        try {
+            const result = await orchestrator.readFile(projectId, configName);
+            if (result.success) configFiles[configName] = result.content;
+        } catch { }
+    }
+
+    // Analyze
+    const variables = await analyzeEnvVars(fileNames, configFiles);
+
+    res.json({ success: true, variables });
+}));
 
 /**
  * POST /fly/project/create
@@ -41,10 +119,11 @@ router.post('/project/create', asyncHandler(async (req, res) => {
     }
 
     let filesCount = 0;
+    let result = null;
 
     // Clone repository if provided
     if (repositoryUrl) {
-        const result = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
+        result = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
         filesCount = result.filesCount;
     }
 
@@ -163,63 +242,168 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'projectId is required' });
     }
 
-    // Clone repo if needed
-    if (repositoryUrl) {
-        const filesList = await orchestrator.listFiles(projectId);
-        if (!filesList.files || filesList.files.length === 0) {
-            console.log(`   📥 Cloning repository first...`);
-            await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
-        }
-    }
+    // Set up SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
 
-    // Get file list for project detection
-    const { files } = await orchestrator.listFiles(projectId);
-    const fileNames = files.map(f => f.path);
+    // Flush headers immediately so the client knows we've started
+    if (res.flushHeaders) res.flushHeaders();
 
-    // Read config files for detection
-    let configFiles = {};
-    for (const configName of ['package.json', 'requirements.txt', 'go.mod']) {
-        try {
-            const result = await orchestrator.readFile(projectId, configName);
-            if (result.success) {
-                configFiles[configName] = result.content;
-            }
-        } catch { }
-    }
+    // Send 2KB of whitespace padding to bypass proxy/browser buffers
+    // and force immediate delivery of the following events.
+    res.write(' '.repeat(2048) + '\n');
+    if (res.flush) res.flush();
 
-    // Detect project type with AI
-    let projectInfo = { type: 'static', startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0' };
+    const sendStep = (step, message, data = {}) => {
+        const payload = JSON.stringify({ type: 'step', step, message, ...data });
+        res.write(`data: ${payload}\n\n`);
+        if (res.flush) res.flush();
+    };
+
+    // Heartbeat to keep connection alive
+    const heartbeat = setInterval(() => {
+        res.write(`: ping\n\n`);
+        if (res.flush) res.flush();
+    }, 5000);
+
     try {
-        const detected = await analyzeProjectWithAI(fileNames, configFiles);
-        if (detected) {
-            projectInfo = detected;
-            console.log(`🧠 [Fly] Detected: ${projectInfo.description}`);
+        console.log(`   [1/5] Analyzing project...`);
+        sendStep('analyzing', 'Analisi del progetto...');
+
+        // Helper for robust timeouts
+        const withTimeout = async (promise, timeoutMs, label) => {
+            const timeout = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
+            );
+            return Promise.race([promise, timeout]);
+        };
+
+        // Clone repo if needed
+        if (repositoryUrl) {
+            console.log(`   Checking files for project: ${projectId}`);
+            try {
+                const filesList = await withTimeout(orchestrator.listFiles(projectId), 8000, 'listFiles');
+                if (!filesList.files || filesList.files.length === 0) {
+                    console.log(`   📥 Cloning repository...`);
+                    sendStep('cloning', 'Download dei file dal repository...');
+                    await withTimeout(orchestrator.cloneRepository(projectId, repositoryUrl, githubToken), 30000, 'cloneRepository');
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ Storage check failed: ${e.message}`);
+                // Continue anyway if it's just a timeout/error on listing
+            }
         }
-    } catch (e) {
-        console.log(`   Detection failed, using static fallback`);
+
+        console.log(`   [2/5] Detecting stack...`);
+        sendStep('detecting', 'Rilevamento stack tecnologico...');
+
+        // Get file list for project detection
+        let fileNames = [];
+        let configFiles = {};
+        try {
+            const listResult = await withTimeout(orchestrator.listFiles(projectId), 5000, 'listFiles (detecting)');
+            fileNames = (listResult.files || []).map(f => f.path);
+
+            // Read config files for detection
+            for (const configName of ['package.json', 'requirements.txt', 'go.mod']) {
+                try {
+                    const result = await withTimeout(orchestrator.readFile(projectId, configName), 3000, `readFile(${configName})`);
+                    if (result.success) {
+                        configFiles[configName] = result.content;
+                    }
+                } catch { }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ Detection data gathering failed: ${e.message}`);
+        }
+
+        // Detect project type with AI
+        // ... (existing detection logic)
+
+        // 🚀 PATCH: Ensure Vite allows our proxy host
+        try {
+            // Check for js or ts config
+            let configName = 'vite.config.js';
+            let viteConfigResult = await withTimeout(orchestrator.readFile(projectId, configName), 3000, 'readViteConfigJS');
+
+            if (!viteConfigResult.success) {
+                configName = 'vite.config.ts';
+                viteConfigResult = await withTimeout(orchestrator.readFile(projectId, configName), 3000, 'readViteConfigTS');
+            }
+
+            if (viteConfigResult.success && viteConfigResult.content) {
+                let content = viteConfigResult.content;
+                if (!content.includes('allowedHosts') && !content.includes('drape-workspaces.fly.dev')) {
+                    console.log(`   🔧 Patching ${configName} for allowedHosts...`);
+                    // Simple robust regex replacer for common vite configs
+                    if (content.includes('server: {')) {
+                        content = content.replace('server: {', `server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all'],`);
+                    } else if (content.includes('defineConfig({')) {
+                        content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all']\n  },`);
+                    }
+
+                    if (content !== viteConfigResult.content) {
+                        await orchestrator.writeFile(projectId, configName, content);
+                        console.log(`   ✅ ${configName} patched.`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ Vite config patch warning: ${e.message}`);
+        }
+
+        let projectInfo = { type: 'static', startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0' };
+        try {
+            if (fileNames.length > 0) {
+                const detected = await analyzeProjectWithAI(fileNames, configFiles);
+                if (detected) {
+                    projectInfo = detected;
+                    console.log(`🧠 [Fly] Detected: ${projectInfo.description}`);
+                }
+            }
+        } catch (e) {
+            console.log(`   Detection failed, using static fallback`);
+        }
+
+        console.log(`   [3/5] Booting MicroVM...`);
+        sendStep('booting', 'Avvio della MicroVM su Fly.io...');
+
+        // Start the preview
+        const result = await withTimeout(orchestrator.startPreview(projectId, projectInfo), 60000, 'startPreview');
+
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
+
+        // Use local backend as proxy for preview (enables proper cookie-based routing)
+        const { getLocalIP } = require('../utils/helpers');
+        const LOCAL_IP = getLocalIP();
+        const PORT = process.env.PORT || 3000;
+        const localPreviewUrl = `http://${LOCAL_IP}:${PORT}/`;
+
+        // Send final result
+        console.log(`   [4/5] Ready!`);
+        sendStep('ready', 'Preview pronta!', {
+            success: true,
+            previewUrl: localPreviewUrl,
+            coderToken: CODER_SESSION_TOKEN,
+            agentUrl: result.agentUrl,
+            machineId: result.machineId,
+            projectType: projectInfo.description || projectInfo.type,
+            timing: { totalMs: elapsed },
+            architecture: 'holy-grail'
+        });
+
+    } catch (error) {
+        console.error('❌ Preview start failed:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+        if (res.flush) res.flush();
+    } finally {
+        clearInterval(heartbeat);
+        console.log(`   [5/5] Stream ending.`);
+        res.end();
     }
-
-    // Start the preview
-    const result = await orchestrator.startPreview(projectId, projectInfo);
-
-    const elapsed = Date.now() - startTime;
-    console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
-
-    // Use local backend as proxy for preview (enables proper cookie-based routing)
-    const { getLocalIP } = require('../utils/helpers');
-    const LOCAL_IP = getLocalIP();
-    const PORT = process.env.PORT || 3000;
-    const localPreviewUrl = `http://${LOCAL_IP}:${PORT}/`;
-
-    res.json({
-        success: true,
-        previewUrl: localPreviewUrl, // Use local proxy URL
-        agentUrl: result.agentUrl,
-        machineId: result.machineId,
-        projectType: projectInfo.description || projectInfo.type,
-        timing: { totalMs: elapsed },
-        architecture: 'holy-grail'
-    });
 }));
 
 /**

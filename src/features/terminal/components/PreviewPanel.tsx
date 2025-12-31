@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
-import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
+import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -35,7 +35,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     previewServerStatus: globalServerStatus,
     previewServerUrl: globalServerUrl,
     setPreviewServerStatus,
-    setPreviewServerUrl
+    setPreviewServerUrl,
+    flyMachineId: globalFlyMachineId,
+    setFlyMachineId: setGlobalFlyMachineId
   } = useTerminalStore();
   const { apiUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
@@ -100,7 +102,13 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
   const [isSavingEnv, setIsSavingEnv] = useState(false);
   // Initialize from global store if available, otherwise use prop
-  const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(globalServerUrl || previewUrl);
+  // When restoring session (machineId exists but no globalServerUrl), use apiUrl instead of default previewUrl
+  const getInitialPreviewUrl = () => {
+    if (globalServerUrl) return globalServerUrl;
+    if (globalFlyMachineId && apiUrl && !apiUrl.includes('localhost:3001')) return apiUrl;
+    return previewUrl;
+  };
+  const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(getInitialPreviewUrl());
 
   // Wrapper to update both local and global URL
   const setCurrentPreviewUrl = (url: string) => {
@@ -115,6 +123,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
+  const [isChatMinimized, setIsChatMinimized] = useState(false);
   const [webCompatibilityError, setWebCompatibilityError] = useState<string | null>(null);
   const [aiResponse, setAiResponse] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -128,12 +137,151 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     pattern?: string;
   }>>([]);
   const [coderToken, setCoderToken] = useState<string | null>(null);
-  const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
-  const flyMachineIdRef = useRef<string | null>(null);
+  // Use global store for machine ID to persist across navigation
+  const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
   const aiScrollViewRef = useRef<ScrollView>(null);
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [startupSteps, setStartupSteps] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>([
+    { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
+    { id: 'cloning', label: 'Preparazione file', status: 'pending' },
+    { id: 'detecting', label: 'Configurazione', status: 'pending' },
+    { id: 'booting', label: 'Accensione server', status: 'pending' },
+    { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
+  ]);
+  const [currentStepId, setCurrentStepId] = useState<string | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const maskOpacityAnim = useRef(new Animated.Value(1)).current;
+  const [smoothProgress, setSmoothProgress] = useState(0);
+  const [displayedMessage, setDisplayedMessage] = useState('');
+
+  // Rich Loading Messages
+  const LOADING_MESSAGES: Record<string, string[]> = {
+    analyzing: [
+      "Analisi del workspace...",
+      "Lettura configurazione...",
+      "Verifica requisiti..."
+    ],
+    cloning: [
+      "Recupero file sorgente...",
+      "Sincronizzazione repository...",
+      "Ottimizzazione risorse...",
+      "Verifica integrità..."
+    ],
+    detecting: [
+      "Identificazione framework...",
+      "Configurazione ambiente...",
+      "Preparazione runtime..."
+    ],
+    booting: [
+      "Allocazione risorse cloud...",
+      "Avvio container isolato...",
+      "Inizializzazione servizi...",
+      "Collegamento network...",
+      "Attesa risposta server..."
+    ],
+    ready: [
+      "Finalizzazione...",
+      "Apertura connessione sicura...",
+      "Ci siamo!"
+    ]
+  };
+
+  // Extensions for "fanne di più" - cycling messages within steps
+  useEffect(() => {
+    if (!currentStepId || serverStatus === 'stopped') return;
+
+    const messages = LOADING_MESSAGES[currentStepId] || [startingMessage || "Elaborazione..."];
+    let msgIndex = 0;
+
+    setDisplayedMessage(messages[0]);
+
+    const interval = setInterval(() => {
+      // Don't wrap around immediately for the last step if possible, or just cycle slower
+      msgIndex = (msgIndex + 1) % messages.length;
+      setDisplayedMessage(messages[msgIndex]);
+    }, 4000); // Slower: every 4s
+
+    return () => clearInterval(interval);
+  }, [currentStepId, serverStatus]);
+
+  // Smooth progress animation
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (serverStatus === 'stopped') {
+      setSmoothProgress(0);
+    } else {
+      interval = setInterval(() => {
+        setSmoothProgress(prev => {
+          // If webview is ready, zoom to 100%
+          if (webViewReady) {
+            return Math.min(prev + 5, 100);
+          }
+
+          // Slower approach to 95% to match ~40s real boot time
+          // 20% in 2s (Fast start)
+          if (prev < 20) return prev + 0.5;
+          // 20-50% in ~12s
+          if (prev < 50) return prev + 0.12;
+          // 50-80% in ~15s
+          if (prev < 80) return prev + 0.1;
+          // 80-95% in ~15s (Very slow finish)
+          if (prev < 95) return prev + 0.05;
+
+          return prev;
+        });
+      }, 50);
+    }
+
+    return () => clearInterval(interval);
+  }, [serverStatus, webViewReady]);
+
+  // Pulse animation for active step
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    const shouldPulse = serverStatus === 'checking' || (serverStatus === 'running' && !webViewReady);
+
+    if (shouldPulse) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.85,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      // Return to full opacity when not actively pulsing/waiting
+      Animated.timing(pulseAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }).start();
+    }
+    return () => animation?.stop();
+  }, [serverStatus, webViewReady]);
+
+  // Handle mask fade-out when webViewReady becomes true
+  useEffect(() => {
+    if (webViewReady) {
+      Animated.timing(maskOpacityAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      maskOpacityAnim.setValue(1);
+    }
+  }, [webViewReady]);
 
   // Track keyboard height for input positioning
   useEffect(() => {
@@ -168,6 +316,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       console.log(`🔄 Project changed: ${prevWorkstationId.current} → ${currentId}, resetting preview`);
       setServerStatus('stopped');
       setPreviewServerUrl(null);
+      setGlobalFlyMachineId(null); // Reset machine ID so Start Preview shows
       setProjectInfo(null);
       setCoderToken(null);
       setIsStarting(false);
@@ -195,6 +344,28 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       duration: 250,
       useNativeDriver: true,
     }).start();
+
+    // RESTORE SESSION: If we have a running machine ID in global store, verify session cookie
+    if (globalFlyMachineId && apiUrl) {
+      console.log('🔄 Restoring Preview Session for:', globalFlyMachineId);
+      flyMachineIdRef.current = globalFlyMachineId;
+
+      // Restore the preview URL from apiUrl if not already set
+      if (!globalServerUrl && apiUrl && !apiUrl.includes('localhost:3001')) {
+        console.log('🔄 Restoring preview URL from apiUrl:', apiUrl);
+        setCurrentPreviewUrl(apiUrl);
+        setServerStatus('running');
+      }
+
+      // Re-set the cookie in the backend gateway to be safe
+      fetch(`${apiUrl}/fly/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ machineId: globalFlyMachineId }),
+        credentials: 'include'
+      }).then(() => console.log('✅ Session cookie restored'))
+        .catch(e => console.warn('⚠️ Failed to restore session:', e));
+    }
   }, []);
 
   // Update currentPreviewUrl when previewUrl prop changes
@@ -293,16 +464,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   }, [projectInfo, apiUrl, serverStatus]);
 
-  // Fallback: Force WebView ready if server is running but detection failed
+  // Fallback: Force WebView ready logic DISABLED to prevent showing errors
+  /*
   useEffect(() => {
     if (serverStatus === 'running' && !webViewReady) {
       const timer = setTimeout(() => {
         console.log('⚠️ Forcing WebView ready due to timeout');
         setWebViewReady(true);
-      }, 5000); // 5 seconds
+      }, 15000); // 15 seconds
       return () => clearTimeout(timer);
     }
   }, [serverStatus, webViewReady]);
+  */
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
@@ -392,225 +565,185 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
 
     setIsStarting(true);
+    setServerStatus('checking'); // Enter checking screen
+
+    // Reset and initialize steps
+    setStartupSteps([
+      { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
+      { id: 'cloning', label: 'Preparazione file', status: 'pending' },
+      { id: 'detecting', label: 'Configurazione', status: 'pending' },
+      { id: 'booting', label: 'Accensione server', status: 'pending' },
+      { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
+    ]);
+    setCurrentStepId('analyzing');
     setStartingMessage('Analisi del progetto...');
 
     logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
     try {
-      // Get GitHub token for private repos
       const userId = useTerminalStore.getState().userId || 'anonymous';
-      // Get user email from auth store (not the Firebase UID!)
       const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
       let githubToken: string | null = null;
-
-      // Use repositoryUrl OR githubUrl (fallback)
       const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
-      console.log('📦 Repository URL to use:', repoUrl || '(NONE)');
 
       if (repoUrl) {
         const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
         githubToken = tokenResult?.token || null;
-        console.log('🔐 Preview: GitHub token found:', !!githubToken);
       }
 
-      // Call new AI-powered preview endpoint
-      // This endpoint handles everything: detection, install, start, health check
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 minutes timeout (includes install)
-
-      // Clean username for Coder (from email, not UID!)
       const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-
-      // 🚀 HOLY GRAIL: Use Fly.io preview endpoint
       const previewEndpoint = USE_HOLY_GRAIL
         ? `${apiUrl}/fly/preview/start`
         : `${apiUrl}/preview/start`;
 
-      console.log(`🚀 Calling ${USE_HOLY_GRAIL ? 'Holy Grail' : 'Legacy'} preview for:`, currentWorkstation.id);
-      console.log(`👤 User context: ${userEmail} (${username})`);
+      return new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', previewEndpoint);
+        xhr.setRequestHeader('Content-Type', 'application/json');
 
-      const response = await fetch(previewEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          // Holy Grail uses projectId, Legacy uses workstationId
+        let lastIndex = 0;
+        let pollInterval: any = null;
+        let dataBuffer = '';
+
+        const processResponse = () => {
+          const newData = xhr.responseText.substring(lastIndex);
+          if (!newData) return;
+          lastIndex = xhr.responseText.length;
+
+          dataBuffer += newData;
+
+          // Process all complete lines in the buffer
+          let lineEndIndex;
+          while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
+            const line = dataBuffer.substring(0, lineEndIndex).trim();
+            dataBuffer = dataBuffer.substring(lineEndIndex + 1);
+
+            if (line.startsWith('data: ')) {
+              try {
+                const dataStr = line.substring(6);
+                if (dataStr === '[DONE]') {
+                  console.log('✅ SSE Stream complete ([DONE])');
+                  continue;
+                }
+
+                const parsed = JSON.parse(dataStr);
+                console.log('📬 Preview SSE:', parsed.type, parsed.step || '');
+
+                if (parsed.type === 'step') {
+                  setCurrentStepId(parsed.step);
+                  setStartingMessage(parsed.message);
+
+                  setStartupSteps(prev => prev.map(step => {
+                    if (step.id === parsed.step) return { ...step, status: 'active' };
+                    // Mark previous steps as complete
+                    const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'ready'];
+                    const currentIdx = stepOrder.indexOf(parsed.step);
+                    const stepIdx = stepOrder.indexOf(step.id);
+                    if (stepIdx < currentIdx) return { ...step, status: 'complete' };
+                    return step;
+                  }));
+
+                  if (parsed.step === 'ready') {
+                    console.log('🎉 Server is ready, navigating...');
+                    const result = parsed;
+                    console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
+
+                    // Handle final success state
+                    const completeSetup = () => {
+                      if (result.serverReady) {
+                        setServerStatus('running');
+                        setIsStarting(false);
+                        resolve();
+                      } else {
+                        logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
+                        checkServerStatus(result.previewUrl);
+                        resolve();
+                      }
+                    };
+
+                    if (result.previewUrl) {
+                      setCurrentPreviewUrl(result.previewUrl);
+                      if (result.coderToken) setCoderToken(result.coderToken);
+
+                      if (result.machineId) {
+                        setGlobalFlyMachineId(result.machineId);
+                        flyMachineIdRef.current = result.machineId;
+
+                        // Set session and WAIT for it before showing preview
+                        fetch(`${apiUrl}/fly/session`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ machineId: result.machineId }),
+                          credentials: 'include'
+                        })
+                          .then(() => {
+                            console.log('🍪 Session cookie established');
+                            // Wait 2.5s for native cookie sync (critical for first load)
+                            setTimeout(completeSetup, 2500);
+                          })
+                          .catch(e => {
+                            console.warn('⚠️ Session fail:', e);
+                            completeSetup(); // Try anyway
+                          });
+                      } else {
+                        completeSetup();
+                      }
+                    } else {
+                      completeSetup();
+                    }
+                  }
+                } else if (parsed.type === 'error') {
+                  console.error('❌ SSE Error:', parsed.message);
+                  setStartupSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+                  logError(parsed.message, 'preview');
+                  setServerStatus('stopped');
+                  setIsStarting(false);
+                  reject(new Error(parsed.message));
+                }
+              } catch (e) {
+                // Ignore parse errors from partial JSON if it somehow slipped through
+              }
+            } else if (line.startsWith(':')) {
+              // Heartbeat ping
+              console.log('💓 SSE Heartbeat');
+            }
+          }
+        };
+
+        xhr.onprogress = () => {
+          processResponse();
+        };
+
+        pollInterval = setInterval(processResponse, 100);
+
+        xhr.onload = () => {
+          console.log(`📡 XHR onload status: ${xhr.status}`);
+          if (pollInterval) clearInterval(pollInterval);
+          processResponse();
+          if (xhr.status < 200 || xhr.status >= 300) {
+            reject(new Error(`Server error: ${xhr.status}`));
+          }
+        };
+
+        xhr.onerror = () => {
+          if (pollInterval) clearInterval(pollInterval);
+          reject(new Error('Network error'));
+        };
+
+        xhr.send(JSON.stringify({
           projectId: USE_HOLY_GRAIL ? currentWorkstation.id : undefined,
           workstationId: USE_HOLY_GRAIL ? undefined : currentWorkstation.id,
           repositoryUrl: repoUrl,
           githubToken: githubToken,
           userEmail: userEmail,
           username: username
-        }),
-        signal: controller.signal,
+        }));
       });
 
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Server responded with status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
-
-      // Check if env vars are required
-      if (result.requiresEnvVars) {
-        console.log('⚠️ Environment variables required');
-        if (result.projectType) {
-          setProjectInfo({
-            type: result.projectType,
-            defaultPort: 3000,
-            startCommand: '',
-            installCommand: '',
-            description: result.projectType
-          });
-        }
-        setRequiredEnvVars(result.envVars || []);
-        setEnvTargetFile(result.targetFile || '.env');
-        setEnvVarValues({});
-        logSystem(result.message || 'Configurazione variabili d\'ambiente richiesta', 'preview');
-        setIsStarting(false);
-        return;
-      }
-
-      // Update preview URL and token
-      if (result.previewUrl) {
-        console.log('🔗 Preview URL:', result.previewUrl);
-        setCurrentPreviewUrl(result.previewUrl);
-        if (result.coderToken) {
-          setCoderToken(result.coderToken);
-        }
-        if (result.machineId) {
-          console.log('🆔 Fly Machine ID:', result.machineId);
-          setFlyMachineId(result.machineId);
-          flyMachineIdRef.current = result.machineId;
-
-          // Phase 2: Set Gateway Session Cookie
-          // This tells the backend Gateway which VM to route our requests to
-          try {
-            await fetch(`${apiUrl}/fly/session`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ machineId: result.machineId }),
-              credentials: 'include' // Important for CORS cookies
-            });
-            console.log('✅ Gateway session cookie set');
-          } catch (e) {
-            console.warn('⚠️ Failed to set gateway session:', e);
-          }
-        }
-      }
-
-      if (result.projectType) {
-        setProjectInfo({
-          type: result.projectType,
-          defaultPort: 3000,
-          startCommand: '',
-          installCommand: '',
-          description: result.projectType
-        });
-      }
-
-
-      // Check if server startup failed
-      if (result.success === false) {
-        console.error('❌ Server startup failed:', result.error);
-
-        // Update project info if available
-        if (result.projectType) {
-          setProjectInfo({
-            type: result.projectType,
-            defaultPort: 3000,
-            startCommand: '',
-            installCommand: '',
-            description: result.projectType
-          });
-        }
-
-        // Show error to user
-        logError(result.error || 'Il server non è riuscito ad avviarsi.', 'preview');
-        if (result.errorDetails) {
-          logSystem(`Dettagli: ${result.errorDetails.substring(0, 200)}...`, 'preview');
-        }
-
-        setServerStatus('stopped');
-        setIsStarting(false);
-        return;
-      }
-
-      // Update project info from AI detection
-      if (result.projectType) {
-        setProjectInfo({
-          type: result.projectType,
-          defaultPort: result.port,
-          startCommand: result.commands?.start || 'npm start',
-          installCommand: result.commands?.install || 'npm install',
-          description: result.projectType
-        });
-
-        // Check if it's a mobile-only project (Expo/React Native)
-        const projectTypeLower = result.projectType.toLowerCase();
-        if (projectTypeLower.includes('expo') || projectTypeLower.includes('react native')) {
-          console.warn('⚠️ Mobile-only project detected:', result.projectType);
-          setWebCompatibilityError('Questa app è un\'app mobile nativa (Expo/React Native). La preview web potrebbe non funzionare correttamente. Per una preview completa, usa un dispositivo fisico o un emulatore.');
-        }
-      }
-
-      // Update preview URL and token
-      if (result.previewUrl) {
-        console.log('🔗 Preview URL:', result.previewUrl);
-        setCurrentPreviewUrl(result.previewUrl);
-        if (result.coderToken) {
-          setCoderToken(result.coderToken);
-        }
-      }
-
-      // Connect to server logs stream (global service keeps connection alive)
-      if (currentWorkstation?.id && apiUrl) {
-        serverLogService.connect(currentWorkstation.id, apiUrl);
-      }
-
-      // Check if server is ready
-      if (result.serverReady) {
-        console.log('✅ Server is running!');
-        console.log(`   Project type: ${result.projectType}`);
-        console.log(`   Time: ${result.timing?.totalMs}ms`);
-        console.log(`   Cached: ${result.timing?.cached}`);
-
-        logOutput(`Server started at ${result.previewUrl}`, 'preview', 0);
-        logSystem(`Project: ${result.projectType} | Port: ${result.port}`, 'preview');
-
-        // Log backend info if available
-        if (result.hasBackend && result.backendUrl) {
-          console.log(`🔧 Backend server: ${result.backendUrl}`);
-          logSystem(`Backend API: ${result.backendUrl}`, 'preview');
-        }
-
-        setServerStatus('running');
-      } else {
-        // Server started but health check didn't pass yet
-        console.log('⏳ Server starting, health check pending...');
-        logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
-
-        // Log backend info if available
-        if (result.hasBackend && result.backendUrl) {
-          console.log(`🔧 Backend server: ${result.backendUrl}`);
-          logSystem(`Backend API: ${result.backendUrl}`, 'preview');
-        }
-
-        setServerStatus('checking');
-        // Start local health checks - pass the URL directly to avoid stale state
-        setTimeout(() => checkServerStatus(result.previewUrl), 1000);
-      }
-
     } catch (error: any) {
-      console.error('Failed to start server:', error);
-      logError(`Failed to start: ${error.message || 'Connection error'}`, 'preview');
+      console.error('❌ Preview failed:', error);
+      logError(error.message || 'Errore durante l\'avvio', 'preview');
       setServerStatus('stopped');
-    } finally {
       setIsStarting(false);
     }
   };
@@ -925,6 +1058,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           type: 'tool_result',
                           success: parsed.success
                         };
+
+
                         break;
                       }
                     }
@@ -1260,8 +1395,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={insets.top}
           >
-            {/* Header - Only show when server is running */}
-            {serverStatus === 'running' && (
+            {/* Header - Only show when server is running AND WebView is ready */}
+            {serverStatus === 'running' && webViewReady && (
               <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
                 <View style={styles.headerRow}>
                   {/* Close */}
@@ -1382,15 +1517,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 </View>
               ) : serverStatus === 'stopped' ? (
                 // Server not running - Device mockup style with ChatPage background
-                <View style={styles.startScreen}>
-                  {/* ChatPage gradient background */}
+                <Reanimated.View style={styles.startScreen} exiting={FadeOut.duration(300)}>
+                  {/* Premium gradient background with ambient effects */}
                   <LinearGradient
-                    colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
-                    locations={[0, 0.3, 0.7, 1]}
+                    colors={['#050505', '#0a0a0b', '#0f0f12']}
                     style={StyleSheet.absoluteFill}
                   >
-                    <View style={styles.glowTop} />
-                    <View style={styles.glowBottom} />
+                    <View style={styles.ambientBlob1} />
+                    <View style={styles.ambientBlob2} />
                   </LinearGradient>
 
                   {/* Close button top right */}
@@ -1399,113 +1533,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
+                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
                   </TouchableOpacity>
 
                   {/* iPhone 15 Pro style mockup */}
-                  <View style={styles.iphoneMockup}>
-                    {/* Status bar area - beside Dynamic Island */}
-                    <View style={styles.statusBarArea}>
-                      {/* Time - left of Dynamic Island */}
-                      <Text style={styles.fakeTime}>9:41</Text>
-
-                      {/* Dynamic Island - center */}
-                      <View style={styles.dynamicIsland} />
-
-                      {/* Icons - right of Dynamic Island */}
-                      <View style={styles.fakeStatusIcons}>
-                        <Ionicons name="wifi" size={10} color="#fff" />
-                        <Ionicons name="battery-full" size={10} color="#fff" />
-                      </View>
-                    </View>
-
-                    {/* Screen content - fake app UI */}
-                    <View style={styles.iphoneScreen}>
-
-                      {/* Fake app content */}
-                      <View style={styles.fakeAppContent}>
-                        {/* Header */}
-                        <View style={styles.fakeHeader}>
-                          <View style={styles.fakeAvatar} />
-                          <View style={styles.fakeHeaderText}>
-                            <View style={[styles.fakeLine, { width: 80 }]} />
-                            <View style={[styles.fakeLine, { width: 50, opacity: 0.5 }]} />
-                          </View>
-                        </View>
-
-                        {/* Cards */}
-                        <View style={styles.fakeCard}>
-                          <View style={styles.fakeCardImage} />
-                          <View style={[styles.fakeLine, { width: '70%', marginTop: 8 }]} />
-                          <View style={[styles.fakeLine, { width: '40%', opacity: 0.5 }]} />
-                        </View>
-
-                        <View style={[styles.fakeCard, { opacity: 0.6 }]}>
-                          <View style={styles.fakeCardImage} />
-                          <View style={[styles.fakeLine, { width: '60%', marginTop: 8 }]} />
-                        </View>
-                      </View>
-
-                      {/* Home indicator */}
-                      <View style={styles.homeIndicator} />
-                    </View>
-
-                    {/* Side buttons */}
-                    <View style={styles.iphoneSideButton} />
-                    <View style={styles.iphoneVolumeUp} />
-                    <View style={styles.iphoneVolumeDown} />
-                  </View>
-
-                  {/* Bottom section */}
-                  <View style={styles.startBottomSection}>
-                    <TouchableOpacity
-                      style={[styles.startButton, isStarting && styles.startButtonDisabled]}
-                      onPress={handleStartServer}
-                      disabled={isStarting}
-                      activeOpacity={0.7}
-                    >
-                      {isStarting ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <Ionicons name="play" size={20} color="#FFFFFF" />
-                      )}
-                    </TouchableOpacity>
-                    {/* Status message during startup */}
-                    {isStarting && startingMessage && (
-                      <View style={styles.startingMessageContainer}>
-                        <Text style={styles.startingMessage}>{startingMessage}</Text>
-                      </View>
-                    )}
-                    {!isStarting && projectInfo && (
-                      <Text style={styles.projectTypeText}>
-                        {projectInfo.description || projectInfo.type}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              ) : serverStatus === 'checking' || (serverStatus === 'running' && !webViewReady) ? (
-                // Server starting or WebView not ready - show start screen with loading state
-                <View style={styles.startScreen}>
-                  {/* ChatPage gradient background */}
-                  <LinearGradient
-                    colors={['#0a0a0a', '#121212', '#1a1a1a', '#0f0f0f']}
-                    locations={[0, 0.3, 0.7, 1]}
-                    style={StyleSheet.absoluteFill}
-                  >
-                    <View style={styles.glowTop} />
-                    <View style={styles.glowBottom} />
-                  </LinearGradient>
-
-                  {/* Close button top right */}
-                  <TouchableOpacity
-                    onPress={handleClose}
-                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.6)" />
-                  </TouchableOpacity>
-
-                  {/* iPhone 15 Pro style mockup with loading */}
                   <View style={styles.iphoneMockup}>
                     {/* Status bar area */}
                     <View style={styles.statusBarArea}>
@@ -1517,12 +1548,37 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       </View>
                     </View>
 
-                    {/* Screen content - loading animation */}
-                    <View style={[styles.iphoneScreen, { justifyContent: 'center', alignItems: 'center' }]}>
-                      <ActivityIndicator size="large" color={AppColors.primary} />
-                      <Text style={{ color: 'rgba(255, 255, 255, 0.6)', marginTop: 16, fontSize: 14 }}>
-                        {serverStatus === 'checking' ? 'Avvio server...' : 'Caricamento app...'}
-                      </Text>
+                    {/* Screen content - Cosmic Energy Design */}
+                    <View style={styles.iphoneScreenCentered}>
+
+                      {/* Integrated Cosmic Orb Button */}
+                      <TouchableOpacity
+                        style={styles.cosmicOrbContainer}
+                        onPress={handleStartServer}
+                        activeOpacity={0.9}
+                      >
+                        {/* Layered Glow Rings */}
+                        <View style={styles.cosmicGlowRing1} />
+                        <View style={styles.cosmicGlowRing2} />
+
+                        <LinearGradient
+                          colors={[AppColors.primary, '#6C5CE7']}
+                          style={styles.cosmicOrb}
+                        >
+                          <Ionicons name="play" size={32} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      {/* High-Impact Typography */}
+                      <View style={styles.cosmicTextContainer}>
+                        <Text style={styles.cosmicTitle}>
+                          ANTEPRIMA
+                        </Text>
+                        <View style={styles.cosmicTitleUnderline} />
+                        <Text style={styles.cosmicSubtitle}>
+                          Tocca l'orb per iniziare
+                        </Text>
+                      </View>
                     </View>
 
                     {/* Side buttons */}
@@ -1531,364 +1587,329 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     <View style={styles.iphoneVolumeDown} />
                   </View>
 
-                  {/* Bottom hint */}
-                  <View style={styles.startBottomSection}>
-                    <View style={[styles.startButton, { opacity: 0.5 }]}>
-                      <ActivityIndicator size="small" color="#fff" />
-                    </View>
-                    <Text style={{ color: 'rgba(255, 255, 255, 0.5)', fontSize: 12, marginTop: 12 }}>
-                      {serverStatus === 'checking' ? 'Installazione dipendenze...' : 'Caricamento preview...'}
+                  <View style={styles.loadingFooter}>
+                    <Text style={[styles.loadingFooterText, { opacity: 0.4 }]}>
+                      Holy Grail Architecture • Fly.io
                     </Text>
                   </View>
-                </View>
+                </Reanimated.View>
               ) : (
-                // Server running AND WebView ready - show WebView
-                <>
-                  {webCompatibilityError && (
-                    <View style={styles.errorOverlay}>
-                      <View style={styles.errorCard}>
-                        <Ionicons name="phone-portrait-outline" size={48} color={AppColors.primary} />
-                        <Text style={styles.errorTitle}>App Mobile Nativa</Text>
-                        <Text style={styles.errorMessage}>{webCompatibilityError}</Text>
-                        <TouchableOpacity
-                          style={styles.errorCloseButton}
-                          onPress={handleClose}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={styles.errorCloseText}>Chiudi</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-                  <WebView
-                    ref={webViewRef}
-                    source={{
-                      uri: currentPreviewUrl,
-                      headers: {
-                        'Coder-Session-Token': coderToken || '',
-                        'session_token': coderToken || '',
-                        // 🚀 HOLY GRAIL: Force routing to specific MicroVM
-                        // The flyMachineId state and its update logic are assumed to be defined elsewhere in the component.
-                        // This change only applies the header if flyMachineId is available.
-                        // For example, in handleStartServer:
-                        // if (result.machineId) {
-                        //     console.log('🆔 Fly Machine ID:', result.machineId);
-                        //     setFlyMachineId(result.machineId);
-                        // }
-                        // And the state declaration:
-                        // const [flyMachineId, setFlyMachineId] = useState<string | null>(null);
-                        ...(flyMachineId ? { 'Fly-Force-Instance-Id': flyMachineId } : {}),
-                        'Cookie': `drape_vm_id=${flyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
-                      }
-                    }}
-                    style={[
-                      styles.webView,
-                      { opacity: webViewReady ? 1 : 0, position: webViewReady ? 'relative' : 'absolute' }
-                    ]}
+                <Reanimated.View style={{ flex: 1, backgroundColor: '#0a0a0c' }} entering={FadeIn.duration(400).delay(200)}>
+                  {/* LIVE APP LAYER (Below) */}
+                  <View style={StyleSheet.absoluteFill}>
 
-                    injectedJavaScriptBeforeContentLoaded={`
-                      (function() {
-                        const token = "${coderToken || ''}";
-                        const vmId = "${flyMachineId || ''}";
-                        if (token) {
-                          const cookieOptions = "; path=/; SameSite=Lax";
-                          document.cookie = "coder_session_token=" + token + cookieOptions;
-                          document.cookie = "session_token=" + token + cookieOptions;
-                          document.cookie = "coder_session=" + token + cookieOptions;
+                    <WebView
+                      key={coderToken || 'init'}
+                      ref={webViewRef}
+                      source={{
+                        uri: currentPreviewUrl,
+                        headers: {
+                          'Coder-Session-Token': coderToken || '',
+                          'session_token': coderToken || '',
+                          ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
+                          'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
                         }
-                        if (vmId) {
-                           document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
-                        }
-                          document.cookie = "coder_session=" + token + cookieOptions;
-                          document.cookie = "coder_session_token=" + token + cookieOptions;
-                          console.log("🍪 Session cookies injected");
-                        }
+                      }}
+                      sharedCookiesEnabled={true}
+                      thirdPartyCookiesEnabled={true}
+                      style={[
+                        styles.webView,
+                        { opacity: webViewReady ? 1 : 0 }
+                      ]}
 
-                        // 🚀 HOLY GRAIL: Inject Fly.io machine routing cookie
-                        const flyMachineId = "${flyMachineId || ''}";
-                        if (flyMachineId) {
-                          const cookieOptions = "; path=/; SameSite=Lax";
-                          document.cookie = "drape_vm_id=" + flyMachineId + cookieOptions;
-                          console.log("🚀 Fly.io machine ID cookie injected:", flyMachineId);
-                        }
-
-                          // If we are at the login page, it means the initial request lacked cookies.
-                          // Setting cookies and reloading should fix it.
-                          if (window.location.pathname.includes('/login') && !window.__drapeReloaded) {
-                            window.__drapeReloaded = true;
-                            if (window.ReactNativeWebView) {
-                              window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                                type: 'AUTH_REDIRECT', 
-                                message: 'Detected login page, injecting cookies and reloading...' 
-                              }));
+                      injectedJavaScriptBeforeContentLoaded={`
+                          (function() {
+                            var token = "${coderToken || ''}";
+                            var vmId = "${globalFlyMachineId || ''}";
+                            
+                            // Set cookies
+                            if (token) {
+                              document.cookie = "coder_session_token=" + token + "; path=/; SameSite=Lax";
+                              document.cookie = "session_token=" + token + "; path=/; SameSite=Lax";
                             }
-                            window.location.reload();
-                          }
-                        }
-                      })();
-                      true;
-                    `}
-
-                    onLoadStart={(syntheticEvent) => {
-                      const { nativeEvent } = syntheticEvent;
-                      console.log('🔵 WebView load start:', nativeEvent.url);
-                      // Only reset readiness if we are not in a forced "running" state
-                      // or if this is a genuine navigation to a new page (not just a reload loop)
-                      if (serverStatus !== 'running') {
-                        setWebViewReady(false);
-                      }
-                      setIsLoading(true);
-                    }}
-                    onLoadEnd={(syntheticEvent) => {
-                      const { nativeEvent } = syntheticEvent;
-                      console.log('✅ WebView load end:', nativeEvent.url);
-
-                      // Inject error listener and check content
-                      // Start polling for content immediately
-                      webViewRef.current?.injectJavaScript(`
-                        (function() {
-                          // Error listeners
-                          window.addEventListener('error', function(e) {
-                            window.ReactNativeWebView?.postMessage(JSON.stringify({
-                              type: 'JS_ERROR',
-                              message: e.message
-                            }));
-                          });
-
-                          // Debug logging for content inspection
-                          const root = document.getElementById('root');
-                          const rootChildren = root ? root.children.length : 0;
-                          const bodyContent = document.body ? document.body.innerText.slice(0, 100) : 'No body';
-                          
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                            type: 'debug',
-                            url: window.location.href,
-                            title: document.title,
-                            rootExists: !!root,
-                            rootChildren: rootChildren,
-                            bodyPreview: bodyContent
-                          }));
-
-                          const hasContent = (rootChildren > 0) || (document.body && document.body.children.length > 0);
-                          
-                          if (hasContent) {
-                            window.ReactNativeWebView.postMessage(JSON.stringify({
-                              type: 'navigationState',
-                              canGoBack: window.history.length > 1, 
-                              canGoForward: false,
-                              currentUrl: window.location.href,
-                              title: document.title,
-                              hasContent: true 
-                            }));
-                          }
-
-                          let attempts = 0;
-                          const maxAttempts = 40; // 20 seconds
-                          
-                          function checkContent() {
-                            attempts++;
-                            try {
-                              const root = document.getElementById('root');
-                              const rootChildren = root ? root.children.length : 0;
-                              const bodyChildren = document.body ? document.body.children.length : 0;
-                              const hasContent = (rootChildren > 0) || bodyChildren > 0;
-                              
-                              const scripts = Array.from(document.scripts).map(function(s) { return s.src; });
-                              const hasBundle = scripts.some(function(s) { return s.includes('bundle'); });
-                              
-                              // Success (React mounted) or Timeout (give up and show what we have)
-                              if (rootChildren > 0 || attempts >= maxAttempts) {
-                                window.ReactNativeWebView?.postMessage(JSON.stringify({
-                                  type: 'PAGE_INFO',
-                                  hasContent: hasContent,
-                                  rootChildren: rootChildren,
-                                  scripts: scripts,
-                                  hasBundle: hasBundle,
-                                  forceReady: attempts >= maxAttempts
-                                }));
-                                return true; // Stop polling
-                              }
-                            } catch(e) {
-                              // Ignore errors during check
+                            if (vmId) {
+                              document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
                             }
-                            return false; // Continue polling
-                          }
-
-                          // Check immediately
-                          if (!checkContent()) {
-                            // Poll every 500ms
-                            const interval = setInterval(function() {
-                              if (checkContent()) {
-                                clearInterval(interval);
+                            
+                            // Dark background
+                            if (document.head) {
+                              var style = document.createElement('style');
+                              style.innerHTML = 'html, body { background-color: #0a0a0a !important; }';
+                              document.head.appendChild(style);
+                            }
+                            
+                            // Check for React mount
+                            var checkCount = 0;
+                            var checkInterval = setInterval(function() {
+                              checkCount++;
+                              if (document.body) {
+                                var root = document.getElementById('root');
+                                var rootChildren = root ? root.children.length : 0;
+                                var text = document.body.innerText || '';
+                                
+                                // Check for blockers
+                                if (text.indexOf("Blocked request") !== -1 || text.indexOf("404 (Gateway)") !== -1) {
+                                  clearInterval(checkInterval);
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'TRIGGER_REFRESH' }));
+                                  return;
+                                }
+                                
+                                // React mounted
+                                if (root && rootChildren > 0) {
+                                  clearInterval(checkInterval);
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
+                                }
+                                
+                                // Timeout after 30 seconds
+                                if (checkCount >= 60) {
+                                  clearInterval(checkInterval);
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
+                                }
                               }
                             }, 500);
-                          }
-                        })();
-                        true;
-                      `);
+                          })();
+                          true;
+                        `}
 
-                      setIsLoading(false);
-                    }}
-
-                    onLoadProgress={({ nativeEvent }) => {
-                      if (nativeEvent.progress === 1) {
-                        setIsLoading(false);
-                      }
-                    }}
-                    onNavigationStateChange={(navState) => {
-                      console.log('🧭 Navigation state:', navState.url, navState.loading);
-                      setCanGoBack(navState.canGoBack);
-                      setCanGoForward(navState.canGoForward);
-
-                      // Ensure isLoading is synced with navigation
-                      if (navState.loading) {
+                      onLoadStart={(syntheticEvent) => {
+                        const { nativeEvent } = syntheticEvent;
+                        console.log('🔵 WebView load start:', nativeEvent.url);
+                        if (serverStatus !== 'running') {
+                          setWebViewReady(false);
+                        }
                         setIsLoading(true);
-                      } else if (!navState.loading) {
+                      }}
+                      onLoadEnd={(syntheticEvent) => {
+                        const { nativeEvent } = syntheticEvent;
+                        console.log('✅ WebView load end:', nativeEvent.url);
+                        webViewRef.current?.injectJavaScript(`
+                           (function() {
+                             window.addEventListener('error', function(e) {
+                               window.ReactNativeWebView?.postMessage(JSON.stringify({
+                                 type: 'JS_ERROR',
+                                 message: e.message
+                               }));
+                             });
+
+                             const root = document.getElementById('root');
+                             const rootChildren = root ? root.children.length : 0;
+                             
+                             let attempts = 0;
+                             const maxAttempts = 40; 
+                             
+                             function checkContent() {
+                               attempts++;
+                               try {
+                                 const root = document.getElementById('root');
+                                 // STRICT CHECK: We only consider it "content" if the React root exists.
+                                 // This prevents error pages (like 404/Blocked) from being counted as valid content.
+                                 const rootChildren = root ? root.children.length : 0;
+                                 const hasContent = (rootChildren > 0); 
+                                 
+                                 if (hasContent) {
+                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
+                                     type: 'PAGE_INFO',
+                                     hasContent: hasContent,
+                                     rootChildren: rootChildren,
+                                     forceReady: false
+                                   }));
+                                   return true;
+                                 }
+                               } catch(e) {}
+                               return false;
+                             }
+
+                             if (!checkContent()) {
+                               const interval = setInterval(function() {
+                                 if (checkContent()) clearInterval(interval);
+                               }, 500);
+                             }
+
+
+                           })();
+                           true;
+                         `);
                         setIsLoading(false);
-                      }
-                    }}
-                    onMessage={(event) => {
-                      try {
-                        const data = JSON.parse(event.nativeEvent.data);
+                      }}
 
-                        if (data.type === 'AUTH_REDIRECT') {
-                          console.log('🔐 [Auth] ' + data.message);
-                        }
+                      onLoadProgress={({ nativeEvent }) => {
+                        if (nativeEvent.progress === 1) setIsLoading(false);
+                      }}
+                      onNavigationStateChange={(navState) => {
+                        setCanGoBack(navState.canGoBack);
+                        setCanGoForward(navState.canGoForward);
+                        setIsLoading(navState.loading);
+                      }}
+                      onMessage={(event) => {
+                        try {
+                          const data = JSON.parse(event.nativeEvent.data);
 
-                        if (data.type === 'PAGE_INFO') {
-                          console.log('📄 Page info:', data);
-                          console.log(`   Has content: ${data.hasContent}`);
-                          console.log(`   Root children: ${data.rootChildren}`);
-                          console.log(`   Background: ${data.backgroundColor}`);
-                          console.log(`   Ready state: ${data.readyState}`);
-                          console.log(`   Has bundle: ${data.hasBundle}`);
-                          console.log(`   Scripts:`, data.scripts);
-
-                          // Mark WebView as ready ONLY if React has actually rendered content
-                          // rootChildren > 0 means React has mounted something in the DOM
-                          // Just having scripts is not enough - we need actual rendered content
-                          if (data.rootChildren > 0 || data.forceReady) {
-                            console.log(data.forceReady ? '⚠️ Preview timeout, forcing show' : '✅ WebView content verified, showing preview');
+                          if (data.type === 'WEBVIEW_READY') {
                             setWebViewReady(true);
-                          } else if (data.scripts?.length > 0) {
-                            // Scripts loading but no content yet - keep waiting
-                            console.log('⏳ Scripts loading, waiting for React to render...');
                           }
-                        }
-
-
-                        if (data.type === 'JS_ERROR') {
-                          // Ignore generic "Script error" CORS errors - they don't provide useful info
-                          if (data.message === 'Script error.' && !data.filename) {
-                            console.log('ℹ️ Ignoring generic Script error (CORS)');
-                            return;
+                          if (data.type === 'TRIGGER_REFRESH') {
+                            handleRefresh();
                           }
-                          console.error('🔴 JavaScript Error in WebView:');
-                          console.error(`   Message: ${data.message}`);
-                          console.error(`   File: ${data.filename}:${data.lineno}:${data.colno}`);
-                        }
-
-                        if (data.type === 'CONSOLE_ERROR') {
-                          console.error('🟠 Console Error in WebView:', data.args);
-                        }
-
-                        if (data.type === 'debug') {
-                          console.log('🐞 WebView Debug:', JSON.stringify(data, null, 2));
-                          return;
-                        }
-                        if (data.type === 'ELEMENT_SELECTED') {
-                          console.log('Element selected:', data.element);
-
-                          // Create element selector string
-                          let elementSelector = `<${data.element.tag}>`;
-                          if (data.element.id) {
-                            elementSelector = `<${data.element.tag}#${data.element.id}>`;
-                          } else if (data.element.className) {
-                            // Handle SVG elements where className is SVGAnimatedString object
-                            const classNameStr = typeof data.element.className === 'string'
-                              ? data.element.className
-                              : (data.element.className?.baseVal || '');
-                            const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
-                            if (classes.length > 0) {
-                              elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                          if (data.type === 'PAGE_INFO') {
+                            if (data.rootChildren > 0 || data.forceReady) {
+                              if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
                             }
                           }
-
-                          // Store selected element with full info for AI analysis
-                          const elementText = data.element.text?.trim() ? data.element.text.substring(0, 40) + (data.element.text.length > 40 ? '...' : '') : '';
-                          // Normalize className for storage (handle SVGAnimatedString)
-                          const normalizedClassName = typeof data.element.className === 'string'
-                            ? data.element.className
-                            : (data.element.className?.baseVal || '');
-                          setSelectedElement({
-                            selector: elementSelector,
-                            text: elementText,
-                            tag: data.element.tag,
-                            className: normalizedClassName,
-                            id: data.element.id,
-                            innerHTML: data.element.innerHTML
-                          });
-
-                          // Focus input
-                          inputRef.current?.focus();
-
-                          // Disable inspect mode UI button (but keep overlay visible for 2s as handled by JS)
-                          setIsInspectMode(false);
-
-                          // Note: Don't call __inspectorCleanup here - let the JS setTimeout handle it
-                          // This keeps the selection visible for 2 seconds before auto-cleanup
-                        }
-                      } catch (error) {
-                        console.error('Error parsing WebView message:', error);
-                      }
-                    }}
-                    onError={(syntheticEvent) => {
-                      const { nativeEvent } = syntheticEvent;
-                      console.error('❌ WebView error:', nativeEvent);
-                      console.error('   Description:', nativeEvent.description);
-                      console.error('   Code:', nativeEvent.code);
-                      setServerStatus('stopped');
-                    }}
-                    onHttpError={(syntheticEvent) => {
-                      const { nativeEvent } = syntheticEvent;
-                      console.error('🔴 WebView HTTP error:', nativeEvent.statusCode);
-                      console.error('   URL:', nativeEvent.url);
-
-                      // Auto-retry on 502 (Bad Gateway) - server might still be starting
-                      if (nativeEvent.statusCode === 502 && webViewRef.current) {
-                        console.log('🔄 502 detected, auto-retrying in 2s...');
-                        setTimeout(() => {
-                          if (webViewRef.current) {
-                            webViewRef.current.reload();
+                          if (data.type === 'ELEMENT_SELECTED') {
+                            let elementSelector = `<${data.element.tag}>`;
+                            if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
+                            else if (data.element.className) {
+                              const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
+                              const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                              if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                            }
+                            setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
+                            inputRef.current?.focus();
+                            setIsInspectMode(false);
                           }
-                        }, 2000);
-                      }
-                    }}
+                        } catch (error) { }
+                      }}
+                      javaScriptEnabled={true}
+                      domStorageEnabled={true}
+                      startInLoadingState={false}
+                      scalesPageToFit={true}
+                      bounces={false}
+                      mixedContentMode="always"
+                      allowsInlineMediaPlayback={true}
+                      mediaPlaybackRequiresUserAction={false}
+                      originWhitelist={['*']}
+                      renderToHardwareTextureAndroid={true}
+                      shouldRasterizeIOS={true}
+                      cacheEnabled={true}
+                    />
+                  </View>
 
-                    javaScriptEnabled={true}
-                    domStorageEnabled={true}
-                    startInLoadingState={true}
-                    scalesPageToFit={true}
-                    bounces={false}
-                    mixedContentMode="always"
-                    allowsInlineMediaPlayback={true}
-                    mediaPlaybackRequiresUserAction={false}
-                    originWhitelist={['*']}
-                    // Performance optimizations for smooth sidebar animation
-                    renderToHardwareTextureAndroid={true}
-                    shouldRasterizeIOS={true}
-                    cacheEnabled={true}
-                    cacheMode="LOAD_CACHE_ELSE_NETWORK"
-                    sharedCookiesEnabled={true}
-                  />
-                </>
+                  {/* LOADING SPIRIT MASK (Above) */}
+                  <Animated.View
+                    style={[
+                      StyleSheet.absoluteFill,
+                      { opacity: maskOpacityAnim, backgroundColor: '#0a0a0c' },
+                      webViewReady && { pointerEvents: 'none' }
+                    ]}
+                  >
+                    <View style={styles.startScreen}>
+                      <LinearGradient
+                        colors={['#050505', '#0a0a0b', '#0f0f12']}
+                        style={StyleSheet.absoluteFill}
+                      >
+                        {/* Animated Ambient Blobs */}
+                        <View style={styles.ambientBlob1} />
+                        <View style={styles.ambientBlob2} />
+                      </LinearGradient>
+
+                      {/* Close button top right */}
+                      <TouchableOpacity
+                        onPress={handleClose}
+                        style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
+                      </TouchableOpacity>
+
+                      {/* iPhone 15 Pro style mockup */}
+                      <View style={styles.iphoneMockup}>
+                        {/* Status bar area */}
+                        <View style={styles.statusBarArea}>
+                          <Text style={styles.fakeTime}>9:41</Text>
+                          <View style={styles.dynamicIsland} />
+                          <View style={styles.fakeStatusIcons}>
+                            <Ionicons name="wifi" size={10} color="#fff" />
+                            <Ionicons name="battery-full" size={10} color="#fff" />
+                          </View>
+                        </View>
+
+                        {/* Screen content - The Pulse Design */}
+                        <View style={styles.iphoneScreenCentered}>
+
+                          {/* 1. The Breathing Spirit (Orb) */}
+                          <View style={styles.spiritContainer}>
+                            <Animated.View style={[
+                              styles.spiritOrb,
+                              {
+                                transform: [{ scale: pulseAnim }],
+                                opacity: pulseAnim.interpolate({
+                                  inputRange: [0.6, 1],
+                                  outputRange: [0.3, 0.8]
+                                })
+                              }
+                            ]} />
+                            <Animated.View style={[
+                              styles.spiritCore,
+                              {
+                                transform: [{
+                                  scale: pulseAnim.interpolate({
+                                    inputRange: [0.6, 1],
+                                    outputRange: [1, 1.2]
+                                  })
+                                }]
+                              }
+                            ]} />
+                            <View style={styles.spiritGlow} />
+                          </View>
+
+                          {/* 2. Minimalist Status Info */}
+                          <View style={styles.pulseStatusContainer}>
+                            <Text style={styles.pulseStatusLabel}>
+                              {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
+                            </Text>
+                            <Text style={styles.pulseStatusMessage} numberOfLines={2}>
+                              {displayedMessage || 'Inizializzazione ambiente...'}
+                            </Text>
+                            <Text style={{
+                              color: 'rgba(255,255,255,0.4)',
+                              fontSize: 12,
+                              fontFamily: 'SF-Pro-Text-Regular',
+                              marginTop: 8
+                            }}>
+                              {smoothProgress > 88
+                                ? "Ultimi istanti..."
+                                : `Circa ${Math.ceil(40 * (1 - smoothProgress / 100))} secondi rimanenti`}
+                            </Text>
+                          </View>
+
+                          {/* 3. Integrated Mini Progress at the bottom of screen */}
+                          <View style={styles.miniProgressContainer}>
+                            <View style={styles.miniProgressBarBase}>
+                              <View style={[
+                                styles.miniProgressBarActive,
+                                {
+                                  width: `${smoothProgress}%`,
+                                  backgroundColor: AppColors.primary
+                                }
+                              ]} />
+                              <View style={styles.miniProgressBarGlow} />
+                            </View>
+                            <Text style={styles.miniProgressText}>
+                              {Math.round(smoothProgress)}%
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Side buttons */}
+                        <View style={styles.iphoneSideButton} />
+                        <View style={styles.iphoneVolumeUp} />
+                        <View style={styles.iphoneVolumeDown} />
+                      </View>
+
+                    </View>
+                  </Animated.View>
+                </Reanimated.View>
               )}
             </View>
           </KeyboardAvoidingView>
 
           {/* AI Response Panel - Shows when there's a response */}
           {(aiMessages.length > 0 || isAiLoading) && (
-            <View style={[styles.aiResponsePanel, { bottom: keyboardHeight > 0 ? keyboardHeight + 70 : insets.bottom + 70 }]}>
+            <View style={[
+              styles.aiResponsePanel,
+              { bottom: keyboardHeight > 0 ? keyboardHeight + (selectedElement ? 120 : 70) : insets.bottom + (selectedElement ? 120 : 70) },
+              isChatMinimized && { height: 44, overflow: 'hidden', paddingBottom: 0 }
+            ]}>
               <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
               <View style={styles.aiResponseHeader}>
                 <View style={styles.aiResponseHeaderLeft}>
@@ -1902,141 +1923,145 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 8 }} />
                   )}
                 </View>
-                <TouchableOpacity
-                  onPress={() => { setAiResponse(''); setAiMessages([]); }}
-                  style={styles.aiResponseClose}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.4)" />
-                </TouchableOpacity>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* Minimize Token */}
+                  <TouchableOpacity
+                    onPress={() => setIsChatMinimized(!isChatMinimized)}
+                    style={[styles.aiResponseClose, { backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={isChatMinimized ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color="rgba(255, 255, 255, 0.6)"
+                    />
+                  </TouchableOpacity>
+
+                  {/* Close Token */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setAiResponse('');
+                      setAiMessages([]);
+                      setIsChatMinimized(false);
+                    }}
+                    style={styles.aiResponseClose}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <ScrollView
-                ref={aiScrollViewRef}
-                style={styles.aiResponseScroll}
-                showsVerticalScrollIndicator={false}
-                onContentSizeChange={() => {
-                  // Auto-scroll to bottom when content changes
-                  aiScrollViewRef.current?.scrollToEnd({ animated: true });
-                }}
-              >
-                {isAiLoading && aiMessages.length === 0 ? (
-                  <View style={styles.aiMessageRow}>
-                    <View style={styles.aiThreadContainer}>
-                      <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+
+              {!isChatMinimized && (
+                <ScrollView
+                  ref={aiScrollViewRef}
+                  style={styles.aiResponseScroll}
+                  showsVerticalScrollIndicator={false}
+                  onContentSizeChange={() => {
+                    // Auto-scroll to bottom when content changes
+                    aiScrollViewRef.current?.scrollToEnd({ animated: true });
+                  }}
+                >
+                  {isAiLoading && aiMessages.length === 0 ? (
+                    <View style={styles.aiMessageRow}>
+                      <View style={styles.aiThreadContainer}>
+                        <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                      </View>
+                      <View style={styles.aiMessageContent}>
+                        <Text style={styles.aiThinkingText}>Thinking...</Text>
+                      </View>
                     </View>
-                    <View style={styles.aiMessageContent}>
-                      <Text style={styles.aiThinkingText}>Thinking...</Text>
-                    </View>
-                  </View>
-                ) : (
-                  aiMessages.map((msg, index) => {
-                    if (msg.type === 'user') {
-                      return (
-                        <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
-                          <LinearGradient
-                            colors={['#007AFF', '#0055FF']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.userMessageBubble}
-                          >
-                            <Text style={styles.userMessageText}>{msg.content}</Text>
-                          </LinearGradient>
-                        </View>
-                      );
-                    }
-
-                    if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-                      // Tool badge rendering (like ChatPage)
-                      const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-                        'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                        'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                        'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
-                        'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
-                      };
-
-                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
-                      const isComplete = msg.type === 'tool_result';
-                      const isSuccess = msg.success !== false;
-
-                      // Get display name (filename only from path, or pattern)
-                      const displayName = msg.filePath
-                        ? msg.filePath.split('/').pop() || msg.filePath
-                        : msg.pattern || '';
-
-                      return (
-                        <View key={index} style={styles.aiMessageRow}>
-                          <View style={styles.aiThreadContainer}>
-                            <View style={[
-                              styles.aiThreadDot,
-                              { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
-                            ]} />
+                  ) : (
+                    aiMessages.map((msg, index) => {
+                      if (msg.type === 'user') {
+                        return (
+                          <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
+                            <LinearGradient
+                              colors={['#007AFF', '#0055FF']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={styles.userMessageBubble}
+                            >
+                              <Text style={styles.userMessageText}>{msg.content}</Text>
+                            </LinearGradient>
                           </View>
-                          <View style={styles.aiToolRow}>
-                            <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
-                              <Ionicons name={config.icon as any} size={12} color={config.color} />
-                              <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
+                        );
+                      }
+
+                      if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+                        // Tool badge rendering (like ChatPage)
+                        const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                          'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                          'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                          'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
+                          'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
+                        };
+
+                        const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
+                        const isComplete = msg.type === 'tool_result';
+                        const isSuccess = msg.success !== false;
+
+                        // Get display name (filename only from path, or pattern)
+                        const displayName = msg.filePath
+                          ? msg.filePath.split('/').pop() || msg.filePath
+                          : msg.pattern || '';
+
+                        return (
+                          <View key={index} style={styles.aiMessageRow}>
+                            <View style={styles.aiThreadContainer}>
+                              <View style={[
+                                styles.aiThreadDot,
+                                { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
+                              ]} />
                             </View>
-                            {displayName && (
-                              <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
-                            )}
-                            {!isComplete ? (
-                              <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
-                            ) : (
-                              <Ionicons
-                                name={isSuccess ? 'checkmark-circle' : 'close-circle'}
-                                size={16}
-                                color={isSuccess ? '#3FB950' : '#F85149'}
-                                style={{ marginLeft: 8 }}
-                              />
-                            )}
+                            <View style={styles.aiToolRow}>
+                              <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                                <Ionicons name={config.icon as any} size={12} color={config.color} />
+                                <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
+                              </View>
+                              {displayName && (
+                                <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
+                              )}
+                              {!isComplete ? (
+                                <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
+                              ) : (
+                                <Ionicons
+                                  name={isSuccess ? 'checkmark-circle' : 'close-circle'}
+                                  size={16}
+                                  color={isSuccess ? '#3FB950' : '#F85149'}
+                                  style={{ marginLeft: 8 }}
+                                />
+                              )}
+                            </View>
                           </View>
-                        </View>
-                      );
-                    } else {
-                      // Text message rendering
-                      return (
-                        <View key={index} style={styles.aiMessageRow}>
-                          <View style={styles.aiThreadContainer}>
-                            <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                        );
+                      } else {
+                        // Text message rendering
+                        return (
+                          <View key={index} style={styles.aiMessageRow}>
+                            <View style={styles.aiThreadContainer}>
+                              <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                            </View>
+                            <View style={styles.aiMessageContent}>
+                              <Text style={styles.aiResponseText}>{msg.content}</Text>
+                            </View>
                           </View>
-                          <View style={styles.aiMessageContent}>
-                            <Text style={styles.aiResponseText}>{msg.content}</Text>
-                          </View>
-                        </View>
-                      );
-                    }
-                  })
-                )}
-              </ScrollView>
+                        );
+                      }
+                    })
+                  )}
+                </ScrollView>
+              )}
             </View>
           )}
 
 
-          {/* Animated FAB / Input Box - Only show when server is running */}
-          {serverStatus === 'running' && (
+          {/* Animated FAB / Input Box - Only show when server is running AND WebView is ready */}
+          {serverStatus === 'running' && webViewReady && (
             <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: 12 }]}>
               {/* Selected Element Chip - only when expanded */}
-              {isInputExpanded && selectedElement && (
-                <View style={styles.selectedElementContainer}>
-                  <View style={styles.selectedElementChip}>
-                    <View style={styles.chipIconContainer}>
-                      <Ionicons name="code-slash" size={14} color={AppColors.primary} />
-                    </View>
-                    <View style={styles.chipContent}>
-                      <Text style={styles.chipSelector}>{selectedElement.selector}</Text>
-                      {selectedElement.text && (
-                        <Text style={styles.chipText} numberOfLines={1}>{selectedElement.text}</Text>
-                      )}
-                    </View>
-                    <TouchableOpacity
-                      onPress={clearSelectedElement}
-                      style={styles.chipClose}
-                    >
-                      <Ionicons name="close-circle" size={16} color="rgba(255, 255, 255, 0.6)" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
+
 
               {/* Animated FAB that expands into input */}
               <Animated.View
@@ -2045,87 +2070,113 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   { width: fabWidthAnim }
                 ]}
               >
-                <BlurView intensity={60} tint="dark" style={styles.fabBlur}>
+                <BlurView intensity={60} tint="dark" style={[styles.fabBlur, isInputExpanded && { alignItems: 'stretch', paddingHorizontal: 0 }]}>
                   {isInputExpanded ? (
-                    <>
-                      {/* Close Button */}
-                      <TouchableOpacity
-                        onPress={collapseFab}
-                        style={styles.previewInputButton}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name="close"
-                          size={20}
-                          color="rgba(255, 255, 255, 0.5)"
-                        />
-                      </TouchableOpacity>
+                    <View style={{ flex: 1, flexDirection: 'column' }}>
 
-                      {/* Inspect Mode Button */}
-                      <TouchableOpacity
-                        onPress={toggleInspectMode}
-                        style={[
-                          styles.previewInputButton,
-                          isInspectMode && styles.previewInputButtonActive
-                        ]}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name="scan-outline"
-                          size={18}
-                          color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
-                        />
-                      </TouchableOpacity>
+                      {/* Context Bar - Selected Element (Inside Input) */}
+                      {selectedElement && (
+                        <>
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingHorizontal: 16,
+                            paddingTop: 12,
+                            paddingBottom: 8,
+                          }}>
+                            <Ionicons name="code-slash" size={12} color={AppColors.primary} style={{ marginRight: 6 }} />
+                            <Text style={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'Inter-Medium' }} numberOfLines={1}>
+                              {selectedElement.selector}
+                            </Text>
+                            <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4 }}>
+                              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />
+                            </TouchableOpacity>
+                          </View>
+                          {/* Divider */}
+                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 16 }} />
+                        </>
+                      )}
 
-                      {/* Text Input */}
-                      <TextInput
-                        ref={inputRef}
-                        style={styles.previewInput}
-                        value={message}
-                        onChangeText={setMessage}
-                        placeholder="Chiedi modifiche..."
-                        placeholderTextColor="rgba(255, 255, 255, 0.35)"
-                        multiline
-                        maxLength={500}
-                        onSubmitEditing={handleSendMessage}
-                        keyboardAppearance="dark"
-                        returnKeyType="send"
-                      />
-
-                      {/* Dismiss Keyboard Button - only show when keyboard is open */}
-                      {keyboardHeight > 0 && (
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingRight: 4, paddingTop: 2 }}>
+                        {/* Close Button */}
                         <TouchableOpacity
-                          onPress={() => Keyboard.dismiss()}
+                          onPress={collapseFab}
                           style={styles.previewInputButton}
                           activeOpacity={0.7}
                         >
                           <Ionicons
-                            name="chevron-down"
-                            size={18}
+                            name="close"
+                            size={20}
                             color="rgba(255, 255, 255, 0.5)"
                           />
                         </TouchableOpacity>
-                      )}
 
-                      {/* Send Button */}
-                      <TouchableOpacity
-                        onPress={handleSendMessage}
-                        disabled={!message.trim()}
-                        style={styles.previewSendButton}
-                        activeOpacity={0.7}
-                      >
-                        <View style={[
-                          styles.previewSendButtonInner,
-                          message.trim() && styles.previewSendButtonActive
-                        ]}>
+                        {/* Inspect Mode Button */}
+                        <TouchableOpacity
+                          onPress={toggleInspectMode}
+                          style={[
+                            styles.previewInputButton,
+                            isInspectMode && styles.previewInputButtonActive
+                          ]}
+                          activeOpacity={0.7}
+                        >
                           <Ionicons
-                            name="arrow-up"
-                            size={16}
-                            color={message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)'}
+                            name="scan-outline"
+                            size={18}
+                            color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
                           />
-                        </View>
-                      </TouchableOpacity>
-                    </>
+                        </TouchableOpacity>
+
+                        {/* Text Input */}
+                        <TextInput
+                          ref={inputRef}
+                          style={styles.previewInput}
+                          value={message}
+                          onChangeText={setMessage}
+                          placeholder="Chiedi modifiche..."
+                          placeholderTextColor="rgba(255, 255, 255, 0.35)"
+                          multiline
+                          maxLength={500}
+                          onSubmitEditing={handleSendMessage}
+                          keyboardAppearance="dark"
+                          returnKeyType="send"
+                        />
+
+                        {/* Dismiss Keyboard Button - only show when keyboard is open */}
+                        {keyboardHeight > 0 && (
+                          <TouchableOpacity
+                            onPress={() => Keyboard.dismiss()}
+                            style={styles.previewInputButton}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="chevron-down"
+                              size={18}
+                              color="rgba(255, 255, 255, 0.5)"
+                            />
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Send Button */}
+                        <TouchableOpacity
+                          onPress={handleSendMessage}
+                          disabled={!message.trim()}
+                          style={styles.previewSendButton}
+                          activeOpacity={0.7}
+                        >
+                          <View style={[
+                            styles.previewSendButtonInner,
+                            message.trim() && styles.previewSendButtonActive
+                          ]}>
+                            <Ionicons
+                              name="arrow-up"
+                              size={16}
+                              color={message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)'}
+                            />
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ) : (
                     <TouchableOpacity
                       onPress={expandFab}
@@ -2139,8 +2190,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               </Animated.View>
             </Reanimated.View>
           )}
-        </Animated.View>
-      </Reanimated.View>
+        </Animated.View >
+      </Reanimated.View >
     </>
   );
 };
@@ -2216,7 +2267,7 @@ const styles = StyleSheet.create({
   },
   webView: {
     flex: 1,
-    backgroundColor: 'transparent', // Let container background show during resize
+    backgroundColor: '#0a0a0a', // Solid dark background to hide initial white paint
   },
   loadingContainer: {
     position: 'absolute',
@@ -2271,19 +2322,19 @@ const styles = StyleSheet.create({
   },
   // iPhone 15 Pro mockup styles
   iphoneMockup: {
-    width: 220,
-    height: 450,
+    width: 280,
+    height: 570,
     backgroundColor: '#1c1c1e',
-    borderRadius: 44,
-    borderWidth: 4,
+    borderRadius: 54,
+    borderWidth: 6,
     borderColor: '#3a3a3c',
     overflow: 'hidden',
     position: 'relative',
     // Titanium frame effect
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.6,
+    shadowRadius: 32,
     elevation: 20,
   },
   statusBarArea: {
@@ -2293,11 +2344,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 6,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#0a0a0c',
     marginHorizontal: 4,
     marginTop: 4,
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
+    borderTopLeftRadius: 50,
+    borderTopRightRadius: 50,
   },
   dynamicIsland: {
     width: 72,
@@ -2308,11 +2359,11 @@ const styles = StyleSheet.create({
   },
   iphoneScreen: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#0a0a0c',
     marginHorizontal: 4,
     marginBottom: 4,
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
+    borderBottomLeftRadius: 50,
+    borderBottomRightRadius: 50,
     overflow: 'hidden',
   },
   fakeTime: {
@@ -2538,7 +2589,7 @@ const styles = StyleSheet.create({
     zIndex: 200, // Above keyboard background filler
   },
   fabAnimated: {
-    height: 44,
+    minHeight: 44,
     borderRadius: 22,
     overflow: 'hidden',
     // Shadow
@@ -2845,5 +2896,212 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 18,
+  },
+  // New Premium "Pulse" Redesign Styles
+  ambientBlob1: {
+    position: 'absolute',
+    top: '10%',
+    left: '-20%',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: AppColors.primary,
+    opacity: 0.04,
+    filter: 'blur(80px)',
+  },
+  ambientBlob2: {
+    position: 'absolute',
+    bottom: '5%',
+    right: '-10%',
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: '#6C5CE7',
+    opacity: 0.03,
+    filter: 'blur(100px)',
+  },
+  iphoneScreenCentered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: '#0a0a0c',
+  },
+  spiritContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 160,
+    marginBottom: 50,
+  },
+  spiritOrb: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: AppColors.primary,
+    position: 'absolute',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 40,
+    elevation: 10,
+  },
+  spiritCore: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 15,
+    elevation: 15,
+  },
+  spiritGlow: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  pulseStatusContainer: {
+    alignItems: 'center',
+    gap: 16,
+  },
+  pulseStatusLabel: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.8,
+    fontFamily: 'Inter-Bold',
+    textAlign: 'center',
+  },
+  pulseStatusMessage: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 16,
+    fontFamily: 'Inter-Medium',
+  },
+  miniProgressContainer: {
+    position: 'absolute',
+    bottom: 50,
+    left: 40,
+    right: 40,
+    alignItems: 'center',
+  },
+  miniProgressBarBase: {
+    width: '100%',
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 1,
+    overflow: 'visible',
+    marginBottom: 10,
+  },
+  miniProgressBarActive: {
+    height: '100%',
+    borderRadius: 1,
+  },
+  miniProgressBarGlow: {
+    position: 'absolute',
+    right: 0,
+    top: -4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: AppColors.primary,
+    shadowColor: AppColors.primary,
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    opacity: 0.8,
+  },
+  miniProgressText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontWeight: '700',
+    letterSpacing: 1,
+    fontFamily: 'Inter-Bold',
+  },
+  loadingFooter: {
+    position: 'absolute',
+    bottom: 40,
+    width: '100%',
+    alignItems: 'center',
+  },
+  loadingFooterText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.2)',
+    fontFamily: 'Inter-Regular',
+  },
+  // Cosmic Energy Styles
+  cosmicOrbContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 200,
+    height: 200,
+    marginBottom: 40,
+  },
+  cosmicOrb: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 30,
+    elevation: 20,
+    zIndex: 5,
+  },
+  cosmicGlowRing1: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+  },
+  cosmicGlowRing2: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(139, 124, 246, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.05)',
+  },
+  cosmicTextContainer: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  cosmicTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#fff',
+    letterSpacing: 2,
+    fontFamily: 'Inter-Black',
+    textAlign: 'center',
+    width: '100%',
+  },
+  cosmicTitleUnderline: {
+    width: 40,
+    height: 3,
+    backgroundColor: AppColors.primary,
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  cosmicSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.3)',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    fontFamily: 'Inter-Medium',
+  },
+  // Previous styles (keeping for reference if needed elsewhere)
+  startupStepsCard: {
+    display: 'none', // Removed in Pulse design
   },
 });

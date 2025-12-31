@@ -216,4 +216,64 @@ Return ONLY a JSON object in this format (no markdown):
     }
 }
 
-module.exports = { analyzeProjectWithAI };
+/**
+ * Analyze project to determine required Environment Variables
+ */
+async function analyzeEnvVars(files, configFiles = {}) {
+    console.log('🧪 AI Analyzing Environment Variables...');
+
+    const prompt = `
+You are a senior DevOps engineer. Analyze this project structure and code to identify necessary Environment Variables (.env).
+
+files:
+${files.join('\n')}
+
+Configuration Files:
+${Object.entries(configFiles).map(([name, content]) => `--- ${name} ---\n${content}\n`).join('\n')}
+
+Identify all API keys, database URLs, auth tokens, and configuration flags that should be in a .env file.
+For each variable, provide:
+1. Key (e.g. DATABASE_URL, STRIPE_SECRET_KEY)
+2. Description (Why is it needed?)
+3. Is Secret (true/false)
+4. Default/Example Value (e.g. postgres://localhost:5432/db)
+
+Return ONLY a JSON array in this format (no markdown):
+[
+  {
+    "key": "DATABASE_URL",
+    "description": "Connection string for PostgreSQL",
+    "isSecret": true,
+    "defaultValue": "postgres://user:pass@localhost:5432/dbname"
+  },
+  ...
+]
+`;
+
+    try {
+        const { provider, modelId } = getProviderForModel(DEFAULT_AI_MODEL);
+
+        if (!provider.client) {
+            await provider.initialize();
+        }
+
+        let responseText = '';
+        for await (const chunk of provider.chatStream([{ role: 'user', content: prompt }], { model: modelId })) {
+            if (chunk.type === 'text') {
+                responseText += chunk.text;
+            }
+        }
+
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+        }
+        return [];
+
+    } catch (error) {
+        console.error('❌ AI Env Analysis failed:', error);
+        return [];
+    }
+}
+
+module.exports = { analyzeProjectWithAI, analyzeEnvVars };

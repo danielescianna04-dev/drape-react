@@ -152,6 +152,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   // Handle opening a project - update lastAccessed timestamp
   const handleProjectOpen = async (project: any) => {
+    // Reset preview state when opening a different project
+    const { setFlyMachineId, setPreviewServerUrl, currentWorkstation } = useTerminalStore.getState();
+    if (!currentWorkstation || currentWorkstation.id !== project.id) {
+      console.log('🔄 [Home] Switching project - resetting preview state');
+      setFlyMachineId(null);
+      setPreviewServerUrl(null);
+    }
+
     // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(project.id);
     onOpenProject(project);

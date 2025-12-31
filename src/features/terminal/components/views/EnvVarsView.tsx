@@ -84,17 +84,7 @@ export const EnvVarsView = ({ tab }: Props) => {
     };
   }, [currentWorkstation]);
 
-  useEffect(() => {
-    if (aiStatus === 'analyzing') {
-      pollingRef.current = setInterval(checkAIStatus, 1000);
-    } else {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      if (aiStatus === 'complete') progressWidth.value = withTiming(100, { duration: 300 });
-    }
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [aiStatus]);
+
 
   const loadEnvVariables = async () => {
     if (!currentWorkstation?.projectId) {
@@ -104,7 +94,7 @@ export const EnvVarsView = ({ tab }: Props) => {
 
     try {
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`
+        `${config.apiUrl}/fly/project/${currentWorkstation.projectId}/env`
       );
       if (response.ok) {
         const data = await response.json();
@@ -120,49 +110,47 @@ export const EnvVarsView = ({ tab }: Props) => {
   const startAIAnalysis = async () => {
     if (!currentWorkstation?.projectId) return;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
     try {
       setAiStatus('analyzing');
       progressWidth.value = 0;
-      progressWidth.value = withTiming(30, { duration: 500 });
+      // Animate slowly to 95% over 15 seconds to show activity
+      progressWidth.value = withTiming(95, { duration: 15000 });
 
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-analyze`,
-        { method: 'POST' }
-      );
-
-      if (response.ok) {
-        progressWidth.value = withTiming(70, { duration: 1000 });
-      }
-    } catch (error) {
-      console.error('Error starting AI analysis:', error);
-      setAiStatus('error');
-    }
-  };
-
-  const checkAIStatus = async () => {
-    if (!currentWorkstation?.projectId) return;
-
-    try {
-      const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-analyze/status`
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-
-        if (data.status === 'complete') {
-          const existingKeys = new Set(envVarsRef.current.map(v => v.key));
-          const newAiVars = (data.variables || []).filter(
-            (v: AIVariable) => !existingKeys.has(v.key)
-          );
-          setAiVariables(newAiVars);
-          setAiStatus('complete');
-        } else if (data.status === 'error') {
-          setAiStatus('error');
+        `${config.apiUrl}/fly/project/${currentWorkstation.projectId}/env/analyze`,
+        {
+          method: 'POST',
+          signal: controller.signal
         }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        progressWidth.value = withTiming(100, { duration: 300 });
+        const data = await response.json();
+        const existingKeys = new Set(envVarsRef.current.map(v => v.key));
+        const newAiVars = (data.variables || []).filter(
+          (v: AIVariable) => !existingKeys.has(v.key)
+        );
+        setAiVariables(newAiVars);
+        setAiStatus('complete');
+      } else {
+        setAiStatus('error');
+        Alert.alert('Errore AI', 'Analisi fallita. Riprova.');
       }
-    } catch (error) {
-      console.error('Error checking AI status:', error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        Alert.alert('Timeout', 'L\'analisi AI sta impiegando troppo tempo.');
+      } else {
+        console.error('Error starting AI analysis:', error);
+      }
+      setAiStatus('error');
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
 
@@ -178,35 +166,47 @@ export const EnvVarsView = ({ tab }: Props) => {
     });
   };
 
-  const handleAddVariable = async () => {
-    if (!newKey.trim() || !currentWorkstation?.projectId) return;
-
+  const saveVariables = async (updatedVars: EnvVariable[]) => {
     try {
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`,
+        `${config.apiUrl}/fly/project/${currentWorkstation?.projectId}/env`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key: newKey.trim(),
-            value: newValue,
-            isSecret: newKey.toLowerCase().includes('key') ||
-                     newKey.toLowerCase().includes('secret') ||
-                     newKey.toLowerCase().includes('token') ||
-                     newKey.toLowerCase().includes('password'),
-          }),
+          body: JSON.stringify({ variables: updatedVars }),
         }
       );
 
       if (response.ok) {
-        await loadEnvVariables();
-        setNewKey('');
-        setNewValue('');
-        setShowAddForm(false);
+        setEnvVars(updatedVars);
+        return true;
       }
     } catch (error) {
-      console.error('Error adding variable:', error);
-      Alert.alert('Errore', 'Impossibile aggiungere la variabile');
+      console.error('Error saving variables:', error);
+      Alert.alert('Errore', 'Impossibile salvare le modifiche');
+    }
+    return false;
+  };
+
+  const handleAddVariable = async () => {
+    if (!newKey.trim() || !currentWorkstation?.projectId) return;
+
+    const newVar: EnvVariable = {
+      key: newKey.trim(),
+      value: newValue,
+      isSecret: newKey.toLowerCase().includes('key') ||
+        newKey.toLowerCase().includes('secret') ||
+        newKey.toLowerCase().includes('token') ||
+        newKey.toLowerCase().includes('password'),
+    };
+
+    const updatedVars = [...envVars, newVar];
+    const success = await saveVariables(updatedVars);
+
+    if (success) {
+      setNewKey('');
+      setNewValue('');
+      setShowAddForm(false);
     }
   };
 
@@ -222,17 +222,8 @@ export const EnvVarsView = ({ tab }: Props) => {
           text: 'Elimina',
           style: 'destructive',
           onPress: async () => {
-            try {
-              const response = await fetch(
-                `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables/${key}`,
-                { method: 'DELETE' }
-              );
-              if (response.ok) {
-                await loadEnvVariables();
-              }
-            } catch (error) {
-              console.error('Error deleting variable:', error);
-            }
+            const updatedVars = envVars.filter(v => v.key !== key);
+            await saveVariables(updatedVars);
           },
         },
       ]
@@ -242,27 +233,18 @@ export const EnvVarsView = ({ tab }: Props) => {
   const handleAddAIVariable = async (aiVar: AIVariable) => {
     if (!currentWorkstation?.projectId) return;
 
-    try {
-      const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.projectId}/env-variables`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key: aiVar.key,
-            value: aiVar.existingValue || aiVar.defaultValue || '',
-            isSecret: aiVar.isSecret,
-            description: aiVar.description,
-          }),
-        }
-      );
+    const newVar: EnvVariable = {
+      key: aiVar.key,
+      value: aiVar.existingValue || aiVar.defaultValue || '',
+      isSecret: aiVar.isSecret,
+      description: aiVar.description,
+    };
 
-      if (response.ok) {
-        await loadEnvVariables();
-        setAiVariables(prev => prev.filter(v => v.key !== aiVar.key));
-      }
-    } catch (error) {
-      console.error('Error adding AI variable:', error);
+    const updatedVars = [...envVars, newVar];
+    const success = await saveVariables(updatedVars);
+
+    if (success) {
+      setAiVariables(prev => prev.filter(v => v.key !== aiVar.key));
     }
   };
 
