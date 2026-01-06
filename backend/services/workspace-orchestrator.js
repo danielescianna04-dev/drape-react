@@ -19,6 +19,9 @@ const serverLogService = require('./server-log-service');
 // Cache of active VMs per project
 const activeVMs = new Map();
 
+// Locks to prevent race conditions on getOrCreateVM (one caller at a time per project)
+const vmLocks = new Map(); // projectId -> Promise
+
 class WorkspaceOrchestrator {
     constructor() {
         this.vmTimeout = 30 * 60 * 1000; // 30 minutes idle timeout
@@ -33,92 +36,120 @@ class WorkspaceOrchestrator {
      * @returns {object} VM info with agentUrl
      */
     async getOrCreateVM(projectId, options = {}) {
-        const startTime = Date.now();
-        console.log(`\n🚀 [Orchestrator] Getting VM for project: ${projectId}`);
-
-        // Anti-Collision: Ensure only this project's machine is running
-        // [DEPRECATED Phase 2]: Gateway now routes traffic via private IP/Header.
-        const machineName = `ws-${projectId}`.substring(0, 30);
-        // await flyService.ensureSingleActiveMachine(machineName);
-
-        // Check if we already have an active VM for this project
-        const cached = activeVMs.get(projectId);
-        if (cached && !options.forceNew) {
-            // Verify it's still alive
-            try {
-                await axios.get(`${cached.agentUrl}/health`, { timeout: 5000 });
-                console.log(`✅ [Orchestrator] Using cached VM (${Date.now() - startTime}ms)`);
-                cached.lastUsed = Date.now();
-                return cached;
-            } catch {
-                console.log(`⚠️ [Orchestrator] Cached VM dead, creating new one`);
-                activeVMs.delete(projectId);
-            }
+        // === LOCK: Prevent parallel creation for same project ===
+        while (vmLocks.has(projectId)) {
+            console.log(`🔒 [Orchestrator] Waiting for lock on ${projectId}...`);
+            await vmLocks.get(projectId);
         }
+        let resolveLock;
+        const lockPromise = new Promise(r => { resolveLock = r; });
+        vmLocks.set(projectId, lockPromise);
+        // === END LOCK SETUP ===
 
-        // Create new MicroVM or adopt existing one
-        // machineName already defined at start of function
-        console.log(`📦 [Orchestrator] checking for existing VM: ${machineName}...`);
+        try {
+            const startTime = Date.now();
+            console.log(`\n🚀 [Orchestrator] Getting VM for project: ${projectId}`);
 
-        let vm;
+            // Anti-Collision: Ensure only this project's machine is running
+            // [MULTI-PROJECT ENABLED] allow multiple VMs but rely on idle timeout
+            const machineName = `ws-${projectId}`.substring(0, 30);
+            // await flyService.ensureSingleActiveMachine(machineName);
 
-        // Check Fly API for existing machine to avoid 409 Conflict
-        const machines = await flyService.listMachines();
-        const existing = machines.find(m => m.name === machineName);
-
-        if (existing && existing.state !== 'destroyed') {
-            console.log(`♻️ [Orchestrator] Found existing Fly machine: ${existing.id}`);
-            vm = existing;
-
-            // If stopped, start it?
-            if (existing.state === 'stopped') {
-                // flyService doesn't have startMachine exposed yet, assuming we use it as is or handle it
-                // For now, let's assume valid state or auto-start on request? NO.
-                // We should probably start it if stopped.
-                // But wait, createMachine handles "auto_destroy". 
-                // Let's just use it. If it's stopped, we might need to restart it.
-                // For now, let's just adopt it.
-            }
-        } else {
-            console.log(`📦 [Orchestrator] Creating new MicroVM...`);
-            vm = await flyService.createMachine(projectId, {
-                env: {
-                    PROJECT_ID: projectId
+            // Check if we already have an active VM for this project
+            const cached = activeVMs.get(projectId);
+            if (cached && !options.forceNew) {
+                // Verify it's still alive
+                try {
+                    await axios.get(`${cached.agentUrl}/health`, { timeout: 5000 });
+                    console.log(`✅ [Orchestrator] Using cached VM (${Date.now() - startTime}ms)`);
+                    cached.lastUsed = Date.now();
+                    return cached;
+                } catch {
+                    console.log(`⚠️ [Orchestrator] Cached VM dead, creating new one`);
+                    activeVMs.delete(projectId);
                 }
-            });
+            }
+
+            // Create new MicroVM or adopt existing one
+            // machineName already defined at start of function
+            console.log(`📦 [Orchestrator] checking for existing VM: ${machineName}...`);
+
+            let vm;
+
+            // Check Fly API for existing machine to avoid 409 Conflict
+            const machines = await flyService.listMachines();
+            const existing = machines.find(m => m.name === machineName);
+
+            if (existing && existing.state !== 'destroyed') {
+                console.log(`♻️ [Orchestrator] Found existing Fly machine: ${existing.id}`);
+                vm = existing;
+
+                // If stopped, start it?
+                if (existing.state === 'stopped') {
+                    // flyService doesn't have startMachine exposed yet, assuming we use it as is or handle it
+                    // For now, let's assume valid state or auto-start on request? NO.
+                    // We should probably start it if stopped.
+                    // But wait, createMachine handles "auto_destroy". 
+                    // Let's just use it. If it's stopped, we might need to restart it.
+                    // For now, let's just adopt it.
+                }
+            } else {
+                console.log(`📦 [Orchestrator] Creating new MicroVM...`);
+                vm = await flyService.createMachine(projectId, {
+                    env: {
+                        PROJECT_ID: projectId
+                    }
+                });
+            }
+
+            // Wait for it to be ready
+            await flyService.waitForMachine(vm.id, 30000);
+
+            // Use the common app URL - all traffic goes through drape-workspaces.fly.dev
+            // We'll use the machine ID to route requests via Fly-Force-Instance-Id header
+            const agentUrl = 'https://drape-workspaces.fly.dev';
+
+            // Wait for agent to be healthy (passing machine ID for routing)
+            await this._waitForAgent(agentUrl, 30000, vm.id);
+
+            // VM info to cache
+            const vmInfo = {
+                id: vm.id,
+                name: vm.name,
+                agentUrl,
+                machineId: vm.id, // Store for routing
+                projectId,
+                createdAt: Date.now(),
+                lastUsed: Date.now()
+            };
+
+            // Cache it
+            activeVMs.set(projectId, vmInfo);
+
+            // Schedule cleanup
+            this._scheduleCleanup(projectId);
+
+            // CRITICAL: Sync files to the new VM from storage
+            // Without this, the VM has no files and git status fails
+            try {
+                console.log(`📂 [Orchestrator] Syncing files to new VM...`);
+                await this.forceSync(projectId, vmInfo);
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] forceSync failed: ${e.message}`);
+            }
+
+            // Initialize Git Repo (Critical for UI "Changes" view)
+            await this.ensureGitRepo(projectId, agentUrl, vm.id);
+
+            const elapsed = Date.now() - startTime;
+            console.log(`✅ [Orchestrator] VM ready in ${elapsed}ms`);
+
+            return vmInfo;
+        } finally {
+            // === UNLOCK ===
+            vmLocks.delete(projectId);
+            resolveLock();
         }
-
-        // Wait for it to be ready
-        await flyService.waitForMachine(vm.id, 30000);
-
-        // Use the common app URL - all traffic goes through drape-workspaces.fly.dev
-        // We'll use the machine ID to route requests via Fly-Force-Instance-Id header
-        const agentUrl = 'https://drape-workspaces.fly.dev';
-
-        // Wait for agent to be healthy (passing machine ID for routing)
-        await this._waitForAgent(agentUrl, 30000, vm.id);
-
-        // VM info to cache
-        const vmInfo = {
-            id: vm.id,
-            name: vm.name,
-            agentUrl,
-            machineId: vm.id, // Store for routing
-            projectId,
-            createdAt: Date.now(),
-            lastUsed: Date.now()
-        };
-
-        // Cache it
-        activeVMs.set(projectId, vmInfo);
-
-        // Schedule cleanup
-        this._scheduleCleanup(projectId);
-
-        const elapsed = Date.now() - startTime;
-        console.log(`✅ [Orchestrator] VM ready in ${elapsed}ms`);
-
-        return vmInfo;
     }
 
     /**
@@ -148,6 +179,9 @@ class WorkspaceOrchestrator {
 
         // Save to Firebase Storage
         await storageService.saveFiles(projectId, files);
+
+        // Save project metadata (repositoryUrl) so ensureGitRepo can find it
+        await storageService.saveProjectMetadata(projectId, { repositoryUrl: repoUrl });
 
         // If there's an active VM, sync files to it
         const cached = activeVMs.get(projectId);
@@ -182,6 +216,94 @@ class WorkspaceOrchestrator {
 
         // Pass machineId for routing via Fly-Force-Instance-Id header
         return await flyService.exec(vm.agentUrl, command, cwd, vm.machineId);
+    }
+
+    /**
+     * Ensure the project has a valid git repository
+     * This fixes "No changes" issue in UI by ensuring 'git status' works
+     */
+    async ensureGitRepo(projectId, agentUrl, machineId) {
+        try {
+            console.log(`🐙 [Orchestrator] ensuring git repo for ${projectId}...`);
+
+            // FIX permissions first
+            await flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project && git config --global --add safe.directory /home/coder/project', '/home/coder/project', machineId);
+
+            const status = await flyService.exec(agentUrl, 'test -d .git && echo "EXISTS" || echo "MISSING"', '/home/coder/project', machineId);
+
+            if (status.stdout.trim() === 'MISSING') {
+                console.log(`🐙 [Orchestrator] .git missing, attempting to clone from GitHub...`);
+
+                // Try to get the repo URL from Firestore
+                let repoUrl = null;
+                try {
+                    const admin = require('firebase-admin');
+                    const db = admin.firestore();
+
+                    // Try direct document lookup first
+                    let wsDoc = await db.collection('workstations').doc(projectId).get();
+                    if (wsDoc.exists) {
+                        console.log(`   📄 Found document by ID: ${projectId}`);
+                        repoUrl = wsDoc.data().repositoryUrl || wsDoc.data().githubUrl;
+                    } else {
+                        // Fallback: query by 'id' field
+                        console.log(`   🔍 Document not found by ID, trying query...`);
+                        const snapshot = await db.collection('workstations')
+                            .where('id', '==', projectId)
+                            .limit(1)
+                            .get();
+                        if (!snapshot.empty) {
+                            console.log(`   📄 Found document via query!`);
+                            repoUrl = snapshot.docs[0].data().repositoryUrl || snapshot.docs[0].data().githubUrl;
+                        }
+                    }
+
+                    if (repoUrl) {
+                        console.log(`   ✅ Found repo URL: ${repoUrl.includes('@') ? '[hidden]' : repoUrl}`);
+                    } else {
+                        console.log(`   ⚠️ No repo URL in Firestore for ${projectId}`);
+                    }
+                } catch (e) {
+                    console.warn(`   ⚠️ Could not fetch repo URL from Firestore: ${e.message}`);
+                }
+
+                if (repoUrl) {
+                    console.log(`   📦 Cloning from: ${repoUrl.includes('@') ? '[URL with token]' : repoUrl}`);
+                    // Clear project folder and clone fresh
+                    const cloneCmd = `cd /home/coder && rm -rf project && git clone ${repoUrl} project 2>&1`;
+                    const cloneResult = await flyService.exec(agentUrl, cloneCmd, '/home/coder', machineId, 120000); // 2 min timeout
+
+                    if (cloneResult.exitCode === 0) {
+                        console.log(`   ✅ Repository cloned successfully`);
+                    } else {
+                        console.warn(`   ⚠️ Clone failed: ${cloneResult.stderr || cloneResult.stdout}`);
+                        // Fallback to git init
+                        await this._fallbackGitInit(agentUrl, machineId);
+                    }
+                } else {
+                    console.log(`   ⚠️ No repo URL found, falling back to local git init`);
+                    await this._fallbackGitInit(agentUrl, machineId);
+                }
+
+                // Fix permissions again after clone/init
+                await flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project', '/home/coder/project', machineId);
+            } else {
+                console.log(`   ✅ .git already exists, skipping init`);
+                // Optionally: fetch latest from remote?
+                // await flyService.exec(agentUrl, 'git fetch origin 2>&1 || true', '/home/coder/project', machineId);
+            }
+        } catch (e) {
+            console.warn(`⚠️ [Orchestrator] failed to ensure git repo: ${e.message}`);
+        }
+    }
+
+    /**
+     * Fallback git init when no remote URL is available
+     */
+    async _fallbackGitInit(agentUrl, machineId) {
+        console.log(`   🔧 Initializing local git repo...`);
+        await flyService.exec(agentUrl, 'git init && git config user.email "bot@drape.ai" && git config user.name "Drape Bot" && git add . && git commit -m "Initial sync"', '/home/coder/project', machineId);
+        console.log(`   ✅ git repo initialized (fallback)`);
     }
 
     /**
@@ -513,29 +635,35 @@ class WorkspaceOrchestrator {
         console.log(`📥 [GitHub] Fetching ${owner}/${repo}...`);
 
         try {
-            // Use codeload.github.com - doesn't count against API rate limit!
-            const zipUrl = `https://codeload.github.com/${owner}/${repo}/zip/refs/heads/main`;
-
-            const headers = { 'User-Agent': 'Drape-IDE' };
-            if (token) headers['Authorization'] = `token ${token}`;
-
-            let zipResponse;
+            // 1. Get the default branch name
+            let branch = 'main';
             try {
-                zipResponse = await axios.get(zipUrl, {
-                    headers,
-                    responseType: 'arraybuffer',
-                    timeout: 30000
+                const repoInfo = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+                    headers: {
+                        'User-Agent': 'Drape-IDE',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                    }
                 });
+                branch = repoInfo.data.default_branch || 'main';
             } catch (e) {
-                // Try 'master' branch if 'main' fails
-                console.log(`   Trying 'master' branch...`);
-                const masterUrl = `https://codeload.github.com/${owner}/${repo}/zip/refs/heads/master`;
-                zipResponse = await axios.get(masterUrl, {
-                    headers,
-                    responseType: 'arraybuffer',
-                    timeout: 30000
-                });
+                console.warn(`   ⚠️ Could not fetch repo info, defaulting to 'main': ${e.message}`);
             }
+
+            // 2. Use API zipball endpoint (more reliable for all branch names)
+            const zipUrl = `https://api.github.com/repos/${owner}/${repo}/zipball/${branch}`;
+
+            const headers = {
+                'User-Agent': 'Drape-IDE',
+                'Accept': 'application/vnd.github.v3+json'
+            };
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            console.log(`   📥 Downloading ${branch} zipball...`);
+            const zipResponse = await axios.get(zipUrl, {
+                headers,
+                responseType: 'arraybuffer',
+                timeout: 60000
+            });
 
             // Extract the zip
             const zip = new AdmZip(Buffer.from(zipResponse.data));
@@ -550,7 +678,15 @@ class WorkspaceOrchestrator {
                 // Remove the root folder prefix (e.g., "owner-repo-abc123/")
                 const fullPath = entry.entryName;
                 const pathParts = fullPath.split('/');
-                pathParts.shift(); // Remove first segment (root folder)
+
+                // The first part is always the root folder in GitHub zipballs
+                if (pathParts.length > 1) {
+                    pathParts.shift();
+                } else {
+                    // Skip if it's just the root folder itself
+                    continue;
+                }
+
                 const relativePath = pathParts.join('/');
 
                 if (!relativePath) continue;
@@ -575,8 +711,14 @@ class WorkspaceOrchestrator {
         } catch (error) {
             if (error.response?.status === 404) {
                 const url = `https://github.com/${owner}/${repo}`;
-                console.error(`❌ [GitHub] Repository not found at ${url}`);
-                throw new Error(`GitHub repository not found: ${owner}/${repo}. Please verify the URL is correct and the repository is public.`);
+                console.error(`❌ [GitHub] Repository not found at ${url} (Might be private)`);
+
+                // Create a 401 error to trigger the auth flow in the frontend
+                const authError = new Error(`GitHub repository not found or private: ${owner}/${repo}. Please verify the URL or authenticate.`);
+                authError.statusCode = 401;
+                authError.requiresAuth = true;
+                authError.isOperational = true;
+                throw authError;
             }
             console.error(`❌ [GitHub] Fetch failed:`, error.message);
             throw error;
@@ -613,6 +755,43 @@ class WorkspaceOrchestrator {
      * 
      * This ensures that restarting the Backend doesn't kill user sessions.
      */
+
+    /**
+     * Force sync files to a specific VM (Recovery)
+     */
+    async forceSync(projectId, vm) {
+        console.log(`💪 [Orchestrator] Force-syncing files to ${vm.machineId}...`);
+        const { files } = await storageService.listFiles(projectId);
+
+        let synced = 0;
+        for (const file of files) {
+            try {
+                const fileContent = await storageService.readFile(projectId, file.path);
+                if (fileContent.success) {
+                    await axios.post(`${vm.agentUrl}/file`, {
+                        path: file.path,
+                        content: fileContent.content
+                    }, {
+                        timeout: 10000,
+                        headers: { 'Fly-Force-Instance-Id': vm.machineId }
+                    });
+                    synced++;
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ Failed to sync ${file.path}: ${e.message}`);
+            }
+        }
+        console.log(`   ✅ Force-sync complete: ${synced}/${files.length} synced.`);
+    }
+
+    /**
+     * Reconcile State (Hydration + Reaper)
+     * 
+     * 1. Fetches all running machines from Fly.io.
+     * 2. Adopts any machines that aren't in our State (Cache).
+     * 
+     * This ensures that restarting the Backend doesn't kill user sessions.
+     */
     async reconcileState() {
         console.log('🔄 [Orchestrator] Reconciling state with Fly.io...');
         try {
@@ -621,14 +800,52 @@ class WorkspaceOrchestrator {
             const sessionMap = new Map(activeSessions.map(s => [s.machineId, s]));
 
             let adoptedCount = 0;
+            let reapedCount = 0;
+
+            const now = Date.now();
+            // Default timeout: 30 minutes, but for "zombies" (orphans) we can be stricter or looser
+            // Let's stick to the instance timeout
+            const MAX_AGE_MS = this.vmTimeout;
 
             for (const machine of machines) {
                 // Only care about started workspace machines
                 if (!machine.name.startsWith('ws-') || machine.state !== 'started') continue;
 
-                if (!sessionMap.has(machine.id)) {
-                    // FOUND ORPHAN (Running in Cloud, missing in Cache)
-                    // ADOPT IT!
+                // Check age
+                const createdAt = new Date(machine.created_at).getTime();
+                const uptime = now - createdAt;
+
+                // If we have a session in Redis, trust its lastUsed
+                if (sessionMap.has(machine.id)) {
+                    const session = sessionMap.get(machine.id);
+                    const lastUsed = session.lastUsed || now;
+                    const idleTime = now - lastUsed;
+
+                    if (idleTime > MAX_AGE_MS) {
+                        console.log(`💀 [Orchestrator] Reaping IDLE session: ${machine.name} (Idle: ${Math.round(idleTime / 60000)}m)`);
+                        await this.stopVM(session.projectId); // Uses stopVM to clean up gracefully
+                        reapedCount++;
+                        continue;
+                    }
+                } else {
+                    // ORPHAN (No Redis Session). 
+                    // If it's older than MAX_AGE_MS and has no active session, it's likely a TRUE zombie from a crash day ago.
+                    // However, if we just restarted, we might have lost Redis state (if in-memory).
+                    // Safe bet: If uptime > 2 hours and no session, kill it. 
+                    // Or closer to standard timeout if we trust Fly's created_at as "last sign of life" start.
+
+                    // IMPROVEMENT: Trust created_at as a baseline. 
+                    if (uptime > MAX_AGE_MS) {
+                        console.log(`🧟 [Orchestrator] Reaping ZOMBIE machine (No Session): ${machine.name} (Uptime: ${Math.round(uptime / 60000)}m)`);
+                        // We don't know the projectId easily without parsing name or config, but destroyMachine takes ID.
+                        // We also need to stop it. stopVM takes projectId. 
+                        // Let's use flyService directly to stop.
+                        await flyService.stopMachine(machine.id);
+                        reapedCount++;
+                        continue;
+                    }
+
+                    // ADOPT IT if it's young enough
                     const projectId = machine.config?.env?.PROJECT_ID || machine.name.substring(3); // recover ID
 
                     console.log(`👶 [Orchestrator] Adopting orphan VM: ${machine.name} (${machine.id})`);
@@ -643,7 +860,7 @@ class WorkspaceOrchestrator {
                         privateIp: machine.private_ip,
                         agentUrl: `https://${flyService.appName}.fly.dev`,
                         createdAt: machine.created_at,
-                        lastUsed: Date.now() // Reset timeout
+                        lastUsed: now // Give it a fresh lease on life since we just adopted it (maybe user just connected)
                     };
 
                     await redisService.saveVMSession(projectId, vmInfo);
@@ -651,16 +868,22 @@ class WorkspaceOrchestrator {
 
                     // Resume log streaming for this adopted VM
                     this.startLogStreaming(projectId, vmInfo);
+                    // Schedule cleanup logic for this new adoption
+                    this._scheduleCleanup(projectId);
+
+                    // FORCE SYNC: Ensure the VM has files (in case of ephemeral restart)
+                    try {
+                        await this.forceSync(projectId, vmInfo);
+                    } catch (e) {
+                        console.error(`⚠️ [Orchestrator] Failed to sync files to adopted VM: ${e.message}`);
+                    }
 
                     adoptedCount++;
-
                 }
             }
 
-            if (adoptedCount > 0) {
-                console.log(`✅ [Orchestrator] Adopted ${adoptedCount} active VMs. Persistence achieved.`);
-            } else {
-                // console.log('✅ [Orchestrator] State is in sync.');
+            if (reapedCount > 0 || adoptedCount > 0) {
+                console.log(`✅ [Orchestrator] Reconciled: Adopted ${adoptedCount}, Reaped ${reapedCount} VMs.`);
             }
 
         } catch (error) {

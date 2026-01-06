@@ -11,6 +11,7 @@ const { validateBody, schema, commonSchemas } = require('../middleware/validator
 const { getProviderForModel, standardTools, getAvailableModels } = require('../services/ai-providers');
 const { executeTool, createContext } = require('../services/tool-executor');
 const { AI_MODELS, DEFAULT_AI_MODEL } = require('../utils/constants');
+const contextService = require('../services/context-service'); // Import Singleton
 
 /**
  * GET /ai/models
@@ -35,21 +36,19 @@ router.post('/chat', asyncHandler(async (req, res) => {
         conversationHistory = [],
         workstationId,
         projectId,
-        repositoryUrl,
-        selectedModel = DEFAULT_AI_MODEL,
+        repositoryUrl, selectedModel = DEFAULT_AI_MODEL,
         context: userContext,
-        username // Extract username explicitly
+        username
     } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: 'prompt is required' });
     }
 
-    console.log(`\n🤖 AI Chat Request`);
+    console.log(`\n🤖 AI Chat Request (REST)`);
     console.log(`   Model: ${selectedModel}`);
-    console.log(`   Prompt: ${prompt.substring(0, 100)}...`);
-    console.log(`   Project: ${projectId || workstationId || 'none'}`);
-    console.log(`   User: ${username || 'admin (default)'}`);
+    console.log(`   Prompt: ${prompt.substring(0, 50)}...`);
+    console.log(`   Project: ${projectId || workstationId}`);
 
     // Get provider for selected model
     const { provider, modelId, config } = getProviderForModel(selectedModel);
@@ -59,99 +58,65 @@ router.post('/chat', asyncHandler(async (req, res) => {
         await provider.initialize();
     }
 
-    // Create execution context (Multi-User safe)
-    // Enable Holy Grail mode for projects in Firestore (template + cloned)
+    // Create execution context
     const effectiveProjectId = projectId || workstationId;
     const execContext = effectiveProjectId ? createContext(effectiveProjectId, {
         owner: username,
-        isHolyGrail: true  // Always use Holy Grail for AI-managed projects
+        isHolyGrail: true
     }) : null;
 
-    // Fetch project files to include in context (from Firestore OR VM)
+    // RAG Trigger: Ensure indexing triggers if not ready (fire & forget)
+    if (effectiveProjectId) {
+        const vectorStore = require('../services/vector-store');
+        if (vectorStore.isReady) {
+            // We don't await this to avoid latency, just ensure it's running/fresh
+            vectorStore.indexProject(require('../utils/helpers').getRepoPath(effectiveProjectId), effectiveProjectId)
+                .catch(e => console.error('RAG Index trigger failed:', e.message));
+        }
+    }
+
+    // Restore Lightweight File Context (Map of the project)
+    // This allows AI to "see" the file structure without reading content
     let projectFiles = [];
-    let projectFilesContent = {};
     if (effectiveProjectId) {
         try {
             const storageService = require('../services/storage-service');
-            const orchestrator = require('../services/workspace-orchestrator');
-
-            // First try Firestore storage
             const { files } = await storageService.listFiles(effectiveProjectId);
-            projectFiles = files || [];
-
-            // If no files in Firestore, try to get from VM (for cloned projects)
-            if (projectFiles.length === 0) {
-                console.log(`   📁 No files in Firestore, checking VM...`);
-                try {
-                    const vm = orchestrator.getVM(effectiveProjectId);
-                    if (vm && vm.agentUrl) {
-                        const axios = require('axios');
-                        // Get file list from VM
-                        const listRes = await axios.get(`${vm.agentUrl}/files`, { timeout: 5000 });
-                        if (listRes.data && listRes.data.files) {
-                            projectFiles = listRes.data.files.map(f => ({
-                                path: f.path || f,
-                                size: f.size || 0
-                            }));
-
-                            // Read contents from VM for small files
-                            for (const file of projectFiles.slice(0, 20)) {
-                                try {
-                                    const fileRes = await axios.get(`${vm.agentUrl}/file`, {
-                                        params: { path: file.path },
-                                        timeout: 5000
-                                    });
-                                    if (fileRes.data && fileRes.data.content) {
-                                        projectFilesContent[file.path] = fileRes.data.content;
-                                    }
-                                } catch (e) {
-                                    // Skip files that can't be read
-                                }
-                            }
-                            console.log(`   📁 Loaded ${projectFiles.length} files from VM, ${Object.keys(projectFilesContent).length} with content`);
-                        }
-                    }
-                } catch (vmError) {
-                    console.warn('Could not load files from VM:', vmError.message);
-                }
-            } else {
-                // Files found in Firestore, read their contents
-                for (const file of projectFiles.slice(0, 20)) {
-                    if (!file.size || file.size < 50000) {
-                        const result = await storageService.readFile(effectiveProjectId, file.path);
-                        if (result.success) {
-                            projectFilesContent[file.path] = result.content;
-                        }
-                    }
-                }
-                console.log(`   📁 Loaded ${projectFiles.length} files from Firestore, ${Object.keys(projectFilesContent).length} with content`);
+            if (files) {
+                projectFiles = files.map(f => ({ path: f.path, size: f.size }));
+                console.log(`   📂 Loaded file tree map: ${projectFiles.length} files`);
             }
         } catch (e) {
-            console.warn('Could not load project files:', e.message);
+            console.warn('Could not load project file tree:', e.message);
         }
     }
 
-    // Build system message with Italian language and files
-    const systemMessage = buildSystemMessage(execContext, userContext, projectFiles, projectFilesContent);
+    // Build base system message (Personality + Design Rules + File Tree)
+    // We pass projectFiles (list) but NO content (empty obj)
+    const systemMessage = buildSystemMessage(execContext, userContext, projectFiles, {});
 
-    // Build messages array
+    // Context Engine Optimization
+    let historyMessages = [];
+    try {
+        // This handles: Sanitization, Truncation, Summarization, and RAG Injection
+        historyMessages = await contextService.optimizeContext(conversationHistory, modelId, prompt);
+        console.log(`🧠 Context optimized: ${conversationHistory.length} -> ${historyMessages.length} messages`);
+    } catch (error) {
+        console.error('⚠️ Context optimization failed, falling back:', error);
+        historyMessages = conversationHistory.slice(-10).map(msg => ({
+            role: (msg.role === 'user' || msg.type === 'user') ? 'user' : 'assistant',
+            content: msg.content
+        }));
+    }
+
+    // Assemble final prompt
     const messages = [
-        { role: 'system', content: systemMessage }
+        { role: 'system', content: systemMessage },
+        ...historyMessages,
+        { role: 'user', content: prompt }
     ];
 
-    // Add conversation history
-    if (conversationHistory.length > 0) {
-        for (const msg of conversationHistory.slice(-10)) { // Keep last 10 messages
-            if (msg.role === 'user' || msg.type === 'user') {
-                messages.push({ role: 'user', content: msg.content });
-            } else if (msg.role === 'assistant' || msg.type === 'text') {
-                messages.push({ role: 'assistant', content: msg.content });
-            }
-        }
-    }
 
-    // Add current prompt
-    messages.push({ role: 'user', content: prompt });
 
     // Set up SSE streaming
     res.setHeader('Content-Type', 'text/event-stream');
@@ -176,6 +141,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
             let toolCalls = [];
 
             // Stream response
+            console.log(`🤖 Streaming from provider (Loop ${loopCount})...`);
             for await (const chunk of provider.chatStream(currentMessages, {
                 model: modelId,
                 tools,
@@ -462,6 +428,16 @@ IMPORTANTE: Rispetta la struttura del progetto E crea SEMPRE design BELLISSIMI e
     if (userContext) {
         systemMessage += `\nCONTESTO AGGIUNTIVO:\n${userContext}\n`;
     }
+
+    systemMessage += `
+🚀 MODALITÀ AGENTE AUTONOMO (MASSIMA PRIORITÀ):
+1. **NON CHIEDERE MAI IL PERMESSO** per fare modifiche ovvie o richieste dall'utente.
+2. **AGISCI DIRETTAMENTE**: Se l'utente dice "cambia il footer", TU LEGGI IL FILE, MODIFICHI IL FILE E MOSTRI IL RISULTATO. Non dire "posso farlo?", FALLO.
+3. **SII AUDACE**: Se il design non è specificato, prendi decisioni creative per renderlo "Wow". Non chiedere "quale colore preferisci?", scegli il migliore e applicalo.
+4. Usa i tool (write_file, edit_file) IMMEDIATAMENTE.
+5. Minimizza le chiacchiere, massimizza il CODICE SCRITTO.
+6. **VIETATO SOLO "PIANIFICARE"**: Non rispondere MAI "Aggiungerò un footer..." senza chiamare contestualmente il tool per farlo. Se sai cosa fare, FALLO SUBITO.
+`;
 
     return systemMessage;
 }

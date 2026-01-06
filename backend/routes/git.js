@@ -22,15 +22,36 @@ function wrapSsh(wsName, command) {
 /**
  * Execute git command on workspace
  */
-async function executeGitCommand(wsName, gitCommand) {
-    const fullCmd = wrapSsh(wsName, `cd /home/coder/project && git ${gitCommand}`);
+// Lazy load orchestrator
+let orchestrator = null;
+function getOrchestrator() {
+    if (!orchestrator) orchestrator = require('../services/workspace-orchestrator');
+    return orchestrator;
+}
 
-    const { stdout, stderr } = await execAsync(fullCmd, {
-        env: { ...process.env },
-        timeout: 30000
-    });
+/**
+ * Execute git command on workspace
+ * Supports both Holy Grail (via Orchestrator) and legacy Coder (via SSH)
+ */
+async function executeGitCommand(projectId, gitCommand) {
+    // Holy Grail path only (Legacy SSH removed as it times out on Fly)
+    const orch = getOrchestrator();
+    try {
+        const start = Date.now();
+        const result = await orch.exec(projectId, `git ${gitCommand}`);
+        console.log(`⏱️ [Git] ${gitCommand} took ${Date.now() - start}ms`);
 
-    return { stdout: stdout.trim(), stderr: stderr.trim() };
+        // Check for git errors in exit code
+        if (result.exitCode !== 0) {
+            console.warn(`⚠️ [Git] Exit code ${result.exitCode}: ${result.stderr}`);
+            // Don't throw for status/log as they might just be empty, handling is up to caller
+            // But caller expects { stdout, stderr }, which we return.
+        }
+        return result;
+    } catch (error) {
+        console.error(`❌ [Git] Orchestrator exec failed: ${error.message}`);
+        throw error;
+    }
 }
 
 /**
@@ -43,11 +64,16 @@ router.get('/status/:projectId', asyncHandler(async (req, res) => {
 
     console.log(`☁️  Git Status in cloud: ${wsName}`);
 
-    const [statusResult, branchResult, logResult] = await Promise.all([
-        executeGitCommand(wsName, 'status --porcelain'),
-        executeGitCommand(wsName, 'branch --show-current'),
-        executeGitCommand(wsName, 'log --oneline -10')
+    const [statusResult, branchResult, logResult, lsResult] = await Promise.all([
+        executeGitCommand(projectId, 'status --porcelain'),
+        executeGitCommand(projectId, 'branch --show-current'),
+        executeGitCommand(projectId, 'log --oneline -10'),
+        // Temporary debug: find files
+        getOrchestrator().exec(projectId, 'find /home/coder -maxdepth 3 -not -path "*/.*"')
     ]);
+
+    console.log(`🔍 [Git] Status Raw Output: "${statusResult.stdout}"`);
+    console.log(`🔍 [Git] LS Output: "${lsResult.stdout}"`);
 
     // Parse status
     const statusLines = statusResult.stdout.split('\n').filter(l => l.trim());
@@ -81,7 +107,7 @@ router.post('/fetch/:projectId', asyncHandler(async (req, res) => {
     const wsName = cleanWorkspaceName(projectId);
 
     console.log(`☁️  Git Fetch in cloud: ${wsName}`);
-    await executeGitCommand(wsName, 'fetch --all');
+    await executeGitCommand(projectId, 'fetch --all');
 
     res.json({ success: true, message: 'Fetch completed' });
 }));
@@ -95,7 +121,7 @@ router.post('/pull/:projectId', asyncHandler(async (req, res) => {
     const wsName = cleanWorkspaceName(projectId);
 
     console.log(`☁️  Git Pull in cloud: ${wsName}`);
-    const result = await executeGitCommand(wsName, 'pull');
+    const result = await executeGitCommand(projectId, 'pull');
 
     res.json({
         success: true,
@@ -113,7 +139,7 @@ router.post('/push/:projectId', asyncHandler(async (req, res) => {
     const wsName = cleanWorkspaceName(projectId);
 
     console.log(`☁️  Git Push in cloud: ${wsName}`);
-    const result = await executeGitCommand(wsName, 'push');
+    const result = await executeGitCommand(projectId, 'push');
 
     res.json({
         success: true,
@@ -138,11 +164,11 @@ router.post('/commit/:projectId', asyncHandler(async (req, res) => {
     console.log(`☁️  Git Commit in cloud: ${wsName}`);
 
     // Stage all changes
-    await executeGitCommand(wsName, 'add -A');
+    await executeGitCommand(projectId, 'add -A');
 
     // Commit
     const escapedMessage = message.replace(/"/g, '\\"');
-    const result = await executeGitCommand(wsName, `commit -m "${escapedMessage}"`);
+    const result = await executeGitCommand(projectId, `commit -m "${escapedMessage}"`);
 
     res.json({
         success: true,
@@ -167,7 +193,7 @@ router.post('/checkout/:projectId', asyncHandler(async (req, res) => {
     console.log(`☁️  Git Checkout in cloud: ${wsName} -> ${branch}`);
 
     const command = create ? `checkout -b ${branch}` : `checkout ${branch}`;
-    const result = await executeGitCommand(wsName, command);
+    const result = await executeGitCommand(projectId, command);
 
     res.json({
         success: true,
@@ -187,8 +213,8 @@ router.get('/branches/:projectId', asyncHandler(async (req, res) => {
     console.log(`☁️  Git Branches in cloud: ${wsName}`);
 
     const [localResult, currentResult] = await Promise.all([
-        executeGitCommand(wsName, 'branch'),
-        executeGitCommand(wsName, 'branch --show-current')
+        executeGitCommand(projectId, 'branch'),
+        executeGitCommand(projectId, 'branch --show-current')
     ]);
 
     const branches = localResult.stdout.split('\n')
@@ -222,7 +248,7 @@ router.post('/stash/:projectId', asyncHandler(async (req, res) => {
         command = 'stash list';
     }
 
-    const result = await executeGitCommand(wsName, command);
+    const result = await executeGitCommand(projectId, command);
 
     res.json({
         success: true,

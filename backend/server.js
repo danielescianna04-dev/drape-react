@@ -1,29 +1,22 @@
 /**
  * Drape Backend - Main Server Entry Point v2.0
- * Complete modular architecture with all features
- * 
- * This replaces the legacy server.js
+ * Holy Grail Architecture - Fly.io MicroVMs
  */
 
 require('dotenv').config();
 
 const http = require('http');
 const WebSocket = require('ws');
-const httpProxy = require('http-proxy');
 
 // Import configuration and utilities
 const {
     PORT,
     GOOGLE_CLOUD_PROJECT,
-    LOCATION,
-    CODER_API_URL,
-    CODER_SESSION_TOKEN,
-    CODER_WILDCARD_DOMAIN
+    LOCATION
 } = require('./utils/constants');
 const { getLocalIP } = require('./utils/helpers');
 const { setWebSocketServer, enableLogBroadcasting } = require('./middleware/logger');
-const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
-const { handleWebSocketUpgrade, parseCoderAppPath } = require('./middleware/coderProxy');
+const contextService = require('./services/context-service');
 
 // Import Express app
 const createApp = require('./app');
@@ -46,7 +39,7 @@ const LOCAL_IP = getLocalIP();
  * Initialize and start the server
  */
 async function startServer() {
-    console.log('\n🚀 Starting Drape Backend v2.0...\n');
+    console.log('\n🚀 Starting Drape Backend v2.0 (Holy Grail)...\n');
 
     // ===========================================
     // CREATE EXPRESS APP
@@ -66,55 +59,6 @@ async function startServer() {
     });
 
     // ===========================================
-    // WEBSOCKET PROXY FOR CODER
-    // ===========================================
-    const wsProxy = httpProxy.createProxyServer({
-        changeOrigin: true,
-        ws: true
-    });
-
-    wsProxy.on('error', (err, req, socket) => {
-        console.error('❌ WS Proxy Error:', err.message);
-        try { socket.end(); } catch (e) { }
-    });
-
-    // Handle WebSocket upgrade requests
-    server.on('upgrade', (req, socket, head) => {
-        // Check if this is a Coder WebSocket (VS Code, terminal, etc.)
-        if (req.url.startsWith('/@') || req.url.includes('/coder/')) {
-            console.log(`🔌 Coder WS: ${req.url.substring(0, 50)}`);
-
-            const parsed = parseCoderAppPath(req.url);
-            const coderBase = CODER_API_URL || 'http://drape.info';
-
-            if (parsed) {
-                // App WebSocket - use subdomain routing
-                const wildcardDomain = CODER_WILDCARD_DOMAIN || 'drape.info';
-                const subdomain = `${parsed.app}--${parsed.workspace}--${parsed.user}.${wildcardDomain}`;
-                const target = `http://${subdomain}`;
-
-                req.url = parsed.path || '/';
-                req.headers['Host'] = subdomain;
-                req.headers['Origin'] = `http://${subdomain}`;
-
-                wsProxy.ws(req, socket, head, { target });
-            } else {
-                // Standard Coder WebSocket (dashboard, etc.)
-                if (CODER_SESSION_TOKEN) {
-                    req.headers['Coder-Session-Token'] = CODER_SESSION_TOKEN;
-                }
-                wsProxy.ws(req, socket, head, { target: coderBase });
-            }
-        } else if (req.url === '/ws') {
-            // Let the WebSocket.Server handle our /ws path
-            // This is handled below
-        } else {
-            console.log(`🔌 Unknown WS upgrade: ${req.url}`);
-            socket.destroy();
-        }
-    });
-
-    // ===========================================
     // DRAPE WEBSOCKET SERVER
     // ===========================================
     const wss = new WebSocket.Server({ noServer: true });
@@ -125,6 +69,9 @@ async function startServer() {
             wss.handleUpgrade(req, socket, head, (ws) => {
                 wss.emit('connection', ws, req);
             });
+        } else {
+            console.log(`🔌 Unknown WS upgrade: ${req.url}`);
+            socket.destroy();
         }
     });
 
@@ -139,7 +86,8 @@ async function startServer() {
         ws.send(JSON.stringify({
             type: 'connected',
             message: 'Drape WebSocket connected',
-            version: '2.0.0'
+            version: '2.0.0',
+            architecture: 'holy-grail'
         }));
 
         ws.on('message', async (message) => {
@@ -187,14 +135,20 @@ async function startServer() {
     const orchestrator = require('./services/workspace-orchestrator');
     orchestrator.startReaper();
 
+    const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
 
     console.log('🤖 Initializing AI providers...');
     try {
         await initializeProviders();
         const providers = getAvailableProviders();
         console.log(`   Available: ${providers.join(', ') || 'none'}`);
+
+        // Initialize Vector Store (RAG)
+        const vectorStore = require('./services/vector-store');
+        await vectorStore.initialize();
+
     } catch (error) {
-        console.warn('⚠️ AI provider init warning:', error.message);
+        console.warn('⚠️ AI/Vector provider init warning:', error.message);
     }
 
     // ===========================================
@@ -203,7 +157,7 @@ async function startServer() {
     server.listen(PORT, '0.0.0.0', () => {
         console.log('');
         console.log('╔' + '═'.repeat(55) + '╗');
-        console.log('║  🚀 Drape Backend v2.0 - COMPLETE                    ║');
+        console.log('║  🚀 Drape Backend v2.0 - HOLY GRAIL                  ║');
         console.log('╠' + '═'.repeat(55) + '╣');
         console.log(`║  📍 Local IP:     ${LOCAL_IP.padEnd(35)}║`);
         console.log(`║  🔌 Port:         ${String(PORT).padEnd(35)}║`);
@@ -214,7 +168,7 @@ async function startServer() {
         console.log('╠' + '═'.repeat(55) + '╣');
         console.log(`║  ☁️  GCP Project:  ${GOOGLE_CLOUD_PROJECT.padEnd(35)}║`);
         console.log(`║  🌍 Region:       ${LOCATION.padEnd(35)}║`);
-        console.log(`║  🖥️  Coder:        ${(CODER_API_URL || 'not configured').substring(0, 35).padEnd(35)}║`);
+        console.log(`║  🚀 Compute:      Fly.io MicroVMs`.padEnd(58) + '║');
         console.log('╚' + '═'.repeat(55) + '╝');
         console.log('');
         console.log('📂 Modular Structure Active:');
@@ -269,7 +223,7 @@ async function handleWebSocketChat(ws, payload) {
         workstationId,
         projectId,
         selectedModel = DEFAULT_AI_MODEL,
-        username // Extract username
+        username
     } = payload;
 
     if (!prompt) {
@@ -287,50 +241,35 @@ async function handleWebSocketChat(ws, payload) {
         }
 
         const effectiveProjectId = projectId || workstationId;
-        // Multi-user context support
         const execContext = effectiveProjectId ? createContext(effectiveProjectId, { owner: username }) : null;
 
-        // Build messages
-        const messages = [
-            { role: 'system', content: 'You are an expert coding assistant. When generating code for web applications (React, HTML/CSS, etc.), you MUST prioritize mobile-first design and responsiveness. Ensure layouts are optimized for mobile devices by default, using appropriate CSS strategies (e.g., flexbox, grid, media queries). The user wants high-quality, modern, and mobile-optimized UI.' }
-        ];
-
-        // Add history with SANITIZATION
-        for (const msg of conversationHistory.slice(-20)) { // Increased context window slightly
-            if (msg.role === 'user' || msg.type === 'user') {
-                // Sanitize content if it's an array (Claude style tool results)
-                let cleanContent = msg.content;
-                if (Array.isArray(msg.content)) {
-                    cleanContent = msg.content.map(block => {
-                        if (block.type === 'tool_result') {
-                            return {
-                                type: 'tool_result',
-                                tool_use_id: String(block.tool_use_id),
-                                content: String(block.content),
-                                is_error: block.is_error // Keep is_error if present
-                            };
-                        }
-                        return block;
-                    });
-                } else if (msg.content && typeof msg.content === 'object' && msg.content.type === 'tool_result') {
-                    // Handle edge case where content is a single object
-                    cleanContent = [{
-                        type: 'tool_result',
-                        tool_use_id: String(msg.content.tool_use_id),
-                        content: String(msg.content.content),
-                        is_error: msg.content.is_error
-                    }];
-                }
-                messages.push({ role: 'user', content: cleanContent });
-            } else if (msg.role === 'assistant' || msg.type === 'text') {
-                messages.push({ role: 'user', content: cleanContent });
-            } else if (msg.role === 'assistant' || msg.type === 'text') {
-                messages.push({ role: 'assistant', content: msg.content });
+        // RAG TRIGGER: Ensure project is indexed
+        if (effectiveProjectId) {
+            const { getRepoPath } = require('./utils/helpers');
+            const vectorStore = require('./services/vector-store');
+            const repoPath = getRepoPath(effectiveProjectId);
+            if (vectorStore.isReady) {
+                vectorStore.indexProject(repoPath, effectiveProjectId).catch(e => console.error('RAG Index trigger failed:', e.message));
             }
         }
 
-        messages.push({ role: 'user', content: prompt });
+        // Build messages
+        const systemMessage = { role: 'system', content: 'You are an expert coding assistant. When generating code for web applications (React, HTML/CSS, etc.), you MUST prioritize mobile-first design and responsiveness. Ensure layouts are optimized for mobile devices by default, using appropriate CSS strategies (e.g., flexbox, grid, media queries). The user wants high-quality, modern, and mobile-optimized UI.' };
 
+        // OPTIMIZE CONTEXT
+        let historyMessages = [];
+        try {
+            historyMessages = await contextService.optimizeContext(conversationHistory, modelId, prompt);
+            console.log(`🧠 Context optimized: ${conversationHistory.length} -> ${historyMessages.length} messages`);
+        } catch (error) {
+            console.error('⚠️ Context optimization failed, falling back to simple slice:', error);
+            historyMessages = conversationHistory.slice(-10).map(msg => ({
+                role: (msg.role === 'user' || msg.type === 'user') ? 'user' : 'assistant',
+                content: msg.content
+            }));
+        }
+
+        const messages = [systemMessage, ...historyMessages, { role: 'user', content: prompt }];
         const tools = execContext && config.supportsTools ? standardTools : [];
 
         // Stream response
@@ -338,38 +277,42 @@ async function handleWebSocketChat(ws, payload) {
         let continueLoop = true;
         let loopCount = 0;
 
-        while (continueLoop && loopCount < 10) {
+        while (continueLoop && loopCount < 5) {
             loopCount++;
 
             let fullText = '';
             let toolCalls = [];
 
-            // DEBUG: Check messages before sending
-            const lastMsg = currentMessages[currentMessages.length - 1];
-            if (lastMsg.role === 'user' && Array.isArray(lastMsg.content) && lastMsg.content[0]?.type === 'tool_result') {
-                console.log('🔍 Sending tool_result:', JSON.stringify(lastMsg.content[0]));
-            }
-
-            for await (const chunk of provider.chatStream(currentMessages, {
-                model: modelId,
-                tools,
-                maxTokens: config.maxTokens || 8192
-            })) {
-                if (chunk.type === 'text') {
-                    fullText += chunk.text;
-                    ws.send(JSON.stringify({ type: 'text', text: chunk.text }));
-                } else if (chunk.type === 'tool_start') {
-                    ws.send(JSON.stringify({ type: 'tool_start', tool: chunk.name }));
-                } else if (chunk.type === 'tool_call') {
-                    toolCalls.push(chunk.toolCall);
-                    ws.send(JSON.stringify({
-                        type: 'tool_input',
-                        tool: chunk.toolCall.name,
-                        input: chunk.toolCall.input
-                    }));
-                } else if (chunk.type === 'done') {
-                    if (chunk.toolCalls) toolCalls = chunk.toolCalls;
+            try {
+                for await (const chunk of provider.chatStream(currentMessages, {
+                    model: modelId,
+                    tools,
+                    maxTokens: config.maxTokens || 4096
+                })) {
+                    if (chunk.type === 'text') {
+                        fullText += chunk.text;
+                        ws.send(JSON.stringify({ type: 'text', text: chunk.text }));
+                    } else if (chunk.type === 'tool_start') {
+                        ws.send(JSON.stringify({ type: 'tool_start', tool: chunk.name }));
+                    } else if (chunk.type === 'tool_call') {
+                        toolCalls.push(chunk.toolCall);
+                        ws.send(JSON.stringify({
+                            type: 'tool_input',
+                            tool: chunk.toolCall.name,
+                            input: chunk.toolCall.input
+                        }));
+                    } else if (chunk.type === 'done') {
+                        if (chunk.toolCalls) toolCalls = chunk.toolCalls;
+                    }
                 }
+            } catch (streamError) {
+                if (streamError.message && streamError.message.includes('429')) {
+                    console.warn('⚠️ Loop hit 429 Rate Limit. Stopping.');
+                    ws.send(JSON.stringify({ type: 'text', text: '\n\n[SYSTEM: Rate Limit Reached. Creating partial checkpoint...]' }));
+                    continueLoop = false;
+                    break;
+                }
+                throw streamError;
             }
 
             if (toolCalls.length > 0 && execContext) {
@@ -394,19 +337,21 @@ async function handleWebSocketChat(ws, payload) {
 
                     ws.send(JSON.stringify({ type: 'tool_result', tool: tc.name, success: isSuccess }));
 
+                    let contentStr = String(result);
+                    if (contentStr.length > 500) {
+                        contentStr = contentStr.substring(0, 500) + '\n... [Output truncated to 500 chars] ...';
+                    }
+
                     const cleanResult = {
                         type: 'tool_result',
                         tool_use_id: String(tc.id),
-                        content: String(result)
+                        content: contentStr
                     };
-                    // Ensure ABSOLUTELY no other keys exist
                     delete cleanResult.tool;
 
                     toolResults.push(cleanResult);
-                    console.log('📦 Cleaned tool_result:', JSON.stringify(cleanResult));
                 }
 
-                console.log('📦 toolResults dump:', JSON.stringify(toolResults)); // DEBUG
                 currentMessages.push({ role: 'user', content: toolResults });
             } else {
                 continueLoop = false;

@@ -49,3 +49,7 @@ nul
 
 # Coder Binary
 backend/bin/coder
+
+# Drape & Claude local storage
+.drape/
+.claude/

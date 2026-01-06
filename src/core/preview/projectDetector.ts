@@ -10,6 +10,7 @@ export interface ProjectInfo {
   installCommand?: string;
   description: string;
   isReactNative?: boolean; // Flag to indicate React Native/Expo projects
+  hasWebUI?: boolean; // Flag to indicate if project has web UI (false = show terminal output)
 }
 
 /**

@@ -19,7 +19,42 @@ const path = require('path');
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.1 - With Proxy Fix');
+console.log('🚀 Drape Agent v2.2 - With Live Logs Streaming');
+
+// ============ LIVE LOGS STREAMING ============
+// Circular buffer for log lines (keeps last 1000 lines)
+const LOG_BUFFER_SIZE = 1000;
+const logBuffer = [];
+let logSequence = 0;
+const logSubscribers = new Set(); // SSE clients
+
+// Add line to log buffer and notify subscribers
+function appendLog(line, stream = 'stdout') {
+    const entry = {
+        id: ++logSequence,
+        timestamp: Date.now(),
+        stream, // 'stdout' | 'stderr' | 'system'
+        text: line
+    };
+
+    logBuffer.push(entry);
+    if (logBuffer.length > LOG_BUFFER_SIZE) {
+        logBuffer.shift();
+    }
+
+    // Notify all SSE subscribers
+    const data = JSON.stringify(entry);
+    for (const subscriber of logSubscribers) {
+        try {
+            subscriber.write(`data: ${data}\n\n`);
+        } catch (e) {
+            logSubscribers.delete(subscriber);
+        }
+    }
+}
+
+// Reference to running dev server process
+let devServerProcess = null;
 
 // Simple JSON body parser
 async function parseBody(req) {
@@ -125,8 +160,8 @@ const server = http.createServer(async (req, res) => {
     console.log(`[Agent] ${req.method} ${pathname}`);
 
     try {
-        // API routes (start with /health, /exec, /files, /file, /clone)
-        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup'].some(route => pathname.startsWith(route));
+        // API routes (start with /health, /exec, /files, /file, /clone, /logs)
+        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs'].some(route => pathname.startsWith(route));
 
         // Health check (explicit)
         if (pathname === '/health') {
@@ -136,6 +171,54 @@ const server = http.createServer(async (req, res) => {
                 projectDir: PROJECT_DIR,
                 timestamp: new Date().toISOString()
             });
+        }
+
+        // ============ LOGS SSE ENDPOINT ============
+        // Stream live terminal output to clients
+        if (pathname === '/logs' && req.method === 'GET') {
+            const origin = req.headers.origin || '*';
+            const sinceId = parseInt(url.searchParams.get('since')) || 0;
+
+            // Set SSE headers
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': origin,
+                'Access-Control-Allow-Credentials': 'true',
+                'X-Accel-Buffering': 'no'
+            });
+
+            // Send initial buffer (logs since requested ID)
+            const initialLogs = logBuffer.filter(entry => entry.id > sinceId);
+            for (const entry of initialLogs) {
+                res.write(`data: ${JSON.stringify(entry)}\n\n`);
+            }
+
+            // Send connection established message
+            res.write(`data: ${JSON.stringify({ type: 'connected', bufferedLines: initialLogs.length })}\n\n`);
+
+            // Add to subscribers for live updates
+            logSubscribers.add(res);
+
+            // Heartbeat every 15 seconds
+            const heartbeat = setInterval(() => {
+                try {
+                    res.write(`: ping\n\n`);
+                } catch (e) {
+                    clearInterval(heartbeat);
+                    logSubscribers.delete(res);
+                }
+            }, 15000);
+
+            // Cleanup on close
+            req.on('close', () => {
+                clearInterval(heartbeat);
+                logSubscribers.delete(res);
+                console.log('[Agent] Log subscriber disconnected');
+            });
+
+            return; // Keep connection open
         }
 
         // PROXY: Forward non-API requests to preview server on port 3000
@@ -212,29 +295,68 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
-        // Setup (Install + Start) - Detached Background Process
+        // Setup (Install + Start) - With Live Output Streaming
         if (pathname === '/setup' && req.method === 'POST') {
             const body = await parseBody(req);
             const { command } = body;
 
             if (!command) return sendJson(req, res, { error: 'command required' }, 400);
 
-            console.log(`[Agent] Starting background setup: ${command}`);
+            // Kill existing process if running
+            if (devServerProcess) {
+                try {
+                    appendLog('🔄 Stopping previous server...', 'system');
+                    process.kill(-devServerProcess.pid, 'SIGTERM');
+                } catch (e) {
+                    // Process might already be dead
+                }
+                devServerProcess = null;
+            }
 
-            // Run detached via bash for maximum safety
-            const { spawn } = require('child_process');
-            const child = spawn('/bin/bash', ['-c', `nohup ${command} > /home/coder/server.log 2>&1 &`], {
+            appendLog(`🚀 Starting: ${command}`, 'system');
+            console.log(`[Agent] Starting setup with live output: ${command}`);
+
+            // Spawn with piped stdio to capture output
+            devServerProcess = spawn('/bin/bash', ['-c', command], {
                 cwd: PROJECT_DIR,
                 detached: true,
-                stdio: 'ignore'
+                stdio: ['ignore', 'pipe', 'pipe'],
+                env: { ...process.env, FORCE_COLOR: '1' } // Enable colors
             });
 
-            child.unref();
+            // Stream stdout to log buffer
+            devServerProcess.stdout.on('data', (data) => {
+                const lines = data.toString().split('\n').filter(l => l.trim());
+                for (const line of lines) {
+                    appendLog(line, 'stdout');
+                }
+            });
+
+            // Stream stderr to log buffer
+            devServerProcess.stderr.on('data', (data) => {
+                const lines = data.toString().split('\n').filter(l => l.trim());
+                for (const line of lines) {
+                    appendLog(line, 'stderr');
+                }
+            });
+
+            // Handle process exit
+            devServerProcess.on('exit', (code, signal) => {
+                appendLog(`⏹️ Process exited (code: ${code}, signal: ${signal})`, 'system');
+                devServerProcess = null;
+            });
+
+            devServerProcess.on('error', (err) => {
+                appendLog(`❌ Process error: ${err.message}`, 'system');
+            });
+
+            // Unref so it doesn't block shutdown
+            devServerProcess.unref();
 
             return sendJson(req, res, {
                 status: 'started',
-                pid: child.pid,
-                message: 'Background setup started'
+                pid: devServerProcess.pid,
+                message: 'Setup started with live output streaming'
             });
         }
 

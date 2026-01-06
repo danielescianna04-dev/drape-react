@@ -146,10 +146,28 @@ router.post('/project/create', asyncHandler(async (req, res) => {
  */
 router.get('/project/:id/files', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
+    const { repositoryUrl, githubToken } = req.query;
 
     console.log(`📂 [Fly] Listing files for: ${projectId}`);
 
-    const result = await orchestrator.listFiles(projectId);
+    let result = await orchestrator.listFiles(projectId);
+
+    // If no files found and we have a repository URL, try to clone it now
+    // This is useful for retries or if the initial creation didn't clone
+    if ((!result.files || result.files.length === 0) && repositoryUrl) {
+        console.log(`📦 [Fly] Project empty, attempting auto-clone from: ${repositoryUrl}`);
+        try {
+            const cloneResult = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
+            if (cloneResult.success) {
+                // Refresh file list after clone
+                result = await orchestrator.listFiles(projectId);
+            }
+        } catch (cloneError) {
+            console.error(`❌ [Fly] Auto-clone failed:`, cloneError.message);
+            // If it's an auth error, propagate it
+            if (cloneError.statusCode === 401) throw cloneError;
+        }
+    }
 
     res.json({
         success: true,
@@ -322,36 +340,58 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         // Detect project type with AI
         // ... (existing detection logic)
 
-        // 🚀 PATCH: Ensure Vite allows our proxy host
+        // 🚀 PATCH: Ensure Vite/Next.js allow our proxy host
         try {
-            // Check for js or ts config
-            let configName = 'vite.config.js';
-            let viteConfigResult = await withTimeout(orchestrator.readFile(projectId, configName), 3000, 'readViteConfigJS');
+            // 1. Vite Patch
+            let viteConfigJS = await withTimeout(orchestrator.readFile(projectId, 'vite.config.js'), 2000, 'readViteConfigJS');
+            let viteConfigTS = !viteConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'vite.config.ts'), 2000, 'readViteConfigTS') : { success: false };
 
-            if (!viteConfigResult.success) {
-                configName = 'vite.config.ts';
-                viteConfigResult = await withTimeout(orchestrator.readFile(projectId, configName), 3000, 'readViteConfigTS');
-            }
+            const viteConfig = viteConfigJS.success ? { name: 'vite.config.js', result: viteConfigJS } : (viteConfigTS.success ? { name: 'vite.config.ts', result: viteConfigTS } : null);
 
-            if (viteConfigResult.success && viteConfigResult.content) {
-                let content = viteConfigResult.content;
+            if (viteConfig && viteConfig.result.content) {
+                let content = viteConfig.result.content;
                 if (!content.includes('allowedHosts') && !content.includes('drape-workspaces.fly.dev')) {
-                    console.log(`   🔧 Patching ${configName} for allowedHosts...`);
-                    // Simple robust regex replacer for common vite configs
+                    console.log(`   🔧 Patching ${viteConfig.name} for allowedHosts...`);
                     if (content.includes('server: {')) {
                         content = content.replace('server: {', `server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all'],`);
                     } else if (content.includes('defineConfig({')) {
                         content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all']\n  },`);
                     }
 
-                    if (content !== viteConfigResult.content) {
-                        await orchestrator.writeFile(projectId, configName, content);
-                        console.log(`   ✅ ${configName} patched.`);
+                    if (content !== viteConfig.result.content) {
+                        await orchestrator.writeFile(projectId, viteConfig.name, content);
+                        console.log(`   ✅ ${viteConfig.name} patched.`);
+                    }
+                }
+            }
+
+            // 2. Next.js Patch (experimental.allowedOrigins for Server Actions)
+            let nextConfigJS = await withTimeout(orchestrator.readFile(projectId, 'next.config.js'), 2000, 'readNextConfigJS');
+            let nextConfigMJS = !nextConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'next.config.mjs'), 2000, 'readNextConfigMJS') : { success: false };
+
+            const nextConfig = nextConfigJS.success ? { name: 'next.config.js', result: nextConfigJS } : (nextConfigMJS.success ? { name: 'next.config.mjs', result: nextConfigMJS } : null);
+
+            if (nextConfig && nextConfig.result.content) {
+                let content = nextConfig.result.content;
+                if (!content.includes('allowedOrigins')) {
+                    console.log(`   🔧 Patching ${nextConfig.name} for allowedOrigins...`);
+                    // Simple injection for next.config
+                    if (content.includes('const nextConfig = {')) {
+                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    } else if (content.includes('module.exports = {')) {
+                        content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    } else if (content.includes('export default {')) {
+                        content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    }
+
+                    if (content !== nextConfig.result.content) {
+                        await orchestrator.writeFile(projectId, nextConfig.name, content);
+                        console.log(`   ✅ ${nextConfig.name} patched.`);
                     }
                 }
             }
         } catch (e) {
-            console.warn(`   ⚠️ Vite config patch warning: ${e.message}`);
+            console.warn(`   ⚠️ Config patch warning: ${e.message}`);
         }
 
         let projectInfo = { type: 'static', startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0' };
@@ -370,8 +410,8 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         console.log(`   [3/5] Booting MicroVM...`);
         sendStep('booting', 'Avvio della MicroVM su Fly.io...');
 
-        // Start the preview
-        const result = await withTimeout(orchestrator.startPreview(projectId, projectInfo), 60000, 'startPreview');
+        // Start the preview (3 min timeout for large repos with many files)
+        const result = await withTimeout(orchestrator.startPreview(projectId, projectInfo), 180000, 'startPreview');
 
         const elapsed = Date.now() - startTime;
         console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
@@ -391,6 +431,7 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
             agentUrl: result.agentUrl,
             machineId: result.machineId,
             projectType: projectInfo.description || projectInfo.type,
+            hasWebUI: projectInfo.hasWebUI !== false, // Default true if not specified
             timing: { totalMs: elapsed },
             architecture: 'holy-grail'
         });
@@ -562,6 +603,82 @@ router.post('/reload', asyncHandler(async (req, res) => {
             message: 'No active VM - files will sync on next preview start'
         });
     }
+}));
+
+/**
+ * GET /fly/logs/:projectId
+ * Stream live terminal output from VM via SSE proxy
+ */
+router.get('/logs/:projectId', asyncHandler(async (req, res) => {
+    const { projectId } = req.params;
+    const since = req.query.since || '0';
+
+    console.log(`📺 [Fly] Streaming logs for: ${projectId}`);
+
+    // Get active VM for this project
+    const activeVMs = await orchestrator.getActiveVMs();
+    const vm = activeVMs.find(v => v.projectId === projectId);
+
+    if (!vm) {
+        return res.status(404).json({ error: 'No active VM for this project' });
+    }
+
+    // Set up SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Proxy the SSE stream from the agent
+    const http = require('http');
+    const agentUrl = new URL(vm.agentUrl);
+
+    const proxyReq = http.request({
+        hostname: agentUrl.hostname,
+        port: agentUrl.port || 13338,
+        path: `/logs?since=${since}`,
+        method: 'GET',
+        headers: {
+            'Accept': 'text/event-stream'
+        }
+    }, (proxyRes) => {
+        console.log(`📺 [Fly] Connected to agent logs stream`);
+
+        // Pipe the response
+        proxyRes.on('data', (chunk) => {
+            try {
+                res.write(chunk);
+                if (res.flush) res.flush();
+            } catch (e) {
+                // Client disconnected
+            }
+        });
+
+        proxyRes.on('end', () => {
+            console.log(`📺 [Fly] Agent logs stream ended`);
+            res.end();
+        });
+
+        proxyRes.on('error', (err) => {
+            console.error(`📺 [Fly] Proxy stream error:`, err.message);
+            res.end();
+        });
+    });
+
+    proxyReq.on('error', (err) => {
+        console.error(`📺 [Fly] Failed to connect to agent:`, err.message);
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to connect to VM' })}\n\n`);
+        res.end();
+    });
+
+    proxyReq.end();
+
+    // Cleanup on client disconnect
+    req.on('close', () => {
+        console.log(`📺 [Fly] Client disconnected from logs`);
+        proxyReq.destroy();
+    });
 }));
 
 module.exports = router;

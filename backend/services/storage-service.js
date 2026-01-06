@@ -127,6 +127,7 @@ class StorageService {
 
     /**
      * Save multiple files at once (for cloning repos)
+     * Uses chunked batches to handle Firestore's 500 operations limit
      * @param {string} projectId - Project ID
      * @param {Array} files - Array of {path, content} objects
      */
@@ -134,37 +135,47 @@ class StorageService {
         console.log(`💾 [Storage] Saving ${files.length} files for project ${projectId}`);
 
         const db = this._getDb();
-        const batch = db.batch();
         const collection = this._getFilesCollection(projectId);
+        const BATCH_LIMIT = 450; // Firestore limit is 500, use 450 for safety margin
 
         let successCount = 0;
+        let batchIndex = 0;
 
-        for (const { path: filePath, content } of files) {
+        // Chunk files into groups of BATCH_LIMIT
+        for (let i = 0; i < files.length; i += BATCH_LIMIT) {
+            const chunk = files.slice(i, i + BATCH_LIMIT);
+            const batch = db.batch();
+            batchIndex++;
+
+            for (const { path: filePath, content } of chunk) {
+                try {
+                    const docId = this._encodeFilePath(filePath);
+                    const docRef = collection.doc(docId);
+
+                    batch.set(docRef, {
+                        path: filePath,
+                        content: typeof content === 'string' ? content : content.toString('utf-8'),
+                        size: content.length,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    successCount++;
+                } catch (error) {
+                    console.warn(`⚠️ [Storage] Skipping ${filePath}: ${error.message}`);
+                }
+            }
+
             try {
-                const docId = this._encodeFilePath(filePath);
-                const docRef = collection.doc(docId);
-
-                batch.set(docRef, {
-                    path: filePath,
-                    content: typeof content === 'string' ? content : content.toString('utf-8'),
-                    size: content.length,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                successCount++;
+                await batch.commit();
+                console.log(`   📦 Batch ${batchIndex}: ${chunk.length} files committed`);
             } catch (error) {
-                console.warn(`⚠️ [Storage] Skipping ${filePath}: ${error.message}`);
+                console.error(`❌ [Storage] Batch ${batchIndex} failed:`, error.message);
+                successCount -= chunk.length; // Rollback count for failed batch
             }
         }
 
-        try {
-            await batch.commit();
-            console.log(`✅ [Storage] Saved ${successCount}/${files.length} files`);
-            return { success: true, savedCount: successCount };
-        } catch (error) {
-            console.error(`❌ [Storage] Batch save failed:`, error.message);
-            return { success: false, savedCount: 0, error: error.message };
-        }
+        console.log(`✅ [Storage] Saved ${successCount}/${files.length} files in ${batchIndex} batch(es)`);
+        return { success: true, savedCount: successCount };
     }
 
     /**
@@ -210,6 +221,21 @@ class StorageService {
     }
 
     /**
+     * Save project metadata (like repositoryUrl)
+     * @param {string} projectId - Project ID
+     * @param {Object} metadata - Metadata to save
+     */
+    async saveProjectMetadata(projectId, metadata) {
+        try {
+            await this._getDb().collection('projects').doc(projectId).set(metadata, { merge: true });
+            return { success: true };
+        } catch (error) {
+            console.error(`❌ [Storage] Save metadata failed:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
      * Create a bundle of all project files (for syncing to VM)
      * @param {string} projectId - Project ID
      */
@@ -234,10 +260,12 @@ class StorageService {
 
     /**
      * Sync files from storage to a MicroVM
+     * Uses parallel batching for faster sync (10 files at a time)
      * @param {string} projectId - Project ID
      * @param {string} agentUrl - URL of the Drape Agent on the VM
+     * @param {string} machineId - Optional machine ID for routing header
      */
-    async syncToVM(projectId, agentUrl) {
+    async syncToVM(projectId, agentUrl, machineId = null) {
         const axios = require('axios');
         const bundle = await this.createBundle(projectId);
 
@@ -246,43 +274,67 @@ class StorageService {
             return { success: true, syncedCount: 0 };
         }
 
-        console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM...`);
+        console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM (parallel)...`);
+
+        const PARALLEL_LIMIT = 10; // Sync 10 files concurrently
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY = 1000;
 
         let syncedCount = 0;
-        const RETRY_DELAY = 1000;
-        const MAX_RETRIES = 3;
+        let failedFiles = [];
 
         // Helper for delay
         const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-        // Write each file to the VM
-        for (const file of bundle) {
-            let attempt = 0;
-            let saved = false;
+        // Headers for Fly.io routing
+        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
 
-            while (attempt < MAX_RETRIES && !saved) {
+        // Sync a single file with retries
+        const syncFile = async (file) => {
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try {
-                    attempt++;
                     await axios.post(`${agentUrl}/file`, {
                         path: file.path,
                         content: file.content
-                    }, { timeout: 30000 }); // Increased to 30s
-
-                    saved = true;
-                    syncedCount++;
+                    }, { timeout: 30000, headers });
+                    return { success: true, path: file.path };
                 } catch (error) {
-                    const isLastAttempt = attempt === MAX_RETRIES;
-                    console.warn(`⚠️ [Storage] Failed to sync ${file.path} (Attempt ${attempt}/${MAX_RETRIES}): ${error.message}`);
-
-                    if (!isLastAttempt) {
+                    if (attempt < MAX_RETRIES) {
                         await delay(RETRY_DELAY);
+                    } else {
+                        return { success: false, path: file.path, error: error.message };
                     }
                 }
             }
+        };
+
+        // Process files in parallel batches
+        for (let i = 0; i < bundle.length; i += PARALLEL_LIMIT) {
+            const batch = bundle.slice(i, i + PARALLEL_LIMIT);
+            const batchNum = Math.floor(i / PARALLEL_LIMIT) + 1;
+            const totalBatches = Math.ceil(bundle.length / PARALLEL_LIMIT);
+
+            // Execute batch in parallel
+            const results = await Promise.all(batch.map(syncFile));
+
+            // Count successes and collect failures
+            for (const result of results) {
+                if (result.success) {
+                    syncedCount++;
+                } else {
+                    failedFiles.push(result.path);
+                }
+            }
+
+            console.log(`   📦 Batch ${batchNum}/${totalBatches}: ${results.filter(r => r.success).length}/${batch.length} synced`);
+        }
+
+        if (failedFiles.length > 0) {
+            console.warn(`⚠️ [Storage] Failed to sync ${failedFiles.length} files: ${failedFiles.slice(0, 5).join(', ')}${failedFiles.length > 5 ? '...' : ''}`);
         }
 
         console.log(`✅ [Storage] Synced ${syncedCount}/${bundle.length} files to VM`);
-        return { success: true, syncedCount };
+        return { success: true, syncedCount, failedCount: failedFiles.length };
     }
 }
 

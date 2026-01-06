@@ -1,6 +1,6 @@
 /**
  * Drape Backend - Express App Configuration
- * Complete configuration with all middleware and routes
+ * Holy Grail Architecture - Fly.io MicroVMs
  */
 
 const express = require('express');
@@ -10,7 +10,6 @@ const path = require('path');
 // Import middleware
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { requestLogger } = require('./middleware/logger');
-const { coderProxyMiddleware } = require('./middleware/coderProxy');
 
 // Import routes
 const routes = require('./routes');
@@ -29,7 +28,7 @@ function createApp() {
     app.use(cors({
         origin: '*',
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Coder-Session-Token'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
         exposedHeaders: ['Content-Type', 'Content-Length']
     }));
 
@@ -37,10 +36,9 @@ function createApp() {
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-    // Request logging (skip for static files and proxy)
+    // Request logging (skip for static files)
     app.use((req, res, next) => {
-        // Skip logging for proxy requests (too verbose)
-        if (req.url.startsWith('/@') || req.url.startsWith('/static')) {
+        if (req.url.startsWith('/static')) {
             return next();
         }
         requestLogger(req, res, next);
@@ -61,24 +59,11 @@ function createApp() {
     app.use('/', routes);
 
     // ===========================================
-    // CODER PROXY (Catch-All for /@user/workspace paths)
-    // ===========================================
-
-    // This must come after API routes but before 404 handler
-    app.use(coderProxyMiddleware);
-
-    // ===========================================
     // ERROR HANDLING
     // ===========================================
 
     // 404 handler for unmatched routes
-    app.use((req, res, next) => {
-        // Don't 404 for Coder paths (they're handled by proxy)
-        if (req.url.startsWith('/@')) {
-            return next();
-        }
-        notFoundHandler(req, res, next);
-    });
+    app.use(notFoundHandler);
 
     // Global error handler
     app.use(errorHandler);

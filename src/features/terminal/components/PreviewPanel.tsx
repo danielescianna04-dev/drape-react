@@ -96,6 +96,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [startingMessage, setStartingMessage] = useState('');
   const [webViewReady, setWebViewReady] = useState(false); // Track if WebView loaded successfully
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [hasWebUI, setHasWebUI] = useState(true); // Whether to show WebView (false = show terminal output)
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]); // Terminal output for CLI projects
+  const terminalScrollRef = useRef<ScrollView>(null); // Auto-scroll terminal output
+  const logsXhrRef = useRef<XMLHttpRequest | null>(null); // SSE connection for logs (using XHR for RN compatibility)
   // Environment variables state
   const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
   const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
@@ -477,6 +481,96 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }, [serverStatus, webViewReady]);
   */
 
+  // ============ LIVE LOGS STREAMING ============
+  // Connect to SSE stream for terminal output using XMLHttpRequest (React Native compatible)
+  useEffect(() => {
+    // Only subscribe to logs when server is running and we have a project
+    if (serverStatus !== 'running' || !currentWorkstation?.id) {
+      return;
+    }
+
+    // Clean up any existing connection
+    if (logsXhrRef.current) {
+      logsXhrRef.current.abort();
+      logsXhrRef.current = null;
+    }
+
+    console.log('📺 Connecting to live logs stream...');
+
+    const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}`;
+    const xhr = new XMLHttpRequest();
+    logsXhrRef.current = xhr;
+
+    let lastIndex = 0;
+    let dataBuffer = '';
+
+    xhr.open('GET', logsUrl);
+    xhr.setRequestHeader('Accept', 'text/event-stream');
+
+    xhr.onprogress = () => {
+      // Process new data since last check
+      const newData = xhr.responseText.substring(lastIndex);
+      if (!newData) return;
+      lastIndex = xhr.responseText.length;
+
+      dataBuffer += newData;
+
+      // Process complete lines
+      let lineEndIndex;
+      while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
+        const line = dataBuffer.substring(0, lineEndIndex).trim();
+        dataBuffer = dataBuffer.substring(lineEndIndex + 1);
+
+        if (line.startsWith('data: ')) {
+          try {
+            const dataStr = line.substring(6);
+            if (dataStr === '[DONE]') continue;
+
+            const data = JSON.parse(dataStr);
+
+            // Skip connection/system messages
+            if (data.type === 'connected' || data.type === 'error') {
+              console.log('📺 Logs:', data);
+              continue;
+            }
+
+            // Add log line to terminal output
+            if (data.text) {
+              setTerminalOutput(prev => {
+                const newOutput = [...prev, data.text];
+                // Keep only last 500 lines
+                if (newOutput.length > 500) {
+                  return newOutput.slice(-500);
+                }
+                return newOutput;
+              });
+
+              // Auto-scroll to bottom
+              setTimeout(() => {
+                terminalScrollRef.current?.scrollToEnd({ animated: true });
+              }, 50);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+    };
+
+    xhr.onerror = () => {
+      console.log('📺 Logs stream error, will reconnect...');
+    };
+
+    xhr.send();
+
+    // Cleanup on unmount or dependency change
+    return () => {
+      console.log('📺 Closing logs stream');
+      xhr.abort();
+      logsXhrRef.current = null;
+    };
+  }, [serverStatus, currentWorkstation?.id, apiUrl]);
+
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
     const maxRetries = 300; // Max 300 retries = 5 minutes of checking (needed for slow npm installs)
@@ -506,18 +600,28 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       const agentStatus = response.headers.get('X-Drape-Agent-Status');
 
       // Status Check Logic
-      if (response.status >= 200 && response.status < 400 && agentStatus !== 'waiting') {
+      // Note: 500 means the app has an error but the server IS running 
+      // (e.g., Next.js with corrupted favicon or build error)
+      if ((response.status >= 200 && response.status < 400) || response.status === 500) {
+        if (agentStatus === 'waiting') {
+          // Still installing dependencies
+          console.log('📡 Agent is in waiting mode (installing dependencies)...');
+          if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
+            setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
+          }
+          return;
+        }
+
         console.log(`✅ Server is running! Status: ${response.status}`);
         if (serverStatusRef.current !== 'running') {
           logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
+          if (response.status === 500) {
+            logOutput(`⚠️ Warning: Server has app errors (500)`, 'preview', 0);
+          }
         }
         setServerStatus('running');
-      } else if (response.status === 403 || response.status === 503 || agentStatus === 'waiting') {
-        // 403 often means Vite Host Check blocked, 503 or waiting means booting
-        if (agentStatus === 'waiting') {
-          console.log('📡 Agent is in waiting mode (installing dependencies)...');
-        }
-
+      } else if (response.status === 403 || response.status === 503) {
+        // 403 often means Vite Host Check blocked, 503 means booting
         // Try to reach the agent's health endpoint to confirm VM is alive
         try {
           const healthUrl = urlToCheck.endsWith('/') ? `${urlToCheck}health` : `${urlToCheck}/health`;
@@ -664,6 +768,13 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     if (result.previewUrl) {
                       setCurrentPreviewUrl(result.previewUrl);
                       if (result.coderToken) setCoderToken(result.coderToken);
+                      // Set hasWebUI flag (default true if not specified)
+                      const projectHasWebUI = result.hasWebUI !== false;
+                      setHasWebUI(projectHasWebUI);
+                      // For CLI projects without web UI, mark as ready immediately
+                      if (!projectHasWebUI) {
+                        setWebViewReady(true);
+                      }
 
                       if (result.machineId) {
                         setGlobalFlyMachineId(result.machineId);
@@ -1598,6 +1709,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   {/* LIVE APP LAYER (Below) */}
                   <View style={StyleSheet.absoluteFill}>
 
+                    {hasWebUI ? (
                     <WebView
                       key={coderToken || 'init'}
                       ref={webViewRef}
@@ -1782,6 +1894,42 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       shouldRasterizeIOS={true}
                       cacheEnabled={true}
                     />
+                    ) : (
+                      /* Terminal Output View for CLI projects */
+                      <ScrollView
+                        ref={terminalScrollRef}
+                        style={styles.terminalOutputContainer}
+                        contentContainerStyle={styles.terminalOutputContent}
+                      >
+                        <View style={styles.terminalHeader}>
+                          <View style={styles.terminalDot} />
+                          <View style={[styles.terminalDot, { backgroundColor: '#f5c542' }]} />
+                          <View style={[styles.terminalDot, { backgroundColor: '#5ac05a' }]} />
+                          <Text style={styles.terminalTitle}>Terminal Output</Text>
+                        </View>
+                        {terminalOutput.length === 0 ? (
+                          <View style={styles.terminalEmpty}>
+                            <Ionicons name="terminal" size={48} color="rgba(255,255,255,0.2)" />
+                            <Text style={styles.terminalEmptyText}>
+                              Questo progetto non ha una web UI.{'\n'}
+                              L'output del terminale apparirà qui.
+                            </Text>
+                          </View>
+                        ) : (
+                          terminalOutput.map((line, index) => {
+                            // Detect line type from prefix (system messages start with emoji)
+                            const isSystem = line.startsWith('🚀') || line.startsWith('🔄') || line.startsWith('⏹️') || line.startsWith('❌');
+                            const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('warn');
+                            const lineColor = isSystem ? '#6366f1' : isError ? '#f87171' : '#e0e0e0';
+                            return (
+                              <Text key={index} style={[styles.terminalLine, { color: lineColor }]}>
+                                {line}
+                              </Text>
+                            );
+                          })
+                        )}
+                      </ScrollView>
+                    )}
                   </View>
 
                   {/* LOADING SPIRIT MASK (Above) */}
@@ -2268,6 +2416,58 @@ const styles = StyleSheet.create({
   webView: {
     flex: 1,
     backgroundColor: '#0a0a0a', // Solid dark background to hide initial white paint
+  },
+  // Terminal output styles for CLI projects
+  terminalOutputContainer: {
+    flex: 1,
+    backgroundColor: '#0d0d0d',
+  },
+  terminalOutputContent: {
+    padding: 16,
+    paddingBottom: 100,
+  },
+  terminalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 16,
+  },
+  terminalDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#ff5f56',
+    marginRight: 8,
+  },
+  terminalTitle: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+    marginRight: 44, // Compensate for dots
+  },
+  terminalEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  terminalEmptyText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  terminalLine: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    color: '#e0e0e0',
+    lineHeight: 18,
+    marginBottom: 2,
   },
   loadingContainer: {
     position: 'absolute',

@@ -159,11 +159,18 @@ export const workstationService = {
 
       // 🚀 HOLY GRAIL: Use Fly.io API for project creation
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Creating project:', project.id);
+        console.log('🚀 [HolyGrail] Creating project:', project.id, 'with token:', !!token);
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         result = await axios.post(`${FLY_API_BASE}/project/create`, {
           projectId: project.id,
           repositoryUrl: project.repositoryUrl,
-        });
+          githubToken: token, // Also pass in body for cloneRepository
+        }, { headers });
+
         console.log('🚀 [HolyGrail] Project created:', result.data);
         return {
           workstationId: project.id,
@@ -207,9 +214,19 @@ export const workstationService = {
     try {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Getting files for:', workstationId);
+        console.log('🚀 [HolyGrail] Getting files for:', workstationId, 'with token:', !!githubToken);
+        const headers: Record<string, string> = {};
+        if (githubToken) {
+          headers['Authorization'] = `Bearer ${githubToken}`;
+        }
+
         const response = await axios.get(`${FLY_API_BASE}/project/${workstationId}/files`, {
-          timeout: 30000
+          params: {
+            githubToken,
+            repositoryUrl // Pass repo URL so backend can clone if missing
+          },
+          headers,
+          timeout: 45000 // Slightly longer for potential clone
         });
         console.log('🚀 [HolyGrail] Got', response.data.files?.length || 0, 'files');
         return (response.data.files || []).map((f: any) => typeof f === 'string' ? f : f.path);

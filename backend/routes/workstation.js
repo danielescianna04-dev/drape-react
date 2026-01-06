@@ -41,75 +41,28 @@ router.get('/:projectId/files', asyncHandler(async (req, res) => {
     console.log(`📖 GET /workstation/${projectId}/files`);
     console.log('📂 Getting files for project:', projectId);
 
-    // PRE-WARM: Start workspace in background when user opens a project
-    const workstationId = `ws-${projectId.toLowerCase()}`;
-    (async () => {
-        try {
-            const coderService = require('../coder-service');
-            const userEmail = req.query.userEmail || req.query.userId || `${workstationId}@drape.ide`;
-            const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-
-            console.log(`🔥 [Background] Pre-warming workspace for recent project: ${workstationId}`);
-            const coderUser = await coderService.ensureUser(userEmail, username);
-            const ws = await coderService.createWorkspace(coderUser.id, workstationId, repositoryUrl);
-
-            if (ws.latest_build?.job?.status !== 'succeeded') {
-                console.log(`   [Background] Starting workspace ${ws.id}...`);
-                await coderService.startWorkspace(ws.id);
-            }
-            console.log(`✅ [Background] Workspace pre-warm initiated for recent project!`);
-        } catch (bgError) {
-            // Silent fail - don't block the files response
-            console.warn(`⚠️ [Background] Pre-warm failed: ${bgError.message}`);
-        }
-    })();
-
     // Check if directory exists locally
     let localDirExists = false;
     try {
         await fs.access(repoPath);
         localDirExists = true;
     } catch {
-        // Directory doesn't exist locally - try to read from Coder workspace
-        console.log(`   📂 Local path not found, trying Coder workspace...`);
+        // Directory doesn't exist locally - try Holy Grail storage
+        console.log(`   📂 Local path not found, trying Storage Service...`);
 
         try {
-            const agentClient = require('../services/agent-client');
-            const coderService = require('../coder-service');
+            const storageService = require('../services/storage-service');
+            const result = await storageService.listFiles(projectId);
 
-            // Use admin user for now
-            const targetEmail = 'daniele.scianna04@gmail.com';
-            const targetUsername = 'admin';
-            const coderUser = await coderService.ensureUser(targetEmail, targetUsername);
-
-            // The workstationId might be the projectId itself (for Firestore-created workstations)
-            const wsName = projectId;
-
-            // Try to get files from Coder workspace
-            const lsResult = await agentClient.exec(coderUser.username, wsName, coderUser.id,
-                'find /home/coder/project -maxdepth 4 -type f -not -path "*/.*" -not -path "*/node_modules/*" 2>/dev/null | head -200');
-
-            if (lsResult.exitCode === 0 && lsResult.stdout) {
-                const files = lsResult.stdout.split('\n')
-                    .filter(f => f.trim() && f.includes('/home/coder/project/'))
-                    .map(f => {
-                        const relativePath = f.replace('/home/coder/project/', '');
-                        const name = relativePath.split('/').pop();
-                        return {
-                            name,
-                            type: 'file',
-                            path: relativePath
-                        };
-                    });
-
-                console.log(`   ✅ Found ${files.length} files in Coder workspace`);
-                return res.json({ success: true, files });
+            if (result.success && result.files?.length > 0) {
+                console.log(`   ✅ Found ${result.files.length} files in Storage`);
+                return res.json({ success: true, files: result.files });
             }
-        } catch (coderError) {
-            console.warn(`   ⚠️ Could not read from Coder workspace: ${coderError.message}`);
+        } catch (storageError) {
+            console.warn(`   ⚠️ Could not read from Storage: ${storageError.message}`);
         }
 
-        // Fallback to Firestore
+        // Fallback to Firestore workstation_files collection
         if (repositoryUrl) {
             try {
                 const admin = require('firebase-admin');
@@ -588,32 +541,6 @@ router.post('/create', asyncHandler(async (req, res) => {
             console.error('⚠️ Error saving files to Firestore:', error.message);
         }
     }
-
-    // OPTIMIZATION: Start Coder Workspace in Background (ALWAYS)
-    // If no email provided, use a default based on workstationId
-    const userEmail = req.body.email || req.body.targetEmail || req.body.userId || `${workstationId}@drape.ide`;
-    (async () => {
-        try {
-            const coderService = require('../coder-service');
-            console.log(`🚀 [Background] Pre-warming workspace ${workstationId}...`);
-
-            // Generate Coder username from email
-            const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-            const coderUser = await coderService.ensureUser(userEmail, username);
-
-            // Create/Start Workspace
-            // IMPORTANT: Use workstationId directly (ws-xxx) to match preview.js logic
-            const ws = await coderService.createWorkspace(coderUser.id, workstationId, repositoryUrl);
-
-            if (ws.latest_build?.job?.status !== 'running' && ws.latest_build?.status !== 'running') {
-                console.log(`   [Background] Starting workspace ${ws.id}...`);
-                await coderService.startWorkspace(ws.id);
-            }
-            console.log(`✅ [Background] Workspace pre-warm initiated!`);
-        } catch (bgError) {
-            console.error(`⚠️ [Background] Pre-warm failed: ${bgError.message}`);
-        }
-    })();
 
     res.json({
         workstationId,

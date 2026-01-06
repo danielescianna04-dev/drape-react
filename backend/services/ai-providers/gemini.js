@@ -223,6 +223,15 @@ class GeminiProvider extends BaseAIProvider {
             cachedTokens: metadata?.cachedContentTokenCount || 0
         };
     }
+    async embed(text) {
+        if (!this.client) {
+            await this.initialize();
+        }
+
+        const model = this.client.getGenerativeModel({ model: 'text-embedding-004' });
+        const result = await model.embedContent(text);
+        return result.embedding.values;
+    }
 }
 
 module.exports = GeminiProvider;
