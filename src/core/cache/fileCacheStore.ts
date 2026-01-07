@@ -16,6 +16,9 @@ interface FileCacheEntry {
 interface FileCacheState {
     cache: Record<string, FileCacheEntry>;
 
+    // Track which projects are being prefetched
+    prefetchingProjects: Set<string>;
+
     // Get cached files for a project (returns null if expired)
     getFiles: (projectId: string) => string[] | null;
 
@@ -33,6 +36,12 @@ interface FileCacheState {
 
     // Clear all cache
     clearAllCache: () => void;
+
+    // Check if a project is being prefetched
+    isPrefetching: (projectId: string) => boolean;
+
+    // Set prefetching status
+    setPrefetching: (projectId: string, isPrefetching: boolean) => void;
 }
 
 // Default cache expiry: 5 minutes
@@ -42,6 +51,7 @@ export const useFileCacheStore = create<FileCacheState>()(
     persist(
         (set, get) => ({
             cache: {},
+            prefetchingProjects: new Set<string>(),
 
             getFiles: (projectId: string) => {
                 const entry = get().cache[projectId];
@@ -95,10 +105,27 @@ export const useFileCacheStore = create<FileCacheState>()(
                 set({ cache: {} });
                 console.log(`📁 [FileCache] Cleared all cache`);
             },
+
+            isPrefetching: (projectId: string) => {
+                return get().prefetchingProjects.has(projectId);
+            },
+
+            setPrefetching: (projectId: string, isPrefetching: boolean) => {
+                set(state => {
+                    const newSet = new Set(state.prefetchingProjects);
+                    if (isPrefetching) {
+                        newSet.add(projectId);
+                    } else {
+                        newSet.delete(projectId);
+                    }
+                    return { prefetchingProjects: newSet };
+                });
+            },
         }),
         {
             name: 'file-cache-storage',
             storage: createJSONStorage(() => AsyncStorage),
+            partialize: (state) => ({ cache: state.cache }), // Don't persist prefetchingProjects
         }
     )
 );

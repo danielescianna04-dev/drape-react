@@ -11,6 +11,8 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
+import { ProjectLoadingOverlay } from '../../shared/components/molecules/ProjectLoadingOverlay';
+import { filePrefetchService } from '../../core/cache/filePrefetchService';
 import axios from 'axios';
 import { config } from '../../config/config';
 import { gitAccountService } from '../../core/git/gitAccountService';
@@ -52,6 +54,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
+  const [loadingProjectName, setLoadingProjectName] = useState('');
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -195,7 +199,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
-  // Handle opening a project - update lastAccessed timestamp
+  // Handle opening a project - prefetch files then open
   const handleProjectOpen = async (project: any) => {
     // Reset preview state when opening a different project
     const { setFlyMachineId, setPreviewServerUrl, currentWorkstation } = useTerminalStore.getState();
@@ -245,6 +249,29 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(project.id);
+
+    // Check if files need to be prefetched
+    const repositoryUrl = project.repositoryUrl || project.githubUrl;
+    const needsPrefetch = filePrefetchService.needsPrefetch(project.id);
+
+    if (needsPrefetch) {
+      // Show loading overlay and prefetch files
+      setLoadingProjectName(project.name);
+      setIsLoadingProject(true);
+
+      try {
+        console.log('📁 [Home] Prefetching files for:', project.name);
+        const result = await filePrefetchService.prefetchFiles(project.id, repositoryUrl);
+        console.log('📁 [Home] Prefetch result:', result);
+      } catch (error) {
+        console.error('❌ [Home] Prefetch error:', error);
+        // Continue anyway - FileExplorer will handle the loading
+      } finally {
+        setIsLoadingProject(false);
+        setLoadingProjectName('');
+      }
+    }
+
     onOpenProject(project);
   };
 
@@ -799,6 +826,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       <LoadingModal
         visible={isDuplicating}
         message="Duplicating project..."
+      />
+
+      {/* Project Loading Overlay - shows during file prefetch */}
+      <ProjectLoadingOverlay
+        visible={isLoadingProject}
+        projectName={loadingProjectName}
+        message="Caricamento file..."
       />
     </View>
   );

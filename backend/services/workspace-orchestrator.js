@@ -529,6 +529,104 @@ class WorkspaceOrchestrator {
     }
 
     /**
+     * Create a folder in a project
+     * @param {string} projectId - Project ID
+     * @param {string} folderPath - Folder path to create
+     */
+    async createFolder(projectId, folderPath) {
+        // Create in persistent storage
+        await storageService.createFolder(projectId, folderPath);
+
+        // Sync to VM if active
+        let vm = await redisService.getVMSession(projectId);
+
+        if (!vm) {
+            try {
+                const machineName = `ws-${projectId}`.substring(0, 30);
+                const machines = await flyService.listMachines();
+                const existing = machines.find(m => m.name === machineName && m.state === 'started');
+                if (existing) {
+                    console.log(`♻️ [Orchestrator] Recovered active VM session for createFolder: ${existing.id}`);
+                    vm = {
+                        id: existing.id,
+                        machineId: existing.id,
+                        agentUrl: `https://${flyService.appName}.fly.dev`
+                    };
+                    activeVMs.set(projectId, vm);
+                }
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] Failed to recover VM session: ${e.message}`);
+            }
+        }
+
+        if (vm) {
+            try {
+                const headers = { 'Fly-Force-Instance-Id': vm.machineId };
+                await axios.post(`${vm.agentUrl}/folder`, {
+                    path: folderPath
+                }, {
+                    timeout: 30000,
+                    headers
+                });
+                console.log(`   ✅ [Sync] Created folder ${folderPath} in VM`);
+            } catch (error) {
+                console.warn(`⚠️ [Orchestrator] Failed to sync folder to VM:`, error.message);
+            }
+        }
+
+        return { success: true };
+    }
+
+    /**
+     * Delete a file or folder in a project
+     * @param {string} projectId - Project ID
+     * @param {string} filePath - File/folder path to delete
+     */
+    async deleteFile(projectId, filePath) {
+        // Delete from persistent storage
+        await storageService.deleteFile(projectId, filePath);
+
+        // Sync to VM if active
+        let vm = await redisService.getVMSession(projectId);
+
+        if (!vm) {
+            try {
+                const machineName = `ws-${projectId}`.substring(0, 30);
+                const machines = await flyService.listMachines();
+                const existing = machines.find(m => m.name === machineName && m.state === 'started');
+                if (existing) {
+                    console.log(`♻️ [Orchestrator] Recovered active VM session for deleteFile: ${existing.id}`);
+                    vm = {
+                        id: existing.id,
+                        machineId: existing.id,
+                        agentUrl: `https://${flyService.appName}.fly.dev`
+                    };
+                    activeVMs.set(projectId, vm);
+                }
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] Failed to recover VM session: ${e.message}`);
+            }
+        }
+
+        if (vm) {
+            try {
+                const headers = { 'Fly-Force-Instance-Id': vm.machineId };
+                await axios.post(`${vm.agentUrl}/delete`, {
+                    path: filePath
+                }, {
+                    timeout: 30000,
+                    headers
+                });
+                console.log(`   ✅ [Sync] Deleted ${filePath} from VM`);
+            } catch (error) {
+                console.warn(`⚠️ [Orchestrator] Failed to sync delete to VM:`, error.message);
+            }
+        }
+
+        return { success: true };
+    }
+
+    /**
      * List files in a project
      * @param {string} projectId - Project ID
      */

@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../context/SidebarContext';
+import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 
 interface Props {
   visible: boolean;
@@ -158,6 +159,8 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
     try {
       setSaving(true);
       await workstationService.saveFileContent(projectId, filePath, content, repositoryUrl);
+      // Invalidate file cache so FileExplorer shows updated files
+      useFileCacheStore.getState().clearCache(projectId);
       setOriginalContent(content);
       setIsEdited(false);
       Alert.alert('Saved', 'File saved successfully');

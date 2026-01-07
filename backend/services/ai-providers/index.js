@@ -214,6 +214,34 @@ const standardTools = [
             },
             required: ['command']
         }
+    },
+    {
+        name: 'create_folder',
+        description: 'Create a new folder/directory in the project. Creates parent directories if they do not exist.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                folderPath: {
+                    type: 'string',
+                    description: 'Path to the folder to create relative to the project root (e.g., "src/components/new-folder")'
+                }
+            },
+            required: ['folderPath']
+        }
+    },
+    {
+        name: 'delete_file',
+        description: 'Delete a file or folder from the project. Use with caution as this permanently removes files.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                filePath: {
+                    type: 'string',
+                    description: 'Path to the file or folder to delete relative to the project root'
+                }
+            },
+            required: ['filePath']
+        }
     }
 ];
 

@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { useFileCacheStore } from '../cache/fileCacheStore';
 
 export interface ToolCall {
-  tool: 'read_file' | 'write_file' | 'edit_file' | 'list_files' | 'search_in_files' | 'execute_command' | 'git_command' | 'read_multiple_files' | 'edit_multiple_files';
+  tool: 'read_file' | 'write_file' | 'edit_file' | 'list_files' | 'search_in_files' | 'execute_command' | 'git_command' | 'read_multiple_files' | 'edit_multiple_files' | 'create_folder' | 'delete_file';
   args: Record<string, any>;
 }
 
@@ -42,6 +43,12 @@ export class ToolService {
 
     // Remove edit_multiple_files calls
     cleaned = cleaned.replace(/edit_multiple_files\s*\(\s*\[[\s\S]*?\]\s*\)/g, '');
+
+    // Remove create_folder and mkdir calls
+    cleaned = cleaned.replace(/(?:create_folder|mkdir)\s*\([^)]+\)/g, '');
+
+    // Remove delete_file and rm calls
+    cleaned = cleaned.replace(/(?:delete_file|rm)\s*\([^)]+\)/g, '');
 
     // Remove markdown code blocks (```markdown ... ```) ONLY if they contain file content
     cleaned = cleaned.replace(/```[a-z]*\s*[\s\S]*?```/g, '');
@@ -172,6 +179,26 @@ export class ToolService {
       }
     }
 
+    // Pattern per create_folder(path) o mkdir(path)
+    const createFolderMatches = text.matchAll(/(?:create_folder|mkdir)\s*\(\s*([^)]+)\s*\)/g);
+    for (const match of createFolderMatches) {
+      const path = match[1].replace(/['"]/g, '').trim();
+      toolCalls.push({
+        tool: 'create_folder',
+        args: { folderPath: path }
+      });
+    }
+
+    // Pattern per delete_file(path) o rm(path)
+    const deleteFileMatches = text.matchAll(/(?:delete_file|rm)\s*\(\s*([^)]+)\s*\)/g);
+    for (const match of deleteFileMatches) {
+      const path = match[1].replace(/['"]/g, '').trim();
+      toolCalls.push({
+        tool: 'delete_file',
+        args: { filePath: path }
+      });
+    }
+
     return toolCalls;
   }
 
@@ -220,6 +247,12 @@ export class ToolService {
         case 'edit_multiple_files':
           return await this.editMultipleFiles(projectId, toolCall.args.edits);
 
+        case 'create_folder':
+          return await this.createFolder(projectId, toolCall.args.folderPath);
+
+        case 'delete_file':
+          return await this.deleteFile(projectId, toolCall.args.filePath);
+
         default:
           return `Error: Unknown tool ${toolCall.tool}`;
       }
@@ -263,6 +296,10 @@ export class ToolService {
     );
 
     if (response.data.success) {
+      // Invalidate file cache so FileExplorer shows updated files
+      useFileCacheStore.getState().clearCache(projectId);
+      console.log(`📁 [ToolService] Cache invalidated after write: ${filePath}`);
+
       const diffInfo = response.data.diffInfo;
 
       if (diffInfo) {
@@ -296,6 +333,10 @@ export class ToolService {
     );
 
     if (response.data.success) {
+      // Invalidate file cache so FileExplorer shows updated files
+      useFileCacheStore.getState().clearCache(projectId);
+      console.log(`📁 [ToolService] Cache invalidated after edit: ${filePath}`);
+
       const diffInfo = response.data.diffInfo;
 
       if (diffInfo) {
@@ -454,6 +495,10 @@ export class ToolService {
     );
 
     if (response.data.success) {
+      // Invalidate file cache so FileExplorer shows updated files
+      useFileCacheStore.getState().clearCache(projectId);
+      console.log(`📁 [ToolService] Cache invalidated after edit_multiple_files`);
+
       const results = response.data.results;
       let output = `Editing ${results.length} files atomically...\n\n`;
 
@@ -470,6 +515,50 @@ export class ToolService {
       return output.trim();
     } else {
       return `Error: ${response.data.error}${response.data.rolledBack ? ' (changes rolled back)' : ''}`;
+    }
+  }
+
+  /**
+   * Create a folder - Returns formatted output
+   */
+  private static async createFolder(
+    projectId: string,
+    folderPath: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/create-folder`,
+      { projectId, folderPath }
+    );
+
+    if (response.data.success) {
+      // Invalidate file cache so FileExplorer shows the new folder
+      useFileCacheStore.getState().clearCache(projectId);
+      console.log(`📁 [ToolService] Cache invalidated after create_folder: ${folderPath}`);
+      return `Created folder: ${folderPath}`;
+    } else {
+      return `Error: ${response.data.error}`;
+    }
+  }
+
+  /**
+   * Delete a file or folder - Returns formatted output
+   */
+  private static async deleteFile(
+    projectId: string,
+    filePath: string
+  ): Promise<string> {
+    const response = await axios.post(
+      `${this.API_URL}/workstation/delete-file`,
+      { projectId, filePath }
+    );
+
+    if (response.data.success) {
+      // Invalidate file cache so FileExplorer reflects the deletion
+      useFileCacheStore.getState().clearCache(projectId);
+      console.log(`📁 [ToolService] Cache invalidated after delete_file: ${filePath}`);
+      return `Deleted: ${filePath}`;
+    } else {
+      return `Error: ${response.data.error}`;
     }
   }
 

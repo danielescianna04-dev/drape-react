@@ -6,3 +6,5 @@
 export { BashCommandCard } from './BashCommandCard';
 export { FileEditCard } from './FileEditCard';
 export { LoadingCard } from './LoadingCard';
+export { LoadingModal } from './LoadingModal';
+export { ProjectLoadingOverlay } from './ProjectLoadingOverlay';

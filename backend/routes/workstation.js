@@ -285,6 +285,83 @@ router.post('/undo-file',
 );
 
 /**
+ * POST /workstation/create-folder
+ * Create a new folder
+ */
+router.post('/create-folder',
+    validateBody({
+        projectId: commonSchemas.projectId(),
+        folderPath: commonSchemas.filePath()
+    }),
+    asyncHandler(async (req, res) => {
+        const { projectId, folderPath } = req.body;
+
+        // Try Holy Grail (orchestrator) first
+        try {
+            const orchestrator = require('../services/workspace-orchestrator');
+            const result = await orchestrator.createFolder(projectId, folderPath);
+            return res.json({ success: true, message: 'Folder created successfully' });
+        } catch (orchestratorError) {
+            console.log(`   ⚠️ Orchestrator error, falling back to local: ${orchestratorError.message}`);
+        }
+
+        // Fallback to local filesystem
+        const context = createContext(projectId);
+        const fullPath = path.join(context.projectPath, folderPath);
+
+        await fs.mkdir(fullPath, { recursive: true });
+
+        res.json({
+            success: true,
+            message: 'Folder created successfully'
+        });
+    })
+);
+
+/**
+ * POST /workstation/delete-file
+ * Delete a file or folder
+ */
+router.post('/delete-file',
+    validateBody({
+        projectId: commonSchemas.projectId(),
+        filePath: commonSchemas.filePath()
+    }),
+    asyncHandler(async (req, res) => {
+        const { projectId, filePath } = req.body;
+
+        // Try Holy Grail (orchestrator) first
+        try {
+            const orchestrator = require('../services/workspace-orchestrator');
+            const result = await orchestrator.deleteFile(projectId, filePath);
+            return res.json({ success: true, message: 'Deleted successfully' });
+        } catch (orchestratorError) {
+            console.log(`   ⚠️ Orchestrator error, falling back to local: ${orchestratorError.message}`);
+        }
+
+        // Fallback to local filesystem
+        const context = createContext(projectId);
+        const fullPath = path.join(context.projectPath, filePath);
+
+        try {
+            const stat = await fs.stat(fullPath);
+            if (stat.isDirectory()) {
+                await fs.rm(fullPath, { recursive: true, force: true });
+            } else {
+                await fs.unlink(fullPath);
+            }
+        } catch (e) {
+            throw new NotFoundError('File or folder');
+        }
+
+        res.json({
+            success: true,
+            message: 'Deleted successfully'
+        });
+    })
+);
+
+/**
  * POST /workstation/list-directory
  * List directory contents
  */

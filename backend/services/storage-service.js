@@ -197,6 +197,18 @@ class StorageService {
     }
 
     /**
+     * Create a folder (placeholder in storage)
+     * Note: Folders are implicit in the path structure, but we create a .keep file
+     * @param {string} projectId - Project ID
+     * @param {string} folderPath - Folder path to create
+     */
+    async createFolder(projectId, folderPath) {
+        // Create a .keep file to ensure the folder exists
+        const keepFilePath = `${folderPath}/.keep`;
+        return await this.saveFile(projectId, keepFilePath, '');
+    }
+
+    /**
      * Delete all files for a project
      * @param {string} projectId - Project ID
      */

@@ -139,6 +139,33 @@ async function writeFile(filePath, content) {
     }
 }
 
+// Create folder
+async function createFolder(folderPath) {
+    const fullPath = path.join(PROJECT_DIR, folderPath);
+    try {
+        await fs.mkdir(fullPath, { recursive: true });
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
+// Delete file or folder
+async function deleteFile(filePath) {
+    const fullPath = path.join(PROJECT_DIR, filePath);
+    try {
+        const stat = await fs.stat(fullPath);
+        if (stat.isDirectory()) {
+            await fs.rm(fullPath, { recursive: true, force: true });
+        } else {
+            await fs.unlink(fullPath);
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+}
+
 // HTTP Server
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${PORT}`);
@@ -400,6 +427,32 @@ const server = http.createServer(async (req, res) => {
             }
 
             const result = await writeFile(filePath, content || '');
+            return sendJson(req, res, result);
+        }
+
+        // Create folder
+        if (pathname === '/folder' && req.method === 'POST') {
+            const body = await parseBody(req);
+            const { path: folderPath } = body;
+
+            if (!folderPath) {
+                return sendJson(req, res, { error: 'path required' }, 400);
+            }
+
+            const result = await createFolder(folderPath);
+            return sendJson(req, res, result);
+        }
+
+        // Delete file or folder
+        if (pathname === '/delete' && req.method === 'POST') {
+            const body = await parseBody(req);
+            const { path: filePath } = body;
+
+            if (!filePath) {
+                return sendJson(req, res, { error: 'path required' }, 400);
+            }
+
+            const result = await deleteFile(filePath);
             return sendJson(req, res, result);
         }
 

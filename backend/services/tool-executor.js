@@ -468,6 +468,62 @@ const tools = {
         } else {
             return `❌ Command failed (exit ${result.exitCode}):\n${result.stderr || output}`;
         }
+    },
+
+    /**
+     * Create a folder/directory
+     */
+    async create_folder({ folderPath }, context) {
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanFolderPath = folderPath.replace(/^\.\//, '');
+
+        if (isHolyGrail) {
+            // Holy Grail: Create folder via orchestrator
+            const orch = getOrchestrator();
+            await orch.createFolder(projectId, cleanFolderPath);
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFolderPath);
+            await executeRemoteCommand(wsName, `mkdir -p "${fullPath}"`);
+        } else {
+            const fullPath = path.join(projectPath, cleanFolderPath);
+            await fs.mkdir(fullPath, { recursive: true });
+        }
+
+        // Invalidate cache
+        clearCache(projectId);
+
+        return `✅ Folder ${folderPath} created successfully`;
+    },
+
+    /**
+     * Delete a file or folder
+     */
+    async delete_file({ filePath }, context) {
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanFilePath = filePath.replace(/^\.\//, '');
+
+        if (isHolyGrail) {
+            // Holy Grail: Delete via orchestrator
+            const orch = getOrchestrator();
+            await orch.deleteFile(projectId, cleanFilePath);
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
+            await executeRemoteCommand(wsName, `rm -rf "${fullPath}"`);
+        } else {
+            const fullPath = path.join(projectPath, cleanFilePath);
+            const stat = await fs.stat(fullPath);
+            if (stat.isDirectory()) {
+                await fs.rm(fullPath, { recursive: true, force: true });
+            } else {
+                await fs.unlink(fullPath);
+            }
+        }
+
+        // Invalidate cache
+        clearCache(filePath);
+        clearCache(projectId);
+
+        return `✅ ${filePath} deleted successfully`;
     }
 };
 
