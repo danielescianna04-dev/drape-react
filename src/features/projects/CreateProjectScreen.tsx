@@ -22,6 +22,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
+import { DescriptionInput } from './DescriptionInput';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -56,7 +57,6 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
-  const descriptionInputRef = useRef<TextInput>(null);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -378,24 +378,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       <View style={styles.inputSection}>
-        <Pressable onPress={() => descriptionInputRef.current?.focus()}>
-          <View style={[styles.inputContainer, styles.textAreaContainer, inputFocused && styles.inputContainerFocused]} pointerEvents="box-none">
-            <TextInput
-              ref={descriptionInputRef}
-              style={[styles.textInput, styles.textArea]}
-              placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              value={description}
-              onChangeText={setDescription}
-              onFocus={() => setInputFocused(true)}
-              onBlur={() => setInputFocused(false)}
-              multiline
-              textAlignVertical="top"
-              autoFocus={false}
-            />
-          </View>
-        </Pressable>
-        <Text style={styles.hintText}>Più dettagli fornisci, migliore sarà il risultato.</Text>
+        <DescriptionInput
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
+        />
       </View>
     </View>
   );
