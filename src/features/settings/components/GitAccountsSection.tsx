@@ -19,6 +19,7 @@ import { AddGitAccountModal } from './AddGitAccountModal';
 
 export const GitAccountsSection = () => {
   const [accounts, setAccounts] = useState<GitAccount[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const { userId } = useTerminalStore();
 
@@ -27,9 +28,14 @@ export const GitAccountsSection = () => {
   }, [userId]);
 
   const loadAccounts = async () => {
-    // Use getAllAccounts to get both local and Firebase accounts (cross-device sync)
-    const list = await gitAccountService.getAllAccounts(userId || 'anonymous');
-    setAccounts(list);
+    setIsLoading(true);
+    try {
+      // Use getAllAccounts to get both local and Firebase accounts (cross-device sync)
+      const list = await gitAccountService.getAllAccounts(userId || 'anonymous');
+      setAccounts(list);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteAccount = (account: GitAccount) => {
@@ -70,7 +76,22 @@ export const GitAccountsSection = () => {
       </View>
 
       <View style={styles.accountsList}>
-        {accounts.length === 0 ? (
+        {isLoading ? (
+          // Skeleton loading
+          <>
+            {[1, 2].map((i) => (
+              <View key={i} style={styles.accountItem}>
+                <View style={styles.accountLeft}>
+                  <View style={[styles.avatarPlaceholder, styles.skeleton]} />
+                  <View style={styles.accountInfo}>
+                    <View style={[styles.skeletonText, { width: 120 }]} />
+                    <View style={[styles.skeletonText, { width: 80, marginTop: 6 }]} />
+                  </View>
+                </View>
+              </View>
+            ))}
+          </>
+        ) : accounts.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="person-add-outline" size={40} color="rgba(255,255,255,0.2)" />
             <Text style={styles.emptyText}>Nessun account collegato</Text>
@@ -270,5 +291,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: AppColors.primary,
+  },
+  skeleton: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonText: {
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
   },
 });

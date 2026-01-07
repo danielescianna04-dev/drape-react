@@ -304,6 +304,7 @@ export const gitAccountService = {
   },
 
   // Get all accounts for this user only (no shared accounts)
+  // Uses local-first strategy: returns local accounts immediately, then syncs Firebase in background
   async getAllAccounts(userId: string): Promise<GitAccount[]> {
     // Check cache first (prevents duplicate Firebase calls on rapid open/close)
     const now = Date.now();
@@ -317,7 +318,24 @@ export const gitAccountService = {
     }
 
     try {
-      // Try to get from Firebase first (user-specific)
+      // LOCAL-FIRST: Get local accounts immediately (fast)
+      const localAccounts = await this.getAccounts(userId);
+      console.log(`📥 [Local] Loaded ${localAccounts.length} git accounts`);
+
+      // If we have local accounts, return them immediately and sync Firebase in background
+      if (localAccounts.length > 0) {
+        // Update cache with local accounts
+        accountsCache.data = localAccounts;
+        accountsCache.userId = userId;
+        accountsCache.timestamp = now;
+
+        // Sync Firebase in background (non-blocking)
+        this.syncFirebaseInBackground(userId, localAccounts);
+
+        return localAccounts;
+      }
+
+      // No local accounts - must wait for Firebase (first-time setup or new device)
       const firebaseAccounts: GitAccount[] = [];
       try {
         const accountsRef = collection(db, 'users', userId, 'git-accounts');
@@ -331,46 +349,60 @@ export const gitAccountService = {
           } as GitAccount);
         });
         console.log(`📥 [Firebase] Loaded ${firebaseAccounts.length} git accounts for user ${userId}`);
+
+        // Update cache
+        accountsCache.data = firebaseAccounts;
+        accountsCache.userId = userId;
+        accountsCache.timestamp = now;
       } catch (firebaseErr) {
         console.warn('⚠️ Could not load from Firebase:', firebaseErr);
       }
 
-      // Get local accounts as fallback/merge
-      const localAccounts = await this.getAccounts(userId);
-      console.log(`📥 [Local] Loaded ${localAccounts.length} git accounts`);
+      return firebaseAccounts;
+    } catch (error) {
+      console.error('Error getting all accounts:', error);
+      return [];
+    }
+  },
+
+  // Background sync with Firebase (non-blocking)
+  async syncFirebaseInBackground(userId: string, localAccounts: GitAccount[]): Promise<void> {
+    try {
+      const firebaseAccounts: GitAccount[] = [];
+      const accountsRef = collection(db, 'users', userId, 'git-accounts');
+      const snapshot = await getDocs(accountsRef);
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        firebaseAccounts.push({
+          ...data,
+          id: doc.id,
+          addedAt: new Date(data.addedAt),
+        } as GitAccount);
+      });
 
       // Merge: prefer Firebase accounts, add any local-only accounts
       const firebaseUsernames = new Set(firebaseAccounts.map(a => `${a.provider}-${a.username}`));
       const mergedAccounts = [...firebaseAccounts];
 
-      // If we have local accounts not in Firebase, sync them to Firebase
+      // If we have local accounts not in Firebase, sync them
       for (const local of localAccounts) {
         const key = `${local.provider}-${local.username}`;
         if (!firebaseUsernames.has(key)) {
           mergedAccounts.push(local);
-
-          // Try to sync this local account to Firebase (so other devices can see it)
-          this.syncLocalAccountToFirebase(local, userId).catch(err => {
-            console.warn('⚠️ Could not sync local account to Firebase:', err);
-          });
+          this.syncLocalAccountToFirebase(local, userId).catch(() => {});
         }
       }
 
+      // Update cache with merged results
       const result = mergedAccounts.sort(
         (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
       );
-
-      // Update cache
       accountsCache.data = result;
       accountsCache.userId = userId;
-      accountsCache.timestamp = now;
-      console.log(`📥 [Merged] Total ${result.length} git accounts (cached)`);
-
-      return result;
-    } catch (error) {
-      console.error('Error getting all accounts:', error);
-      // Fallback to local accounts only
-      return this.getAccounts(userId);
+      accountsCache.timestamp = Date.now();
+      console.log(`📥 [Background] Firebase sync complete: ${result.length} accounts`);
+    } catch (err) {
+      console.warn('⚠️ Background Firebase sync failed:', err);
     }
   },
 
