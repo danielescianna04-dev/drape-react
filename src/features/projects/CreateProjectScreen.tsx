@@ -55,6 +55,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+  const descriptionInputRef = useRef<TextInput>(null);
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -90,6 +91,13 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
+
+    // Auto-focus description field when entering step 2
+    if (step === 2) {
+      setTimeout(() => {
+        descriptionInputRef.current?.focus();
+      }, 400); // Wait for animation to complete
+    }
   }, [step]);
 
   useEffect(() => {
@@ -113,7 +121,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         Alert.alert('Attenzione', 'Inserisci un nome per il progetto');
         return;
       }
-      Keyboard.dismiss();
+      // Don't dismiss keyboard when going to step 2 (which has an input field)
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setStep(2);
     } else if (step === 2) {
@@ -378,6 +386,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       <View style={styles.inputSection}>
         <View style={[styles.inputContainer, styles.textAreaContainer, inputFocused && styles.inputContainerFocused]}>
           <TextInput
+            ref={descriptionInputRef}
             style={[styles.textInput, styles.textArea]}
             placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
             placeholderTextColor="rgba(255,255,255,0.3)"
