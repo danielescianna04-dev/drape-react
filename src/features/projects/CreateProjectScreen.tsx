@@ -386,13 +386,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={description}
             onChangeText={setDescription}
-            onFocus={() => {
-              setInputFocused(true);
-              // Scroll to make TextArea visible above keyboard
-              setTimeout(() => {
-                scrollViewRef.current?.scrollTo({ y: 100, animated: true });
-              }, 300);
-            }}
+            onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
             multiline
             textAlignVertical="top"
@@ -592,10 +586,10 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="always"
         >
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-          {step === 4 && renderStep4()}
+          <View style={step === 1 ? {} : { display: 'none' }}>{renderStep1()}</View>
+          <View style={step === 2 ? {} : { display: 'none' }}>{renderStep2()}</View>
+          <View style={step === 3 ? {} : { display: 'none' }}>{renderStep3()}</View>
+          <View style={step === 4 ? {} : { display: 'none' }}>{renderStep4()}</View>
         </ScrollView>
       </KeyboardAvoidingView>
 
