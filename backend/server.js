@@ -21,14 +21,18 @@ const contextService = require('./services/context-service');
 // Import Express app
 const createApp = require('./app');
 
-// Initialize Firebase Admin if not already initialized
+// Initialize Firebase Admin if not already initialized (optional)
 const admin = require('firebase-admin');
 if (!admin.apps.length) {
-    admin.initializeApp({
-        projectId: 'drape-mobile-ide',
-        storageBucket: 'drape-mobile-ide.appspot.com'
-    });
-    console.log('🔥 Firebase Admin initialized');
+    try {
+        admin.initializeApp({
+            projectId: 'drape-mobile-ide',
+            storageBucket: 'drape-mobile-ide.appspot.com'
+        });
+        console.log('🔥 Firebase Admin initialized');
+    } catch (error) {
+        console.warn('⚠️ Firebase Admin not initialized (credentials missing). Some features may be unavailable.');
+    }
 }
 
 // Get local IP for network access

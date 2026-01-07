@@ -14,6 +14,7 @@ import {
   Animated,
   LayoutAnimation,
   Pressable,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -388,7 +389,13 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={description}
             onChangeText={setDescription}
-            onFocus={() => setInputFocused(true)}
+            onFocus={() => {
+              setInputFocused(true);
+              // Scroll to make TextArea visible above keyboard
+              setTimeout(() => {
+                scrollViewRef.current?.scrollTo({ y: 100, animated: true });
+              }, 300);
+            }}
             onBlur={() => setInputFocused(false)}
             multiline
             textAlignVertical="top"
@@ -573,21 +580,27 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       {/* Content */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          keyboardVisible && { paddingBottom: 20 }
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
-        {step === 4 && renderStep4()}
-      </ScrollView>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardVisible && { paddingBottom: 120 }
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {step === 1 && renderStep1()}
+          {step === 2 && renderStep2()}
+          {step === 3 && renderStep3()}
+          {step === 4 && renderStep4()}
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Bottom Button - Hidden when keyboard is visible */}
       {!keyboardVisible && (

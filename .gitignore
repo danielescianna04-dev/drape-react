@@ -53,3 +53,4 @@ backend/bin/coder
 # Drape & Claude local storage
 .drape/
 .claude/
+backend/serviceAccountKey.json

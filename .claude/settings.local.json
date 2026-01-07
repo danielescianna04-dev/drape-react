@@ -2,7 +2,19 @@
   "permissions": {
     "allow": [
       "Bash(/Users/getmad/.claude/plugins:*)",
-      "Bash(setup-ralph-loop:*)"
+      "Bash(setup-ralph-loop:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git log:*)",
+      "Bash(git fsck:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(npm install:*)",
+      "Bash(docker:*)",
+      "Bash(wsl --status:*)",
+      "Bash(wsl:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)",
+      "Bash(dir \"c:\\\\Users\\\\rivas\\\\Projects\\\\drape-react\\\\backend\")"
     ]
   }
 }
