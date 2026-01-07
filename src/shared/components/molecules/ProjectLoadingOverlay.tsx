@@ -12,7 +12,7 @@ interface Props {
 export const ProjectLoadingOverlay = ({
     visible,
     projectName,
-    message = 'Caricamento file...'
+    message = 'Avvio ambiente...'
 }: Props) => {
     const progressAnim = useRef(new Animated.Value(0)).current;
     const pulseAnim = useRef(new Animated.Value(1)).current;

@@ -254,11 +254,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const repositoryUrl = project.repositoryUrl || project.githubUrl;
     const needsPrefetch = filePrefetchService.needsPrefetch(project.id);
 
-    if (needsPrefetch) {
-      // Show loading overlay and prefetch files
-      setLoadingProjectName(project.name);
-      setIsLoadingProject(true);
+    // Show loading overlay immediately - VM is warming up in background
+    setLoadingProjectName(project.name);
+    setIsLoadingProject(true);
 
+    if (needsPrefetch) {
       try {
         console.log('📁 [Home] Prefetching files for:', project.name);
         const result = await filePrefetchService.prefetchFiles(project.id, repositoryUrl);
@@ -266,11 +266,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       } catch (error) {
         console.error('❌ [Home] Prefetch error:', error);
         // Continue anyway - FileExplorer will handle the loading
-      } finally {
-        setIsLoadingProject(false);
-        setLoadingProjectName('');
       }
+    } else {
+      // Small delay to let VM warmup request fire
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
+
+    setIsLoadingProject(false);
+    setLoadingProjectName('');
 
     onOpenProject(project);
   };
