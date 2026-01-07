@@ -534,9 +534,11 @@ export class ToolService {
       // Invalidate file cache so FileExplorer shows the new folder
       useFileCacheStore.getState().clearCache(projectId);
       console.log(`📁 [ToolService] Cache invalidated after create_folder: ${folderPath}`);
-      return `Created folder: ${folderPath}`;
+      // Clean path for display (remove leading ./ if present)
+      const cleanPath = folderPath.replace(/^\.\//, '');
+      return `📁 Folder created: ${cleanPath}\n└─ Location: /${cleanPath}/`;
     } else {
-      return `Error: ${response.data.error}`;
+      return `Error creating folder: ${response.data.error}`;
     }
   }
 
@@ -556,9 +558,11 @@ export class ToolService {
       // Invalidate file cache so FileExplorer reflects the deletion
       useFileCacheStore.getState().clearCache(projectId);
       console.log(`📁 [ToolService] Cache invalidated after delete_file: ${filePath}`);
-      return `Deleted: ${filePath}`;
+      // Clean path for display
+      const cleanPath = filePath.replace(/^\.\//, '');
+      return `🗑️ Deleted: ${cleanPath}`;
     } else {
-      return `Error: ${response.data.error}`;
+      return `Error deleting: ${response.data.error}`;
     }
   }
 

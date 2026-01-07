@@ -19,6 +19,9 @@ interface FileCacheState {
     // Track which projects are being prefetched
     prefetchingProjects: Set<string>;
 
+    // Track last cleared project (for subscriptions)
+    lastClearedProject: string | null;
+
     // Get cached files for a project (returns null if expired)
     getFiles: (projectId: string) => string[] | null;
 
@@ -31,7 +34,7 @@ interface FileCacheState {
     // Check if cache is valid (not expired)
     isCacheValid: (projectId: string, maxAgeMs?: number) => boolean;
 
-    // Clear cache for a project
+    // Clear cache for a project (triggers refresh in FileExplorer)
     clearCache: (projectId: string) => void;
 
     // Clear all cache
@@ -52,6 +55,7 @@ export const useFileCacheStore = create<FileCacheState>()(
         (set, get) => ({
             cache: {},
             prefetchingProjects: new Set<string>(),
+            lastClearedProject: null,
 
             getFiles: (projectId: string) => {
                 const entry = get().cache[projectId];
@@ -97,7 +101,7 @@ export const useFileCacheStore = create<FileCacheState>()(
                     const newCache = { ...state.cache };
                     delete newCache[projectId];
                     console.log(`📁 [FileCache] Cleared cache for ${projectId}`);
-                    return { cache: newCache };
+                    return { cache: newCache, lastClearedProject: projectId };
                 });
             },
 

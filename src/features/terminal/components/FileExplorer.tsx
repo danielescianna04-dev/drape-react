@@ -46,6 +46,20 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     loadFiles();
   }, [projectId]);
 
+  // Subscribe to cache invalidation - auto-refresh when AI modifies files
+  useEffect(() => {
+    const unsubscribe = useFileCacheStore.subscribe(
+      (state) => state.lastClearedProject,
+      (clearedProjectId) => {
+        if (clearedProjectId === projectId) {
+          console.log('📁 [FileExplorer] Cache invalidated, refreshing files...');
+          loadFiles(true); // Force refresh
+        }
+      }
+    );
+    return unsubscribe;
+  }, [projectId]);
+
   // Debounced content search
   useEffect(() => {
     if (searchMode === 'content' && searchQuery.trim()) {
@@ -196,8 +210,15 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     const root: FileTreeNode[] = [];
     const folderMap = new Map<string, FileTreeNode>();
 
-    const filteredFiles = filterFiles();
-    filteredFiles.forEach(filePath => {
+    // Separate .keep files (empty folder markers) from real files
+    const allFiles = filterFiles();
+    const realFiles = allFiles.filter(f => !f.endsWith('/.keep') && f !== '.keep');
+    const emptyFolders = allFiles
+      .filter(f => f.endsWith('/.keep'))
+      .map(f => f.replace('/.keep', '')); // Get folder path
+
+    // Process real files first
+    realFiles.forEach(filePath => {
       const parts = filePath.split('/');
       let currentLevel = root;
       let currentPath = '';
@@ -225,6 +246,34 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
         // Move to next level if it's a folder
         if (!isFile && node.children) {
+          currentLevel = node.children;
+        }
+      });
+    });
+
+    // Add empty folders (from .keep files)
+    emptyFolders.forEach(folderPath => {
+      const parts = folderPath.split('/');
+      let currentLevel = root;
+      let currentPath = '';
+
+      parts.forEach((part) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        let node = currentLevel.find(n => n.name === part);
+
+        if (!node) {
+          node = {
+            name: part,
+            path: currentPath,
+            type: 'folder',
+            children: []
+          };
+          currentLevel.push(node);
+          folderMap.set(currentPath, node);
+        }
+
+        if (node.children) {
           currentLevel = node.children;
         }
       });
