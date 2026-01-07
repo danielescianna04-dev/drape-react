@@ -236,6 +236,43 @@ class StorageService {
     }
 
     /**
+     * Get project metadata (repositoryUrl, etc.)
+     * Searches both 'projects' and 'workstations' collections
+     * @param {string} projectId - Project ID
+     */
+    async getProjectMetadata(projectId) {
+        try {
+            // First try projects collection
+            const projectDoc = await this._getDb().collection('projects').doc(projectId).get();
+            if (projectDoc.exists) {
+                return { success: true, data: projectDoc.data() };
+            }
+
+            // Try lowercase
+            const projectDocLower = await this._getDb().collection('projects').doc(projectId.toLowerCase()).get();
+            if (projectDocLower.exists) {
+                return { success: true, data: projectDocLower.data() };
+            }
+
+            // Fallback: search workstations collection by projectId field
+            const wsSnapshot = await this._getDb()
+                .collection('workstations')
+                .where('projectId', '==', projectId)
+                .limit(1)
+                .get();
+
+            if (!wsSnapshot.empty) {
+                return { success: true, data: wsSnapshot.docs[0].data() };
+            }
+
+            return { success: false, error: 'Project not found' };
+        } catch (error) {
+            console.error(`❌ [Storage] Get metadata failed:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
      * Create a bundle of all project files (for syncing to VM)
      * @param {string} projectId - Project ID
      */
@@ -246,9 +283,26 @@ class StorageService {
             return [];
         }
 
+        // Skip binary files that get corrupted during text-based sync
+        const SKIP_EXTENSIONS = [
+            // Images
+            '.ico', '.icns', '.cur', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.svg',
+            // Fonts
+            '.woff', '.woff2', '.ttf', '.otf', '.eot',
+            // Other binary
+            '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav', '.mov', '.avi'
+        ];
+
         const bundle = [];
 
         for (const file of files) {
+            // Skip problematic binary files
+            const ext = file.path.substring(file.path.lastIndexOf('.')).toLowerCase();
+            if (SKIP_EXTENSIONS.includes(ext)) {
+                console.log(`   ⏭️ Skipping binary: ${file.path}`);
+                continue;
+            }
+
             const { content } = await this.readFile(projectId, file.path);
             if (content) {
                 bundle.push({ path: file.path, content });
@@ -276,9 +330,9 @@ class StorageService {
 
         console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM (parallel)...`);
 
-        const PARALLEL_LIMIT = 10; // Sync 10 files concurrently
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY = 1000;
+        const PARALLEL_LIMIT = 20; // Sync 20 files concurrently (was 10)
+        const MAX_RETRIES = 2;    // Reduced retries for speed
+        const RETRY_DELAY = 500;  // Faster retry
 
         let syncedCount = 0;
         let failedFiles = [];
@@ -296,7 +350,7 @@ class StorageService {
                     await axios.post(`${agentUrl}/file`, {
                         path: file.path,
                         content: file.content
-                    }, { timeout: 30000, headers });
+                    }, { timeout: 10000, headers }); // Reduced from 30s to 10s
                     return { success: true, path: file.path };
                 } catch (error) {
                     if (attempt < MAX_RETRIES) {

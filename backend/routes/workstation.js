@@ -227,6 +227,64 @@ router.post('/edit-file',
 );
 
 /**
+ * POST /workstation/undo-file
+ * Restore file to previous content (for undo functionality)
+ */
+router.post('/undo-file',
+    validateBody({
+        projectId: commonSchemas.projectId(),
+        filePath: commonSchemas.filePath(),
+        content: schema().required().string()
+    }),
+    asyncHandler(async (req, res) => {
+        const { projectId, filePath, content } = req.body;
+
+        console.log(`↩️ [Undo] Restoring ${filePath} for project ${projectId}`);
+
+        // Try Holy Grail first
+        try {
+            const orchestrator = require('../services/workspace-orchestrator');
+            const cleanFilePath = filePath.replace(/^\.\//, '');
+
+            // Check if this is a Holy Grail project
+            const storageService = require('../services/storage-service');
+            const existingFile = await storageService.readFile(projectId, cleanFilePath);
+
+            if (existingFile.success || projectId.startsWith('ws-')) {
+                // Holy Grail mode - write via orchestrator
+                await orchestrator.writeFile(projectId, cleanFilePath, content);
+                console.log(`✅ [Undo] File restored via Holy Grail: ${filePath}`);
+                return res.json({
+                    success: true,
+                    message: 'File restored successfully',
+                    mode: 'holy-grail'
+                });
+            }
+        } catch (e) {
+            console.log(`   [Undo] Not Holy Grail mode, trying local: ${e.message}`);
+        }
+
+        // Local mode fallback
+        const context = createContext(projectId);
+        const fullPath = path.join(context.projectPath, filePath);
+
+        // Create directory if needed
+        const dir = path.dirname(fullPath);
+        await fs.mkdir(dir, { recursive: true });
+
+        // Write the restored content
+        await fs.writeFile(fullPath, content, 'utf8');
+
+        console.log(`✅ [Undo] File restored locally: ${filePath}`);
+        res.json({
+            success: true,
+            message: 'File restored successfully',
+            mode: 'local'
+        });
+    })
+);
+
+/**
  * POST /workstation/list-directory
  * List directory contents
  */

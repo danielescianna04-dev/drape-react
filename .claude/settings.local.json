@@ -3,18 +3,9 @@
     "allow": [
       "Bash(/Users/getmad/.claude/plugins:*)",
       "Bash(setup-ralph-loop:*)",
-      "Bash(npm run dev:*)",
-      "Bash(git log:*)",
-      "Bash(git fsck:*)",
-      "Bash(git ls-tree:*)",
-      "Bash(npm install:*)",
-      "Bash(docker:*)",
-      "Bash(wsl --status:*)",
-      "Bash(wsl:*)",
-      "Bash(netstat:*)",
-      "Bash(findstr:*)",
-      "Bash(taskkill:*)",
-      "Bash(dir \"c:\\\\Users\\\\rivas\\\\Projects\\\\drape-react\\\\backend\")"
+      "Bash(curl -s -X POST https://drape-workspaces.fly.dev/exec -H \"Content-Type: application/json\" -d '{\"\"command\"\": \"\"grep -i background /home/coder/project/components/Header.tsx | head -5\"\"}')",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nperf: instant project reopening by deferring auth checks\n\n- Move setWorkstation\\(\\) and setCurrentScreen\\(\\) before auth checks\n- Auth and clone operations now happen in background \\(50ms timeout\\)\n- Applies to both ProjectsHomeScreen and AllProjectsScreen\n- Eliminates UI blocking when clicking on projects from home screen\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

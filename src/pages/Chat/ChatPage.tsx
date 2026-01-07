@@ -32,10 +32,27 @@ import { useSidebarOffset } from '../../features/terminal/context/SidebarContext
 import { useChatState } from '../../hooks/business/useChatState';
 import { useContentOffset } from '../../hooks/ui/useContentOffset';
 import { AnthropicIcon, GoogleIcon } from '../../shared/components/icons';
+import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
+import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
 const colors = AppColors.dark;
+
+// Helper to parse undo data from tool results
+const parseUndoData = (result: string): { cleanResult: string; undoData: any | null } => {
+  const undoMatch = result.match(/<!--UNDO:(.*?)-->/s);
+  if (undoMatch) {
+    try {
+      const undoData = JSON.parse(undoMatch[1]);
+      const cleanResult = result.replace(/\n?<!--UNDO:.*?-->/s, '');
+      return { cleanResult, undoData };
+    } catch (e) {
+      console.warn('Failed to parse undo data:', e);
+    }
+  }
+  return { cleanResult: result, undoData: null };
+};
 
 // Available AI models with custom icon components
 const AI_MODELS = [
@@ -213,6 +230,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }
   }, [terminalItems.length, lastItemContent]);
+
+  // Load file history from storage on mount
+  useEffect(() => {
+    useFileHistoryStore.getState().loadHistory();
+  }, []);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -696,6 +718,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
           xhr.open('POST', `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`);
           xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.timeout = 60000; // 60 second timeout
 
           let buffer = '';
 
@@ -717,34 +740,50 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     const { name, args, result } = parsed.toolResult;
                     console.log('🎯 Tool result received:', name, args);
 
+                    // Parse undo data for write/edit operations
+                    const { cleanResult, undoData } = parseUndoData(result);
+
+                    // Record modification to history if undo data is present
+                    if (undoData && undoData.__undo && currentWorkstation?.id) {
+                      useFileHistoryStore.getState().recordModification({
+                        projectId: currentWorkstation.id,
+                        filePath: undoData.filePath,
+                        originalContent: undoData.originalContent || '',
+                        newContent: undoData.newContent,
+                        toolName: name as 'write_file' | 'edit_file',
+                        description: `AI: ${name === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
+                      });
+                      console.log('📝 [Undo] Recorded modification for:', undoData.filePath);
+                    }
+
                     // Format the result based on tool type (Claude Code style)
                     let formattedOutput = '';
 
                     if (name === 'read_file') {
-                      const lines = result.split('\n').length;
+                      const lines = cleanResult.split('\n').length;
                       const fileName = args.filePath.split('/').pop() || args.filePath;
                       // Include both header and content
-                      formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+                      formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${cleanResult}`;
                     } else if (name === 'write_file') {
                       const fileName = args.filePath.split('/').pop() || args.filePath;
-                      formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
+                      formattedOutput = `Write ${fileName}\n└─ File created\n\n${cleanResult}`;
                     } else if (name === 'edit_file') {
                       const fileName = args.filePath.split('/').pop() || args.filePath;
-                      formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
+                      formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${cleanResult}`;
                     } else if (name === 'list_files') {
-                      const fileCount = result.split('\n').filter((line: string) => line.trim()).length;
-                      formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+                      const fileCount = cleanResult.split('\n').filter((line: string) => line.trim()).length;
+                      formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${cleanResult}`;
                     } else if (name === 'search_in_files') {
-                      const matches = result.split('\n').filter((line: string) => line.includes(':')).length;
-                      formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+                      const matches = cleanResult.split('\n').filter((line: string) => line.includes(':')).length;
+                      formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${cleanResult}`;
                     } else if (name === 'execute_command') {
-                      formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${result}`;
+                      formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${cleanResult}`;
                     } else if (name === 'glob_files') {
                       // For glob_files, just use the result as-is (it's already formatted from backend)
-                      formattedOutput = result;
+                      formattedOutput = cleanResult;
                     } else {
                       // Generic format for other tools - include result
-                      formattedOutput = `${name}\n└─ Completed\n\n${result}`;
+                      formattedOutput = `${name}\n└─ Completed\n\n${cleanResult}`;
                     }
 
                     // Add tool result as a separate terminal item
@@ -789,31 +828,47 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     const formattedToolItems = toolResultsBatch.map((toolResult: any, index: number) => {
                       const { name, args, result } = toolResult;
 
+                      // Parse undo data for write/edit operations
+                      const { cleanResult, undoData } = parseUndoData(result);
+
+                      // Record modification to history if undo data is present
+                      if (undoData && undoData.__undo && currentWorkstation?.id) {
+                        useFileHistoryStore.getState().recordModification({
+                          projectId: currentWorkstation.id,
+                          filePath: undoData.filePath,
+                          originalContent: undoData.originalContent || '',
+                          newContent: undoData.newContent,
+                          toolName: name as 'write_file' | 'edit_file',
+                          description: `AI: ${name === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
+                        });
+                        console.log('📝 [Undo] Recorded batch modification for:', undoData.filePath);
+                      }
+
                       // Format the result based on tool type (Claude Code style)
                       let formattedOutput = '';
 
                       if (name === 'read_file') {
-                        const lines = result.split('\n').length;
+                        const lines = cleanResult.split('\n').length;
                         const fileName = args.filePath.split('/').pop() || args.filePath;
-                        formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+                        formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${cleanResult}`;
                       } else if (name === 'write_file') {
                         const fileName = args.filePath.split('/').pop() || args.filePath;
-                        formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
+                        formattedOutput = `Write ${fileName}\n└─ File created\n\n${cleanResult}`;
                       } else if (name === 'edit_file') {
                         const fileName = args.filePath.split('/').pop() || args.filePath;
-                        formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
+                        formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${cleanResult}`;
                       } else if (name === 'list_files') {
-                        const fileCount = result.split('\n').filter((line: string) => line.trim()).length;
-                        formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+                        const fileCount = cleanResult.split('\n').filter((line: string) => line.trim()).length;
+                        formattedOutput = `List files in ${args.directory || '.'}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${cleanResult}`;
                       } else if (name === 'search_in_files') {
-                        const matches = result.split('\n').filter((line: string) => line.includes(':')).length;
-                        formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+                        const matches = cleanResult.split('\n').filter((line: string) => line.includes(':')).length;
+                        formattedOutput = `Search "${args.pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${cleanResult}`;
                       } else if (name === 'execute_command') {
-                        formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${result}`;
+                        formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${cleanResult}`;
                       } else if (name === 'glob_files') {
-                        formattedOutput = result;
+                        formattedOutput = cleanResult;
                       } else {
-                        formattedOutput = `${name}\n└─ Completed\n\n${result}`;
+                        formattedOutput = `${name}\n└─ Completed\n\n${cleanResult}`;
                       }
 
                       return {
@@ -933,6 +988,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           };
 
           xhr.onerror = () => reject(new Error('Network error'));
+          xhr.ontimeout = () => reject(new Error('Request timeout - AI non risponde'));
 
           xhr.send(JSON.stringify({
             prompt: userMessage,
@@ -1085,6 +1141,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         setConversationHistory([...conversationHistory, userMessage, streamedContent]);
       }
     } catch (error) {
+      console.error('❌ [ChatPage] AI request failed:', error);
+
+      // Remove isThinking from the placeholder item so "Thinking..." disappears
+      useTabStore.setState((state) => ({
+        tabs: state.tabs.map(t =>
+          t.id === tab.id
+            ? {
+              ...t,
+              terminalItems: t.terminalItems?.map(item =>
+                item.id === streamingMessageId
+                  ? { ...item, isThinking: false, content: '' }
+                  : item
+              ).filter(item => item.content !== '' || item.isThinking) // Remove empty items
+            }
+            : t
+        )
+      }));
+
       addTerminalItem({
         id: (Date.now() + 3).toString(),
         content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -1306,6 +1380,19 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     />
                   </TouchableOpacity>
                 </View>
+
+                {/* Undo/Redo Bar - only show if there's a workstation with history */}
+                {currentWorkstation?.id && (
+                  <UndoRedoBar
+                    projectId={currentWorkstation.id}
+                    onUndoComplete={() => {
+                      console.log('✅ [Undo] File restored');
+                    }}
+                    onRedoComplete={() => {
+                      console.log('✅ [Redo] File re-applied');
+                    }}
+                  />
+                )}
 
                 {/* Main Input Row */}
                 <View style={styles.mainInputRow}>

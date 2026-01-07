@@ -28,6 +28,43 @@ class WorkspaceOrchestrator {
     }
 
     /**
+     * Stop all machines that don't belong to the current project
+     * This ensures only one project's VM is active at a time (single-tenant mode)
+     * Required because all VMs share the same public URL on Fly.io
+     */
+    async stopOtherMachines(currentProjectId) {
+        const machineName = `ws-${currentProjectId}`.substring(0, 30);
+
+        try {
+            const machines = await flyService.listMachines();
+            const otherMachines = machines.filter(m =>
+                m.name !== machineName &&
+                m.state !== 'destroyed' &&
+                m.state !== 'stopped'
+            );
+
+            if (otherMachines.length > 0) {
+                console.log(`🛑 [Orchestrator] Stopping ${otherMachines.length} other VM(s) to ensure correct routing...`);
+                for (const machine of otherMachines) {
+                    try {
+                        await flyService.stopMachine(machine.id);
+                        // Also remove from cache
+                        for (const [pid, vm] of activeVMs) {
+                            if (vm.machineId === machine.id) {
+                                activeVMs.delete(pid);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`   ⚠️ Failed to stop ${machine.name}: ${e.message}`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`⚠️ [Orchestrator] Failed to stop other machines: ${e.message}`);
+        }
+    }
+
+    /**
      * Get or create a VM for a project
      * This is the main entry point - handles everything automatically
      * 
@@ -81,17 +118,42 @@ class WorkspaceOrchestrator {
             const existing = machines.find(m => m.name === machineName);
 
             if (existing && existing.state !== 'destroyed') {
-                console.log(`♻️ [Orchestrator] Found existing Fly machine: ${existing.id}`);
+                console.log(`♻️ [Orchestrator] Found existing Fly machine: ${existing.id} (state: ${existing.state})`);
                 vm = existing;
 
-                // If stopped, start it?
+                // If machine is already running, fast-path: just check health and return
+                if (existing.state === 'started') {
+                    const agentUrl = 'https://drape-workspaces.fly.dev';
+                    try {
+                        // Quick health check (2s timeout)
+                        await axios.get(`${agentUrl}/health`, {
+                            timeout: 2000,
+                            headers: { 'fly-force-instance-id': existing.id }
+                        });
+
+                        console.log(`⚡ [Orchestrator] VM already running! Fast path. (${Date.now() - startTime}ms)`);
+
+                        const vmInfo = {
+                            id: existing.id,
+                            name: existing.name,
+                            agentUrl,
+                            machineId: existing.id,
+                            projectId,
+                            createdAt: Date.now(),
+                            lastUsed: Date.now()
+                        };
+                        activeVMs.set(projectId, vmInfo);
+                        this._scheduleCleanup(projectId);
+                        return vmInfo;
+                    } catch (e) {
+                        console.log(`   ⚠️ Health check failed, will wait for agent...`);
+                    }
+                }
+
+                // If stopped, start it
                 if (existing.state === 'stopped') {
-                    // flyService doesn't have startMachine exposed yet, assuming we use it as is or handle it
-                    // For now, let's assume valid state or auto-start on request? NO.
-                    // We should probably start it if stopped.
-                    // But wait, createMachine handles "auto_destroy". 
-                    // Let's just use it. If it's stopped, we might need to restart it.
-                    // For now, let's just adopt it.
+                    console.log(`   🔄 Starting stopped machine...`);
+                    await flyService.startMachine(existing.id);
                 }
             } else {
                 console.log(`📦 [Orchestrator] Creating new MicroVM...`);
@@ -226,71 +288,112 @@ class WorkspaceOrchestrator {
         try {
             console.log(`🐙 [Orchestrator] ensuring git repo for ${projectId}...`);
 
-            // FIX permissions first
-            await flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project && git config --global --add safe.directory /home/coder/project', '/home/coder/project', machineId);
-
-            const status = await flyService.exec(agentUrl, 'test -d .git && echo "EXISTS" || echo "MISSING"', '/home/coder/project', machineId);
+            // Run permissions fix AND git check in parallel
+            const [, status] = await Promise.all([
+                flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project 2>/dev/null; git config --global --add safe.directory /home/coder/project 2>/dev/null', '/home/coder/project', machineId),
+                flyService.exec(agentUrl, 'test -d .git && echo "EXISTS" || echo "MISSING"', '/home/coder/project', machineId)
+            ]);
 
             if (status.stdout.trim() === 'MISSING') {
-                console.log(`🐙 [Orchestrator] .git missing, attempting to clone from GitHub...`);
+                console.log(`🐙 [Orchestrator] .git missing, initializing git repo...`);
 
-                // Try to get the repo URL from Firestore
+                // Try to get the repo URL from Firestore first (needed for both paths)
                 let repoUrl = null;
                 try {
                     const admin = require('firebase-admin');
                     const db = admin.firestore();
 
-                    // Try direct document lookup first
                     let wsDoc = await db.collection('workstations').doc(projectId).get();
                     if (wsDoc.exists) {
-                        console.log(`   📄 Found document by ID: ${projectId}`);
                         repoUrl = wsDoc.data().repositoryUrl || wsDoc.data().githubUrl;
                     } else {
-                        // Fallback: query by 'id' field
-                        console.log(`   🔍 Document not found by ID, trying query...`);
                         const snapshot = await db.collection('workstations')
                             .where('id', '==', projectId)
                             .limit(1)
                             .get();
                         if (!snapshot.empty) {
-                            console.log(`   📄 Found document via query!`);
                             repoUrl = snapshot.docs[0].data().repositoryUrl || snapshot.docs[0].data().githubUrl;
                         }
                     }
-
-                    if (repoUrl) {
-                        console.log(`   ✅ Found repo URL: ${repoUrl.includes('@') ? '[hidden]' : repoUrl}`);
-                    } else {
-                        console.log(`   ⚠️ No repo URL in Firestore for ${projectId}`);
-                    }
                 } catch (e) {
-                    console.warn(`   ⚠️ Could not fetch repo URL from Firestore: ${e.message}`);
+                    console.warn(`   ⚠️ Could not fetch repo URL: ${e.message}`);
                 }
 
-                if (repoUrl) {
-                    console.log(`   📦 Cloning from: ${repoUrl.includes('@') ? '[URL with token]' : repoUrl}`);
-                    // Clear project folder and clone fresh
-                    const cloneCmd = `cd /home/coder && rm -rf project && git clone ${repoUrl} project 2>&1`;
-                    const cloneResult = await flyService.exec(agentUrl, cloneCmd, '/home/coder', machineId, 120000); // 2 min timeout
+                // Check if files already exist (from forceSync)
+                const fileCheck = await flyService.exec(agentUrl, 'ls -A /home/coder/project 2>/dev/null | head -1', '/home/coder', machineId);
+                const hasFiles = fileCheck.stdout.trim().length > 0;
 
-                    if (cloneResult.exitCode === 0) {
-                        console.log(`   ✅ Repository cloned successfully`);
-                    } else {
-                        console.warn(`   ⚠️ Clone failed: ${cloneResult.stderr || cloneResult.stdout}`);
-                        // Fallback to git init
-                        await this._fallbackGitInit(agentUrl, machineId);
-                    }
+                if (hasFiles) {
+                    // Files already synced - init git and connect to remote for real history
+                    console.log(`   ⚡ Files exist from sync - using fast git init with remote history`);
+                    await this._fallbackGitInit(agentUrl, machineId, repoUrl);
                 } else {
-                    console.log(`   ⚠️ No repo URL found, falling back to local git init`);
-                    await this._fallbackGitInit(agentUrl, machineId);
+                    // No files - need to clone (but use shallow clone for speed)
+                    console.log(`   📦 No files found, attempting shallow clone...`);
+
+                    if (repoUrl) {
+                        // Use shallow clone (--depth 1) for speed
+                        const cloneCmd = `cd /home/coder && rm -rf project && git clone --depth 1 ${repoUrl} project 2>&1`;
+                        const cloneResult = await flyService.exec(agentUrl, cloneCmd, '/home/coder', machineId, 60000); // 1 min timeout
+
+                        if (cloneResult.exitCode === 0) {
+                            console.log(`   ✅ Shallow clone completed`);
+                        } else {
+                            console.warn(`   ⚠️ Clone failed, using git init with remote fetch`);
+                            await this._fallbackGitInit(agentUrl, machineId, repoUrl);
+                        }
+                    } else {
+                        await this._fallbackGitInit(agentUrl, machineId, null);
+                    }
                 }
 
                 // Fix permissions again after clone/init
                 await flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project', '/home/coder/project', machineId);
             } else {
-                console.log(`   ✅ .git already exists, skipping init`);
-                // Optionally: fetch latest from remote?
-                // await flyService.exec(agentUrl, 'git fetch origin 2>&1 || true', '/home/coder/project', machineId);
+                console.log(`   ✅ .git already exists`);
+
+                // Check if we only have the placeholder "Initial sync" commit
+                // If so, try to fetch real history from remote
+                const logCheck = await flyService.exec(agentUrl, 'git log --oneline -1 2>/dev/null | head -1', '/home/coder/project', machineId);
+                const lastCommit = logCheck.stdout.trim();
+
+                if (lastCommit.includes('Initial sync')) {
+                    console.log(`   🔄 Found placeholder commit, fetching real history...`);
+
+                    // Get repo URL from Firestore
+                    let repoUrl = null;
+                    try {
+                        const admin = require('firebase-admin');
+                        const db = admin.firestore();
+                        const wsDoc = await db.collection('workstations').doc(projectId).get();
+                        if (wsDoc.exists) {
+                            repoUrl = wsDoc.data().repositoryUrl || wsDoc.data().githubUrl;
+                        }
+                    } catch (e) {
+                        console.warn(`   ⚠️ Could not fetch repo URL: ${e.message}`);
+                    }
+
+                    if (repoUrl) {
+                        try {
+                            // Ensure remote is configured
+                            await flyService.exec(agentUrl, `git remote set-url origin "${repoUrl}" 2>/dev/null || git remote add origin "${repoUrl}"`, '/home/coder/project', machineId);
+
+                            // Fetch real history
+                            await flyService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
+
+                            // Get default branch
+                            const branchResult = await flyService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
+                            const defaultBranch = branchResult.stdout.trim() || 'main';
+
+                            // Reset to match remote (keeps files, replaces history)
+                            await flyService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
+
+                            console.log(`   ✅ Replaced placeholder with real GitHub history`);
+                        } catch (e) {
+                            console.warn(`   ⚠️ Could not fetch real history: ${e.message}`);
+                        }
+                    }
+                }
             }
         } catch (e) {
             console.warn(`⚠️ [Orchestrator] failed to ensure git repo: ${e.message}`);
@@ -299,11 +402,42 @@ class WorkspaceOrchestrator {
 
     /**
      * Fallback git init when no remote URL is available
+     * Also tries to connect to GitHub and fetch real commit history
      */
-    async _fallbackGitInit(agentUrl, machineId) {
+    async _fallbackGitInit(agentUrl, machineId, repoUrl = null) {
         console.log(`   🔧 Initializing local git repo...`);
-        await flyService.exec(agentUrl, 'git init && git config user.email "bot@drape.ai" && git config user.name "Drape Bot" && git add . && git commit -m "Initial sync"', '/home/coder/project', machineId);
-        console.log(`   ✅ git repo initialized (fallback)`);
+
+        // Basic git init with initial commit
+        await flyService.exec(agentUrl, 'git init && git config user.email "bot@drape.ai" && git config user.name "Drape Bot" && git add . && git commit -m "Initial sync" --allow-empty', '/home/coder/project', machineId);
+
+        // If we have a repo URL, add it as remote and fetch history
+        if (repoUrl) {
+            try {
+                console.log(`   🔗 Connecting to remote: ${repoUrl}`);
+
+                // Add remote origin
+                await flyService.exec(agentUrl, `git remote add origin "${repoUrl}" 2>/dev/null || git remote set-url origin "${repoUrl}"`, '/home/coder/project', machineId);
+
+                // Fetch the actual commit history (shallow fetch for speed)
+                const fetchResult = await flyService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
+                console.log(`   📥 Fetch result: ${fetchResult.stdout.substring(0, 100)}`);
+
+                // Get the default branch name from remote
+                const branchResult = await flyService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
+                const defaultBranch = branchResult.stdout.trim() || 'main';
+                console.log(`   🌿 Default branch: ${defaultBranch}`);
+
+                // Reset to match remote history (keeps local files, replaces commit history)
+                // This makes our local commits match GitHub's real history
+                const resetResult = await flyService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
+
+                console.log(`   ✅ Connected to remote, history synced`);
+            } catch (e) {
+                console.warn(`   ⚠️ Could not connect to remote (will use local commits): ${e.message}`);
+            }
+        }
+
+        console.log(`   ✅ git repo initialized`);
     }
 
     /**
@@ -408,6 +542,10 @@ class WorkspaceOrchestrator {
      * @param {object} projectInfo - Project type info (from analyzer)
      */
     async startPreview(projectId, projectInfo) {
+        // CRITICAL: Stop all other VMs first to ensure correct routing
+        // All VMs share the same URL (drape-workspaces.fly.dev), so only one can be active
+        await this.stopOtherMachines(projectId);
+
         const vm = await this.getOrCreateVM(projectId);
 
         // CRITICAL: Clean project folder before sync to avoid stale files

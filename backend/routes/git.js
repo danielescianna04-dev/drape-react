@@ -64,39 +64,164 @@ router.get('/status/:projectId', asyncHandler(async (req, res) => {
 
     console.log(`☁️  Git Status in cloud: ${wsName}`);
 
-    const [statusResult, branchResult, logResult, lsResult] = await Promise.all([
+    // Use detailed git log format: hash|author|email|date|message
+    const [statusResult, branchResult, logResult] = await Promise.all([
         executeGitCommand(projectId, 'status --porcelain'),
         executeGitCommand(projectId, 'branch --show-current'),
-        executeGitCommand(projectId, 'log --oneline -10'),
-        // Temporary debug: find files
-        getOrchestrator().exec(projectId, 'find /home/coder -maxdepth 3 -not -path "*/.*"')
+        executeGitCommand(projectId, 'log --format="%H|%an|%ae|%aI|%s" -20')
     ]);
 
     console.log(`🔍 [Git] Status Raw Output: "${statusResult.stdout}"`);
-    console.log(`🔍 [Git] LS Output: "${lsResult.stdout}"`);
+    console.log(`🔍 [Git] Log Raw Output: "${logResult.stdout}"`);
 
-    // Parse status
+    // Parse status into categorized arrays (frontend expects this format)
     const statusLines = statusResult.stdout.split('\n').filter(l => l.trim());
-    const changes = statusLines.map(line => {
-        const status = line.substring(0, 2).trim();
-        const file = line.substring(3);
-        return { status, file };
-    });
+    const staged = [];
+    const modified = [];
+    const untracked = [];
+    const deleted = [];
 
-    // Parse commits
-    const commits = logResult.stdout.split('\n').filter(l => l.trim()).map(line => {
-        const [hash, ...messageParts] = line.split(' ');
-        return { hash, message: messageParts.join(' ') };
+    // Also keep raw changes for backward compatibility
+    const changes = [];
+
+    for (const line of statusLines) {
+        const indexStatus = line[0];  // Status in staging area
+        const workTreeStatus = line[1];  // Status in working tree
+        const file = line.substring(3);
+
+        changes.push({ status: line.substring(0, 2).trim(), file });
+
+        // Categorize by status
+        // ? = untracked
+        if (indexStatus === '?') {
+            untracked.push(file);
+        }
+        // Staged changes (index has M, A, D, R, C)
+        else if (['M', 'A', 'R', 'C'].includes(indexStatus)) {
+            staged.push(file);
+        }
+        // Deleted in index
+        else if (indexStatus === 'D') {
+            deleted.push(file);
+            staged.push(file);
+        }
+        // Modified in working tree (not staged)
+        else if (workTreeStatus === 'M') {
+            modified.push(file);
+        }
+        // Deleted in working tree
+        else if (workTreeStatus === 'D') {
+            deleted.push(file);
+        }
+    }
+
+    // Build status object in the format frontend expects
+    const status = { staged, modified, untracked, deleted };
+
+    // Parse commits with full details
+    const currentBranch = (branchResult.stdout || 'main').trim();
+    const commits = logResult.stdout.split('\n').filter(l => l.trim()).map((line, index) => {
+        const parts = line.split('|');
+        const hash = parts[0] || '';
+        const author = parts[1] || 'Unknown';
+        const authorEmail = parts[2] || '';
+        const date = parts[3] || new Date().toISOString();
+        const message = parts.slice(4).join('|') || 'No message';
+
+        return {
+            hash,
+            shortHash: hash.substring(0, 7),
+            message,
+            author,
+            authorEmail,
+            date,
+            isHead: index === 0,
+            branch: index === 0 ? currentBranch : undefined
+        };
     });
 
     res.json({
         success: true,
-        branch: branchResult.stdout || 'main',
+        isGitRepo: true,
+        branch: currentBranch,
+        currentBranch,
         changes,
+        status,  // Categorized status for frontend
         hasChanges: changes.length > 0,
         commits
     });
 }));
+
+/**
+ * Helper to configure git credentials for authenticated operations
+ * Temporarily sets the remote URL with token for GitHub repos
+ * Auto-configures remote from Firestore if not set
+ */
+async function withGitCredentials(projectId, token, operation) {
+    const orch = getOrchestrator();
+    const storageService = require('../services/storage-service');
+
+    // Get current remote URL
+    const remoteResult = await orch.exec(projectId, 'git remote get-url origin 2>/dev/null || echo ""');
+    let remoteUrl = remoteResult.stdout.trim();
+
+    // If no remote configured, try to get from Firestore and set it up
+    if (!remoteUrl) {
+        console.log(`   🔍 [Git] No remote configured, checking Firestore...`);
+        const metadata = await storageService.getProjectMetadata(projectId);
+
+        if (metadata.success && metadata.data) {
+            const repoUrl = metadata.data.repositoryUrl || metadata.data.githubUrl;
+            if (repoUrl) {
+                console.log(`   🔗 [Git] Found repo URL in Firestore: ${repoUrl}`);
+                // Configure the remote
+                await orch.exec(projectId, `git remote add origin "${repoUrl}"`);
+                remoteUrl = repoUrl;
+            }
+        }
+
+        if (!remoteUrl) {
+            throw new Error('No remote configured. Add a remote first: git remote add origin <url>');
+        }
+    }
+
+    let authenticatedUrl = remoteUrl;
+    let needsRestore = false;
+
+    // If GitHub URL and we have a token, inject it
+    if (token && remoteUrl.includes('github.com') && !remoteUrl.includes('@')) {
+        // Convert https://github.com/user/repo.git to https://TOKEN@github.com/user/repo.git
+        authenticatedUrl = remoteUrl.replace('https://github.com/', `https://${token}@github.com/`);
+
+        // Temporarily set authenticated URL
+        await orch.exec(projectId, `git remote set-url origin "${authenticatedUrl}"`);
+        needsRestore = true;
+        console.log(`   🔑 [Git] Configured credentials for ${remoteUrl.split('/').slice(-2).join('/')}`);
+    }
+
+    try {
+        // Run the actual git operation
+        const result = await operation();
+        return result;
+    } finally {
+        // Always restore original URL (without token) for security
+        if (needsRestore) {
+            await orch.exec(projectId, `git remote set-url origin "${remoteUrl}"`);
+            console.log(`   🔒 [Git] Restored original remote URL`);
+        }
+    }
+}
+
+/**
+ * Extract token from Authorization header
+ */
+function extractToken(req) {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return authHeader.substring(7);
+    }
+    return null;
+}
 
 /**
  * POST /git/fetch/:projectId
@@ -105,11 +230,20 @@ router.get('/status/:projectId', asyncHandler(async (req, res) => {
 router.post('/fetch/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
     const wsName = cleanWorkspaceName(projectId);
+    const token = extractToken(req);
 
     console.log(`☁️  Git Fetch in cloud: ${wsName}`);
-    await executeGitCommand(projectId, 'fetch --all');
 
-    res.json({ success: true, message: 'Fetch completed' });
+    const result = await withGitCredentials(projectId, token, async () => {
+        return await executeGitCommand(projectId, 'fetch --all');
+    });
+
+    res.json({
+        success: result.exitCode === 0,
+        message: result.exitCode === 0 ? 'Fetch completed' : 'Fetch failed',
+        output: result.stdout,
+        error: result.stderr
+    });
 }));
 
 /**
@@ -119,14 +253,19 @@ router.post('/fetch/:projectId', asyncHandler(async (req, res) => {
 router.post('/pull/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
     const wsName = cleanWorkspaceName(projectId);
+    const token = extractToken(req);
 
     console.log(`☁️  Git Pull in cloud: ${wsName}`);
-    const result = await executeGitCommand(projectId, 'pull');
+
+    const result = await withGitCredentials(projectId, token, async () => {
+        return await executeGitCommand(projectId, 'pull');
+    });
 
     res.json({
-        success: true,
-        message: 'Pull completed',
-        output: result.stdout
+        success: result.exitCode === 0,
+        message: result.exitCode === 0 ? 'Pull completed' : 'Pull failed',
+        output: result.stdout,
+        error: result.stderr
     });
 }));
 
@@ -137,14 +276,19 @@ router.post('/pull/:projectId', asyncHandler(async (req, res) => {
 router.post('/push/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
     const wsName = cleanWorkspaceName(projectId);
+    const token = extractToken(req);
 
     console.log(`☁️  Git Push in cloud: ${wsName}`);
-    const result = await executeGitCommand(projectId, 'push');
+
+    const result = await withGitCredentials(projectId, token, async () => {
+        return await executeGitCommand(projectId, 'push');
+    });
 
     res.json({
-        success: true,
-        message: 'Push completed',
-        output: result.stdout
+        success: result.exitCode === 0,
+        message: result.exitCode === 0 ? 'Push completed' : 'Push failed',
+        output: result.stdout,
+        error: result.stderr
     });
 }));
 
@@ -171,9 +315,10 @@ router.post('/commit/:projectId', asyncHandler(async (req, res) => {
     const result = await executeGitCommand(projectId, `commit -m "${escapedMessage}"`);
 
     res.json({
-        success: true,
-        message: 'Commit created',
-        output: result.stdout
+        success: result.exitCode === 0,
+        message: result.exitCode === 0 ? 'Commit created' : 'Commit failed',
+        output: result.stdout,
+        error: result.stderr
     });
 }));
 

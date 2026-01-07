@@ -197,11 +197,32 @@ const tools = {
 
     /**
      * Write file contents
+     * Returns original content for undo support
      */
     async write_file({ filePath, content }, context) {
         const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
         const unescapedContent = unescapeString(content);
         const cleanFilePath = filePath.replace(/^\.\//, '');
+
+        // Read original content for undo support (if file exists)
+        let originalContent = null;
+        try {
+            if (isHolyGrail) {
+                const storage = getStorageService();
+                const result = await storage.readFile(projectId, cleanFilePath);
+                if (result.success) {
+                    originalContent = result.content;
+                }
+            } else if (isCloud) {
+                const fullPath = path.posix.join('/home/coder/project', cleanFilePath);
+                originalContent = await readRemoteFile(wsName, fullPath);
+            } else {
+                const fullPath = path.join(projectPath, cleanFilePath);
+                originalContent = await fs.readFile(fullPath, 'utf8');
+            }
+        } catch (e) {
+            // File doesn't exist yet, originalContent stays null
+        }
 
         if (isHolyGrail) {
             // Holy Grail: Write to storage + sync to VM if active
@@ -221,11 +242,23 @@ const tools = {
         clearCache(filePath);
 
         const lines = unescapedContent.split('\n').length;
-        return `✅ File ${filePath} written successfully (${lines} lines)`;
+
+        // Return structured result with undo data
+        // Format: message + JSON block for frontend parsing
+        const result = `✅ File ${filePath} written successfully (${lines} lines)`;
+        const undoData = JSON.stringify({
+            __undo: true,
+            filePath: cleanFilePath,
+            originalContent,
+            newContent: unescapedContent
+        });
+
+        return `${result}\n<!--UNDO:${undoData}-->`;
     },
 
     /**
      * Edit file with search/replace
+     * Returns original content for undo support
      */
     async edit_file({ filePath, oldText, newText }, context) {
         const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
@@ -288,7 +321,17 @@ const tools = {
             ...newLines.map(line => `+ ${line}`)
         ].join('\n');
 
-        return `Edit ${filePath}\n└─ Applied change\n${diffLines}`;
+        const result = `Edit ${filePath}\n└─ Applied change\n${diffLines}`;
+
+        // Return structured result with undo data
+        const undoData = JSON.stringify({
+            __undo: true,
+            filePath: cleanFilePath,
+            originalContent,
+            newContent
+        });
+
+        return `${result}\n<!--UNDO:${undoData}-->`;
     },
 
     /**

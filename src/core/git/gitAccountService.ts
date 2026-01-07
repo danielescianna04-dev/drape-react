@@ -117,6 +117,14 @@ const deobfuscateToken = (obfuscated: string, userId: string): string | null => 
   }
 };
 
+// Simple in-memory cache for getAllAccounts (prevents duplicate Firebase calls)
+const accountsCache: {
+  data: GitAccount[] | null;
+  userId: string | null;
+  timestamp: number;
+} = { data: null, userId: null, timestamp: 0 };
+const CACHE_TTL_MS = 30000; // 30 seconds
+
 export const gitAccountService = {
   getProviderConfig(provider: GitProvider): GitProviderConfig | undefined {
     return GIT_PROVIDERS.find(p => p.id === provider);
@@ -175,6 +183,7 @@ export const gitAccountService = {
       }
 
       console.log(`✅ ${provider} account saved:`, account.username);
+      this.invalidateAccountsCache(); // Clear cache so next getAllAccounts fetches fresh data
       return account;
     } catch (error) {
       console.error(`Error saving ${provider} account:`, error);
@@ -296,6 +305,17 @@ export const gitAccountService = {
 
   // Get all accounts for this user only (no shared accounts)
   async getAllAccounts(userId: string): Promise<GitAccount[]> {
+    // Check cache first (prevents duplicate Firebase calls on rapid open/close)
+    const now = Date.now();
+    if (
+      accountsCache.data !== null &&
+      accountsCache.userId === userId &&
+      now - accountsCache.timestamp < CACHE_TTL_MS
+    ) {
+      console.log(`📥 [Cache] Using cached ${accountsCache.data.length} git accounts (${now - accountsCache.timestamp}ms old)`);
+      return accountsCache.data;
+    }
+
     try {
       // Try to get from Firebase first (user-specific)
       const firebaseAccounts: GitAccount[] = [];
@@ -336,15 +356,30 @@ export const gitAccountService = {
         }
       }
 
-      console.log(`📥 [Merged] Total ${mergedAccounts.length} git accounts`);
-      return mergedAccounts.sort(
+      const result = mergedAccounts.sort(
         (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
       );
+
+      // Update cache
+      accountsCache.data = result;
+      accountsCache.userId = userId;
+      accountsCache.timestamp = now;
+      console.log(`📥 [Merged] Total ${result.length} git accounts (cached)`);
+
+      return result;
     } catch (error) {
       console.error('Error getting all accounts:', error);
       // Fallback to local accounts only
       return this.getAccounts(userId);
     }
+  },
+
+  // Invalidate cache (call after adding/removing accounts)
+  invalidateAccountsCache() {
+    accountsCache.data = null;
+    accountsCache.userId = null;
+    accountsCache.timestamp = 0;
+    console.log('🗑️ [Cache] Accounts cache invalidated');
   },
 
   async getAccountsByProvider(userId: string, provider: GitProvider): Promise<GitAccount[]> {
@@ -459,6 +494,7 @@ export const gitAccountService = {
       }
 
       console.log(`✅ Account deleted: ${account.provider}/${account.username}`);
+      this.invalidateAccountsCache(); // Clear cache so next getAllAccounts fetches fresh data
     } catch (error) {
       console.error('Error deleting account:', error);
       throw error;

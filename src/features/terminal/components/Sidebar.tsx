@@ -223,34 +223,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         // Continue anyway - let FileExplorer handle the error
       }
 
-      // ✅ Clone repository in background so files are available
-      console.log('📂 Triggering clone for project files...');
-      try {
-        // 🚀 HOLY GRAIL: Use Fly.io project create endpoint
-        const cloneEndpoint = USE_HOLY_GRAIL
-          ? `${apiUrl}/fly/project/create`
-          : `${apiUrl}/preview/clone`;
-
-        fetch(cloneEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            // Holy Grail uses projectId, Legacy uses workstationId
-            projectId: USE_HOLY_GRAIL ? ws.id : undefined,
-            workstationId: USE_HOLY_GRAIL ? undefined : ws.id,
-            repositoryUrl: repoUrl,
-            githubToken: savedToken,
-          }),
-        }).then(res => res.json()).then(result => {
-          if (result.success) {
-            console.log(`✅ Repository cloned via ${USE_HOLY_GRAIL ? 'Holy Grail' : 'Legacy'}`);
-          } else {
-            console.warn('⚠️ Clone result:', result.message || result.error);
-          }
-        }).catch(e => console.warn('Clone background error:', e.message));
-      } catch (e) {
-        console.warn('Failed to trigger clone:', e);
-      }
+      // VM warmup is now handled in ProjectsHomeScreen.handleProjectOpen
     }
 
     // Auth OK or not a git project - open it

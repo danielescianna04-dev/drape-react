@@ -68,8 +68,11 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     }
   }, [searchQuery, searchMode, projectId, repositoryUrl]);
 
-  const loadFiles = async (forceRefresh = false) => {
+  const loadFiles = async (forceRefresh = false, retryCount = 0) => {
     try {
+      // Backend handles VM startup automatically via getOrCreateVM()
+      // No need to wait here - just call the API
+
       // 1. Get Cached Files (Stale allowed)
       const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
       const isCacheValid = useFileCacheStore.getState().isCacheValid(projectId);
@@ -132,6 +135,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         onAuthRequired(repositoryUrl);
         setError('Repository privata - richiesta autenticazione');
       } else {
+        // If no cache and retries left, retry after a delay (VM might still be starting)
+        const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
+        if (!cachedFiles && retryCount < 3) {
+          console.log(`🔄 [FileExplorer] Retry ${retryCount + 1}/3 in 2s...`);
+          setTimeout(() => loadFiles(false, retryCount + 1), 2000);
+          return;
+        }
         setError(err.message || 'Failed to load files');
       }
     } finally {

@@ -247,6 +247,42 @@ router.post('/project/:id/exec', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /fly/clone
+ * Quick VM warmup - ensures VM is running and files are synced
+ * Called when project is opened (before preview start)
+ */
+router.post('/clone', asyncHandler(async (req, res) => {
+    const { workstationId, repositoryUrl, githubToken } = req.body;
+    const projectId = workstationId;
+
+    console.log(`\n🔥 [Fly] Quick clone/warmup for: ${projectId}`);
+    if (repositoryUrl) console.log(`   📎 Repo: ${repositoryUrl}`);
+
+    if (!projectId) {
+        return res.status(400).json({ error: 'workstationId is required' });
+    }
+
+    try {
+        // Save repo URL so ensureGitRepo can find it (fixes "No repo URL" error)
+        if (repositoryUrl) {
+            await storageService.saveProjectMetadata(projectId, { repositoryUrl });
+        }
+
+        // Get or create VM (includes file sync + git setup)
+        const vm = await orchestrator.getOrCreateVM(projectId);
+        console.log(`   ✅ VM ready: ${vm.machineId}`);
+
+        res.json({
+            success: true,
+            machineId: vm.machineId
+        });
+    } catch (error) {
+        console.error(`❌ [Fly] Clone warmup failed:`, error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+}));
+
+/**
  * POST /fly/preview/start
  * Start the preview/dev server for a project
  */
@@ -416,17 +452,16 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         const elapsed = Date.now() - startTime;
         console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
 
-        // Use local backend as proxy for preview (enables proper cookie-based routing)
-        const { getLocalIP } = require('../utils/helpers');
-        const LOCAL_IP = getLocalIP();
-        const PORT = process.env.PORT || 3000;
-        const localPreviewUrl = `http://${LOCAL_IP}:${PORT}/`;
+        // Use Fly.io agent URL directly for preview (agent proxies to dev server on port 3000)
+        // The agent handles: API routes (/health, /exec, etc.) + proxies all other routes to dev server
+        const flyPreviewUrl = result.agentUrl;
 
         // Send final result
         console.log(`   [4/5] Ready!`);
+        console.log(`   Preview URL: ${flyPreviewUrl}`);
         sendStep('ready', 'Preview pronta!', {
             success: true,
-            previewUrl: localPreviewUrl,
+            previewUrl: flyPreviewUrl,
             coderToken: CODER_SESSION_TOKEN,
             agentUrl: result.agentUrl,
             machineId: result.machineId,
@@ -631,12 +666,16 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
 
     // Proxy the SSE stream from the agent
+    // Use HTTPS for Fly.io URLs (they proxy to the agent internally)
+    const https = require('https');
     const http = require('http');
     const agentUrl = new URL(vm.agentUrl);
+    const isHttps = agentUrl.protocol === 'https:';
+    const transport = isHttps ? https : http;
 
-    const proxyReq = http.request({
+    const proxyReq = transport.request({
         hostname: agentUrl.hostname,
-        port: agentUrl.port || 13338,
+        port: isHttps ? 443 : (agentUrl.port || 13338),
         path: `/logs?since=${since}`,
         method: 'GET',
         headers: {

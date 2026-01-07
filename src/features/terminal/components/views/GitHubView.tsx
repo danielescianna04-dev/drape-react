@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -65,6 +65,7 @@ export const GitHubView = ({ tab }: Props) => {
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [commitMessage, setCommitMessage] = useState('');
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -208,93 +209,81 @@ export const GitHubView = ({ tab }: Props) => {
 
     setGitLoading(true);
     try {
-      // First try to get local git data from backend
+      // Get local git data from backend (fast!)
       const response = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
       const data = await response.json();
 
-      if (data.isGitRepo) {
+      console.log('[GitHubView] Backend git data:', data);
+
+      // Set local data immediately
+      if (data.success) {
         setIsGitRepo(true);
-        setBranches(data.branches || []);
+        setBranches(data.branches || [{ name: data.currentBranch || 'main', isCurrent: true, isRemote: false }]);
         setGitStatus(data.status || null);
         setCurrentBranch(data.currentBranch || 'main');
-      }
 
-      // Also fetch commits from GitHub API if we have a repository URL
-      const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
-      if (repoUrl && repoUrl.includes('github.com')) {
-        try {
-          // Get token for this repo
-          const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
-          const token = tokenResult?.token;
-
-          // Fetch commits from GitHub
-          const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 50);
-
-          // Transform to our GitCommit format
-          const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
-            hash: c.sha,
-            shortHash: c.sha.substring(0, 7),
+        // Set local commits (backend now returns full format)
+        if (data.commits && data.commits.length > 0) {
+          // Transform backend commits to ensure all fields exist
+          const localCommits: GitCommit[] = data.commits.map((c: any) => ({
+            hash: c.hash,
+            shortHash: c.shortHash || c.hash?.substring(0, 7),
             message: c.message,
-            author: c.author.name,
-            authorEmail: c.author.email,
-            authorAvatar: c.author.avatar_url,
-            authorLogin: c.author.login,
-            date: c.author.date,
-            isHead: index === 0,
-            branch: index === 0 ? currentBranch : undefined,
+            author: c.author || 'Unknown',
+            authorEmail: c.authorEmail || '',
+            authorAvatar: c.authorAvatar,
+            authorLogin: c.authorLogin,
+            date: c.date ? new Date(c.date) : new Date(),
+            isHead: c.isHead || false,
+            branch: c.branch,
             url: c.url,
           }));
-
-          setCommits(transformedCommits);
-          setIsGitRepo(true);
-        } catch (githubError) {
-          console.error('Error fetching GitHub commits:', githubError);
-          // Use local commits if GitHub fails
-          if (data.commits) {
-            setCommits(data.commits);
-          }
+          setCommits(localCommits);
         }
-      } else if (data.commits) {
-        setCommits(data.commits);
-      }
-    } catch (error) {
-      console.error('Error loading git data:', error);
-      // If endpoint doesn't exist, try GitHub API directly
-      const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-      if (repoUrl && repoUrl.includes('github.com')) {
-        try {
-          const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
-          const token = tokenResult?.token;
-          const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 50);
 
-          const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
-            hash: c.sha,
-            shortHash: c.sha.substring(0, 7),
-            message: c.message,
-            author: c.author.name,
-            authorEmail: c.author.email,
-            authorAvatar: c.author.avatar_url,
-            authorLogin: c.author.login,
-            date: c.author.date,
-            isHead: index === 0,
-            branch: index === 0 ? 'main' : undefined,
-            url: c.url,
-          }));
+        // Done loading! Show data immediately
+        setGitLoading(false);
 
-          setCommits(transformedCommits);
-          setIsGitRepo(true);
-          setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
-        } catch (githubError) {
-          console.error('Error fetching GitHub commits:', githubError);
-          setIsGitRepo(true);
-          setCommits([]);
+        // Optionally enhance with GitHub API in background (non-blocking)
+        const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
+        if (repoUrl && repoUrl.includes('github.com')) {
+          // Run in background - don't await
+          (async () => {
+            try {
+              const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
+              const token = tokenResult?.token;
+              const githubCommits = await githubService.fetchCommits(repoUrl, token, 1, 30);
+
+              // Transform and update commits with GitHub data (avatars, URLs)
+              const transformedCommits: GitCommit[] = githubCommits.map((c, index) => ({
+                hash: c.sha,
+                shortHash: c.sha.substring(0, 7),
+                message: c.message,
+                author: c.author.name,
+                authorEmail: c.author.email,
+                authorAvatar: c.author.avatar_url,
+                authorLogin: c.author.login,
+                date: c.author.date,
+                isHead: index === 0,
+                branch: index === 0 ? data.currentBranch || 'main' : undefined,
+                url: c.url,
+              }));
+
+              setCommits(transformedCommits);
+            } catch (githubError) {
+              // Silently fail - we already have local data
+              console.log('[GitHubView] GitHub enhancement failed, using local data');
+            }
+          })();
         }
       } else {
-        setIsGitRepo(true);
-        setCommits([]);
-        setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
+        setGitLoading(false);
       }
-    } finally {
+    } catch (error) {
+      console.error('[GitHubView] Error loading git data:', error);
+      setIsGitRepo(true);
+      setCommits([]);
+      setBranches([{ name: 'main', isCurrent: true, isRemote: false, ahead: 0, behind: 0 }]);
       setGitLoading(false);
     }
   };
@@ -341,6 +330,44 @@ export const GitHubView = ({ tab }: Props) => {
     } catch (error) {
       console.error(`Git ${action} error:`, error);
       Alert.alert('Errore', `Impossibile eseguire ${action}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Handle commit
+  const handleCommit = async () => {
+    if (!currentWorkstation?.id) {
+      Alert.alert('Errore', 'Nessun progetto aperto');
+      return;
+    }
+
+    if (!commitMessage.trim()) {
+      Alert.alert('Errore', 'Inserisci un messaggio di commit');
+      return;
+    }
+
+    setActionLoading('commit');
+    try {
+      const response = await fetch(`${config.apiUrl}/git/commit/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: commitMessage.trim() }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        Alert.alert('Successo', 'Commit creato con successo');
+        setCommitMessage('');
+        await loadGitData();
+      } else {
+        Alert.alert('Errore', result.message || 'Errore durante il commit');
+      }
+    } catch (error) {
+      console.error('Git commit error:', error);
+      Alert.alert('Errore', 'Impossibile creare il commit');
     } finally {
       setActionLoading(null);
     }
@@ -718,8 +745,45 @@ export const GitHubView = ({ tab }: Props) => {
   );
 
   // Changes (staged/unstaged)
+  const hasChanges = gitStatus && (gitStatus.staged.length > 0 || gitStatus.modified.length > 0 || gitStatus.untracked.length > 0);
+
   const renderChanges = () => (
     <View style={styles.section}>
+      {/* Commit Section - show when there are changes */}
+      {hasChanges && (
+        <View style={styles.commitSection}>
+          <Text style={styles.sectionTitle}>Crea Commit</Text>
+          <View style={styles.commitInputContainer}>
+            <TextInput
+              style={styles.commitInput}
+              placeholder="Messaggio di commit..."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={commitMessage}
+              onChangeText={setCommitMessage}
+              multiline
+              numberOfLines={2}
+            />
+            <TouchableOpacity
+              style={[
+                styles.commitButton,
+                (!commitMessage.trim() || actionLoading === 'commit') && styles.commitButtonDisabled
+              ]}
+              onPress={handleCommit}
+              disabled={!commitMessage.trim() || actionLoading === 'commit'}
+            >
+              {actionLoading === 'commit' ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="git-commit" size={16} color="#fff" />
+                  <Text style={styles.commitButtonText}>Commit</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {gitStatus ? (
         <>
           {gitStatus.staged.length > 0 && (
@@ -1316,6 +1380,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#FF6B6B',
+  },
+  // Commit section
+  commitSection: {
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  commitInputContainer: {
+    gap: 10,
+  },
+  commitInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    padding: 12,
+    color: '#fff',
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  commitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  commitButtonDisabled: {
+    backgroundColor: 'rgba(139, 124, 246, 0.3)',
+    opacity: 0.6,
+  },
+  commitButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   // File row
   fileRow: {

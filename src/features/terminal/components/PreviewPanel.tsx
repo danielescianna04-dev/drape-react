@@ -106,10 +106,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
   const [isSavingEnv, setIsSavingEnv] = useState(false);
   // Initialize from global store if available, otherwise use prop
-  // When restoring session (machineId exists but no globalServerUrl), use apiUrl instead of default previewUrl
+  // For Holy Grail: previewUrl comes from SSE (Fly.io agent URL), NOT from apiUrl (backend)
   const getInitialPreviewUrl = () => {
+    // Use global server URL if we have one from previous session
     if (globalServerUrl) return globalServerUrl;
-    if (globalFlyMachineId && apiUrl && !apiUrl.includes('localhost:3001')) return apiUrl;
+    // Otherwise use default - actual Fly.io URL comes from SSE stream
     return previewUrl;
   };
   const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(getInitialPreviewUrl());
@@ -452,12 +453,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     }
   }, [currentWorkstation]);
 
-  // Update preview URL when project type is detected
-  // IMPORTANT: Only update if server is not already running (to avoid overwriting the actual running port)
-  // And ONLY for local projects (no coderToken)
+  // DISABLED for Holy Grail architecture - preview URL comes from SSE stream
+  // The Fly.io agent URL (https://drape-workspaces.fly.dev) proxies to the dev server
+  // DO NOT set preview URL based on local IP + port - that's for local-only mode
+  /*
   useEffect(() => {
     if (projectInfo && projectInfo.defaultPort && apiUrl && serverStatus === 'stopped' && !coderToken) {
-      // Extract the host from apiUrl (e.g., "http://192.168.1.10:3000" -> "192.168.1.10")
       const urlMatch = apiUrl.match(/https?:\/\/([^:\/]+)/);
       if (urlMatch) {
         const host = urlMatch[1];
@@ -467,6 +468,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       }
     }
   }, [projectInfo, apiUrl, serverStatus]);
+  */
 
   // Fallback: Force WebView ready logic DISABLED to prevent showing errors
   /*
@@ -1051,7 +1053,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       innerHTML: selectedElement.innerHTML || ''
     } : null;
 
-    console.log('🔍 Sending inspect request:', { userMessage, elementData });
+    console.log('🔍 [PreviewPanel] Sending inspect request:', { userMessage, elementData, projectId: currentWorkstation.id });
+    console.log('🔍 [PreviewPanel] API URL:', apiUrl);
 
     // Clear input immediately for better UX
     setMessage('');
@@ -1081,6 +1084,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         xhr.open('POST', inspectEndpoint);
         xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.timeout = 60000; // 60 second timeout
 
         // Multi-user context
         const state = useTerminalStore.getState();
@@ -2111,17 +2115,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     aiScrollViewRef.current?.scrollToEnd({ animated: true });
                   }}
                 >
-                  {isAiLoading && aiMessages.length === 0 ? (
-                    <View style={styles.aiMessageRow}>
-                      <View style={styles.aiThreadContainer}>
-                        <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                      </View>
-                      <View style={styles.aiMessageContent}>
-                        <Text style={styles.aiThinkingText}>Thinking...</Text>
-                      </View>
-                    </View>
-                  ) : (
-                    aiMessages.map((msg, index) => {
+                  {/* Render all messages */}
+                  {aiMessages.map((msg, index) => {
                       if (msg.type === 'user') {
                         return (
                           <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
@@ -2197,7 +2192,17 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           </View>
                         );
                       }
-                    })
+                    })}
+                  {/* Show "Thinking..." only when loading AND no AI responses yet */}
+                  {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
+                    <View style={styles.aiMessageRow}>
+                      <View style={styles.aiThreadContainer}>
+                        <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                      </View>
+                      <View style={styles.aiMessageContent}>
+                        <Text style={styles.aiThinkingText}>Thinking...</Text>
+                      </View>
+                    </View>
                   )}
                 </ScrollView>
               )}

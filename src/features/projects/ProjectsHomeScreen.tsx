@@ -12,6 +12,8 @@ import { useAuthStore } from '../../core/auth/authStore';
 import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import axios from 'axios';
+import { config } from '../../config/config';
+import { gitAccountService } from '../../core/git/gitAccountService';
 
 interface Props {
   onCreateProject: () => void;
@@ -25,7 +27,14 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings }: Props) => {
   const { user } = useAuthStore();
-  const { gitHubUser } = useTerminalStore();
+  const { gitHubUser, loadWorkstations } = useTerminalStore();
+
+  // Debug: log when component mounts
+  useEffect(() => {
+    const cached = useTerminalStore.getState().workstations;
+    console.log('🏠 [Home] Component MOUNTED - cached workstations:', cached.length);
+    return () => console.log('🏠 [Home] Component UNMOUNTED');
+  }, []);
 
   const currentHour = new Date().getHours();
   const greeting = (currentHour >= 5 && currentHour < 18) ? 'Buongiorno' : 'Buonasera';
@@ -49,7 +58,29 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   // Reload projects when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      loadRecentProjects();
+      // Leggi dallo store al momento dell'esecuzione (non dalla closure)
+      const cachedData = useTerminalStore.getState().workstations;
+      const hasCachedData = cachedData.length > 0;
+      console.log('🏠 [Home] useFocusEffect triggered - hasCachedData:', hasCachedData);
+
+      // Se abbiamo già dati in cache, usali subito e aggiorna in background
+      if (hasCachedData) {
+        // Mostra subito i dati dalla cache
+        const sorted = [...cachedData]
+          .sort((a, b) => {
+            const dateA = a.lastOpened ? new Date(a.lastOpened).getTime() : new Date(a.createdAt).getTime();
+            const dateB = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
+            return dateB - dateA;
+          })
+          .slice(0, 10);
+        setRecentProjects(sorted);
+        setLoading(false);
+        console.log('🏠 [Home] Using cached data - refreshing in background');
+        loadRecentProjects(true); // silent refresh
+      } else {
+        console.log('🏠 [Home] No cache - showing skeleton');
+        loadRecentProjects(false);
+      }
     }, [])
   );
 
@@ -70,9 +101,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     ).start();
   }, []);
 
-  const loadRecentProjects = async () => {
+  const loadRecentProjects = async (silent = false) => {
+    const startTime = Date.now();
+    console.log(`🏠 [Home] loadRecentProjects START (silent=${silent})`);
+
+    // Solo mostra skeleton se non è silent e non abbiamo già dati
+    if (!silent && recentProjects.length === 0) {
+      setLoading(true);
+    }
+
     try {
       const workstations = await workstationService.getWorkstations();
+      console.log(`⏱️ [Home] getWorkstations took ${Date.now() - startTime}ms, found ${workstations.length} projects`);
+
+      // Salva nello store globale per persistenza tra remount
+      loadWorkstations(workstations);
+
       const recent = workstations
         .sort((a, b) => {
           // Sort by lastOpened first, fallback to createdAt
@@ -82,8 +126,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         })
         .slice(0, 10);
       setRecentProjects(recent);
+      console.log(`✅ [Home] loadRecentProjects DONE in ${Date.now() - startTime}ms`);
     } catch (error) {
-      console.error('Error loading recent projects:', error);
+      console.error('❌ [Home] Error loading recent projects:', error);
     } finally {
       setLoading(false);
     }
@@ -158,6 +203,44 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       console.log('🔄 [Home] Switching project - resetting preview state');
       setFlyMachineId(null);
       setPreviewServerUrl(null);
+    }
+
+    // 🚀 Start VM warmup IMMEDIATELY (fire and forget)
+    // Uses /fly/clone which actually boots the VM (not just saves files)
+    const repoUrl = project.repositoryUrl || project.githubUrl;
+    if (repoUrl) {
+      console.log('🔥 [Home] Starting VM warmup for:', project.id);
+
+      // Get token in background
+      const userId = useTerminalStore.getState().userId || 'anonymous';
+      gitAccountService.getTokenForRepo(userId, repoUrl).then(tokenData => {
+        const token = tokenData?.token || null;
+
+        // Fire and forget - start VM via /fly/clone (boots VM + syncs files + sets up git)
+        fetch(`${config.apiUrl}/fly/clone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workstationId: project.id,
+            repositoryUrl: repoUrl,
+            githubToken: token,
+          }),
+        }).then(res => res.json()).then(result => {
+          if (result.success) {
+            console.log('✅ [Home] VM warmup complete - VM is ready!');
+          }
+        }).catch(e => console.warn('VM warmup error:', e.message));
+      }).catch(() => {
+        // No token - try anyway
+        fetch(`${config.apiUrl}/fly/clone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workstationId: project.id,
+            repositoryUrl: repoUrl,
+          }),
+        }).catch(e => console.warn('VM warmup error:', e.message));
+      });
     }
 
     // Update lastAccessed in background (don't wait)

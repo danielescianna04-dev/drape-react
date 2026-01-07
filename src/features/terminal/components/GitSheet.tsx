@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useGitCacheStore } from '../../../core/cache/gitCacheStore';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { config } from '../../../config/config';
 import { AddGitAccountModal } from '../../settings/components/AddGitAccountModal';
@@ -77,20 +78,46 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
   const userId = useTerminalStore.getState().userId || 'anonymous';
 
-  useEffect(() => {
-    if (visible) {
-      // Sequence: Load accounts -> Then load Git data (once accounts are checked)
-      loadAccountInfo().then(() => {
-        setAccountsLoaded(true);
-      });
-    }
-  }, [visible, currentWorkstation?.id]);
+  // Use refs to store accounts and loading state (avoids async state issues)
+  const accountsRef = useRef<GitAccount[]>([]);
+  const isLoadingRef = useRef(false);
+  const hasStartedRef = useRef(false); // Prevent double-start from React StrictMode
 
   useEffect(() => {
-    if (visible && accountsLoaded) {
-      loadGitData();
+    if (visible && currentWorkstation?.id) {
+      // Prevent double-start from React StrictMode or rapid prop changes
+      if (hasStartedRef.current) {
+        console.log('⚠️ [GitSheet] Already started loading, skipping');
+        return;
+      }
+      hasStartedRef.current = true;
+
+      console.log('🟡 [GitSheet] Starting account load...');
+      setGitLoading(true);
+
+      const timeoutId = setTimeout(() => {
+        const cachedCount = accountsRef.current.length;
+        console.warn(`⏰ [GitSheet] loadAccountInfo timeout (10s) - using ${cachedCount} cached accounts`);
+        // Use cached accounts from ref (from previous successful load) instead of empty array
+        loadGitData(accountsRef.current);
+      }, 10000);
+
+      loadAccountInfo().then((accounts) => {
+        console.log('✅ [GitSheet] loadAccountInfo resolved - calling loadGitData directly');
+        clearTimeout(timeoutId);
+        loadGitData(accounts || []);
+      }).catch((err) => {
+        console.error('❌ [GitSheet] loadAccountInfo failed:', err);
+        clearTimeout(timeoutId);
+        loadGitData([]); // Still try with empty accounts
+      });
+    } else if (!visible) {
+      setGitLoading(false);
+      setAccountsLoaded(false);
+      isLoadingRef.current = false; // Reset guard when closed
+      hasStartedRef.current = false; // Reset so next open triggers load
     }
-  }, [visible, accountsLoaded, linkedAccount, currentWorkstation?.id]);
+  }, [visible, currentWorkstation?.id]);
 
   const expandToTab = useCallback(() => {
     onClose();
@@ -108,10 +135,14 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   }, [onClose, tabs, setActiveTab, addTab]);
 
-  const loadAccountInfo = async () => {
+  const loadAccountInfo = async (): Promise<GitAccount[]> => {
+    console.log('🔶 [GitSheet] loadAccountInfo START');
+    const startTime = Date.now();
     try {
       const accounts = await gitAccountService.getAllAccounts(userId);
+      console.log(`⏱️ [GitSheet] getAllAccounts took ${Date.now() - startTime}ms`);
       setGitAccounts(accounts);
+      accountsRef.current = accounts; // Store in ref for immediate access
 
       const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
       if (repoUrl) {
@@ -121,7 +152,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           if (linked) {
             setLinkedAccount(linked);
             setLoading(false);
-            return;
+            return accounts;
           }
         }
 
@@ -130,84 +161,71 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           setLinkedAccount(defaultAccount);
         }
       }
+      return accounts;
     } catch (error) {
       console.error('Error loading git accounts:', error);
+      return [];
     } finally {
+      console.log(`✅ [GitSheet] loadAccountInfo DONE in ${Date.now() - startTime}ms`);
       setLoading(false);
     }
   };
 
-  const loadGitData = async () => {
+  const loadGitData = async (passedAccounts?: GitAccount[]) => {
     if (!currentWorkstation?.id) return;
 
+    // Prevent multiple simultaneous calls
+    if (isLoadingRef.current) {
+      console.log('⚠️ [GitSheet] loadGitData already running, skipping');
+      return;
+    }
+    isLoadingRef.current = true;
+
+    const totalStart = Date.now();
+    console.log('🔄 [GitSheet] loadGitData START');
     setGitLoading(true);
     setErrorMsg(null);
 
+    const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+    let localCurrentBranch = 'main';
+
     try {
-      // 1. Fetch Local Data (Primary Source)
-      // This ensures we always have something to show, even if GitHub API fails
-      console.log('📦 Loading Local Git Data...');
-      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
-      const localData = await localResponse.json();
+      // STRATEGY: GitHub API first (fast), backend second (slow, needs VM)
+      // This gives instant feedback to user
 
-      let finalCommits: GitCommit[] = [];
-      let finalBranches: GitBranch[] = [];
-      let finalGitStatus: GitStatus | null = null;
-      let finalCurrentBranch = 'main';
-      let isGithubConnected = false;
-
-      if (localData.isGitRepo) {
-        setIsGitRepo(true);
-        finalBranches = localData.branches || [];
-        finalGitStatus = localData.status || null;
-        finalCurrentBranch = localData.currentBranch || 'main';
-
-        if (localData.commits) {
-          finalCommits = localData.commits;
-        }
-      }
-
-      // 2. Fetch GitHub Data (Secondary Source - for avatars/enrichment)
-      const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
-
+      // 1. Try GitHub API FIRST (fast! ~500ms)
       if (repoUrl && repoUrl.includes('github.com')) {
-        try {
-          console.log('🌐 Attempting to fetch from GitHub...', repoUrl);
-          // Robust regex to capture owner and repo
-          const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
 
-          if (match) {
-            const [, owner, repo] = match;
-            console.log('🎯 GitHub Target:', owner, '/', repo);
+        if (match) {
+          const [, owner, repo] = match;
+          console.log(`🚀 [GitSheet] Fast path: GitHub API for ${owner}/${repo}`);
 
-            // Get token
+          try {
+            // Get token - use passed accounts or ref to avoid Firebase call
+            const tokenStart = Date.now();
             let token: string | null = null;
-
-            // First check linked account
-            if (linkedAccount) {
-              token = await gitAccountService.getToken(linkedAccount, userId);
+            const accounts = passedAccounts || accountsRef.current;
+            const githubAccount = accounts.find(a => a.provider === 'github');
+            if (githubAccount) {
+              token = await gitAccountService.getToken(githubAccount, userId);
             }
+            console.log(`⏱️ [GitSheet] Token fetch: ${Date.now() - tokenStart}ms (accounts passed: ${!!passedAccounts}, count: ${accounts.length})`);
 
-            // If no token from linked account, try to find ANY github account
-            if (!token) {
-              const validAccount = gitAccounts.find(a => a.provider === 'github');
-              if (validAccount) {
-                console.log('🔑 Using fallback GitHub account:', validAccount.username);
-                token = await gitAccountService.getToken(validAccount, userId);
-              }
-            }
-
-            // Fetch from GitHub
-            // We fetch from GitHub to get the authoritative remote history and branches
+            // Fetch from GitHub API (FAST!)
+            const apiStart = Date.now();
             const [commitsData, branchesData] = await Promise.all([
               githubService.getCommits(owner, repo, token || undefined),
               githubService.getBranches(owner, repo, token || undefined)
             ]);
+            console.log(`⏱️ [GitSheet] GitHub API fetch: ${Date.now() - apiStart}ms`);
 
             if (commitsData && commitsData.length > 0) {
-              console.log(`✅ Fetched ${commitsData.length} commits from GitHub`);
+              console.log(`✅ [GitSheet] GitHub API: ${commitsData.length} commits in ${Date.now() - totalStart}ms TOTAL`);
 
-              // Transform GitHub commits
+              // Determine current branch from GitHub default
+              localCurrentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
+
               const githubCommits: GitCommit[] = commitsData.map((c: GitHubCommit, index: number) => ({
                 hash: c.sha,
                 shortHash: c.sha.substring(0, 7),
@@ -218,60 +236,90 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 authorLogin: c.author.login,
                 date: new Date(c.author.date),
                 isHead: index === 0,
-                branch: index === 0 ? finalCurrentBranch : undefined,
+                branch: index === 0 ? localCurrentBranch : undefined,
                 url: c.url,
               }));
 
-              // OVERWRITE local commits with GitHub ones as requested
-              finalCommits = githubCommits;
-              isGithubConnected = true;
+              setCommits(githubCommits);
+              setCurrentBranch(localCurrentBranch);
+              setIsGitRepo(true);
+
+              if (branchesData && branchesData.length > 0) {
+                const githubBranches: GitBranch[] = branchesData.map((b: any) => ({
+                  name: b.name,
+                  isCurrent: b.name === localCurrentBranch,
+                  isRemote: true,
+                }));
+                setBranches(githubBranches);
+              }
+
+              // Cache it
+              useGitCacheStore.getState().setGitData(currentWorkstation.id, {
+                commits: githubCommits.map(c => ({ ...c, date: c.date.toISOString() })),
+                branches: branchesData?.map((b: any) => ({ name: b.name, isCurrent: b.name === localCurrentBranch, isRemote: true })) || [],
+                status: null,
+                currentBranch: localCurrentBranch,
+                isGitRepo: true
+              });
+
+              // STOP LOADING - user sees commits instantly!
+              console.log(`✅ [GitSheet] setGitLoading(false) - TOTAL TIME: ${Date.now() - totalStart}ms`);
+              setGitLoading(false);
+
+              // 2. Fetch status from backend IN BACKGROUND (for Changes tab)
+              // Don't await - this can be slow
+              fetchBackendStatus(localCurrentBranch);
+              return; // Early exit - we have data!
             }
-
-            if (branchesData && branchesData.length > 0) {
-              console.log(`✅ Fetched ${branchesData.length} branches from GitHub`);
-              const githubBranches: GitBranch[] = branchesData.map((b: any) => ({
-                name: b.name,
-                isCurrent: b.name === finalCurrentBranch, // Best guess matching local current branch
-                isRemote: true,
-              }));
-
-              // If we have local branches, we should try to merge or list them separately?
-              // The UI separates them if they have `isRemote: true`
-              // Let's append them if they are not already in the list
-              const existingNames = new Set(finalBranches.map(b => b.name));
-              const newRemoteBranches = githubBranches.filter(b => !existingNames.has(b.name));
-
-              finalBranches = [...finalBranches, ...newRemoteBranches];
-            }
+          } catch (ghError: any) {
+            console.warn(`⚠️ [GitSheet] GitHub API failed after ${Date.now() - totalStart}ms:`, ghError.message);
           }
-        } catch (ghError: any) {
-          console.warn('⚠️ GitHub fetch failed (suppressed):', ghError.message);
-          // User requested "NEVER show GitHub errors".
-          // We silently failover to local data or empty state.
         }
       }
 
-      // Update state
-      if (finalCommits.length > 0) {
-        setCommits(finalCommits);
-      } else if (!localData.isGitRepo) {
-        // Only set error if it's strictly not a git repo, otherwise empty state is fine
-        // setErrorMsg('Nessuna repository Git trovata'); // Actually, even this might be annoying?
-        // Let's just let it show empty state if commits are 0
-      }
-
-      setBranches(finalBranches);
-      setGitStatus(finalGitStatus);
-      setCurrentBranch(finalCurrentBranch);
+      // FALLBACK: Backend (slow, needs VM boot)
+      console.log(`📦 [GitSheet] Slow path: Backend git status... (${Date.now() - totalStart}ms elapsed)`);
+      await fetchBackendStatus(localCurrentBranch);
 
     } catch (error) {
       console.error('Error loading git data:', error);
-      // Generic error only if catastrophic
       if (commits.length === 0) {
         setErrorMsg('Impossibile caricare i dati');
       }
     } finally {
+      console.log(`🏁 [GitSheet] loadGitData FINALLY - TOTAL: ${Date.now() - totalStart}ms`);
       setGitLoading(false);
+      isLoadingRef.current = false; // Reset guard
+    }
+  };
+
+  // Separate function for backend fetch (can run in background)
+  const fetchBackendStatus = async (currentBranchName: string) => {
+    if (!currentWorkstation?.id) return;
+
+    try {
+      console.log('📡 [GitSheet] Fetching backend status (for Changes)...');
+      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
+      const localData = await localResponse.json();
+
+      if (localData?.isGitRepo) {
+        // Update status for Changes tab
+        if (localData.status) {
+          setGitStatus(localData.status);
+          console.log('✅ [GitSheet] Backend status loaded (Changes ready)');
+        }
+
+        // Update cache with status
+        const cached = useGitCacheStore.getState().getGitData(currentWorkstation.id);
+        if (cached) {
+          useGitCacheStore.getState().setGitData(currentWorkstation.id, {
+            ...cached,
+            status: localData.status || null,
+          });
+        }
+      }
+    } catch (e: any) {
+      console.warn('⚠️ [GitSheet] Backend status failed:', e.message);
     }
   };
 
@@ -292,10 +340,12 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       // Get token properly
       const token = await gitAccountService.getToken(linkedAccount, userId);
 
-      const response = await fetch(`${config.apiUrl}/workstation/${currentWorkstation.id}/git/${action}`, {
+      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
       });
 
       if (response.ok) {
@@ -312,9 +362,12 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   };
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | string) => {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(dateObj.getTime())) return '';
+
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = now.getTime() - dateObj.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
@@ -322,7 +375,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (diffMins < 60) return `${diffMins}m fa`;
     if (diffHours < 24) return `${diffHours}h fa`;
     if (diffDays < 7) return `${diffDays}g fa`;
-    return date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+    return dateObj.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   };
 
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
@@ -429,6 +482,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             {gitLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={AppColors.primary} />
+                {errorMsg && (
+                  <Text style={styles.loadingText}>{errorMsg}</Text>
+                )}
               </View>
             ) : activeSection === 'commits' ? (
               <View style={styles.commitsList}>
@@ -520,10 +576,59 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : (
               <View style={styles.changesContainer}>
-                <View style={styles.emptyState}>
-                  <Ionicons name="checkmark-circle-outline" size={40} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.emptyStateText}>Nessuna modifica</Text>
-                </View>
+                {gitStatus && (gitStatus.modified.length > 0 || gitStatus.staged.length > 0 || gitStatus.untracked.length > 0 || gitStatus.deleted.length > 0) ? (
+                  <>
+                    {gitStatus.staged.length > 0 && (
+                      <View style={styles.changeSection}>
+                        <Text style={styles.changeSectionTitle}>Staged</Text>
+                        {gitStatus.staged.map((file) => (
+                          <View key={`staged-${file}`} style={styles.changeItem}>
+                            <Ionicons name="add-circle" size={14} color="#22c55e" />
+                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {gitStatus.modified.length > 0 && (
+                      <View style={styles.changeSection}>
+                        <Text style={styles.changeSectionTitle}>Modificati</Text>
+                        {gitStatus.modified.map((file) => (
+                          <View key={`mod-${file}`} style={styles.changeItem}>
+                            <Ionicons name="create-outline" size={14} color="#f59e0b" />
+                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {gitStatus.untracked.length > 0 && (
+                      <View style={styles.changeSection}>
+                        <Text style={styles.changeSectionTitle}>Non tracciati</Text>
+                        {gitStatus.untracked.map((file) => (
+                          <View key={`untracked-${file}`} style={styles.changeItem}>
+                            <Ionicons name="help-circle-outline" size={14} color="#8b5cf6" />
+                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {gitStatus.deleted.length > 0 && (
+                      <View style={styles.changeSection}>
+                        <Text style={styles.changeSectionTitle}>Eliminati</Text>
+                        {gitStatus.deleted.map((file) => (
+                          <View key={`del-${file}`} style={styles.changeItem}>
+                            <Ionicons name="trash-outline" size={14} color="#ef4444" />
+                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="checkmark-circle-outline" size={40} color="rgba(255,255,255,0.2)" />
+                    <Text style={styles.emptyStateText}>Nessuna modifica</Text>
+                  </View>
+                )}
               </View>
             )}
           </ScrollView>
@@ -684,6 +789,12 @@ const styles = StyleSheet.create({
   loadingContainer: {
     padding: 40,
     alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 4,
   },
   commitsList: {
     gap: 2,
@@ -820,7 +931,33 @@ const styles = StyleSheet.create({
   },
   changesContainer: {
     flex: 1,
-    paddingVertical: 30,
+    paddingVertical: 12,
+  },
+  changeSection: {
+    marginBottom: 16,
+  },
+  changeSectionTitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  changeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  changeFileName: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    flex: 1,
   },
   emptyState: {
     alignItems: 'center',

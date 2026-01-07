@@ -151,7 +151,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       // For now, always analyze to give fresh recommendation
 
       const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
-      const response = await fetch(`${apiUrl}/api/ai/recommend`, {
+      const response = await fetch(`${apiUrl}/ai/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: description.trim() }),
@@ -561,62 +561,56 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       {/* Content */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-        enabled={step !== 2}
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="on-drag"
       >
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollContent,
-            keyboardVisible && { paddingBottom: 120 }
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-        >
-          <View style={step === 1 ? {} : { display: 'none' }}>{renderStep1()}</View>
-          <View style={step === 2 ? {} : { display: 'none' }}>{renderStep2()}</View>
-          <View style={step === 3 ? {} : { display: 'none' }}>{renderStep3()}</View>
-          <View style={step === 4 ? {} : { display: 'none' }}>{renderStep4()}</View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {step === 1 && renderStep1()}
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
+        {step === 4 && renderStep4()}
+      </ScrollView>
 
-      {/* Bottom Button - Hidden when keyboard is visible */}
-      {!keyboardVisible && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
-            onPress={step === 4 ? handleCreate : handleNext}
-            disabled={!canProceed || isCreating}
-            activeOpacity={0.85}
+      {/* Bottom Button - Hidden visually when keyboard is visible to keep layout stable */}
+
+      {/* Bottom Button - Hidden visually when keyboard is visible to keep layout stable */}
+      <View style={[
+        styles.bottomBar,
+        keyboardVisible && { opacity: 0, pointerEvents: 'none' }
+      ]}>
+        <TouchableOpacity
+          style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
+          onPress={step === 4 ? handleCreate : handleNext}
+          disabled={!canProceed || isCreating}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={canProceed ? [AppColors.primary, '#9333EA'] : ['#1A1A26', '#1A1A26']}
+            style={styles.actionBtnGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
           >
-            <LinearGradient
-              colors={canProceed ? [AppColors.primary, '#9333EA'] : ['#1A1A26', '#1A1A26']}
-              style={styles.actionBtnGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-            >
-              {isCreating ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                    {step === 4 ? 'Crea Progetto' : 'Continua'}
-                  </Text>
-                  {canProceed && (
-                    <View style={styles.actionBtnIconBox}>
-                      <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
-                    </View>
-                  )}
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-      )}
+            {isCreating ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
+                  {step === 4 ? 'Crea Progetto' : 'Continua'}
+                </Text>
+                {canProceed && (
+                  <View style={styles.actionBtnIconBox}>
+                    <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
+                  </View>
+                )}
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
 
       <CreationProgressModal
         visible={isCreating}
@@ -624,7 +618,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         status={creationTask?.message || 'Preparing...'}
         step={creationTask?.step}
       />
-    </View>
+    </View >
   );
 };
 
