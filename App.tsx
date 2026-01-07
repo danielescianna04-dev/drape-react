@@ -889,37 +889,15 @@ export default function App() {
                       onOpenProject={async (workstation) => {
                         const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
-                        // For Git projects, check auth BEFORE navigating
-                        let authToken: string | null = null;
-                        if (githubUrl) {
-                          console.log('🔐 [onOpenProject-Home] Checking auth BEFORE navigation...');
-                          authToken = await checkAuthBeforeOpen(
-                            githubUrl,
-                            workstation.name,
-                            workstation.githubAccountUsername
-                          );
-
-                          // checkAuthBeforeOpen returns:
-                          // - token string: use this token
-                          // - empty string '': no token but proceed (public repo or will auth later)
-                          // - null: user cancelled auth (don't proceed)
-                          if (authToken === null) {
-                            console.log('🔐 [onOpenProject-Home] Auth cancelled, not navigating');
-                            return; // Don't navigate - user cancelled auth
-                          }
-                        }
-
-                        // Auth OK or not a git project - proceed with navigation
-                        console.log('✅ [onOpenProject-Home] Auth OK, navigating to terminal...');
-
                         // Check if we're switching to a DIFFERENT project
                         const currentWorkstation = useTerminalStore.getState().currentWorkstation;
                         const isSameProject = currentWorkstation?.id === workstation.id ||
                           currentWorkstation?.projectId === workstation.projectId;
 
-                        console.log('🔄 [onOpenProject-Home] isSameProject:', isSameProject,
-                          'current:', currentWorkstation?.id, 'new:', workstation.id);
+                        console.log('🚀 [onOpenProject-Home] Opening project:', workstation.name,
+                          'isSameProject:', isSameProject);
 
+                        // NAVIGATE IMMEDIATELY - auth/clone happens in background
                         // Only clear terminal items when switching to a DIFFERENT project
                         if (!isSameProject) {
                           // Clear global terminal log
@@ -957,20 +935,35 @@ export default function App() {
                           console.log('✅ [onOpenProject-Home] Same project - preserving chat messages');
                         }
 
+                        // INSTANT navigation - no blocking auth check
                         setWorkstation(workstation);
                         setCurrentScreen('terminal');
 
+                        // Background operations (auth check + clone sync)
                         setTimeout(async () => {
                           const { activeTabId, tabs } = useTabStore.getState();
                           const currentTab = tabs.find(t => t.id === activeTabId);
 
                           if (currentTab && githubUrl) {
+                            // Get auth token in background (non-blocking for UI)
+                            let authToken: string | null = null;
+                            try {
+                              authToken = await checkAuthBeforeOpen(
+                                githubUrl,
+                                workstation.name,
+                                workstation.githubAccountUsername
+                              );
+                              // If user cancelled auth popup, authToken will be null
+                              // We still continue - clone might work for public repos
+                            } catch (e) {
+                              console.warn('Auth check failed, continuing without token:', e);
+                            }
+
                             // Start clone status tracking
                             const repoName = githubUrl.split('/').pop()?.replace('.git', '') || 'repository';
                             useCloneStatusStore.getState().startClone(workstation.id, repoName);
 
-                            // ALWAYS trigger clone to ensure files are in Coder workspace
-                            // This is a background operation that doesn't block the UI
+                            // Trigger clone to ensure files are in Coder workspace
                             console.log('📂 [onOpenProject-Home] Triggering clone to sync files...');
                             fetch(`${config.apiUrl}/preview/clone`, {
                               method: 'POST',
@@ -995,19 +988,6 @@ export default function App() {
                               useCloneStatusStore.getState().failClone(workstation.id, e.message);
                             });
 
-                            // Show loaded message
-                            if (!isSameProject) {
-                              // Message removed as CloneWidget handles this now
-                              /*
-                              addTerminalItemToStore(currentTab.id, {
-                                id: `loaded-${Date.now()}`,
-                                type: 'system',
-                                content: `Progetto "${workstation.name}" caricato`,
-                                timestamp: new Date(),
-                              });
-                              */
-                            }
-
                             // If not marked as cloned, do the full clone with auth
                             if (!workstation.cloned) {
                               await cloneRepositoryWithAuth(
@@ -1020,7 +1000,7 @@ export default function App() {
                               );
                             }
                           }
-                        }, 100);
+                        }, 50); // Reduced delay for faster background start
                       }}
                     />
                   </NavigationContainer>
@@ -1129,37 +1109,15 @@ export default function App() {
                     onOpenProject={async (workstation) => {
                       const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
-                      // For Git projects, check auth BEFORE navigating
-                      let authToken: string | null = null;
-                      if (githubUrl) {
-                        console.log('🔐 [onOpenProject-All] Checking auth BEFORE navigation...');
-                        authToken = await checkAuthBeforeOpen(
-                          githubUrl,
-                          workstation.name,
-                          workstation.githubAccountUsername
-                        );
-
-                        // checkAuthBeforeOpen returns:
-                        // - token string: use this token
-                        // - empty string '': no token but proceed (public repo or will auth later)
-                        // - null: user cancelled auth (don't proceed)
-                        if (authToken === null) {
-                          console.log('🔐 [onOpenProject-All] Auth cancelled, not navigating');
-                          return; // Don't navigate - user cancelled auth
-                        }
-                      }
-
-                      // Auth OK or not a git project - proceed with navigation
-                      console.log('✅ [onOpenProject-All] Auth OK, navigating to terminal...');
-
                       // Check if we're switching to a DIFFERENT project
                       const currentWorkstation = useTerminalStore.getState().currentWorkstation;
                       const isSameProject = currentWorkstation?.id === workstation.id ||
                         currentWorkstation?.projectId === workstation.projectId;
 
-                      console.log('🔄 [onOpenProject-All] isSameProject:', isSameProject,
-                        'current:', currentWorkstation?.id, 'new:', workstation.id);
+                      console.log('🚀 [onOpenProject-All] Opening project:', workstation.name,
+                        'isSameProject:', isSameProject);
 
+                      // NAVIGATE IMMEDIATELY - auth/clone happens in background
                       // Only clear terminal items when switching to a DIFFERENT project
                       if (!isSameProject) {
                         // Clear global terminal log
@@ -1197,29 +1155,31 @@ export default function App() {
                         console.log('✅ [onOpenProject-All] Same project - preserving chat messages');
                       }
 
+                      // INSTANT navigation - no blocking auth check
                       setWorkstation(workstation);
                       setCurrentScreen('terminal');
 
+                      // Background operations (auth check + clone sync)
                       setTimeout(async () => {
                         const { activeTabId, tabs } = useTabStore.getState();
                         const currentTab = tabs.find(t => t.id === activeTabId);
 
                         if (currentTab && githubUrl) {
+                          // Get auth token in background (non-blocking for UI)
+                          let authToken: string | null = null;
+                          try {
+                            authToken = await checkAuthBeforeOpen(
+                              githubUrl,
+                              workstation.name,
+                              workstation.githubAccountUsername
+                            );
+                          } catch (e) {
+                            console.warn('Auth check failed, continuing without token:', e);
+                          }
+
                           // Check if project is already cloned - skip clone if so
                           if (workstation.cloned) {
-                            console.log('✅ [onOpenProject-All] Project already cloned, skipping clone');
-                            // Don't add "loaded" message if same project - just preserve existing chat
-                            if (!isSameProject) {
-                              // Message removed as CloneWidget handles this now
-                              /*
-                              addTerminalItemToStore(currentTab.id, {
-                                id: `loaded-${Date.now()}`,
-                                type: 'system',
-                                content: `Progetto "${workstation.name}" caricato`,
-                                timestamp: new Date(),
-                              });
-                              */
-                            }
+                            console.log('✅ [onOpenProject-All] Project already cloned, skipping full clone');
                           } else {
                             // Project not cloned yet - do the clone
                             await cloneRepositoryWithAuth(
@@ -1232,7 +1192,7 @@ export default function App() {
                             );
                           }
                         }
-                      }, 100);
+                      }, 50); // Reduced delay for faster background start
                     }}
                   />
                 </Animated.View>
