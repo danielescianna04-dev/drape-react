@@ -91,13 +91,6 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
-
-    // Auto-focus description field when entering step 2
-    if (step === 2) {
-      setTimeout(() => {
-        descriptionInputRef.current?.focus();
-      }, 400); // Wait for animation to complete
-    }
   }, [step]);
 
   useEffect(() => {
@@ -121,9 +114,12 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         Alert.alert('Attenzione', 'Inserisci un nome per il progetto');
         return;
       }
-      // Don't dismiss keyboard when going to step 2 (which has an input field)
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      // Don't use LayoutAnimation when going to step 2 (causes focus issues with TextInput)
       setStep(2);
+      // Focus the description field after state update
+      setTimeout(() => {
+        descriptionInputRef.current?.focus();
+      }, 50);
     } else if (step === 2) {
       if (!description.trim()) {
         Alert.alert('Attenzione', 'Inserisci una descrizione per l\'applicazione');
