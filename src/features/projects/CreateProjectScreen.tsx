@@ -92,6 +92,12 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       duration: 300,
       useNativeDriver: false,
     }).start();
+
+    // Reset animations to final state when entering step 2 to prevent interference
+    if (step === 2) {
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+    }
   }, [step]);
 
   useEffect(() => {
@@ -117,10 +123,6 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       }
       // Don't use LayoutAnimation when going to step 2 (causes focus issues with TextInput)
       setStep(2);
-      // Focus the description field after state update
-      setTimeout(() => {
-        descriptionInputRef.current?.focus();
-      }, 50);
     } else if (step === 2) {
       if (!description.trim()) {
         Alert.alert('Attenzione', 'Inserisci una descrizione per l\'applicazione');
@@ -369,12 +371,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   );
 
   const renderStep2 = () => (
-    <Animated.View
-      style={[
-        styles.stepContent,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
-      ]}
-    >
+    <View style={styles.stepContent}>
       <View style={styles.stepHeader}>
         <Text style={styles.stepTitle}>Descrivimi l'applicazione</Text>
         <Text style={styles.stepSubtitle}>Spiega cosa vuoi che faccia questa app. L'IA la genererà per te (mobile-first).</Text>
@@ -403,7 +400,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         </View>
         <Text style={styles.hintText}>Più dettagli fornisci, migliore sarà il risultato.</Text>
       </View>
-    </Animated.View>
+    </View>
   );
 
   const renderStep3 = () => (
@@ -593,7 +590,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             keyboardVisible && { paddingBottom: 120 }
           ]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
         >
           {step === 1 && renderStep1()}
           {step === 2 && renderStep2()}
