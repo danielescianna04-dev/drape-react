@@ -378,20 +378,23 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       <View style={styles.inputSection}>
-        <View style={[styles.inputContainer, styles.textAreaContainer, inputFocused && styles.inputContainerFocused]}>
-          <TextInput
-            ref={descriptionInputRef}
-            style={[styles.textInput, styles.textArea]}
-            placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            value={description}
-            onChangeText={setDescription}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-            multiline
-            textAlignVertical="top"
-          />
-        </View>
+        <Pressable onPress={() => descriptionInputRef.current?.focus()}>
+          <View style={[styles.inputContainer, styles.textAreaContainer, inputFocused && styles.inputContainerFocused]} pointerEvents="box-none">
+            <TextInput
+              ref={descriptionInputRef}
+              style={[styles.textInput, styles.textArea]}
+              placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={description}
+              onChangeText={setDescription}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              multiline
+              textAlignVertical="top"
+              autoFocus={false}
+            />
+          </View>
+        </Pressable>
         <Text style={styles.hintText}>Più dettagli fornisci, migliore sarà il risultato.</Text>
       </View>
     </View>
@@ -573,8 +576,9 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       {/* Content */}
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        enabled={step !== 2}
       >
         <ScrollView
           ref={scrollViewRef}
