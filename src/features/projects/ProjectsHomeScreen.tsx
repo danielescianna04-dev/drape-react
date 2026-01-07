@@ -16,6 +16,8 @@ import { filePrefetchService } from '../../core/cache/filePrefetchService';
 import axios from 'axios';
 import { config } from '../../config/config';
 import { gitAccountService } from '../../core/git/gitAccountService';
+import { githubService } from '../../core/github/githubService';
+import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 
 interface Props {
   onCreateProject: () => void;
@@ -199,8 +201,15 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
-  // Handle opening a project - prefetch files then open
+  // Handle opening a project - prefetch EVERYTHING then open
   const handleProjectOpen = async (project: any) => {
+    const startTime = Date.now();
+    console.log('🚀 [Home] Opening project:', project.name);
+
+    // Show loading overlay IMMEDIATELY
+    setLoadingProjectName(project.name);
+    setIsLoadingProject(true);
+
     // Reset preview state when opening a different project
     const { setFlyMachineId, setPreviewServerUrl, currentWorkstation } = useTerminalStore.getState();
     if (!currentWorkstation || currentWorkstation.id !== project.id) {
@@ -209,68 +218,133 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setPreviewServerUrl(null);
     }
 
-    // 🚀 Start VM warmup IMMEDIATELY (fire and forget)
-    // Uses /fly/clone which actually boots the VM (not just saves files)
     const repoUrl = project.repositoryUrl || project.githubUrl;
-    if (repoUrl) {
-      console.log('🔥 [Home] Starting VM warmup for:', project.id);
-
-      // Get token in background
-      const userId = useTerminalStore.getState().userId || 'anonymous';
-      gitAccountService.getTokenForRepo(userId, repoUrl).then(tokenData => {
-        const token = tokenData?.token || null;
-
-        // Fire and forget - start VM via /fly/clone (boots VM + syncs files + sets up git)
-        fetch(`${config.apiUrl}/fly/clone`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workstationId: project.id,
-            repositoryUrl: repoUrl,
-            githubToken: token,
-          }),
-        }).then(res => res.json()).then(result => {
-          if (result.success) {
-            console.log('✅ [Home] VM warmup complete - VM is ready!');
-          }
-        }).catch(e => console.warn('VM warmup error:', e.message));
-      }).catch(() => {
-        // No token - try anyway
-        fetch(`${config.apiUrl}/fly/clone`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workstationId: project.id,
-            repositoryUrl: repoUrl,
-          }),
-        }).catch(e => console.warn('VM warmup error:', e.message));
-      });
-    }
+    const userId = useTerminalStore.getState().userId || 'anonymous';
 
     // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(project.id);
 
-    // Check if files need to be prefetched
-    const repositoryUrl = project.repositoryUrl || project.githubUrl;
-    const needsPrefetch = filePrefetchService.needsPrefetch(project.id);
+    // === PARALLEL PREFETCH: VM + Git Data + Files ===
+    const prefetchPromises: Promise<any>[] = [];
 
-    // Show loading overlay immediately - VM is warming up in background
-    setLoadingProjectName(project.name);
-    setIsLoadingProject(true);
+    // 1. VM Warmup (wait for it to complete, with timeout)
+    if (repoUrl) {
+      const vmPromise = (async () => {
+        try {
+          console.log('🔥 [Home] Starting VM warmup...');
+          const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
+          const token = tokenData?.token || null;
 
-    if (needsPrefetch) {
-      try {
-        console.log('📁 [Home] Prefetching files for:', project.name);
-        const result = await filePrefetchService.prefetchFiles(project.id, repositoryUrl);
-        console.log('📁 [Home] Prefetch result:', result);
-      } catch (error) {
-        console.error('❌ [Home] Prefetch error:', error);
-        // Continue anyway - FileExplorer will handle the loading
-      }
-    } else {
-      // Small delay to let VM warmup request fire
-      await new Promise(resolve => setTimeout(resolve, 300));
+          const response = await Promise.race([
+            fetch(`${config.apiUrl}/fly/clone`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                workstationId: project.id,
+                repositoryUrl: repoUrl,
+                githubToken: token,
+              }),
+            }).then(res => res.json()),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('VM timeout')), 15000))
+          ]);
+
+          console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
+          return response;
+        } catch (e: any) {
+          console.warn('⚠️ [Home] VM warmup error:', e.message);
+          return null;
+        }
+      })();
+      prefetchPromises.push(vmPromise);
     }
+
+    // 2. Git Data Prefetch (commits, branches from GitHub API)
+    if (repoUrl && repoUrl.includes('github.com')) {
+      const gitPromise = (async () => {
+        try {
+          const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+          if (!match) return null;
+
+          const [, owner, repo] = match;
+          console.log('🔄 [Home] Prefetching git data for', owner + '/' + repo);
+
+          // Get token
+          const accounts = await gitAccountService.getAllAccounts(userId);
+          const githubAccount = accounts.find(a => a.provider === 'github');
+          const token = githubAccount ? await gitAccountService.getToken(githubAccount, userId) : null;
+
+          // Fetch commits and branches in parallel
+          const [commitsData, branchesData] = await Promise.all([
+            githubService.getCommits(owner, repo, token || undefined).catch(() => []),
+            githubService.getBranches(owner, repo, token || undefined).catch(() => [])
+          ]);
+
+          if (commitsData && commitsData.length > 0) {
+            const currentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
+
+            // Cache the git data
+            useGitCacheStore.getState().setGitData(project.id, {
+              commits: commitsData.map((c: any, index: number) => ({
+                hash: c.sha,
+                shortHash: c.sha.substring(0, 7),
+                message: c.message.split('\n')[0],
+                author: c.author.name,
+                authorEmail: c.author.email,
+                authorAvatar: c.author.avatar_url,
+                authorLogin: c.author.login,
+                date: new Date(c.author.date).toISOString(),
+                isHead: index === 0,
+                branch: index === 0 ? currentBranch : undefined,
+                url: c.url,
+              })),
+              branches: branchesData?.map((b: any) => ({
+                name: b.name,
+                isCurrent: b.name === currentBranch,
+                isRemote: true,
+              })) || [],
+              status: null,
+              currentBranch,
+              isGitRepo: true
+            });
+
+            console.log('✅ [Home] Git data cached:', commitsData.length, 'commits in', Date.now() - startTime, 'ms');
+          }
+          return commitsData;
+        } catch (e: any) {
+          console.warn('⚠️ [Home] Git prefetch error:', e.message);
+          return null;
+        }
+      })();
+      prefetchPromises.push(gitPromise);
+    }
+
+    // 3. File tree prefetch
+    if (filePrefetchService.needsPrefetch(project.id)) {
+      const filePromise = (async () => {
+        try {
+          console.log('📁 [Home] Prefetching files...');
+          const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
+          console.log('✅ [Home] Files cached in', Date.now() - startTime, 'ms');
+          return result;
+        } catch (e: any) {
+          console.warn('⚠️ [Home] File prefetch error:', e.message);
+          return null;
+        }
+      })();
+      prefetchPromises.push(filePromise);
+    }
+
+    // Wait for all prefetch to complete (with overall timeout)
+    try {
+      await Promise.race([
+        Promise.all(prefetchPromises),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Overall timeout')), 20000))
+      ]);
+    } catch (e) {
+      console.warn('⚠️ [Home] Prefetch timeout, continuing anyway');
+    }
+
+    console.log('🎉 [Home] All prefetch complete in', Date.now() - startTime, 'ms - opening project');
 
     setIsLoadingProject(false);
     setLoadingProjectName('');

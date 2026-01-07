@@ -22,7 +22,8 @@
       "Bash(git push:*)",
       "Bash(git fetch:*)",
       "Bash(git rebase:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(node:*)"
     ]
   }
 }

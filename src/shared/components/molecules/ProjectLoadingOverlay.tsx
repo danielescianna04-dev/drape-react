@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Modal, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Modal, Animated, Easing, ActivityIndicator } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../theme/colors';
 
@@ -12,74 +13,82 @@ interface Props {
 export const ProjectLoadingOverlay = ({
     visible,
     projectName,
-    message = 'Avvio ambiente...'
+    message = 'Caricamento'
 }: Props) => {
-    const progressAnim = useRef(new Animated.Value(0)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(0.9)).current;
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
     useEffect(() => {
         if (visible) {
-            // Progress bar animation
-            progressAnim.setValue(0);
-            Animated.loop(
-                Animated.timing(progressAnim, {
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
                     toValue: 1,
-                    duration: 1500,
-                    easing: Easing.inOut(Easing.ease),
-                    useNativeDriver: false,
-                })
-            ).start();
+                    duration: 250,
+                    easing: Easing.out(Easing.ease),
+                    useNativeDriver: true,
+                }),
+                Animated.spring(scaleAnim, {
+                    toValue: 1,
+                    friction: 8,
+                    tension: 80,
+                    useNativeDriver: true,
+                }),
+            ]).start();
 
-            // Pulse animation for icon
+            // Subtle pulse on icon background
             Animated.loop(
                 Animated.sequence([
                     Animated.timing(pulseAnim, {
-                        toValue: 1.1,
-                        duration: 600,
+                        toValue: 1.05,
+                        duration: 1200,
                         easing: Easing.inOut(Easing.ease),
                         useNativeDriver: true,
                     }),
                     Animated.timing(pulseAnim, {
                         toValue: 1,
-                        duration: 600,
+                        duration: 1200,
                         easing: Easing.inOut(Easing.ease),
                         useNativeDriver: true,
                     }),
                 ])
             ).start();
         } else {
-            progressAnim.stopAnimation();
-            pulseAnim.stopAnimation();
+            Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 150,
+                useNativeDriver: true,
+            }).start();
         }
 
         return () => {
-            progressAnim.stopAnimation();
+            fadeAnim.stopAnimation();
+            scaleAnim.stopAnimation();
             pulseAnim.stopAnimation();
         };
     }, [visible]);
-
-    const progressWidth = progressAnim.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: ['0%', '70%', '100%'],
-    });
 
     return (
         <Modal
             visible={visible}
             transparent={true}
-            animationType="fade"
+            animationType="none"
             statusBarTranslucent={true}
         >
-            <View style={styles.container}>
-                <View style={styles.content}>
-                    {/* Icon with pulse animation */}
-                    <Animated.View
-                        style={[
-                            styles.iconContainer,
-                            { transform: [{ scale: pulseAnim }] }
-                        ]}
-                    >
-                        <Ionicons name="folder-open" size={28} color={AppColors.primary} />
+            <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
+                <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+
+                <Animated.View
+                    style={[
+                        styles.card,
+                        { transform: [{ scale: scaleAnim }] }
+                    ]}
+                >
+                    {/* Icon with pulse */}
+                    <Animated.View style={[styles.iconWrapper, { transform: [{ scale: pulseAnim }] }]}>
+                        <View style={styles.iconContainer}>
+                            <Ionicons name="folder-open" size={32} color={AppColors.primary} />
+                        </View>
                     </Animated.View>
 
                     {/* Project name */}
@@ -89,20 +98,13 @@ export const ProjectLoadingOverlay = ({
                         </Text>
                     )}
 
-                    {/* Message */}
-                    <Text style={styles.message}>{message}</Text>
-
-                    {/* Progress bar */}
-                    <View style={styles.progressContainer}>
-                        <Animated.View
-                            style={[
-                                styles.progressBar,
-                                { width: progressWidth }
-                            ]}
-                        />
+                    {/* Loading indicator + message */}
+                    <View style={styles.loadingRow}>
+                        <ActivityIndicator size="small" color="rgba(255,255,255,0.5)" />
+                        <Text style={styles.message}>{message}</Text>
                     </View>
-                </View>
-            </View>
+                </Animated.View>
+            </Animated.View>
         </Modal>
     );
 };
@@ -110,61 +112,47 @@ export const ProjectLoadingOverlay = ({
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
         justifyContent: 'center',
         alignItems: 'center',
     },
-    content: {
-        backgroundColor: '#141416',
-        paddingVertical: 24,
-        paddingHorizontal: 32,
+    card: {
+        backgroundColor: 'rgba(28, 28, 30, 0.95)',
+        paddingTop: 28,
+        paddingBottom: 24,
+        paddingHorizontal: 36,
         borderRadius: 20,
         alignItems: 'center',
-        minWidth: 220,
-        maxWidth: 280,
+        minWidth: 200,
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.08)',
-        shadowColor: "#000",
-        shadowOffset: {
-            width: 0,
-            height: 8,
-        },
-        shadowOpacity: 0.44,
-        shadowRadius: 10.32,
-        elevation: 16,
+    },
+    iconWrapper: {
+        marginBottom: 16,
     },
     iconContainer: {
-        width: 56,
-        height: 56,
-        borderRadius: 16,
+        width: 72,
+        height: 72,
+        borderRadius: 18,
         backgroundColor: `${AppColors.primary}15`,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 16,
     },
     projectName: {
-        fontSize: 16,
-        fontWeight: '700',
+        fontSize: 17,
+        fontWeight: '600',
         color: '#FFFFFF',
-        marginBottom: 6,
+        marginBottom: 12,
         textAlign: 'center',
+        letterSpacing: 0.2,
+    },
+    loadingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
     message: {
-        fontSize: 13,
+        fontSize: 15,
         color: 'rgba(255, 255, 255, 0.5)',
         textAlign: 'center',
-        marginBottom: 20,
-    },
-    progressContainer: {
-        width: '100%',
-        height: 4,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        borderRadius: 2,
-        overflow: 'hidden',
-    },
-    progressBar: {
-        height: '100%',
-        backgroundColor: AppColors.primary,
-        borderRadius: 2,
     },
 });

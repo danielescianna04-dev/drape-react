@@ -92,7 +92,28 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       }
       hasStartedRef.current = true;
 
-      console.log('🟡 [GitSheet] Starting account load...');
+      // 🚀 CHECK CACHE FIRST - instant UI if we have prefetched data
+      const cachedData = useGitCacheStore.getState().getGitData(currentWorkstation.id);
+      const isCacheValid = useGitCacheStore.getState().isCacheValid(currentWorkstation.id, 5 * 60 * 1000); // 5 min
+
+      if (cachedData && isCacheValid) {
+        console.log('✅ [GitSheet] Using CACHED data - instant UI!');
+        // Set all data from cache immediately
+        setCommits(cachedData.commits.map(c => ({ ...c, date: new Date(c.date) })));
+        setBranches(cachedData.branches);
+        setCurrentBranch(cachedData.currentBranch);
+        setIsGitRepo(cachedData.isGitRepo);
+        if (cachedData.status) setGitStatus(cachedData.status);
+        setGitLoading(false);
+        setLoading(false);
+
+        // Refresh in background silently
+        loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch(() => {});
+        return;
+      }
+
+      // No cache - load normally
+      console.log('🟡 [GitSheet] No cache - loading...');
       setGitLoading(true);
 
       const timeoutId = setTimeout(() => {
