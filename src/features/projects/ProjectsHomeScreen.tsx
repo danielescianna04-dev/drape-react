@@ -224,31 +224,36 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(project.id);
 
-    // === PREFETCH: VM (fire-and-forget) + Git Data + Files ===
+    // === PREFETCH: VM + Git Data + Files (all blocking) ===
     const prefetchPromises: Promise<any>[] = [];
 
-    // 1. VM Warmup - FIRE AND FORGET (VM creation is 2s, but full setup takes 20-30s)
+    // 1. VM Warmup - BLOCKING (VM creation is 2s, but full setup with file sync takes 20-40s)
     if (repoUrl) {
-      console.log('🔥 [Home] Starting VM warmup (fire-and-forget)...');
-      gitAccountService.getTokenForRepo(userId, repoUrl).then(tokenData => {
-        const token = tokenData?.token || null;
-        fetch(`${config.apiUrl}/fly/clone`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workstationId: project.id,
-            repositoryUrl: repoUrl,
-            githubToken: token,
-          }),
-        }).then(() => console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms'))
-          .catch(e => console.warn('⚠️ VM warmup error:', e.message));
-      }).catch(() => {
-        fetch(`${config.apiUrl}/fly/clone`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workstationId: project.id, repositoryUrl: repoUrl }),
-        }).catch(() => {});
-      });
+      const vmPromise = (async () => {
+        try {
+          console.log('🔥 [Home] Starting VM warmup (blocking)...');
+          const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
+          const token = tokenData?.token || null;
+
+          const response = await fetch(`${config.apiUrl}/fly/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workstationId: project.id,
+              repositoryUrl: repoUrl,
+              githubToken: token,
+            }),
+          });
+
+          const data = await response.json();
+          console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
+          return data;
+        } catch (e: any) {
+          console.warn('⚠️ [Home] VM warmup error:', e.message);
+          return null;
+        }
+      })();
+      prefetchPromises.push(vmPromise);
     }
 
     // 2. Git Data Prefetch (commits, branches from GitHub API)
@@ -327,14 +332,15 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       prefetchPromises.push(filePromise);
     }
 
-    // Wait for git + file prefetch (with 8s timeout - VM warmup is fire-and-forget)
+    // Wait for ALL prefetch (VM + git + files) with 45s timeout
+    // VM setup takes 20-40s for file sync + git init
     try {
       await Promise.race([
         Promise.all(prefetchPromises),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Prefetch timeout')), 8000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Prefetch timeout')), 45000))
       ]);
     } catch (e) {
-      console.warn('⚠️ [Home] Prefetch timeout, continuing anyway');
+      console.warn('⚠️ [Home] Prefetch timeout after 45s, continuing anyway');
     }
 
     console.log('🎉 [Home] All prefetch complete in', Date.now() - startTime, 'ms - opening project');
@@ -898,11 +904,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         message="Duplicating project..."
       />
 
-      {/* Project Loading Overlay - shows during file prefetch */}
+      {/* Project Loading Overlay - shows until VM is ready */}
       <ProjectLoadingOverlay
         visible={isLoadingProject}
         projectName={loadingProjectName}
-        message="Caricamento file..."
+        message="Avvio ambiente..."
       />
     </View>
   );
