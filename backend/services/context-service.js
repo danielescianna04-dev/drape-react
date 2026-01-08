@@ -85,6 +85,7 @@ class ContextService {
 
     /**
      * Fixes malformed tool_results and strictly removes 'tool' property
+     * CRITICAL: Only include explicitly allowed fields - API rejects extras like 'tool'
      */
     sanitizeHistory(history) {
         const cleanHistory = [];
@@ -98,27 +99,49 @@ class ContextService {
             if (msg.type === 'user') cleanMsg.role = 'user';
             if (msg.type === 'text' || msg.type === 'model') cleanMsg.role = 'assistant';
 
-            // Deep clean tool_results
+            // Deep clean tool_results - ONLY include allowed fields
             if (Array.isArray(msg.content)) {
                 cleanMsg.content = msg.content.map(block => {
                     if (block.type === 'tool_result') {
-                        return {
+                        const cleanBlock = {
                             type: 'tool_result',
                             tool_use_id: String(block.tool_use_id),
-                            content: String(block.content),
-                            is_error: block.is_error
+                            content: String(block.content || '')
+                        };
+                        // Only add is_error if it's explicitly true
+                        if (block.is_error === true) {
+                            cleanBlock.is_error = true;
+                        }
+                        return cleanBlock;
+                    }
+                    if (block.type === 'tool_use') {
+                        // Clean tool_use blocks too
+                        return {
+                            type: 'tool_use',
+                            id: String(block.id),
+                            name: String(block.name),
+                            input: block.input || {}
+                        };
+                    }
+                    if (block.type === 'text') {
+                        return {
+                            type: 'text',
+                            text: String(block.text || '')
                         };
                     }
                     return block;
                 });
             } else if (msg.content && typeof msg.content === 'object' && msg.content.type === 'tool_result') {
                 // Fix single object edge case
-                cleanMsg.content = [{
+                const cleanBlock = {
                     type: 'tool_result',
                     tool_use_id: String(msg.content.tool_use_id),
-                    content: String(msg.content.content),
-                    is_error: msg.content.is_error
-                }];
+                    content: String(msg.content.content || '')
+                };
+                if (msg.content.is_error === true) {
+                    cleanBlock.is_error = true;
+                }
+                cleanMsg.content = [cleanBlock];
             }
 
             cleanHistory.push(cleanMsg);
@@ -128,16 +151,22 @@ class ContextService {
 
     /**
      * Truncates massive tool outputs (e.g. cat huge_file.txt)
+     * CRITICAL: Do NOT use ...spread - must explicitly pick allowed fields
      */
     truncateToolOutputs(messages) {
         return messages.map(msg => {
             if (Array.isArray(msg.content)) {
                 msg.content = msg.content.map(block => {
                     if (block.type === 'tool_result' && block.content && block.content.length > 500) {
-                        return {
-                            ...block,
+                        const truncated = {
+                            type: 'tool_result',
+                            tool_use_id: block.tool_use_id,
                             content: block.content.substring(0, 500) + '\n... [Truncated 500 chars] ...'
                         };
+                        if (block.is_error === true) {
+                            truncated.is_error = true;
+                        }
+                        return truncated;
                     }
                     return block;
                 });

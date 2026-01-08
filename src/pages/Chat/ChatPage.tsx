@@ -740,6 +740,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     const { name, args, result } = parsed.toolResult;
                     console.log('🎯 Tool result received:', name, args);
 
+                    // CRITICAL: Clear isThinking on current streaming message before creating new one
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: false }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
+
                     // Parse undo data for write/edit operations
                     const { cleanResult, undoData } = parseUndoData(result);
 
@@ -781,6 +797,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     } else if (name === 'glob_files') {
                       // For glob_files, just use the result as-is (it's already formatted from backend)
                       formattedOutput = cleanResult;
+                    } else if (name === 'list_directory') {
+                      formattedOutput = `List directory: ${args.dirPath || '.'}\n└─ Completed\n\n${cleanResult}`;
+                    } else if (name === 'create_folder') {
+                      formattedOutput = `Create folder: ${args.folderPath}\n└─ Completed\n\n${cleanResult}`;
+                    } else if (name === 'delete_file') {
+                      formattedOutput = `Delete: ${args.filePath}\n└─ Completed\n\n${cleanResult}`;
+                    } else if (name === 'move_file') {
+                      formattedOutput = `Move: ${args.sourcePath} → ${args.destPath}\n└─ Completed\n\n${cleanResult}`;
+                    } else if (name === 'copy_file') {
+                      formattedOutput = `Copy: ${args.sourcePath} → ${args.destPath}\n└─ Completed\n\n${cleanResult}`;
+                    } else if (name === 'web_fetch') {
+                      const urlShort = args.url.length > 50 ? args.url.substring(0, 50) + '...' : args.url;
+                      formattedOutput = `Fetch: ${urlShort}\n└─ Completed\n\n${cleanResult.substring(0, 2000)}${cleanResult.length > 2000 ? '...' : ''}`;
+                    } else if (name === 'think') {
+                      formattedOutput = `💭 ${cleanResult}`;
                     } else {
                       // Generic format for other tools - include result
                       formattedOutput = `${name}\n└─ Completed\n\n${cleanResult}`;
@@ -823,6 +854,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   else if (parsed.toolResultsBatch) {
                     const { toolResultsBatch, executionTime, count } = parsed;
                     console.log(`🎯 Batch of ${count} tool results received (executed in ${executionTime})`);
+
+                    // CRITICAL: Clear isThinking on current streaming message before creating new one
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: false }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
 
                     // 🚀 OPTIMIZATION: Format ALL tool results FIRST, then add them ALL at once
                     const formattedToolItems = toolResultsBatch.map((toolResult: any, index: number) => {
@@ -867,6 +914,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         formattedOutput = `Execute: ${args.command}\n└─ Command completed\n\n${cleanResult}`;
                       } else if (name === 'glob_files') {
                         formattedOutput = cleanResult;
+                      } else if (name === 'list_directory') {
+                        formattedOutput = `List directory: ${args.dirPath || '.'}\n└─ Completed\n\n${cleanResult}`;
+                      } else if (name === 'create_folder') {
+                        formattedOutput = `Create folder: ${args.folderPath}\n└─ Completed\n\n${cleanResult}`;
+                      } else if (name === 'delete_file') {
+                        formattedOutput = `Delete: ${args.filePath}\n└─ Completed\n\n${cleanResult}`;
+                      } else if (name === 'move_file') {
+                        formattedOutput = `Move: ${args.sourcePath} → ${args.destPath}\n└─ Completed\n\n${cleanResult}`;
+                      } else if (name === 'copy_file') {
+                        formattedOutput = `Copy: ${args.sourcePath} → ${args.destPath}\n└─ Completed\n\n${cleanResult}`;
+                      } else if (name === 'web_fetch') {
+                        const urlShort = args.url.length > 50 ? args.url.substring(0, 50) + '...' : args.url;
+                        formattedOutput = `Fetch: ${urlShort}\n└─ Completed\n\n${cleanResult.substring(0, 2000)}${cleanResult.length > 2000 ? '...' : ''}`;
+                      } else if (name === 'think') {
+                        formattedOutput = `💭 ${cleanResult}`;
                       } else {
                         formattedOutput = `${name}\n└─ Completed\n\n${cleanResult}`;
                       }
@@ -909,6 +971,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   else if (parsed.functionCall) {
                     const { name, args } = parsed.functionCall;
                     console.log('🔧 Function call in progress:', name);
+
+                    // CRITICAL: Clear isThinking on current streaming message before creating new one
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: false }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
 
                     // Add a "tool executing" indicator to the terminal
                     // Format: "Executing: tool_name" - will be styled in TerminalItem

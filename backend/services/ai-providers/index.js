@@ -242,6 +242,88 @@ const standardTools = [
             },
             required: ['filePath']
         }
+    },
+    {
+        name: 'list_directory',
+        description: 'List contents of a directory with file sizes and types. Better than glob_files for exploring folder structure.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                dirPath: {
+                    type: 'string',
+                    description: 'Path to the directory relative to project root. Use "." for root.'
+                }
+            },
+            required: ['dirPath']
+        }
+    },
+    {
+        name: 'move_file',
+        description: 'Move or rename a file or folder.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                sourcePath: {
+                    type: 'string',
+                    description: 'Current path of the file/folder'
+                },
+                destPath: {
+                    type: 'string',
+                    description: 'New path for the file/folder'
+                }
+            },
+            required: ['sourcePath', 'destPath']
+        }
+    },
+    {
+        name: 'copy_file',
+        description: 'Copy a file or folder to a new location.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                sourcePath: {
+                    type: 'string',
+                    description: 'Path of the file/folder to copy'
+                },
+                destPath: {
+                    type: 'string',
+                    description: 'Destination path for the copy'
+                }
+            },
+            required: ['sourcePath', 'destPath']
+        }
+    },
+    {
+        name: 'web_fetch',
+        description: 'Fetch and read content from a URL. Useful for reading documentation, APIs, or any web page. Returns the text content.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                url: {
+                    type: 'string',
+                    description: 'The URL to fetch content from'
+                },
+                selector: {
+                    type: 'string',
+                    description: 'Optional CSS selector to extract specific content (e.g., "main", "article", ".content")'
+                }
+            },
+            required: ['url']
+        }
+    },
+    {
+        name: 'think',
+        description: 'Use this tool to think through complex problems step by step. Write out your reasoning process. This helps with planning, debugging, and making decisions.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                thought: {
+                    type: 'string',
+                    description: 'Your thinking/reasoning process'
+                }
+            },
+            required: ['thought']
+        }
     }
 ];
 

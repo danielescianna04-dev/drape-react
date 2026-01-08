@@ -378,6 +378,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                 'write_file': { icon: 'save-outline', label: 'Writing', color: '#3FB950' },
                 'search_in_files': { icon: 'code-slash-outline', label: 'Searching', color: '#FFA657' },
                 'list_files': { icon: 'folder-outline', label: 'Listing', color: '#58A6FF' },
+                'list_directory': { icon: 'folder-open-outline', label: 'Listing', color: '#58A6FF' },
+                'create_folder': { icon: 'folder-outline', label: 'Creating', color: '#3FB950' },
+                'delete_file': { icon: 'trash-outline', label: 'Deleting', color: '#F85149' },
+                'move_file': { icon: 'arrow-forward-outline', label: 'Moving', color: '#FFA657' },
+                'copy_file': { icon: 'copy-outline', label: 'Copying', color: '#A371F7' },
+                'web_fetch': { icon: 'globe-outline', label: 'Fetching', color: '#58A6FF' },
+                'execute_command': { icon: 'terminal-outline', label: 'Running', color: '#FFA657' },
+                'think': { icon: 'bulb-outline', label: 'Thinking', color: '#F0E68C' },
               };
               const config = toolConfig[toolName] || { icon: 'cog-outline', label: 'Executing', color: '#8B949E' };
 

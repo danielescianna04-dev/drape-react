@@ -33,6 +33,7 @@ import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { config } from './src/config/config';
 import { useCloneStatusStore } from './src/core/clone/cloneStatusStore';
 import { useFileCacheStore } from './src/core/cache/fileCacheStore';
+import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 
 console.log('App.tsx loaded');
 
@@ -49,6 +50,9 @@ export default function App() {
   const { addWorkstation, setWorkstation, clearGlobalTerminalLog, globalTerminalLog } = useTerminalStore();
   const { addTerminalItem: addTerminalItemToStore, clearTerminalItems, updateTerminalItemsByType } = useTabStore();
   const { user, isInitialized, initialize } = useAuthStore();
+
+  // Stream backend logs to terminal (always enabled when logged in)
+  useBackendLogs({ enabled: isInitialized && !!user });
 
   // Track projects currently being cloned to prevent duplicates
   const cloningProjects = useRef<Set<string>>(new Set());

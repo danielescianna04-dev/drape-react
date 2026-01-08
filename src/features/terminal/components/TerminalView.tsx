@@ -285,12 +285,14 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                           item.source === 'preview' && styles.sourceBadgePreview,
                           item.source === 'ai' && styles.sourceBadgeAI,
                           item.source === 'terminal' && styles.sourceBadgeTerminal,
+                          item.source === 'backend' && styles.sourceBadgeBackend,
                         ]}>
                           <Ionicons
                             name={
                               item.source === 'preview' ? 'phone-portrait-outline' :
                               item.source === 'ai' ? 'sparkles' :
-                              item.source === 'terminal' ? 'terminal-outline' : 'code-outline'
+                              item.source === 'terminal' ? 'terminal-outline' :
+                              item.source === 'backend' ? 'server-outline' : 'code-outline'
                             }
                             size={10}
                             color={AppColors.white.w60}
@@ -298,7 +300,8 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                           <Text style={styles.sourceText}>
                             {item.source === 'preview' ? 'Preview' :
                              item.source === 'ai' ? 'AI' :
-                             item.source === 'terminal' ? 'Terminal' : item.source}
+                             item.source === 'terminal' ? 'Terminal' :
+                             item.source === 'backend' ? 'Backend' : item.source}
                           </Text>
                         </View>
                       )}
@@ -556,6 +559,9 @@ const styles = StyleSheet.create({
   },
   sourceBadgeTerminal: {
     backgroundColor: AppColors.terminal.yellow + '26',
+  },
+  sourceBadgeBackend: {
+    backgroundColor: AppColors.primary + '26',
   },
   sourceText: {
     fontSize: 9,

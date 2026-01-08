@@ -59,7 +59,7 @@ class FlyService {
 
     get DRAPE_IMAGE() {
         // Use the deployment tag from the latest flyctl deploy
-        return process.env.FLY_IMAGE || 'registry.fly.io/drape-workspaces:deployment-01KDBW5PHKMGZZ565TM1QRX8M3';
+        return process.env.FLY_IMAGE || 'registry.fly.io/drape-workspaces:deployment-01KEEMCGKQHSWJ13W3JRYZ1W3B';
     }
 
     /**

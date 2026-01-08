@@ -3,6 +3,9 @@
  * Holy Grail Architecture - Fly.io MicroVMs
  */
 
+// FIRST: Initialize global log service to capture ALL logs
+const globalLogService = require('./services/global-log-service');
+
 require('dotenv').config();
 
 const http = require('http');
@@ -110,6 +113,25 @@ async function startServer() {
                         ws.send(JSON.stringify({ type: 'subscribed', workstationId: data.workstationId }));
                         break;
 
+                    case 'subscribe_logs':
+                        // Subscribe to backend logs stream
+                        globalLogService.addWsListener(ws);
+                        ws.subscribedToLogs = true;
+                        // Send recent logs immediately
+                        const recentLogs = globalLogService.getRecentLogs(50);
+                        for (const log of recentLogs) {
+                            ws.send(JSON.stringify({ type: 'backend_log', log }));
+                        }
+                        ws.send(JSON.stringify({ type: 'subscribed_logs' }));
+                        break;
+
+                    case 'unsubscribe_logs':
+                        // Unsubscribe from backend logs
+                        globalLogService.removeWsListener(ws);
+                        ws.subscribedToLogs = false;
+                        ws.send(JSON.stringify({ type: 'unsubscribed_logs' }));
+                        break;
+
                     case 'chat':
                         // Forward to AI chat handler
                         await handleWebSocketChat(ws, data.payload);
@@ -126,6 +148,10 @@ async function startServer() {
 
         ws.on('close', () => {
             console.log('🔌 WebSocket client disconnected');
+            // Cleanup log subscription
+            if (ws.subscribedToLogs) {
+                globalLogService.removeWsListener(ws);
+            }
         });
 
         ws.on('error', (error) => {

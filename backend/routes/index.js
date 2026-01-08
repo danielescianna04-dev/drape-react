@@ -13,6 +13,7 @@ const gitRoutes = require('./git');
 const workstationRoutes = require('./workstation');
 const terminalRoutes = require('./terminal');
 const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
+const globalLogService = require('../services/global-log-service');
 
 // Health check - top level
 router.get('/health', (req, res) => {
@@ -33,6 +34,43 @@ router.use('/git', gitRoutes);
 router.use('/workstation', workstationRoutes);
 router.use('/terminal', terminalRoutes);
 router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
+
+// SSE endpoint for streaming ALL backend logs to frontend
+router.get('/logs/stream', (req, res) => {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // Send recent logs first (last 50)
+    const recentLogs = globalLogService.getRecentLogs(50);
+    for (const log of recentLogs) {
+        res.write(`data: ${JSON.stringify(log)}\n\n`);
+    }
+
+    // Register for new logs
+    const removeListener = globalLogService.addListener(res);
+
+    // Heartbeat every 30s to keep connection alive
+    const heartbeat = setInterval(() => {
+        res.write(`:heartbeat\n\n`);
+    }, 30000);
+
+    // Cleanup on close
+    req.on('close', () => {
+        clearInterval(heartbeat);
+        removeListener();
+    });
+});
+
+// Get recent logs (non-streaming)
+router.get('/logs/recent', (req, res) => {
+    const count = parseInt(req.query.count) || 100;
+    const logs = globalLogService.getRecentLogs(count);
+    res.json({ logs, count: logs.length });
+});
 
 // Backwards compatibility: redirect old /preview/* to /fly/*
 router.use('/preview', (req, res) => {

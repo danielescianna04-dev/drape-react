@@ -524,8 +524,160 @@ const tools = {
         clearCache(projectId);
 
         return `✅ ${filePath} deleted successfully`;
+    },
+
+    /**
+     * List directory contents with details
+     */
+    async list_directory({ dirPath }, context) {
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanDirPath = dirPath.replace(/^\.\//, '') || '.';
+
+        let output;
+
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            const cmd = `ls -la "${cleanDirPath}" 2>/dev/null | head -100`;
+            const result = await orch.exec(projectId, cmd);
+            output = result.stdout;
+        } else if (isCloud) {
+            const fullPath = path.posix.join('/home/coder/project', cleanDirPath);
+            const result = await executeRemoteCommand(wsName, `ls -la "${fullPath}" | head -100`);
+            output = result.stdout;
+        } else {
+            const fullPath = path.join(projectPath, cleanDirPath);
+            const entries = await fs.readdir(fullPath, { withFileTypes: true });
+            const details = await Promise.all(entries.map(async (entry) => {
+                try {
+                    const stat = await fs.stat(path.join(fullPath, entry.name));
+                    const size = stat.isDirectory() ? '-' : formatSize(stat.size);
+                    const type = stat.isDirectory() ? 'd' : '-';
+                    return `${type} ${size.padStart(8)} ${entry.name}`;
+                } catch {
+                    return `? ${entry.name}`;
+                }
+            }));
+            output = details.join('\n');
+        }
+
+        return `📁 Directory: ${dirPath}\n${'─'.repeat(40)}\n${output}`;
+    },
+
+    /**
+     * Move/rename a file or folder
+     */
+    async move_file({ sourcePath, destPath }, context) {
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanSource = sourcePath.replace(/^\.\//, '');
+        const cleanDest = destPath.replace(/^\.\//, '');
+
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            await orch.exec(projectId, `mv "${cleanSource}" "${cleanDest}"`);
+        } else if (isCloud) {
+            const srcFull = path.posix.join('/home/coder/project', cleanSource);
+            const destFull = path.posix.join('/home/coder/project', cleanDest);
+            await executeRemoteCommand(wsName, `mv "${srcFull}" "${destFull}"`);
+        } else {
+            const srcFull = path.join(projectPath, cleanSource);
+            const destFull = path.join(projectPath, cleanDest);
+            // Ensure dest directory exists
+            await fs.mkdir(path.dirname(destFull), { recursive: true });
+            await fs.rename(srcFull, destFull);
+        }
+
+        clearCache(projectId);
+        return `✅ Moved ${sourcePath} → ${destPath}`;
+    },
+
+    /**
+     * Copy a file or folder
+     */
+    async copy_file({ sourcePath, destPath }, context) {
+        const { projectPath, isCloud, isHolyGrail, projectId, wsName } = context;
+        const cleanSource = sourcePath.replace(/^\.\//, '');
+        const cleanDest = destPath.replace(/^\.\//, '');
+
+        if (isHolyGrail) {
+            const orch = getOrchestrator();
+            await orch.exec(projectId, `cp -r "${cleanSource}" "${cleanDest}"`);
+        } else if (isCloud) {
+            const srcFull = path.posix.join('/home/coder/project', cleanSource);
+            const destFull = path.posix.join('/home/coder/project', cleanDest);
+            await executeRemoteCommand(wsName, `cp -r "${srcFull}" "${destFull}"`);
+        } else {
+            const srcFull = path.join(projectPath, cleanSource);
+            const destFull = path.join(projectPath, cleanDest);
+            // Ensure dest directory exists
+            await fs.mkdir(path.dirname(destFull), { recursive: true });
+            await fs.cp(srcFull, destFull, { recursive: true });
+        }
+
+        clearCache(projectId);
+        return `✅ Copied ${sourcePath} → ${destPath}`;
+    },
+
+    /**
+     * Fetch content from a URL
+     */
+    async web_fetch({ url, selector }, context) {
+        try {
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; DrapeAI/1.0)',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                },
+                timeout: 10000
+            });
+
+            if (!response.ok) {
+                return `❌ HTTP Error: ${response.status} ${response.statusText}`;
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+            let content = await response.text();
+
+            // If HTML, try to extract text content
+            if (contentType.includes('text/html')) {
+                // Remove script and style tags
+                content = content.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+                content = content.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+                // Remove HTML tags
+                content = content.replace(/<[^>]+>/g, ' ');
+                // Clean up whitespace
+                content = content.replace(/\s+/g, ' ').trim();
+            }
+
+            // Truncate if too long
+            if (content.length > 30000) {
+                content = content.substring(0, 30000) + '\n\n... [Truncated - content too large]';
+            }
+
+            return `🌐 Fetched: ${url}\n${'─'.repeat(40)}\n${content}`;
+        } catch (error) {
+            return `❌ Fetch error: ${error.message}`;
+        }
+    },
+
+    /**
+     * Think tool - for reasoning through problems
+     */
+    async think({ thought }, context) {
+        // This tool is just for the AI to organize its thoughts
+        // The thought is logged and returned as confirmation
+        console.log(`💭 AI thinking: ${thought.substring(0, 100)}...`);
+        return `💭 Thought recorded:\n${thought}`;
     }
 };
+
+// Helper function for formatting file sizes
+function formatSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 /**
  * Execute a tool by name

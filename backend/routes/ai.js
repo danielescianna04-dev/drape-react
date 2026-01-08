@@ -419,8 +419,13 @@ Hai accesso a questi tool per operazioni sui file:
 - glob_files: Trova file per pattern
 - search_in_files: Cerca contenuto nei file
 - execute_command: Esegue comandi shell
-- create_folder: Crea una nuova cartella/directory (usa questo per creare cartelle!)
+- create_folder: Crea una nuova cartella/directory
 - delete_file: Elimina un file o una cartella
+- list_directory: Elenca contenuti di una directory con dimensioni e tipi
+- move_file: Sposta o rinomina file/cartelle
+- copy_file: Copia file/cartelle in una nuova posizione
+- web_fetch: Recupera contenuti da un URL
+- think: Ragiona passo-passo su problemi complessi
 
 Quando l'utente chiede qualcosa sul progetto, hai già i file caricati nel contesto.
 IMPORTANTE: Rispetta la struttura del progetto E crea SEMPRE design BELLISSIMI e moderni!
