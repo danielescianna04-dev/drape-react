@@ -333,6 +333,7 @@ class StorageService {
      */
     async syncToVM(projectId, agentUrl, machineId = null) {
         const axios = require('axios');
+        const archiver = require('archiver');
         const bundle = await this.createBundle(projectId);
 
         if (bundle.length === 0) {
@@ -340,67 +341,83 @@ class StorageService {
             return { success: true, syncedCount: 0 };
         }
 
-        console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM (parallel)...`);
-
-        const PARALLEL_LIMIT = 20; // Sync 20 files concurrently (was 10)
-        const MAX_RETRIES = 2;    // Reduced retries for speed
-        const RETRY_DELAY = 500;  // Faster retry
-
-        let syncedCount = 0;
-        let failedFiles = [];
-
-        // Helper for delay
-        const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+        const startTime = Date.now();
+        console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM (tar.gz)...`);
 
         // Headers for Fly.io routing
         const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
 
-        // Sync a single file with retries
-        const syncFile = async (file) => {
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Create tar.gz archive in memory
+            const archive = archiver('tar', { gzip: true, gzipOptions: { level: 6 } });
+            const chunks = [];
+
+            archive.on('data', chunk => chunks.push(chunk));
+
+            // Add all files to archive
+            for (const file of bundle) {
+                archive.append(file.content, { name: file.path });
+            }
+
+            await archive.finalize();
+
+            // Wait for archive to complete
+            await new Promise((resolve, reject) => {
+                archive.on('end', resolve);
+                archive.on('error', reject);
+            });
+
+            const buffer = Buffer.concat(chunks);
+            const base64Archive = buffer.toString('base64');
+
+            console.log(`   📦 Archive: ${bundle.length} files, ${(buffer.length / 1024).toFixed(1)}KB compressed`);
+
+            // Send to VM
+            const response = await axios.post(`${agentUrl}/extract`, {
+                archive: base64Archive
+            }, {
+                timeout: 30000,
+                headers,
+                maxContentLength: 50 * 1024 * 1024,
+                maxBodyLength: 50 * 1024 * 1024
+            });
+
+            const elapsed = Date.now() - startTime;
+            console.log(`✅ [Storage] Synced ${response.data.filesExtracted || bundle.length} files in ${elapsed}ms`);
+            return { success: true, syncedCount: bundle.length, failedCount: 0 };
+
+        } catch (e) {
+            console.warn(`⚠️ [Storage] Bulk sync failed, falling back to parallel: ${e.message}`);
+
+            // Fallback to parallel file sync
+            const PARALLEL_LIMIT = 20;
+            let syncedCount = 0;
+            let failedFiles = [];
+
+            const syncFile = async (file) => {
                 try {
                     await axios.post(`${agentUrl}/file`, {
                         path: file.path,
                         content: file.content
-                    }, { timeout: 10000, headers }); // Reduced from 30s to 10s
-                    return { success: true, path: file.path };
+                    }, { timeout: 10000, headers });
+                    return { success: true };
                 } catch (error) {
-                    if (attempt < MAX_RETRIES) {
-                        await delay(RETRY_DELAY);
-                    } else {
-                        return { success: false, path: file.path, error: error.message };
-                    }
+                    return { success: false, path: file.path };
                 }
-            }
-        };
+            };
 
-        // Process files in parallel batches
-        for (let i = 0; i < bundle.length; i += PARALLEL_LIMIT) {
-            const batch = bundle.slice(i, i + PARALLEL_LIMIT);
-            const batchNum = Math.floor(i / PARALLEL_LIMIT) + 1;
-            const totalBatches = Math.ceil(bundle.length / PARALLEL_LIMIT);
-
-            // Execute batch in parallel
-            const results = await Promise.all(batch.map(syncFile));
-
-            // Count successes and collect failures
-            for (const result of results) {
-                if (result.success) {
-                    syncedCount++;
-                } else {
-                    failedFiles.push(result.path);
+            for (let i = 0; i < bundle.length; i += PARALLEL_LIMIT) {
+                const batch = bundle.slice(i, i + PARALLEL_LIMIT);
+                const results = await Promise.all(batch.map(syncFile));
+                for (const r of results) {
+                    if (r.success) syncedCount++;
+                    else failedFiles.push(r.path);
                 }
             }
 
-            console.log(`   📦 Batch ${batchNum}/${totalBatches}: ${results.filter(r => r.success).length}/${batch.length} synced`);
+            console.log(`✅ [Storage] Fallback synced ${syncedCount}/${bundle.length} files`);
+            return { success: true, syncedCount, failedCount: failedFiles.length };
         }
-
-        if (failedFiles.length > 0) {
-            console.warn(`⚠️ [Storage] Failed to sync ${failedFiles.length} files: ${failedFiles.slice(0, 5).join(', ')}${failedFiles.length > 5 ? '...' : ''}`);
-        }
-
-        console.log(`✅ [Storage] Synced ${syncedCount}/${bundle.length} files to VM`);
-        return { success: true, syncedCount, failedCount: failedFiles.length };
     }
 }
 

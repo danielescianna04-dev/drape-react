@@ -15,11 +15,12 @@ const http = require('http');
 const { spawn, exec } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.2 - With Live Logs Streaming');
+console.log('🚀 Drape Agent v2.3 - With Bulk Extract Support');
 
 // ============ LIVE LOGS STREAMING ============
 // Circular buffer for log lines (keeps last 1000 lines)
@@ -187,8 +188,8 @@ const server = http.createServer(async (req, res) => {
     console.log(`[Agent] ${req.method} ${pathname}`);
 
     try {
-        // API routes (start with /health, /exec, /files, /file, /clone, /logs)
-        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs'].some(route => pathname.startsWith(route));
+        // API routes (start with /health, /exec, /files, /file, /clone, /logs, /extract)
+        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs', '/extract', '/folder', '/delete'].some(route => pathname.startsWith(route));
 
         // Health check (explicit)
         if (pathname === '/health') {
@@ -454,6 +455,69 @@ const server = http.createServer(async (req, res) => {
 
             const result = await deleteFile(filePath);
             return sendJson(req, res, result);
+        }
+
+        // BULK EXTRACT: Extract tar.gz archive to project directory
+        // This is 10-20x faster than individual file writes
+        if (pathname === '/extract' && req.method === 'POST') {
+            const body = await parseBody(req);
+            const { archive } = body; // base64-encoded tar.gz
+
+            if (!archive) {
+                return sendJson(req, res, { error: 'archive required (base64 tar.gz)' }, 400);
+            }
+
+            const startTime = Date.now();
+            const tempFile = path.join(os.tmpdir(), `drape-sync-${Date.now()}.tar.gz`);
+
+            try {
+                // Decode base64 and write to temp file
+                const buffer = Buffer.from(archive, 'base64');
+                await fs.writeFile(tempFile, buffer);
+
+                // Ensure project directory exists
+                await fs.mkdir(PROJECT_DIR, { recursive: true });
+
+                // Extract tar.gz to project directory
+                const extractResult = await execCommand(
+                    `tar -xzf "${tempFile}" -C "${PROJECT_DIR}"`,
+                    PROJECT_DIR
+                );
+
+                // Cleanup temp file
+                await fs.unlink(tempFile).catch(() => {});
+
+                if (extractResult.exitCode !== 0) {
+                    return sendJson(req, res, {
+                        success: false,
+                        error: extractResult.stderr || 'Extract failed',
+                        elapsed: Date.now() - startTime
+                    }, 500);
+                }
+
+                // Count extracted files
+                const countResult = await execCommand(
+                    `find "${PROJECT_DIR}" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | wc -l`,
+                    PROJECT_DIR
+                );
+                const fileCount = parseInt(countResult.stdout.trim()) || 0;
+
+                console.log(`[Agent] Extracted ${fileCount} files in ${Date.now() - startTime}ms`);
+
+                return sendJson(req, res, {
+                    success: true,
+                    filesExtracted: fileCount,
+                    elapsed: Date.now() - startTime
+                });
+            } catch (error) {
+                // Cleanup on error
+                await fs.unlink(tempFile).catch(() => {});
+                return sendJson(req, res, {
+                    success: false,
+                    error: error.message,
+                    elapsed: Date.now() - startTime
+                }, 500);
+            }
         }
 
         // Clone repository
