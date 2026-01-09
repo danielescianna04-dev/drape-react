@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Animated } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
@@ -12,23 +12,12 @@ interface Props {
 }
 
 export const ChatPanel = ({ onClose }: Props) => {
-  const slideAnim = useRef(new Animated.Value(-300)).current;
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats, currentWorkstation } = useTerminalStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
-
-  // Opening animation
-  useEffect(() => {
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start();
-  }, []);
 
   // Load chats from AsyncStorage on mount
   useEffect(() => {
@@ -146,23 +135,12 @@ export const ChatPanel = ({ onClose }: Props) => {
   };
 
   const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: -300,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => onClose());
+    onClose();
   };
 
   return (
     <>
-      {/* Backdrop */}
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
-
-      <Animated.View style={[styles.container, { transform: [{ translateX: slideAnim }] }]}>
+      <View style={styles.container}>
         {/* New Chat Button - ChatGPT style */}
         <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
           <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
@@ -261,30 +239,27 @@ export const ChatPanel = ({ onClose }: Props) => {
           <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
           <Text style={styles.bottomCloseText}>Chiudi</Text>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
     </>
   );
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 999,
-  },
   container: {
     position: 'absolute',
     left: 44,
     top: 0,
     bottom: 0,
-    width: 260,
+    width: '55%',
+    maxWidth: 220,
     backgroundColor: '#0a0a0a',
     zIndex: 1000,
     paddingTop: 54,
+    shadowColor: '#000',
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 20,
   },
   newChatButton: {
     flexDirection: 'row',

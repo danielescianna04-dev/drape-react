@@ -377,6 +377,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             />
           )}
         </ScrollView>
+
+        {/* Bottom close button */}
+        <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
+          <Text style={styles.bottomCloseText}>Chiudi</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Delete Confirmation Modal */}
@@ -625,6 +631,7 @@ const styles = StyleSheet.create({
     width: '55%',
     maxWidth: 220,
     zIndex: 1000,
+    backgroundColor: AppColors.dark.backgroundAlt,
     shadowColor: AppColors.black.full,
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.5,
@@ -1302,5 +1309,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
+  },
+  bottomClose: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    gap: 6,
+  },
+  bottomCloseText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
   },
 });

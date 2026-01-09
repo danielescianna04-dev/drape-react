@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -52,6 +52,63 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
   const prevShowPreviewPanel = React.useRef(showPreviewPanel);
 
+  // Panel slide animation
+  const panelSlideX = useSharedValue(-280); // Start off-screen to the left
+  const [renderedPanel, setRenderedPanel] = useState<PanelType>(null);
+  const prevActivePanel = React.useRef<PanelType>(null);
+
+  // Check if panel type is a "slideable" panel (not multitasking, vertical, or preview)
+  const isSlideablePanel = (panel: PanelType) =>
+    panel && panel !== 'multitasking' && panel !== 'vertical' && panel !== 'preview';
+
+  // Animate panel when activePanel changes
+  useEffect(() => {
+    const wasSlideablePanel = isSlideablePanel(prevActivePanel.current);
+    const isNowSlideablePanel = isSlideablePanel(activePanel);
+
+    if (isNowSlideablePanel) {
+      if (wasSlideablePanel && prevActivePanel.current !== activePanel) {
+        // Switching between panels (e.g., files -> chat)
+        // Keep panel open, just swap content immediately (no animation to avoid flash)
+        panelSlideX.value = 0;
+        setRenderedPanel(activePanel);
+      } else if (!wasSlideablePanel) {
+        // Opening a panel from closed state - slide in
+        setRenderedPanel(activePanel);
+        panelSlideX.value = withTiming(0, {
+          duration: 300,
+          easing: Easing.out(Easing.cubic)
+        });
+      } else {
+        // Same panel, just update
+        setRenderedPanel(activePanel);
+      }
+    } else if (wasSlideablePanel) {
+      // Closing a panel - animate out then unmount
+      panelSlideX.value = withTiming(-280, {
+        duration: 250,
+        easing: Easing.in(Easing.cubic)
+      });
+      // Delay unmounting until animation completes
+      const timeout = setTimeout(() => {
+        setRenderedPanel(null);
+      }, 250);
+      prevActivePanel.current = activePanel;
+      return () => clearTimeout(timeout);
+    }
+
+    prevActivePanel.current = activePanel;
+  }, [activePanel]);
+
+  const panelAnimatedStyle = useAnimatedStyle(() => {
+    // Calculate opacity based on position (0 = fully visible, -280 = hidden)
+    const slideOpacity = Math.max(0, Math.min(1, (panelSlideX.value + 280) / 280));
+    return {
+      transform: [{ translateX: panelSlideX.value }],
+      opacity: slideOpacity,
+    };
+  });
+
   // Auto-close sidebar when opening a preview (either as tab or panel)
   // Only trigger when showPreviewPanel JUST became true (not when closing other panels)
   useEffect(() => {
@@ -64,9 +121,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
     // Only auto-hide if preview JUST opened OR preview tab became active
     if ((previewJustOpened || isPreviewTabActive) && !isSidebarHidden) {
-      console.log('👁️ [VSCodeSidebar] Preview activated, auto-hiding sidebar');
-      sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
-      setIsSidebarHidden(true);
+      // Delay animation until after interactions (preview mounting) complete
+      const task = InteractionManager.runAfterInteractions(() => {
+        console.log('👁️ [VSCodeSidebar] Preview activated, auto-hiding sidebar');
+        sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
+        setIsSidebarHidden(true);
+      });
+      return () => task.cancel();
     }
   }, [activeTabId, showPreviewPanel]);
 
@@ -297,19 +358,19 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         )}
 
         {/* Backdrop overlay - tap to close panel with subtle blur */}
-        {activePanel && activePanel !== 'multitasking' && activePanel !== 'vertical' && (
+        {renderedPanel && renderedPanel !== 'multitasking' && renderedPanel !== 'vertical' && (
           <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
             <BlurView intensity={25} tint="dark" style={styles.panelBackdrop} />
           </TouchableWithoutFeedback>
         )}
 
         {/* Global Panels Container - ensures all menus are above the blur */}
-        <View style={styles.panelsContainer} pointerEvents="box-none">
-          {activePanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
-          {activePanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
-          {activePanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
-          {activePanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
-        </View>
+        <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
+          {renderedPanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
+          {renderedPanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
+          {renderedPanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
+          {renderedPanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
+        </Animated.View>
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
