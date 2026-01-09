@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
+import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 import { DescriptionInput } from './DescriptionInput';
 
@@ -32,18 +33,10 @@ interface Props {
 }
 
 const languages = [
-  { id: 'javascript', name: 'JavaScript', icon: 'logo-javascript', color: '#F7DF1E' },
-  { id: 'typescript', name: 'TypeScript', icon: 'logo-javascript', color: '#3178C6' },
-  { id: 'python', name: 'Python', icon: 'logo-python', color: '#3776AB' },
   { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
+  { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
   { id: 'node', name: 'Node.js', icon: 'logo-nodejs', color: '#68A063' },
-  { id: 'cpp', name: 'C++', icon: 'code-slash', color: '#00599C' },
-  { id: 'java', name: 'Java', icon: 'cafe-outline', color: '#ED8B00' },
-  { id: 'swift', name: 'Swift', icon: 'logo-apple', color: '#FA7343' },
-  { id: 'kotlin', name: 'Kotlin', icon: 'logo-android', color: '#7F52FF' },
-  { id: 'go', name: 'Go', icon: 'code-slash', color: '#00ADD8' },
-  { id: 'rust', name: 'Rust', icon: 'code-slash', color: '#CE422B' },
-  { id: 'html', name: 'HTML/CSS', icon: 'logo-html5', color: '#E34F26' },
+  { id: 'typescript', name: 'TypeScript', icon: 'logo-javascript', color: '#3178C6' },
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
@@ -57,6 +50,9 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+
+  // Get existing workstations to check for duplicate names
+  const { workstations } = useTerminalStore();
 
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -121,27 +117,61 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         Alert.alert('Attenzione', 'Inserisci un nome per il progetto');
         return;
       }
-      // Don't use LayoutAnimation when going to step 2 (causes focus issues with TextInput)
-      setStep(2);
-    } else if (step === 2) {
       if (!description.trim()) {
         Alert.alert('Attenzione', 'Inserisci una descrizione per l\'applicazione');
         return;
       }
+
+      // Check for duplicate project name and generate unique name if needed
+      const trimmedName = projectName.trim();
+      const existingProject = workstations.find(
+        w => w.name?.toLowerCase() === trimmedName.toLowerCase()
+      );
+
+      if (existingProject) {
+        // Find a unique name by adding a number suffix
+        let newName = trimmedName;
+        let counter = 2;
+
+        while (workstations.some(w => w.name?.toLowerCase() === newName.toLowerCase())) {
+          newName = `${trimmedName} (${counter})`;
+          counter++;
+        }
+
+        Alert.alert(
+          'Nome già esistente',
+          `Esiste già un progetto chiamato "${trimmedName}". Il nuovo progetto verrà chiamato "${newName}".`,
+          [
+            { text: 'Cambia nome', style: 'cancel' },
+            {
+              text: 'OK',
+              onPress: () => {
+                setProjectName(newName);
+                Keyboard.dismiss();
+                analyzeRequirements();
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setStep(2);
+              }
+            }
+          ]
+        );
+        return;
+      }
+
       Keyboard.dismiss();
 
       // AI Analysis
       analyzeRequirements();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStep(3);
-    } else if (step === 3) {
+      setStep(2);
+    } else if (step === 2) {
       if (!selectedLanguage) {
         Alert.alert('Attenzione', 'Seleziona un linguaggio');
         return;
       }
       Keyboard.dismiss();
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setStep(4);
+      setStep(3);
     }
   };
 
@@ -237,6 +267,10 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             if (task.status === 'completed') {
               clearInterval(pollInterval);
 
+              // Log what we received from backend
+              console.log('📦 [CreateProject] Task result:', JSON.stringify(task.result, null, 2));
+              console.log('📦 [CreateProject] Files from backend:', task.result.files);
+
               // Success!
               const workstation = {
                 id: task.result.projectId,
@@ -247,9 +281,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
                 templateDescription: task.result.templateDescription,
                 status: 'ready' as const,
                 createdAt: new Date(),
-                files: [], // Files are saved in backend, potentially we could fetch them or just let the view handling do it
+                files: task.result.files || [],
                 folderId: null,
               };
+
+              console.log('📦 [CreateProject] Workstation files:', workstation.files);
 
               // Short delay to show 100%
               setTimeout(() => {
@@ -280,15 +316,14 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
-  // Step 1: Name, Step 2: Desc, Step 3: Tech, Step 4: Review
-  const canProceed = step === 1 ? projectName.trim().length > 0
-    : step === 2 ? description.trim().length > 0
-      : step === 3 ? selectedLanguage !== ''
-        : true;
+  // Step 1: Name + Desc, Step 2: Tech, Step 3: Review
+  const canProceed = step === 1 ? (projectName.trim().length > 0 && description.trim().length > 0)
+    : step === 2 ? selectedLanguage !== ''
+      : true;
 
   const progressWidth = progressAnim.interpolate({
-    inputRange: [1, 2, 3, 4],
-    outputRange: ['25%', '50%', '75%', '100%'],
+    inputRange: [1, 2, 3],
+    outputRange: ['33%', '66%', '100%'],
   });
 
   const renderStep1 = () => (
@@ -299,8 +334,8 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       ]}
     >
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Come vuoi chiamarlo?</Text>
-        <Text style={styles.stepSubtitle}>Scegli un nome memorabile per il tuo progetto</Text>
+        <Text style={styles.stepTitle}>Nuovo Progetto</Text>
+        <Text style={styles.stepSubtitle}>Dai un nome e descrivi cosa vuoi creare</Text>
       </View>
 
       <View style={styles.inputSection}>
@@ -325,11 +360,8 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             onBlur={() => setInputFocused(false)}
             autoCapitalize="none"
             autoCorrect={false}
-            returnKeyType="done"
-            onSubmitEditing={() => {
-              Keyboard.dismiss();
-              if (projectName.trim()) handleNext();
-            }}
+            returnKeyType="next"
+            keyboardAppearance="dark"
           />
           {projectName.length > 0 && (
             <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
@@ -339,55 +371,19 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             </TouchableOpacity>
           )}
         </Pressable>
-
-        {projectName.length > 0 && (
-          <View style={styles.previewRow}>
-            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-            <Text style={styles.previewText}>
-              Il progetto si chiamerà <Text style={styles.previewName}>"{projectName}"</Text>
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.suggestionsSection}>
-        <Text style={styles.suggestionsTitle}>Suggerimenti</Text>
-        <View style={styles.suggestionChips}>
-          {['my-app', 'portfolio', 'todo-list', 'api-server', 'landing-page', 'dashboard'].map((name) => (
-            <TouchableOpacity
-              key={name}
-              style={[styles.suggestionChip, projectName === name && styles.suggestionChipActive]}
-              onPress={() => setProjectName(name)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.suggestionChipText, projectName === name && styles.suggestionChipTextActive]}>
-                {name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    </Animated.View>
-  );
-
-  const renderStep2 = () => (
-    <View style={styles.stepContent}>
-      <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Descrivimi l'applicazione</Text>
-        <Text style={styles.stepSubtitle}>Spiega cosa vuoi che faccia questa app. L'IA la genererà per te (mobile-first).</Text>
       </View>
 
       <View style={styles.inputSection}>
         <DescriptionInput
           value={description}
           onChangeText={setDescription}
-          placeholder="Es. Una landing page per vendere scarpe, con una galleria fotografica e un modulo di contatto..."
+          placeholder="Descrivi la tua app... Es. Una landing page per vendere scarpe con galleria e form di contatto"
         />
       </View>
-    </View>
+    </Animated.View>
   );
 
-  const renderStep3 = () => (
+  const renderStep2 = () => (
     <Animated.View
       style={[
         styles.stepContent,
@@ -424,10 +420,17 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
           );
         })}
       </View>
+
+      <View style={styles.comingSoonBanner}>
+        <Ionicons name="construct-outline" size={16} color="rgba(255,255,255,0.4)" />
+        <Text style={styles.comingSoonText}>
+          Altri linguaggi in arrivo
+        </Text>
+      </View>
     </Animated.View>
   );
 
-  const renderStep4 = () => (
+  const renderStep3 = () => (
     <Animated.View
       style={[
         styles.stepContent,
@@ -463,7 +466,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             <Text style={styles.summaryLabel}>Descrizione</Text>
             <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
           </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
             <Ionicons name="create-outline" size={20} color={AppColors.primary} />
           </TouchableOpacity>
         </View>
@@ -478,7 +481,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             <Text style={styles.summaryLabel}>Tecnologia</Text>
             <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
           </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(3)}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
             <Ionicons name="create-outline" size={20} color={AppColors.primary} />
           </TouchableOpacity>
         </View>
@@ -519,7 +522,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       {/* Progress bar */}
       {/* Segmented Progress Bar */}
       <View style={styles.segmentContainer}>
-        {[1, 2, 3, 4].map((s) => {
+        {[1, 2, 3].map((s) => {
           const isActive = s <= step;
           const isCurrent = s === step;
           const isCompleted = s < step;
@@ -572,7 +575,6 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
         {step === 3 && renderStep3()}
-        {step === 4 && renderStep4()}
       </ScrollView>
 
       {/* Bottom Button - Hidden visually when keyboard is visible to keep layout stable */}
@@ -584,7 +586,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       ]}>
         <TouchableOpacity
           style={[styles.actionBtn, !canProceed && styles.actionBtnDisabled]}
-          onPress={step === 4 ? handleCreate : handleNext}
+          onPress={step === 3 ? handleCreate : handleNext}
           disabled={!canProceed || isCreating}
           activeOpacity={0.85}
         >
@@ -599,11 +601,11 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             ) : (
               <>
                 <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                  {step === 4 ? 'Crea Progetto' : 'Continua'}
+                  {step === 3 ? 'Crea Progetto' : 'Continua'}
                 </Text>
                 {canProceed && (
                   <View style={styles.actionBtnIconBox}>
-                    <Ionicons name={step === 4 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
+                    <Ionicons name={step === 3 ? "checkmark" : "arrow-forward"} size={18} color="#fff" />
                   </View>
                 )}
               </>
@@ -900,7 +902,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
   },
-  // Step 3 - Summary
+  comingSoonBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  comingSoonText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+  },
   // Step 3 - Summary
   summaryCard: {
     backgroundColor: 'rgba(255,255,255,0.03)',

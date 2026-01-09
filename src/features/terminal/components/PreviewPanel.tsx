@@ -161,6 +161,12 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [smoothProgress, setSmoothProgress] = useState(0);
   const [displayedMessage, setDisplayedMessage] = useState('');
 
+  // Error handling state
+  const [previewError, setPreviewError] = useState<{ message: string; timestamp: Date } | null>(null);
+  const [isSendingReport, setIsSendingReport] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
+  const recentLogsRef = useRef<string[]>([]); // Store recent logs for error reporting
+
   // Rich Loading Messages
   const LOADING_MESSAGES: Record<string, string[]> = {
     analyzing: [
@@ -606,8 +612,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       // (e.g., Next.js with corrupted favicon or build error)
       if ((response.status >= 200 && response.status < 400) || response.status === 500) {
         if (agentStatus === 'waiting') {
-          // Still installing dependencies
+          // Still installing dependencies - update UI to show this phase
           console.log('📡 Agent is in waiting mode (installing dependencies)...');
+          setStartingMessage('Installazione dipendenze...');
           if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
             setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
           }
@@ -622,8 +629,15 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
           }
         }
         setServerStatus('running');
+        // Server is ready - hide the loading overlay and let WebView show content
+        setIsStarting(false);
+        // Set webViewReady after short delay to trigger smooth transition
+        setTimeout(() => setWebViewReady(true), 500);
       } else if (response.status === 403 || response.status === 503) {
-        // 403 often means Vite Host Check blocked, 503 means booting
+        // 403 often means Vite Host Check blocked, 503 means booting/npm install
+        // Update UI to show what's happening
+        setStartingMessage(response.status === 503 ? 'Avvio server di sviluppo...' : 'Configurazione server...');
+
         // Try to reach the agent's health endpoint to confirm VM is alive
         try {
           const healthUrl = urlToCheck.endsWith('/') ? `${urlToCheck}health` : `${urlToCheck}/health`;
@@ -646,6 +660,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         }
       } else {
         console.log(`⚠️ Server returned status: ${response.status}. Retrying...`);
+        setStartingMessage('Attesa risposta server...');
         if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
           setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
@@ -653,8 +668,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log(`❌ Server check timed out after 30s (Attempt ${retryCount + 1})`);
+        setStartingMessage('Connessione in corso...');
       } else {
         console.log(`❌ Server check failed: ${error.message} (Attempt ${retryCount + 1})`);
+        setStartingMessage('Riprovando connessione...');
       }
 
       // Retry if server isn't ready yet and we're still in checking mode
@@ -662,6 +679,56 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 3000); // Longer wait after error
       }
     }
+  };
+
+  // Send error report to backend for debugging
+  const sendErrorReport = async () => {
+    if (!previewError) return;
+
+    setIsSendingReport(true);
+    try {
+      const deviceInfo = {
+        platform: Platform.OS,
+        version: Platform.Version,
+      };
+
+      await fetch(`${apiUrl}/fly/error-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: currentWorkstation?.id,
+          userId: useAuthStore.getState().user?.email,
+          errorMessage: previewError.message,
+          deviceInfo,
+          logs: recentLogsRef.current,
+          timestamp: previewError.timestamp.toISOString(),
+        }),
+      });
+
+      setReportSent(true);
+      console.log('✅ Error report sent successfully');
+    } catch (e) {
+      console.error('Failed to send error report:', e);
+    } finally {
+      setIsSendingReport(false);
+    }
+  };
+
+  // Retry preview after error
+  const handleRetryPreview = () => {
+    setPreviewError(null);
+    setReportSent(false);
+    // Reset steps to initial state
+    setStartupSteps([
+      { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
+      { id: 'cloning', label: 'Preparazione file', status: 'pending' },
+      { id: 'detecting', label: 'Configurazione', status: 'pending' },
+      { id: 'booting', label: 'Accensione server', status: 'pending' },
+      { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
+    ]);
+    setSmoothProgress(0);
+    // Start server again
+    handleStartServer();
   };
 
   const handleStartServer = async () => {
@@ -736,6 +803,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 console.log('📬 Preview SSE:', parsed.type, parsed.step || '');
 
                 if (parsed.type === 'step') {
+                  // Capture step progress for error reporting
+                  recentLogsRef.current.push(`[STEP] ${parsed.step}: ${parsed.message}`);
+                  if (recentLogsRef.current.length > 50) recentLogsRef.current.shift();
+
                   setCurrentStepId(parsed.step);
                   setStartingMessage(parsed.message);
 
@@ -807,10 +878,14 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   }
                 } else if (parsed.type === 'error') {
                   console.error('❌ SSE Error:', parsed.message);
+                  // Capture logs for error reporting
+                  recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
                   setStartupSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
                   logError(parsed.message, 'preview');
                   setServerStatus('stopped');
                   setIsStarting(false);
+                  // Set error state for UI
+                  setPreviewError({ message: parsed.message, timestamp: new Date() });
                   reject(new Error(parsed.message));
                 }
               } catch (e) {
@@ -1975,71 +2050,124 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           </View>
                         </View>
 
-                        {/* Screen content - The Pulse Design */}
+                        {/* Screen content - The Pulse Design OR Error UI */}
                         <View style={styles.iphoneScreenCentered}>
+                          {previewError ? (
+                            /* ERROR UI */
+                            <View style={styles.errorContainer}>
+                              <View style={styles.errorIconContainer}>
+                                <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
+                              </View>
+                              <Text style={styles.errorTitle}>Si è verificato un errore</Text>
+                              <Text style={styles.errorMessage} numberOfLines={3}>
+                                {previewError.message}
+                              </Text>
 
-                          {/* 1. The Breathing Spirit (Orb) */}
-                          <View style={styles.spiritContainer}>
-                            <Animated.View style={[
-                              styles.spiritOrb,
-                              {
-                                transform: [{ scale: pulseAnim }],
-                                opacity: pulseAnim.interpolate({
-                                  inputRange: [0.6, 1],
-                                  outputRange: [0.3, 0.8]
-                                })
-                              }
-                            ]} />
-                            <Animated.View style={[
-                              styles.spiritCore,
-                              {
-                                transform: [{
-                                  scale: pulseAnim.interpolate({
-                                    inputRange: [0.6, 1],
-                                    outputRange: [1, 1.2]
-                                  })
-                                }]
-                              }
-                            ]} />
-                            <View style={styles.spiritGlow} />
-                          </View>
+                              <View style={styles.errorButtonsContainer}>
+                                <TouchableOpacity
+                                  style={styles.retryButton}
+                                  onPress={handleRetryPreview}
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons name="refresh" size={18} color="#fff" />
+                                  <Text style={styles.retryButtonText}>Riprova</Text>
+                                </TouchableOpacity>
 
-                          {/* 2. Minimalist Status Info */}
-                          <View style={styles.pulseStatusContainer}>
-                            <Text style={styles.pulseStatusLabel}>
-                              {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
-                            </Text>
-                            <Text style={styles.pulseStatusMessage} numberOfLines={2}>
-                              {displayedMessage || 'Inizializzazione ambiente...'}
-                            </Text>
-                            <Text style={{
-                              color: 'rgba(255,255,255,0.4)',
-                              fontSize: 12,
-                              fontFamily: 'SF-Pro-Text-Regular',
-                              marginTop: 8
-                            }}>
-                              {smoothProgress > 88
-                                ? "Ultimi istanti..."
-                                : `Circa ${Math.ceil(40 * (1 - smoothProgress / 100))} secondi rimanenti`}
-                            </Text>
-                          </View>
+                                <TouchableOpacity
+                                  style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
+                                  onPress={sendErrorReport}
+                                  disabled={isSendingReport || reportSent}
+                                  activeOpacity={0.7}
+                                >
+                                  {isSendingReport ? (
+                                    <ActivityIndicator size="small" color="#fff" />
+                                  ) : reportSent ? (
+                                    <>
+                                      <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                                      <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
+                                      <Text style={styles.sendLogsButtonText}>Invia log</Text>
+                                    </>
+                                  )}
+                                </TouchableOpacity>
+                              </View>
 
-                          {/* 3. Integrated Mini Progress at the bottom of screen */}
-                          <View style={styles.miniProgressContainer}>
-                            <View style={styles.miniProgressBarBase}>
-                              <View style={[
-                                styles.miniProgressBarActive,
-                                {
-                                  width: `${smoothProgress}%`,
-                                  backgroundColor: AppColors.primary
-                                }
-                              ]} />
-                              <View style={styles.miniProgressBarGlow} />
+                              {reportSent && (
+                                <Text style={styles.reportSentMessage}>
+                                  Grazie! Il nostro team analizzerà il problema.
+                                </Text>
+                              )}
                             </View>
-                            <Text style={styles.miniProgressText}>
-                              {Math.round(smoothProgress)}%
-                            </Text>
-                          </View>
+                          ) : (
+                            /* LOADING UI */
+                            <>
+                              {/* 1. The Breathing Spirit (Orb) */}
+                              <View style={styles.spiritContainer}>
+                                <Animated.View style={[
+                                  styles.spiritOrb,
+                                  {
+                                    transform: [{ scale: pulseAnim }],
+                                    opacity: pulseAnim.interpolate({
+                                      inputRange: [0.6, 1],
+                                      outputRange: [0.3, 0.8]
+                                    })
+                                  }
+                                ]} />
+                                <Animated.View style={[
+                                  styles.spiritCore,
+                                  {
+                                    transform: [{
+                                      scale: pulseAnim.interpolate({
+                                        inputRange: [0.6, 1],
+                                        outputRange: [1, 1.2]
+                                      })
+                                    }]
+                                  }
+                                ]} />
+                                <View style={styles.spiritGlow} />
+                              </View>
+
+                              {/* 2. Minimalist Status Info */}
+                              <View style={styles.pulseStatusContainer}>
+                                <Text style={styles.pulseStatusLabel}>
+                                  {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
+                                </Text>
+                                <Text style={styles.pulseStatusMessage} numberOfLines={2}>
+                                  {displayedMessage || 'Inizializzazione ambiente...'}
+                                </Text>
+                                <Text style={{
+                                  color: 'rgba(255,255,255,0.4)',
+                                  fontSize: 12,
+                                  fontFamily: 'SF-Pro-Text-Regular',
+                                  marginTop: 8
+                                }}>
+                                  {smoothProgress > 88
+                                    ? "Ultimi istanti..."
+                                    : `Circa ${Math.ceil(40 * (1 - smoothProgress / 100))} secondi rimanenti`}
+                                </Text>
+                              </View>
+
+                              {/* 3. Integrated Mini Progress at the bottom of screen */}
+                              <View style={styles.miniProgressContainer}>
+                                <View style={styles.miniProgressBarBase}>
+                                  <View style={[
+                                    styles.miniProgressBarActive,
+                                    {
+                                      width: `${smoothProgress}%`,
+                                      backgroundColor: AppColors.primary
+                                    }
+                                  ]} />
+                                  <View style={styles.miniProgressBarGlow} />
+                                </View>
+                                <Text style={styles.miniProgressText}>
+                                  {Math.round(smoothProgress)}%
+                                </Text>
+                              </View>
+                            </>
+                          )}
                         </View>
 
                         {/* Side buttons */}
@@ -2961,6 +3089,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Error UI styles (inside iPhone mockup)
+  errorContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  errorIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  errorButtonsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppColors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  sendLogsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  sendLogsButtonSent: {
+    borderColor: 'rgba(76, 175, 80, 0.4)',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  sendLogsButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  reportSentMessage: {
+    marginTop: 16,
+    fontSize: 12,
+    color: 'rgba(76, 175, 80, 0.8)',
+    textAlign: 'center',
   },
   // AI Response Panel styles
   aiResponsePanel: {

@@ -38,23 +38,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
 
-  // Auto-close sidebar when opening a preview
-  useEffect(() => {
-    const activeTab = tabs.find(t => t.id === activeTabId);
-    if ((activeTab?.type === 'preview' || activeTab?.type === 'browser') && !isSidebarHidden) {
-      console.log('👁️ [VSCodeSidebar] Preview active, auto-hiding sidebar');
-      sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
-      setIsSidebarHidden(true);
-    }
-  }, [activeTabId]); // Only check when active tab changes
-
-  // Shared values
+  // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
   const isTrackpadActive = useSharedValue(false);
   const trackpadScale = useSharedValue(1);
   const trackpadBrightness = useSharedValue(0);
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
+
+  // Auto-close sidebar when opening a preview (either as tab or panel)
+  useEffect(() => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser' || activePanel === 'preview';
+
+    if (isPreviewActive && !isSidebarHidden) {
+      console.log('👁️ [VSCodeSidebar] Preview active, auto-hiding sidebar');
+      sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
+      setIsSidebarHidden(true);
+    }
+  }, [activeTabId, activePanel]); // Check when active tab OR active panel changes
 
   const togglePanel = useCallback((panel: PanelType) => {
     setActivePanel(prev => (prev === panel ? null : panel));

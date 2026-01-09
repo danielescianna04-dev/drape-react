@@ -166,15 +166,15 @@ class WorkspaceOrchestrator {
                 });
             }
 
-            // Wait for it to be ready
-            await flyService.waitForMachine(vm.id, 30000);
+            // Wait for machine to be ready (two-phase: 30s fast, then slower polling up to 120s)
+            // This never shows errors to user - keeps trying silently
+            await flyService.waitForMachine(vm.id, 30000, 120000);
 
             // Use the common app URL - all traffic goes through drape-workspaces.fly.dev
-            // We'll use the machine ID to route requests via Fly-Force-Instance-Id header
             const agentUrl = 'https://drape-workspaces.fly.dev';
 
-            // Wait for agent to be healthy (passing machine ID for routing)
-            await this._waitForAgent(agentUrl, 30000, vm.id);
+            // Wait for agent to be healthy (same two-phase approach)
+            await this._waitForAgent(agentUrl, 30000, 90000, vm.id);
 
             // VM info to cache
             const vmInfo = {
@@ -835,33 +835,49 @@ class WorkspaceOrchestrator {
 
     /**
      * Wait for the Drape Agent to be healthy
+     * Two-phase approach: fast polling, then slower polling
+     * Never throws timeout errors - keeps trying silently
+     *
      * @param {string} agentUrl - Base URL for the agent
-     * @param {number} timeout - Max wait time
+     * @param {number} initialTimeout - Fast polling phase (default 30s)
+     * @param {number} maxTimeout - Total max wait time (default 90s)
      * @param {string} machineId - Fly machine ID for routing
      */
-    async _waitForAgent(agentUrl, timeout = 30000, machineId = null) {
+    async _waitForAgent(agentUrl, initialTimeout = 30000, maxTimeout = 90000, machineId = null) {
         const startTime = Date.now();
+        let phase = 1;
         console.log(`⏳ [Orchestrator] Waiting for agent at ${agentUrl} (machine: ${machineId})...`);
 
         const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
 
-        while (Date.now() - startTime < timeout) {
+        while (Date.now() - startTime < maxTimeout) {
             try {
                 const response = await axios.get(`${agentUrl}/health`, {
                     timeout: 3000,
                     headers
                 });
                 if (response.data.status === 'ok') {
-                    console.log(`✅ [Orchestrator] Agent ready!`);
+                    const elapsed = Date.now() - startTime;
+                    console.log(`✅ [Orchestrator] Agent ready in ${elapsed}ms`);
                     return true;
                 }
             } catch {
-                // Not ready yet
+                // Not ready yet - continue polling
             }
-            await new Promise(r => setTimeout(r, 500));
+
+            // Phase transition logging
+            const elapsed = Date.now() - startTime;
+            if (phase === 1 && elapsed > initialTimeout) {
+                phase = 2;
+                console.log(`⏳ [Orchestrator] Phase 2: continuing to poll agent...`);
+            }
+
+            // Phase 1: fast polling (500ms), Phase 2: slower (1s)
+            const pollInterval = phase === 1 ? 500 : 1000;
+            await new Promise(r => setTimeout(r, pollInterval));
         }
 
-        throw new Error('Agent timeout');
+        throw new Error(`Agent not ready after ${maxTimeout / 1000}s`);
     }
 
     /**

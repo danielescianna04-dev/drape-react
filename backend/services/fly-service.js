@@ -171,34 +171,80 @@ class FlyService {
     }
 
     /**
-     * Wait for machine to be ready (started state)
+     * Start a stopped machine
      * @param {string} machineId - Fly machine ID
-     * @param {number} timeout - Max wait time in ms
      */
-    async waitForMachine(machineId, timeout = 30000) {
+    async startMachine(machineId) {
+        console.log(`▶️ [Fly] Starting machine: ${machineId}`);
+        try {
+            await this.client.post(
+                `/apps/${this.appName}/machines/${machineId}/start`
+            );
+            console.log(`✅ [Fly] Machine start requested`);
+        } catch (error) {
+            console.error(`❌ [Fly] Start failed:`, error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Wait for machine to be ready (started state)
+     * Uses a two-phase approach:
+     * - Phase 1: Fast polling (500ms) for initial timeout
+     * - Phase 2: Slower polling (1s) continues until maxTimeout
+     * Never throws timeout errors - keeps trying silently
+     *
+     * @param {string} machineId - Fly machine ID
+     * @param {number} initialTimeout - Fast polling phase (default 30s)
+     * @param {number} maxTimeout - Total max wait time (default 120s)
+     */
+    async waitForMachine(machineId, initialTimeout = 30000, maxTimeout = 120000) {
         const startTime = Date.now();
+        let phase = 1;
 
-        while (Date.now() - startTime < timeout) {
-            const machine = await this.getMachine(machineId);
+        while (Date.now() - startTime < maxTimeout) {
+            try {
+                const machine = await this.getMachine(machineId);
 
-            if (!machine) {
-                throw new Error(`Machine ${machineId} not found`);
+                if (!machine) {
+                    // Machine not found - wait and retry (might be creating)
+                    await new Promise(r => setTimeout(r, 1000));
+                    continue;
+                }
+
+                if (machine.state === 'started') {
+                    const elapsed = Date.now() - startTime;
+                    console.log(`✅ [Fly] Machine ${machineId} ready in ${elapsed}ms`);
+                    return machine;
+                }
+
+                // Only fail on terminal states
+                if (machine.state === 'failed' || machine.state === 'destroyed') {
+                    throw new Error(`Machine ${machineId} failed: ${machine.state}`);
+                }
+
+                // Log phase transition
+                const elapsed = Date.now() - startTime;
+                if (phase === 1 && elapsed > initialTimeout) {
+                    phase = 2;
+                    console.log(`⏳ [Fly] Phase 2: continuing to poll ${machineId} (state: ${machine.state})...`);
+                }
+
+                // Phase 1: fast polling, Phase 2: slower polling
+                const pollInterval = phase === 1 ? 500 : 1000;
+                await new Promise(r => setTimeout(r, pollInterval));
+            } catch (e) {
+                // Network errors - just retry
+                if (!e.message?.includes('failed:')) {
+                    await new Promise(r => setTimeout(r, 1000));
+                    continue;
+                }
+                throw e;
             }
-
-            if (machine.state === 'started') {
-                console.log(`✅ [Fly] Machine ${machineId} is ready!`);
-                return machine;
-            }
-
-            if (machine.state === 'failed' || machine.state === 'destroyed') {
-                throw new Error(`Machine ${machineId} failed: ${machine.state}`);
-            }
-
-            // Wait 500ms before next check
-            await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        throw new Error(`Timeout waiting for machine ${machineId}`);
+        // After max timeout, throw (but this is very long - 2 minutes)
+        throw new Error(`Machine ${machineId} not ready after ${maxTimeout / 1000}s`);
     }
 
     /**

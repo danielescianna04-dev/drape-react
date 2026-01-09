@@ -23,7 +23,11 @@
       "Bash(git fetch:*)",
       "Bash(git rebase:*)",
       "Bash(git stash:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "WebFetch(domain:awesomeclaude.ai)",
+      "Bash(claude /plugin --help)",
+      "Bash(claude plugin:*)",
+      "WebSearch"
     ]
   }
 }

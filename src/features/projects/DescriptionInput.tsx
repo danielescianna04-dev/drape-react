@@ -97,7 +97,10 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
           </TouchableOpacity>
         </Animated.View>
       </View>
-      <Text style={styles.hintText}>Più dettagli fornisci, migliore sarà il risultato.</Text>
+      <View style={styles.aiHintContainer}>
+        <Ionicons name="sparkles" size={14} color="rgba(139, 92, 246, 0.8)" />
+        <Text style={styles.hintText}>L'AI genererà il codice in base a questa descrizione</Text>
+      </View>
     </View>
   );
 });
@@ -151,10 +154,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
+  aiHintContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 12,
+  },
   hintText: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
-    marginLeft: 12,
-    fontStyle: 'italic',
+    color: 'rgba(255,255,255,0.5)',
   },
 });

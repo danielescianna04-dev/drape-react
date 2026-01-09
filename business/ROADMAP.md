@@ -47,9 +47,10 @@ Definire linguaggi disponibili al lancio e testare preview.
 
 - [ ] Stripe integration
 - [ ] Piano Free (limiti)
-- [ ] Piano Starter €9.99/mese
-- [ ] Piano Pro €19.99/mese
-- [ ] CTA "Upgrade" nell'app
+- [ ] Piano Starter 
+- [ ] Piano Pro 
+ [ ] Piano MAX
+- [ ] Call To Action "Upgrade" nell'app
 - [ ] Pagina pricing
 - [ ] Email di benvenuto/fattura
 

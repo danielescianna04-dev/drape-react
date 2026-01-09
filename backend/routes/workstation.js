@@ -760,80 +760,145 @@ async function runProjectCreationTask(taskId, wsId, params) {
 
     console.log(`\n🚀 [Task ${taskId}] Creating AI-powered project: ${projectName}`);
 
-    // Get Claude provider
+    // Get AI provider (using Gemini - configured in .env)
     update(10, 'Preparing AI Model...', 'Configuration');
-    const { provider, modelId } = getProviderForModel('claude-3.5-sonnet');
+    const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
 
     if (!provider.client && provider.isAvailable()) {
         await provider.initialize();
     }
 
-    // Premium system prompt
-    const systemPrompt = `You are an elite full-stack developer. Create a COMPLETE, production-ready ${technology} project.
+    // Premium system prompt with contextual content generation
+    const systemPrompt = `You are an expert full-stack developer AND content strategist. Your task is to create a COMPLETE, production-ready ${technology} project with REALISTIC, CONTEXTUAL content.
 
-PROJECT INFO:
-- Name: ${projectName}
-- Stack: ${technology}
-- Description: ${description || 'A modern web application'}
+=== PROJECT CONTEXT ===
+- Project Name: ${projectName}
+- Technology: ${technology}
+- User Request: "${description || 'A modern web application'}"
 
-MANDATORY FILE STRUCTURE - You MUST create ALL of these files:
+=== STEP 1: UNDERSTAND THE REQUEST ===
+First, analyze the user's request to extract:
+1. INDUSTRY/DOMAIN: What type of business or website is this? (e-commerce, restaurant, portfolio, blog, SaaS, etc.)
+2. TARGET AUDIENCE: Who will use this website?
+3. CORE PURPOSE: What should visitors do on this site? (buy products, book services, learn, contact, etc.)
+4. TONE: Professional, casual, luxury, playful, technical, etc.
 
-For React projects, include:
-1. package.json - with all dependencies (react, react-dom, react-router-dom, etc.)
-2. index.html - entry HTML with proper meta tags, fonts, viewport
-3. src/index.js or src/main.jsx - React entry point
-4. src/App.jsx - Main app component with routing
-5. src/index.css - Global styles with CSS variables, reset, utilities
-6. src/components/Header.jsx - Navigation header component
-7. src/components/Footer.jsx - Footer component
-8. src/components/Hero.jsx - Hero section component
-9. src/pages/Home.jsx - Home page
-10. src/pages/About.jsx - About page (if applicable)
-11. At least 2-3 more components specific to the project description
+=== STEP 2: GENERATE CONTEXTUAL CONTENT ===
+Based on your analysis, generate REAL, SPECIFIC content - NOT generic placeholders.
 
-DESIGN REQUIREMENTS (CRITICAL):
-- Dark theme: background #0a0a0f, cards rgba(255,255,255,0.05)
-- Accent: purple gradient (#8B5CF6 to #EC4899) or cyan (#06B6D4)
-- Glassmorphism: backdrop-blur-md, semi-transparent backgrounds
-- Typography: Inter font from Google Fonts
-- Mobile-first: base styles for mobile, media queries for larger screens
-- Smooth transitions (0.3s ease) on all interactive elements
-- Hover effects on buttons, cards, links
-- Proper spacing: 16px base, 24px sections, 48px major sections
+CRITICAL CONTENT RULES:
+❌ NEVER use: "Product 1", "Product 2", "Description of product 1", "Lorem ipsum", "Your Company", "Feature 1"
+✅ ALWAYS use: Real product/service names, realistic descriptions, actual prices, genuine testimonials
+
+CONTENT EXAMPLES BY INDUSTRY:
+
+For E-COMMERCE (vape shop, clothing, tech):
+- Real product names: "Elf Bar BC5000", "SMOK Nord 5", "Vaporesso XROS 3" (for vape)
+- Real categories: "Dispositivi", "Liquidi", "Accessori", "Kit Starter"
+- Real descriptions: "Kit completo con batteria 1500mAh e pod ricaricabile da 2ml"
+- Real prices: "€24.99", "€12.50"
+- Real features: "Spedizione gratuita sopra €50", "Garanzia 12 mesi"
+
+For RESTAURANT/FOOD:
+- Real menu items with descriptions and prices
+- Real opening hours and location
+- Real ambiance descriptions
+
+For PORTFOLIO:
+- Realistic project names and descriptions
+- Actual skills and technologies
+- Professional bio
+
+For SaaS/TECH:
+- Real feature names and benefits
+- Pricing tiers with actual numbers
+- Use cases and testimonials
+
+=== STEP 3: DESIGN SYSTEM ===
+Choose colors and style APPROPRIATE to the industry:
+
+VAPE/SMOKE SHOP: Dark theme (#0d0d0d), neon accents (#00ff88, #ff00ff), edgy modern feel
+RESTAURANT: Warm tones, food photography placeholders, elegant typography
+FASHION: Minimalist, high contrast, editorial feel
+TECH/SAAS: Clean, professional, blues and purples
+PORTFOLIO: Personal brand colors, creative layouts
+
+Default Dark Theme (if unsure):
+- Background: #0a0a0f
+- Cards: rgba(255,255,255,0.05) with backdrop-blur
+- Primary accent: Choose based on industry
+- Text: #ffffff (headings), #a1a1aa (body)
+
+=== MANDATORY FILE STRUCTURE (Vite + React) ===
+
+1. package.json - with dependencies (react, react-dom, react-router-dom) AND devDependencies (@vitejs/plugin-react, vite)
+2. index.html - at ROOT level with <div id="root"></div> and <script type="module" src="/src/main.jsx"></script>
+3. vite.config.js - Vite config with react plugin
+4. src/main.jsx - React entry point
+5. src/App.jsx - Main app with BrowserRouter and Routes
+6. src/App.css - App styles
+7. src/index.css - Global styles, CSS variables, reset
+8. src/components/Header.jsx - Navigation with real menu items
+9. src/components/Footer.jsx - Footer with real links
+10. src/pages/Home.jsx - Home page with 4-6 real sections
+11. src/pages/[Relevant pages based on project type]
+12. src/components/[Relevant components based on project type]
+
+CRITICAL - index.html must be at ROOT (not public/):
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${projectName}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
+
+CRITICAL - vite.config.js:
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({ plugins: [react()], server: { host: '0.0.0.0', port: 3000 } })
+
+=== DESIGN REQUIREMENTS ===
+- Mobile-first responsive design
+- Smooth transitions (0.3s ease)
+- Hover effects on interactive elements
+- Proper spacing (16px base unit)
+- Border-radius: 12px cards, 8px buttons
 - Box shadows for depth
-- Border-radius: 12px for cards, 8px for buttons
+- CSS custom properties for theming
 
-CONTENT REQUIREMENTS:
-- Real, meaningful placeholder content (not lorem ipsum)
-- At least 3-5 sections on the home page
-- Navigation with 3-4 links
-- Call-to-action buttons
-- Feature cards or content blocks
-- Footer with links and copyright
-
-CODE QUALITY:
+=== CODE QUALITY ===
 - Clean, readable JSX
 - Proper component decomposition
-- CSS custom properties for theming
-- Semantic HTML5 elements
-- Accessibility attributes (alt, aria-label, etc.)
+- Semantic HTML5
+- Accessibility (alt, aria-label)
+- Italian language for Italian requests, English otherwise
 
-OUTPUT FORMAT:
+=== OUTPUT FORMAT ===
 Respond with ONLY valid JSON. Each key = file path, each value = complete file content.
 NO markdown, NO explanation, NO code blocks - ONLY the raw JSON object.
 
-Example structure:
 {
-  "package.json": "{ \\"name\\": \\"app\\"... }",
-  "index.html": "<!DOCTYPE html>...",
-  "src/index.jsx": "import React...",
-  "src/App.jsx": "import { BrowserRouter }...",
-  "src/index.css": ":root { --bg: #0a0a0f; }...",
-  "src/components/Header.jsx": "export default function...",
-  ...more files
+  "package.json": "...",
+  "index.html": "...",
+  "vite.config.js": "...",
+  "src/main.jsx": "...",
+  "src/App.jsx": "...",
+  "src/App.css": "...",
+  "src/index.css": "...",
+  "src/components/Header.jsx": "...",
+  "src/components/Footer.jsx": "...",
+  "src/pages/Home.jsx": "...",
+  ...additional files specific to the project
 }
 
-Generate the COMPLETE project now. Include at least 8-10 files minimum.`;
+Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT specific to: "${description || projectName}"`;
 
     let filesArray = [];
     let templateDescription = `AI-generated ${technology} project`;
@@ -924,6 +989,8 @@ Generate the COMPLETE project now. Include at least 8-10 files minimum.`;
 
     } catch (aiError) {
         console.error('   ⚠️ AI generation failed, falling back to template');
+        console.error('   ❌ AI Error details:', aiError.message);
+        console.error('   ❌ AI Error stack:', aiError.stack?.split('\n').slice(0, 3).join('\n'));
         update(85, 'AI Generation failed, using template...', 'Fallback');
 
         const { generateTemplateFiles } = require('../services/project-templates');
@@ -982,7 +1049,8 @@ Generate the COMPLETE project now. Include at least 8-10 files minimum.`;
             projectName,
             technology,
             templateDescription,
-            filesCount: filesArray.length
+            filesCount: filesArray.length,
+            files: filesArray.map(f => f.path || f.filePath)
         };
         // Auto-cleanup after 5 mins
         setTimeout(() => creationTasks.delete(taskId), 5 * 60 * 1000);

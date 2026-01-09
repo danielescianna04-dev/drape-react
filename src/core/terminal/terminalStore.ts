@@ -277,11 +277,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((state) => {
       // If switching to a different workstation (or clearing it), reset preview state
       if (state.currentWorkstation?.id !== workstation?.id) {
+        console.log('🔄 [TerminalStore] Switching project - resetting preview state');
         return {
           currentWorkstation: workstation,
           previewUrl: null,
           previewServerStatus: 'stopped',
           previewServerUrl: null,
+          flyMachineId: null, // Reset Fly.io machine ID for new project
         };
       }
       return { currentWorkstation: workstation };
@@ -294,6 +296,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       previewUrl: null,
       previewServerStatus: 'stopped',
       previewServerUrl: null,
+      flyMachineId: null, // Reset Fly.io machine ID for new project
     })),
   loadWorkstations: (workstations) => set({ workstations }),
   setProjectFolders: (folders) => set({ projectFolders: folders }),

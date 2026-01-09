@@ -483,6 +483,49 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /fly/error-report
+ * Receive error reports from the app for debugging
+ */
+router.post('/error-report', asyncHandler(async (req, res) => {
+    const {
+        projectId,
+        userId,
+        errorMessage,
+        errorStack,
+        deviceInfo,
+        logs,
+        timestamp
+    } = req.body;
+
+    console.log(`\n🐛 ========== ERROR REPORT ==========`);
+    console.log(`📅 Time: ${timestamp || new Date().toISOString()}`);
+    console.log(`👤 User: ${userId || 'anonymous'}`);
+    console.log(`📁 Project: ${projectId || 'unknown'}`);
+    console.log(`❌ Error: ${errorMessage}`);
+    if (errorStack) {
+        console.log(`📚 Stack:\n${errorStack}`);
+    }
+    if (deviceInfo) {
+        console.log(`📱 Device: ${JSON.stringify(deviceInfo)}`);
+    }
+    if (logs && logs.length > 0) {
+        console.log(`📋 Recent Logs:`);
+        logs.slice(-20).forEach((log, i) => {
+            console.log(`   ${i + 1}. ${log}`);
+        });
+    }
+    console.log(`🐛 ====================================\n`);
+
+    // TODO: In production, send to a logging service (Sentry, LogRocket, etc.)
+    // For now, we just log to console which will appear in Fly.io logs
+
+    res.json({
+        success: true,
+        message: 'Error report received. Thank you for helping us improve!'
+    });
+}));
+
+/**
  * POST /fly/preview/stop
  * Stop the preview and cleanup VM
  */
