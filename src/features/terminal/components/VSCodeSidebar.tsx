@@ -230,6 +230,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     setIsSidebarHidden(false);
   }, []);
 
+  const handleClosePanel = useCallback(() => {
+    setActivePanel(null);
+  }, []);
+
   // Gestures
   const tapGesture = Gesture.Tap()
     .onEnd(() => {
@@ -288,7 +292,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <GestureDetector gesture={edgeSwipeGesture}>
           <View style={styles.edgeSwipeArea}>
             <Animated.View style={[styles.slidePillContainer, pillAnimatedStyle]}>
-              <BlurView intensity={60} tint="light" style={styles.slidePillBlur} />
+              <View style={[styles.slidePillBlur, { backgroundColor: AppColors.dark.backgroundAlt, opacity: 0.9 }]} />
               <LinearGradient
                 colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)', 'transparent']}
                 start={{ x: 0, y: 0 }}
@@ -366,10 +370,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
         {/* Global Panels Container - ensures all menus are above the blur */}
         <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
-          {renderedPanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
-          {renderedPanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
-          {renderedPanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
-          {renderedPanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
+          {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} />}
+          {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} />}
+          {renderedPanel === 'settings' && <SettingsPanel onClose={handleClosePanel} />}
+          {renderedPanel === 'git' && <GitPanel onClose={handleClosePanel} />}
         </Animated.View>
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
