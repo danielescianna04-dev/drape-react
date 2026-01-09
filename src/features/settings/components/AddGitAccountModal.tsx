@@ -109,13 +109,12 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           onPress={() => handleSelectProvider(provider.id)}
           activeOpacity={0.7}
         >
-          <View style={[styles.providerIcon, { backgroundColor: `${provider.color}20` }]}>
-            <Ionicons
-              name={provider.icon as any}
-              size={24}
-              color={provider.color}
-            />
-          </View>
+          <Ionicons
+            name={provider.icon as any}
+            size={32}
+            color={provider.color === '#24292e' ? '#fff' : provider.color}
+            style={{ marginBottom: 10 }}
+          />
           <Text style={styles.providerName}>{provider.name}</Text>
         </TouchableOpacity>
       ))}
@@ -222,7 +221,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           </View>
 
           {/* Content */}
-          <View style={{ flex: 1 }}>
+          <View style={styles.contentWrapper}>
             {step === 'select-provider' ? renderProviderSelection() : renderCredentialsForm()}
           </View>
         </BlurView>
@@ -241,20 +240,27 @@ const styles = StyleSheet.create({
   },
   container: {
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 340,
     backgroundColor: 'rgba(28,28,30,0.7)',
-    borderRadius: 28,
+    borderRadius: 32,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.6,
+    shadowRadius: 30,
+  },
+  contentWrapper: {
+    paddingBottom: 10,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 18,
+    paddingBottom: 8,
   },
   title: {
     fontSize: 17,
@@ -274,24 +280,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   providerGrid: {
-    maxHeight: 380,
+    maxHeight: 340,
   },
   providerGridContent: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 16,
-    gap: 10,
+    paddingHorizontal: 8,
+    paddingBottom: 12,
     justifyContent: 'center',
   },
   providerItem: {
-    width: '30%',
-    aspectRatio: 0.95,
+    width: '29%',
+    margin: '1.5%',
+    aspectRatio: 0.88,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   providerIcon: {
     width: 48,
@@ -302,12 +309,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   providerName: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
+    fontSize: 9,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
   },
   credentialsForm: {
     padding: 20,
