@@ -1,8 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { AppColors } from '../../../shared/theme/colors';
+import Animated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
+import { AppColors, withOpacity } from '../../../shared/theme/colors';
+import { useSidebarOffset } from '../../../features/terminal/context/SidebarContext';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { PanelHeader } from '../../../shared/components/organisms';
 
@@ -15,6 +18,7 @@ interface Props {
  * AI model selection, behavior settings, and app info
  */
 export const SettingsPanel = ({ onClose }: Props) => {
+  const { sidebarTranslateX } = useSidebarOffset();
   const {
     selectedModel,
     autoApprove,
@@ -26,146 +30,189 @@ export const SettingsPanel = ({ onClose }: Props) => {
     setIsToolsExpanded,
   } = useTerminalStore();
 
+  const animatedStyle = useAnimatedStyle(() => {
+    // Quando la sidebar è a -50 (nascosta), noi vogliamo traslare di -44 per arrivare a 0
+    const translateX = interpolate(sidebarTranslateX.value, [-50, 0], [-44, 0]);
+
+    // Quando è chiusa (sidebar a -50), allarghiamo il contenuto riducendo il padding destro
+    const paddingRight = interpolate(sidebarTranslateX.value, [-50, 0], [20, 64]);
+
+    // Aggiungiamo un po' di padding a sinistra solo quando è a tutto schermo
+    const paddingLeft = interpolate(sidebarTranslateX.value, [-50, 0], [20, 0]);
+
+    return {
+      transform: [{ translateX }],
+      paddingRight,
+      paddingLeft,
+    };
+  });
+
   const models = [
-    { id: 'claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Anthropic - Migliore qualità', icon: 'sparkles' },
-    { id: 'gpt-oss-120b', name: 'GPT OSS 120B', description: 'OpenAI via Groq - Potente e gratuito', icon: 'logo-capacitor' },
-    { id: 'gpt-oss-20b', name: 'GPT OSS 20B', description: 'OpenAI via Groq - Veloce', icon: 'flash' },
-    { id: 'llama-4-scout', name: 'Llama 4 Scout', description: 'Meta via Groq - Bilanciato', icon: 'paw' },
-    { id: 'qwen-3-32b', name: 'Qwen 3 32B', description: 'Alibaba via Groq - Ottimo per codice', icon: 'code-slash' },
+    { id: 'claude-4-5-opus', name: 'Claude 4.5 Opus', description: 'Anthropic - Potenza creativa illimitata', icon: 'infinite' },
+    { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', description: 'Anthropic - Equilibrio perfetto e codice d\'élite', icon: 'sparkles' },
+    { id: 'gemini-3-0-pro', name: 'Gemini 3.0 Pro', description: 'Google - Ragionamento multimodale avanzato', icon: 'planet' },
+    { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google - Risposte istantanee ad alta efficienza', icon: 'flash' },
   ];
 
   return (
-    <View style={styles.container}>
-      <LinearGradient
-        colors={['#0a0a0a', '#000000']}
-        style={StyleSheet.absoluteFill}
-      />
+    <Animated.View style={[styles.container, animatedStyle]}>
+      <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFill}>
+        <LinearGradient
+          colors={['rgba(20, 20, 22, 0.7)', 'rgba(0, 0, 0, 0.98)']}
+          style={StyleSheet.absoluteFill}
+        />
+      </BlurView>
 
       <PanelHeader
         title="Impostazioni"
-        icon="settings"
+        icon="settings-outline"
         onClose={onClose}
         style={styles.header}
       />
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Modello AI */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Modello AI</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>Modello AI</Text>
+            <View style={styles.proBadge}>
+              <Text style={styles.proBadgeText}>PRO</Text>
+            </View>
+          </View>
           <Text style={styles.sectionDescription}>
-            Seleziona il modello di intelligenza artificiale da utilizzare
+            Scegli l'intelligenza che potenzia il tuo codice
           </Text>
 
-          {models.map((model) => (
-            <TouchableOpacity
-              key={model.id}
-              style={[
-                styles.modelOption,
-                selectedModel === model.id && styles.modelOptionSelected
-              ]}
-              onPress={() => setSelectedModel(model.id)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.modelInfo}>
-                <View style={styles.modelHeader}>
-                  <Text style={styles.modelName}>{model.name}</Text>
-                  {selectedModel === model.id && (
-                    <View style={styles.checkIconContainer}>
-                      <Ionicons name="checkmark-circle" size={20} color={AppColors.primary} />
+          {models.map((model) => {
+            const isSelected = selectedModel === model.id;
+            return (
+              <TouchableOpacity
+                key={model.id}
+                onPress={() => setSelectedModel(model.id)}
+                activeOpacity={0.8}
+                style={styles.modelContainer}
+              >
+                <BlurView intensity={isSelected ? 30 : 15} tint="light" style={[styles.modelCard, isSelected && styles.modelCardSelected]}>
+                  {isSelected && (
+                    <LinearGradient
+                      colors={[withOpacity(AppColors.primary, 0.15), 'transparent']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                    />
+                  )}
+
+                  <View style={[styles.modelIconBox, { backgroundColor: isSelected ? AppColors.primary : 'rgba(255,255,255,0.05)' }]}>
+                    <Ionicons name={model.icon as any} size={18} color={isSelected ? '#fff' : 'rgba(255,255,255,0.4)'} />
+                  </View>
+
+                  <View style={styles.modelInfo}>
+                    <View style={styles.modelHeader}>
+                      <Text style={[styles.modelName, isSelected && styles.modelNameSelected]}>{model.name}</Text>
+                      {isSelected && (
+                        <View style={styles.pulseContainer}>
+                          <View style={styles.pulseDot} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.modelDescription}>{model.description}</Text>
+                  </View>
+
+                  {isSelected && (
+                    <View style={styles.selectedCheck}>
+                      <Ionicons name="checkmark" size={12} color="#fff" />
                     </View>
                   )}
-                </View>
-                <Text style={styles.modelDescription}>{model.description}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+                </BlurView>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Comportamento */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Comportamento</Text>
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingHeader}>
-                <Ionicons name="flash" size={18} color="rgba(255, 255, 255, 0.7)" />
+          <View style={styles.settingsGroup}>
+            <View style={styles.settingItem}>
+              <View style={styles.settingIconWrapper}>
+                <Ionicons name="flash-outline" size={18} color={autoApprove ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
+              </View>
+              <View style={styles.settingInfo}>
                 <Text style={styles.settingName}>Approvazione Automatica</Text>
+                <Text style={styles.settingDescription}>
+                  Esegui suggerimenti AI senza conferma
+                </Text>
               </View>
-              <Text style={styles.settingDescription}>
-                Esegui automaticamente i comandi suggeriti dall'AI
-              </Text>
+              <Switch
+                value={autoApprove}
+                onValueChange={setAutoApprove}
+                trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                thumbColor="#ffffff"
+                ios_backgroundColor="rgba(255,255,255,0.1)"
+              />
             </View>
-            <Switch
-              value={autoApprove}
-              onValueChange={setAutoApprove}
-              trackColor={{ false: '#3a3a3a', true: AppColors.primary }}
-              thumbColor="#ffffff"
-            />
-          </View>
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingHeader}>
-                <Ionicons name="terminal" size={18} color="rgba(255, 255, 255, 0.7)" />
+            <View style={styles.settingItem}>
+              <View style={styles.settingIconWrapper}>
+                <Ionicons name="terminal-outline" size={18} color={isTerminalMode ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
+              </View>
+              <View style={styles.settingInfo}>
                 <Text style={styles.settingName}>Modalità Terminale</Text>
+                <Text style={styles.settingDescription}>
+                  Output dei comandi in tempo reale
+                </Text>
               </View>
-              <Text style={styles.settingDescription}>
-                Visualizza l'output del terminale in tempo reale
-              </Text>
+              <Switch
+                value={isTerminalMode}
+                onValueChange={setIsTerminalMode}
+                trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                thumbColor="#ffffff"
+                ios_backgroundColor="rgba(255,255,255,0.1)"
+              />
             </View>
-            <Switch
-              value={isTerminalMode}
-              onValueChange={setIsTerminalMode}
-              trackColor={{ false: '#3a3a3a', true: AppColors.primary }}
-              thumbColor="#ffffff"
-            />
-          </View>
 
-          <View style={styles.settingItem}>
-            <View style={styles.settingInfo}>
-              <View style={styles.settingHeader}>
-                <Ionicons name="hammer" size={18} color="rgba(255, 255, 255, 0.7)" />
-                <Text style={styles.settingName}>Strumenti Espansi</Text>
+            <View style={styles.settingItem}>
+              <View style={styles.settingIconWrapper}>
+                <Ionicons name="grid-outline" size={18} color={isToolsExpanded ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
               </View>
-              <Text style={styles.settingDescription}>
-                Mostra tutti gli strumenti disponibili nella barra laterale
-              </Text>
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingName}>Strumenti Espansi</Text>
+                <Text style={styles.settingDescription}>
+                  Mostra toolbar completa
+                </Text>
+              </View>
+              <Switch
+                value={isToolsExpanded}
+                onValueChange={setIsToolsExpanded}
+                trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                thumbColor="#ffffff"
+                ios_backgroundColor="rgba(255,255,255,0.1)"
+              />
             </View>
-            <Switch
-              value={isToolsExpanded}
-              onValueChange={setIsToolsExpanded}
-              trackColor={{ false: '#3a3a3a', true: AppColors.primary }}
-              thumbColor="#ffffff"
-            />
           </View>
         </View>
 
-        {/* Informazioni */}
+        {/* Sistema */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Informazioni</Text>
+          <Text style={styles.sectionTitle}>Sistema</Text>
 
-          <View style={styles.infoItem}>
-            <View style={styles.infoIconContainer}>
-              <Ionicons name="information-circle" size={20} color={AppColors.primary} />
-            </View>
-            <View style={styles.infoContent}>
+          <BlurView intensity={10} tint="light" style={styles.infoGroup}>
+            <View style={styles.infoItem}>
+              <Ionicons name="cube-outline" size={16} color="rgba(255,255,255,0.4)" />
               <Text style={styles.infoLabel}>Versione</Text>
-              <Text style={styles.infoValue}>1.0.0</Text>
+              <Text style={styles.infoValue}>1.0.0-build.72</Text>
             </View>
-          </View>
 
-          <View style={styles.infoItem}>
-            <View style={styles.infoIconContainer}>
-              <Ionicons name="logo-github" size={20} color={AppColors.primary} />
+            <View style={[styles.infoItem, { borderBottomWidth: 0 }]}>
+              <Ionicons name="earth-outline" size={16} color="rgba(255,255,255,0.4)" />
+              <Text style={styles.infoLabel}>Regione</Text>
+              <Text style={styles.infoValue}>Europe (Milan)</Text>
             </View>
-            <View style={styles.infoContent}>
-              <Text style={styles.infoLabel}>Repository</Text>
-              <Text style={styles.infoValue}>github.com/drape/drape-react</Text>
-            </View>
-          </View>
+          </BlurView>
         </View>
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 };
 
@@ -173,124 +220,187 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     left: 44,
+    right: -50,
     top: 0,
     bottom: 0,
-    width: 350,
     zIndex: 1002,
+    overflow: 'hidden',
+    backgroundColor: '#000',
   },
   header: {
     paddingTop: 60,
+    paddingHorizontal: 8,
+    backgroundColor: 'transparent',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
   },
   section: {
     marginTop: 24,
-    marginBottom: 16,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+    fontWeight: '800',
+    color: 'rgba(255, 255, 255, 0.4)',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 8,
+    letterSpacing: 1.5,
+  },
+  proBadge: {
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: AppColors.primary,
+    borderRadius: 4,
+  },
+  proBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#fff',
   },
   sectionDescription: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginBottom: 16,
+    color: 'rgba(255, 255, 255, 0.4)',
+    marginBottom: 20,
     lineHeight: 18,
   },
-  modelOption: {
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    padding: 16,
+  modelContainer: {
     marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  modelOptionSelected: {
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
-    borderColor: AppColors.primary,
+  modelCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    overflow: 'hidden',
+  },
+  modelCardSelected: {
+    borderColor: 'rgba(155, 138, 255, 0.5)',
+    backgroundColor: 'rgba(155, 138, 255, 0.08)',
+  },
+  modelIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   modelInfo: {
     flex: 1,
   },
   modelHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   modelName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  modelNameSelected: {
+    color: '#fff',
+    fontWeight: '700',
   },
   modelDescription: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
-  checkIconContainer: {
+  pulseContainer: {
     marginLeft: 8,
+    width: 6,
+    height: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: AppColors.primary,
+  },
+  selectedCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: AppColors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+    marginRight: 2,
+  },
+  settingsGroup: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    overflow: 'hidden',
   },
   settingItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  settingIconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
   settingInfo: {
     flex: 1,
-    marginRight: 16,
-  },
-  settingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
   },
   settingName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
+    marginBottom: 1,
   },
   settingDescription: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
-    lineHeight: 18,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+  },
+  infoGroup: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    overflow: 'hidden',
+    paddingVertical: 8,
   },
   infoItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  infoIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  infoContent: {
-    flex: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.03)',
   },
   infoLabel: {
     fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
-    marginBottom: 2,
+    color: 'rgba(255, 255, 255, 0.3)',
+    marginLeft: 12,
+    flex: 1,
   },
   infoValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.7)',
   },
 });
