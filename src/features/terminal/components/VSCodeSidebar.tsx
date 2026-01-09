@@ -306,7 +306,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       )}
 
       <GestureDetector gesture={sidebarSwipeGesture}>
-        <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
+        <Animated.View
+          style={[styles.iconBar, sidebarAnimatedStyle]}
+          onStartShouldSetResponder={() => true}
+        >
           {/* Top icons */}
           <View style={styles.topIcons}>
             <IconButton
