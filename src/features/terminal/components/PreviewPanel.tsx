@@ -1626,15 +1626,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
               {serverStatus === 'stopped' && requiredEnvVars ? (
                 // Environment variables form
                 <View style={styles.envVarsScreen}>
-                  {/* Close button */}
-                  <TouchableOpacity
-                    onPress={handleClose}
-                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={20} color="rgba(255, 255, 255, 0.5)" />
-                  </TouchableOpacity>
-
                   {/* Env vars form - scrollable list */}
                   <ScrollView
                     style={[styles.envVarsContainer, { marginTop: insets.top + 44 }]}
@@ -1717,15 +1708,6 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     <View style={styles.ambientBlob2} />
                   </LinearGradient>
 
-                  {/* Close button top right */}
-                  <TouchableOpacity
-                    onPress={handleClose}
-                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                  </TouchableOpacity>
-
                   {/* iPhone 15 Pro style mockup */}
                   <View style={styles.iphoneMockup}>
                     {/* Status bar area */}
@@ -1778,9 +1760,47 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   </View>
 
                   <View style={styles.loadingFooter}>
-                    <Text style={[styles.loadingFooterText, { opacity: 0.4 }]}>
-                      Holy Grail Architecture • Fly.io
-                    </Text>
+                    {/* Premium CTA Banner - High End Redesign */}
+                    <TouchableOpacity
+                      style={styles.premiumBanner}
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        console.log('💎 Upgrade to Professional');
+                      }}
+                    >
+                      <LinearGradient
+                        colors={['rgba(139, 124, 246, 0.15)', 'rgba(108, 92, 231, 0.05)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={styles.premiumBorderGradient} />
+
+                      <View style={styles.premiumBannerContent}>
+                        <LinearGradient
+                          colors={[AppColors.primary, '#9F7AEA']}
+                          style={styles.premiumIconContainer}
+                        >
+                          <Ionicons name="flash" size={14} color="#fff" />
+                        </LinearGradient>
+
+                        <View style={{ flex: 1, gap: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.premiumBannerTitle}>Professional</Text>
+                            <View style={styles.proBadge}>
+                              <Text style={styles.proBadgeText}>PRO</Text>
+                            </View>
+                          </View>
+                          <Text style={styles.premiumBannerSubtitle}>Anteprime 4x più veloci ed istantanee</Text>
+                        </View>
+
+                        <View style={styles.premiumArrow}>
+                          <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.3)" />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Technical credit text removed for a cleaner look */}
                   </View>
                 </Reanimated.View>
               ) : (
@@ -1789,26 +1809,26 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   <View style={StyleSheet.absoluteFill}>
 
                     {hasWebUI ? (
-                    <WebView
-                      key={coderToken || 'init'}
-                      ref={webViewRef}
-                      source={{
-                        uri: currentPreviewUrl,
-                        headers: {
-                          'Coder-Session-Token': coderToken || '',
-                          'session_token': coderToken || '',
-                          ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                          'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
-                        }
-                      }}
-                      sharedCookiesEnabled={true}
-                      thirdPartyCookiesEnabled={true}
-                      style={[
-                        styles.webView,
-                        { opacity: webViewReady ? 1 : 0 }
-                      ]}
+                      <WebView
+                        key={coderToken || 'init'}
+                        ref={webViewRef}
+                        source={{
+                          uri: currentPreviewUrl,
+                          headers: {
+                            'Coder-Session-Token': coderToken || '',
+                            'session_token': coderToken || '',
+                            ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
+                            'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
+                          }
+                        }}
+                        sharedCookiesEnabled={true}
+                        thirdPartyCookiesEnabled={true}
+                        style={[
+                          styles.webView,
+                          { opacity: webViewReady ? 1 : 0 }
+                        ]}
 
-                      injectedJavaScriptBeforeContentLoaded={`
+                        injectedJavaScriptBeforeContentLoaded={`
                           (function() {
                             var token = "${coderToken || ''}";
                             var vmId = "${globalFlyMachineId || ''}";
@@ -1862,18 +1882,18 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                           true;
                         `}
 
-                      onLoadStart={(syntheticEvent) => {
-                        const { nativeEvent } = syntheticEvent;
-                        console.log('🔵 WebView load start:', nativeEvent.url);
-                        if (serverStatus !== 'running') {
-                          setWebViewReady(false);
-                        }
-                        setIsLoading(true);
-                      }}
-                      onLoadEnd={(syntheticEvent) => {
-                        const { nativeEvent } = syntheticEvent;
-                        console.log('✅ WebView load end:', nativeEvent.url);
-                        webViewRef.current?.injectJavaScript(`
+                        onLoadStart={(syntheticEvent) => {
+                          const { nativeEvent } = syntheticEvent;
+                          console.log('🔵 WebView load start:', nativeEvent.url);
+                          if (serverStatus !== 'running') {
+                            setWebViewReady(false);
+                          }
+                          setIsLoading(true);
+                        }}
+                        onLoadEnd={(syntheticEvent) => {
+                          const { nativeEvent } = syntheticEvent;
+                          console.log('✅ WebView load end:', nativeEvent.url);
+                          webViewRef.current?.injectJavaScript(`
                            (function() {
                              window.addEventListener('error', function(e) {
                                window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -1920,59 +1940,59 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                            })();
                            true;
                          `);
-                        setIsLoading(false);
-                      }}
+                          setIsLoading(false);
+                        }}
 
-                      onLoadProgress={({ nativeEvent }) => {
-                        if (nativeEvent.progress === 1) setIsLoading(false);
-                      }}
-                      onNavigationStateChange={(navState) => {
-                        setCanGoBack(navState.canGoBack);
-                        setCanGoForward(navState.canGoForward);
-                        setIsLoading(navState.loading);
-                      }}
-                      onMessage={(event) => {
-                        try {
-                          const data = JSON.parse(event.nativeEvent.data);
+                        onLoadProgress={({ nativeEvent }) => {
+                          if (nativeEvent.progress === 1) setIsLoading(false);
+                        }}
+                        onNavigationStateChange={(navState) => {
+                          setCanGoBack(navState.canGoBack);
+                          setCanGoForward(navState.canGoForward);
+                          setIsLoading(navState.loading);
+                        }}
+                        onMessage={(event) => {
+                          try {
+                            const data = JSON.parse(event.nativeEvent.data);
 
-                          if (data.type === 'WEBVIEW_READY') {
-                            setWebViewReady(true);
-                          }
-                          if (data.type === 'TRIGGER_REFRESH') {
-                            handleRefresh();
-                          }
-                          if (data.type === 'PAGE_INFO') {
-                            if (data.rootChildren > 0 || data.forceReady) {
-                              if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
+                            if (data.type === 'WEBVIEW_READY') {
+                              setWebViewReady(true);
                             }
-                          }
-                          if (data.type === 'ELEMENT_SELECTED') {
-                            let elementSelector = `<${data.element.tag}>`;
-                            if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
-                            else if (data.element.className) {
-                              const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
-                              const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
-                              if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                            if (data.type === 'TRIGGER_REFRESH') {
+                              handleRefresh();
                             }
-                            setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
-                            inputRef.current?.focus();
-                            setIsInspectMode(false);
-                          }
-                        } catch (error) { }
-                      }}
-                      javaScriptEnabled={true}
-                      domStorageEnabled={true}
-                      startInLoadingState={false}
-                      scalesPageToFit={true}
-                      bounces={false}
-                      mixedContentMode="always"
-                      allowsInlineMediaPlayback={true}
-                      mediaPlaybackRequiresUserAction={false}
-                      originWhitelist={['*']}
-                      renderToHardwareTextureAndroid={true}
-                      shouldRasterizeIOS={true}
-                      cacheEnabled={true}
-                    />
+                            if (data.type === 'PAGE_INFO') {
+                              if (data.rootChildren > 0 || data.forceReady) {
+                                if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
+                              }
+                            }
+                            if (data.type === 'ELEMENT_SELECTED') {
+                              let elementSelector = `<${data.element.tag}>`;
+                              if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
+                              else if (data.element.className) {
+                                const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
+                                const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                                if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                              }
+                              setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
+                              inputRef.current?.focus();
+                              setIsInspectMode(false);
+                            }
+                          } catch (error) { }
+                        }}
+                        javaScriptEnabled={true}
+                        domStorageEnabled={true}
+                        startInLoadingState={false}
+                        scalesPageToFit={true}
+                        bounces={false}
+                        mixedContentMode="always"
+                        allowsInlineMediaPlayback={true}
+                        mediaPlaybackRequiresUserAction={false}
+                        originWhitelist={['*']}
+                        renderToHardwareTextureAndroid={true}
+                        shouldRasterizeIOS={true}
+                        cacheEnabled={true}
+                      />
                     ) : (
                       /* Terminal Output View for CLI projects */
                       <ScrollView
@@ -2245,82 +2265,82 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 >
                   {/* Render all messages */}
                   {aiMessages.map((msg, index) => {
-                      if (msg.type === 'user') {
-                        return (
-                          <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
-                            <LinearGradient
-                              colors={['#007AFF', '#0055FF']}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                              style={styles.userMessageBubble}
-                            >
-                              <Text style={styles.userMessageText}>{msg.content}</Text>
-                            </LinearGradient>
+                    if (msg.type === 'user') {
+                      return (
+                        <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
+                          <LinearGradient
+                            colors={['#007AFF', '#0055FF']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.userMessageBubble}
+                          >
+                            <Text style={styles.userMessageText}>{msg.content}</Text>
+                          </LinearGradient>
+                        </View>
+                      );
+                    }
+
+                    if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+                      // Tool badge rendering (like ChatPage)
+                      const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                        'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                        'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                        'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
+                        'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
+                      };
+
+                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
+                      const isComplete = msg.type === 'tool_result';
+                      const isSuccess = msg.success !== false;
+
+                      // Get display name (filename only from path, or pattern)
+                      const displayName = msg.filePath
+                        ? msg.filePath.split('/').pop() || msg.filePath
+                        : msg.pattern || '';
+
+                      return (
+                        <View key={index} style={styles.aiMessageRow}>
+                          <View style={styles.aiThreadContainer}>
+                            <View style={[
+                              styles.aiThreadDot,
+                              { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
+                            ]} />
                           </View>
-                        );
-                      }
-
-                      if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-                        // Tool badge rendering (like ChatPage)
-                        const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-                          'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                          'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                          'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
-                          'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
-                        };
-
-                        const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
-                        const isComplete = msg.type === 'tool_result';
-                        const isSuccess = msg.success !== false;
-
-                        // Get display name (filename only from path, or pattern)
-                        const displayName = msg.filePath
-                          ? msg.filePath.split('/').pop() || msg.filePath
-                          : msg.pattern || '';
-
-                        return (
-                          <View key={index} style={styles.aiMessageRow}>
-                            <View style={styles.aiThreadContainer}>
-                              <View style={[
-                                styles.aiThreadDot,
-                                { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
-                              ]} />
+                          <View style={styles.aiToolRow}>
+                            <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                              <Ionicons name={config.icon as any} size={12} color={config.color} />
+                              <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
                             </View>
-                            <View style={styles.aiToolRow}>
-                              <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
-                                <Ionicons name={config.icon as any} size={12} color={config.color} />
-                                <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
-                              </View>
-                              {displayName && (
-                                <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
-                              )}
-                              {!isComplete ? (
-                                <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
-                              ) : (
-                                <Ionicons
-                                  name={isSuccess ? 'checkmark-circle' : 'close-circle'}
-                                  size={16}
-                                  color={isSuccess ? '#3FB950' : '#F85149'}
-                                  style={{ marginLeft: 8 }}
-                                />
-                              )}
-                            </View>
+                            {displayName && (
+                              <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
+                            )}
+                            {!isComplete ? (
+                              <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
+                            ) : (
+                              <Ionicons
+                                name={isSuccess ? 'checkmark-circle' : 'close-circle'}
+                                size={16}
+                                color={isSuccess ? '#3FB950' : '#F85149'}
+                                style={{ marginLeft: 8 }}
+                              />
+                            )}
                           </View>
-                        );
-                      } else {
-                        // Text message rendering
-                        return (
-                          <View key={index} style={styles.aiMessageRow}>
-                            <View style={styles.aiThreadContainer}>
-                              <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                            </View>
-                            <View style={styles.aiMessageContent}>
-                              <Text style={styles.aiResponseText}>{msg.content}</Text>
-                            </View>
+                        </View>
+                      );
+                    } else {
+                      // Text message rendering
+                      return (
+                        <View key={index} style={styles.aiMessageRow}>
+                          <View style={styles.aiThreadContainer}>
+                            <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
                           </View>
-                        );
-                      }
-                    })}
+                          <View style={styles.aiMessageContent}>
+                            <Text style={styles.aiResponseText}>{msg.content}</Text>
+                          </View>
+                        </View>
+                      );
+                    }
+                  })}
                   {/* Show "Thinking..." only when loading AND no AI responses yet */}
                   {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
                     <View style={styles.aiMessageRow}>
@@ -3499,5 +3519,80 @@ const styles = StyleSheet.create({
   // Previous styles (keeping for reference if needed elsewhere)
   startupStepsCard: {
     display: 'none', // Removed in Pulse design
+  },
+  // Premium CTA High-End Redesign
+  premiumBanner: {
+    width: '90%',
+    maxWidth: 320,
+    height: 64,
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  premiumBorderGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1.5,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+    borderRadius: 20,
+    opacity: 0.5,
+  },
+  premiumBannerContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  premiumIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+  },
+  premiumBannerTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+    fontFamily: 'Inter-Black',
+    letterSpacing: -0.2,
+  },
+  proBadge: {
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.3)',
+  },
+  proBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: AppColors.primary,
+    fontFamily: 'Inter-Black',
+  },
+  premiumBannerSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontFamily: 'Inter-Medium',
+    letterSpacing: -0.1,
+  },
+  premiumArrow: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

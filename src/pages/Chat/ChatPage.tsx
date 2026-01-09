@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,6 +38,7 @@ import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
 const colors = AppColors.dark;
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 // Helper to parse undo data from tool results
 const parseUndoData = (result: string): { cleanResult: string; undoData: any | null } => {
@@ -74,7 +75,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   const scrollViewRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
-  const { sidebarTranslateX } = useSidebarOffset();
+  const { sidebarTranslateX, hideSidebar, showSidebar, setForceHideToggle } = useSidebarOffset();
 
   // Destructure chat state for easier access
   const {
@@ -102,6 +103,52 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     cardModeAnim,
     keyboardHeight,
   } = chatState;
+
+  // Tools bottom sheet state
+  const [showToolsSheet, setShowToolsSheet] = useState(false);
+  const toolsSheetAnim = useSharedValue(SCREEN_HEIGHT);
+
+  const toggleToolsSheet = useCallback(() => {
+    if (showToolsSheet) {
+      if (showSidebar) showSidebar();
+      if (setForceHideToggle) setForceHideToggle(false);
+      toolsSheetAnim.value = withTiming(SCREEN_HEIGHT, {
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1)
+      });
+      setTimeout(() => setShowToolsSheet(false), 300);
+    } else {
+      if (hideSidebar) hideSidebar();
+      if (setForceHideToggle) setForceHideToggle(true);
+      setShowToolsSheet(true);
+      toolsSheetAnim.value = withTiming(0, {
+        duration: 400,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1)
+      });
+    }
+  }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle]);
+
+  const toolsSheetStyle = useAnimatedStyle(() => {
+    const sidebarLeft = interpolate(
+      sidebarTranslateX.value,
+      [-44, 0],
+      [0, 44],
+      Extrapolate.CLAMP
+    );
+
+    return {
+      transform: [{ translateY: toolsSheetAnim.value }],
+      left: sidebarLeft + 8,
+      right: 8,
+      bottom: 8,
+      opacity: interpolate(toolsSheetAnim.value, [SCREEN_HEIGHT, 0], [0, 1]),
+    };
+  });
+
+  const toolsBackdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(toolsSheetAnim.value, [SCREEN_HEIGHT, 0], [0, 1]),
+    pointerEvents: showToolsSheet ? 'auto' : 'none',
+  }));
 
   const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
 
@@ -1475,8 +1522,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 {/* Main Input Row */}
                 <View style={styles.mainInputRow}>
                   {/* Tools Button */}
-                  <TouchableOpacity style={styles.toolsButton}>
-                    <Ionicons name="attach" size={24} color="#8A8A8A" />
+                  <TouchableOpacity
+                    style={styles.toolsButton}
+                    onPress={toggleToolsSheet}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="add" size={24} color="#8A8A8A" />
                   </TouchableOpacity>
 
                   {/* Input Field */}
@@ -1557,6 +1608,95 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           </>
         )}
       </View>
+
+      {/* Tools Bottom Sheet */}
+      {showToolsSheet && (
+        <Pressable style={StyleSheet.absoluteFill} onPress={toggleToolsSheet}>
+          <Animated.View style={[styles.sheetBackdrop, toolsBackdropStyle]} />
+        </Pressable>
+      )}
+      <Animated.View style={[styles.toolsSheet, toolsSheetStyle]}>
+        <BlurView intensity={90} tint="dark" style={styles.sheetBlur}>
+          <LinearGradient
+            colors={['rgba(30, 30, 35, 0.4)', 'rgba(15, 15, 20, 0.6)']}
+            style={styles.sheetGradient}
+          >
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetHeaderTitle}>Drape</Text>
+              <TouchableOpacity onPress={() => { }}>
+                <Text style={styles.sheetHeaderAction}>Tutte le foto</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Photos Gallery */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.galleryContainer}
+            >
+              <TouchableOpacity style={styles.cameraCard}>
+                <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+                <Ionicons name="camera-outline" size={20} color="#fff" />
+              </TouchableOpacity>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <View key={i} style={styles.galleryCard}>
+                  <View style={styles.galleryImagePlaceholder}>
+                    <Ionicons name="image-outline" size={18} color="rgba(255,255,255,0.2)" />
+                  </View>
+                  <View style={styles.gallerySelectCircle} />
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.sheetDivider} />
+
+            {/* Tools List */}
+            <View style={styles.toolsList}>
+              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
+                <View style={styles.toolIconContainer}>
+                  <Ionicons name="sparkles-outline" size={18} color="#fff" />
+                </View>
+                <View style={styles.toolTextContainer}>
+                  <Text style={styles.toolTitle}>Crea immagine</Text>
+                  <Text style={styles.toolSubtitle}>Rendi visibile ogni concetto</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
+                <View style={styles.toolIconContainer}>
+                  <Ionicons name="bulb-outline" size={18} color="#fff" />
+                </View>
+                <View style={styles.toolTextContainer}>
+                  <Text style={styles.toolTitle}>Pensa</Text>
+                  <Text style={styles.toolSubtitle}>Pensa più a lungo per risposte migliori</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
+                <View style={styles.toolIconContainer}>
+                  <Ionicons name="search-outline" size={18} color="#fff" />
+                </View>
+                <View style={styles.toolTextContainer}>
+                  <Text style={styles.toolTitle}>Deep Research</Text>
+                  <Text style={styles.toolSubtitle}>Ottieni un report dettagliato</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
+                <View style={styles.toolIconContainer}>
+                  <Ionicons name="globe-outline" size={18} color="#fff" />
+                </View>
+                <View style={styles.toolTextContainer}>
+                  <Text style={styles.toolTitle}>Ricerca sul web</Text>
+                  <Text style={styles.toolSubtitle}>Trova notizie e informazioni in tempo reale</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+        </BlurView>
+      </Animated.View>
     </Animated.View>
   );
 };
@@ -1597,6 +1737,133 @@ const styles = StyleSheet.create({
   inputWrapperCentered: {
     top: 100,
     justifyContent: 'center',
+  },
+  // Tools Sheet
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  toolsSheet: {
+    position: 'absolute',
+    borderRadius: 28,
+    zIndex: 2000,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  sheetBlur: {
+    flex: 1,
+  },
+  sheetGradient: {
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  sheetHandle: {
+    width: 32,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  sheetHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: -0.3,
+  },
+  sheetHeaderAction: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  galleryContainer: {
+    paddingHorizontal: 12,
+    gap: 8,
+    marginBottom: 14,
+  },
+  cameraCard: {
+    width: 78,
+    height: 78,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  galleryCard: {
+    width: 78,
+    height: 78,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  galleryImagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  gallerySelectCircle: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  sheetDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 16,
+    marginBottom: 6,
+  },
+  toolsList: {
+    paddingHorizontal: 6,
+  },
+  toolItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 12,
+    borderRadius: 14,
+  },
+  toolIconContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolTextContainer: {
+    flex: 1,
+    gap: 1,
+  },
+  toolTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+    letterSpacing: -0.1,
+  },
+  toolSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+    lineHeight: 16,
   },
   inputWrapperCardMode: {
     left: 0,

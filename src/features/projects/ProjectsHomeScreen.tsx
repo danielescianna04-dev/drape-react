@@ -78,7 +78,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             const dateB = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
             return dateB - dateA;
           })
-          .slice(0, 10);
+          .slice(0, 5);
         setRecentProjects(sorted);
         setLoading(false);
         console.log('🏠 [Home] Using cached data - refreshing in background');
@@ -130,7 +130,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           const dateB = b.lastOpened ? new Date(b.lastOpened).getTime() : new Date(b.createdAt).getTime();
           return dateB - dateA;
         })
-        .slice(0, 10);
+        .slice(0, 5);
       setRecentProjects(recent);
       console.log(`✅ [Home] loadRecentProjects DONE in ${Date.now() - startTime}ms`);
     } catch (error) {
@@ -587,7 +587,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       >
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
-          <Text style={styles.sectionLabel}>Inizia</Text>
+          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>Inizia</Text>
 
           <View style={styles.quickActionsRow}>
             {/* New Project */}
@@ -643,12 +643,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <Ionicons name="time-outline" size={16} color="rgba(255,255,255,0.4)" />
               <Text style={styles.sectionLabel}>Recenti</Text>
             </View>
-            {recentProjects.length > 0 && (
-              <TouchableOpacity onPress={onMyProjects} activeOpacity={0.7} style={styles.seeAllBtn}>
-                <Text style={styles.seeAllText}>Tutti</Text>
-                <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
-              </TouchableOpacity>
-            )}
+
           </View>
 
           {loading ? (
@@ -671,11 +666,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     onLongPress={() => handleOpenMenu(project)}
                     delayLongPress={400}
                   >
-                    <View style={[styles.projectIcon, { backgroundColor: repoInfo ? 'rgba(255,255,255,0.08)' : `${langColor}15` }]}>
+                    <View style={styles.projectIcon}>
                       {repoInfo ? (
-                        <Ionicons name="logo-github" size={20} color="#fff" />
+                        <Ionicons name="logo-github" size={22} color="rgba(255,255,255,0.7)" />
                       ) : (
-                        <Ionicons name={getLanguageIcon(project.language) as any} size={20} color={langColor} />
+                        <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor} />
                       )}
                     </View>
                     <View style={styles.projectInfo}>
@@ -694,6 +689,15 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                   </TouchableOpacity>
                 );
               })}
+              {/* See All Button */}
+              <TouchableOpacity
+                style={styles.seeAllButton}
+                activeOpacity={0.7}
+                onPress={onMyProjects}
+              >
+                <Text style={styles.seeAllButtonText}>Vedi tutti</Text>
+                <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
             </>
           ) : (
             <View style={styles.emptyState}>
@@ -974,7 +978,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginBottom: 14,
   },
   // Quick Actions Row - compact cards
   quickActionsRow: {
@@ -1026,16 +1029,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  seeAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  seeAllText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: AppColors.primary,
-  },
+
   // Project Card
   projectCard: {
     flexDirection: 'row',
@@ -1049,11 +1043,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.04)',
   },
   projectIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginRight: 4,
   },
   projectInfo: {
     flex: 1,
@@ -1379,5 +1369,25 @@ const styles = StyleSheet.create({
   },
   welcomeTextContainer: {
     justifyContent: 'center',
+  },
+  seeAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    marginTop: 32,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  seeAllButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
+    letterSpacing: 0.4,
   },
 });

@@ -599,6 +599,7 @@ export const workstationService = {
         folderId: null,
         projectId: project.id,
         cloned: project.cloned,
+        type: project.type,
       }));
     } catch (error) {
       console.error('Error getting workstations:', error);

@@ -4,6 +4,10 @@ import { SharedValue, makeMutable } from 'react-native-reanimated';
 interface SidebarContextType {
   sidebarTranslateX: SharedValue<number>;
   isSidebarHidden: boolean;
+  hideSidebar?: () => void;
+  showSidebar?: () => void;
+  forceHideToggle?: boolean;
+  setForceHideToggle?: (hidden: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null);
@@ -17,7 +21,14 @@ export const useSidebarOffset = () => {
   const context = useContext(SidebarContext);
 
   if (!context) {
-    return { sidebarTranslateX: defaultSidebarValue, isSidebarHidden: false };
+    return {
+      sidebarTranslateX: defaultSidebarValue,
+      isSidebarHidden: false,
+      hideSidebar: () => { },
+      showSidebar: () => { },
+      forceHideToggle: false,
+      setForceHideToggle: () => { }
+    };
   }
   return context;
 };

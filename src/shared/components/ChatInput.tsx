@@ -59,114 +59,117 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
           style={styles.inputGradient}
         >
-      {/* Top Controls */}
-      {showTopBar && (
-        <View style={styles.topControls}>
-          {/* Mode Toggle */}
-          <View style={styles.modeToggleContainer}>
-            <View style={styles.modeToggle}>
-              <TouchableOpacity
-                onPress={() => handleToggleMode('terminal')}
-                style={[
-                  styles.modeButton,
-                  isTerminalMode && styles.modeButtonActive,
-                  forcedMode === 'terminal' && styles.modeButtonForced
-                ]}
-              >
-                <Ionicons
-                  name="code-slash"
-                  size={14}
-                  color={isTerminalMode ? '#fff' : '#8A8A8A'}
-                />
+          {/* Top Controls */}
+          {showTopBar && (
+            <View style={styles.topControls}>
+              {/* Mode Toggle */}
+              <View style={styles.modeToggleContainer}>
+                <View style={styles.modeToggle}>
+                  <TouchableOpacity
+                    onPress={() => handleToggleMode('terminal')}
+                    style={[
+                      styles.modeButton,
+                      isTerminalMode && styles.modeButtonActive,
+                      forcedMode === 'terminal' && styles.modeButtonForced
+                    ]}
+                  >
+                    <Ionicons
+                      name="code-slash"
+                      size={14}
+                      color={isTerminalMode ? '#fff' : '#8A8A8A'}
+                    />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleToggleMode('ai')}
+                    style={[
+                      styles.modeButton,
+                      !isTerminalMode && styles.modeButtonActive,
+                      forcedMode === 'ai' && styles.modeButtonForced
+                    ]}
+                  >
+                    <Ionicons
+                      name="sparkles"
+                      size={14}
+                      color={!isTerminalMode ? '#fff' : '#8A8A8A'}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Model Selector */}
+              <TouchableOpacity style={styles.modelSelector} onPress={onModelPress}>
+                <Text style={styles.modelText}>{modelName}</Text>
+                <Ionicons name="chevron-down" size={12} color="#666" />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleToggleMode('ai')}
-                style={[
-                  styles.modeButton,
-                  !isTerminalMode && styles.modeButtonActive,
-                  forcedMode === 'ai' && styles.modeButtonForced
-                ]}
-              >
-                <Ionicons
-                  name="sparkles"
-                  size={14}
-                  color={!isTerminalMode ? '#fff' : '#8A8A8A'}
-                />
+              <TouchableOpacity style={styles.toolsButton}>
+                <Ionicons name="add" size={24} color="#8A8A8A" />
               </TouchableOpacity>
             </View>
-          </View>
+          )}
 
-          {/* Model Selector */}
-          <TouchableOpacity style={styles.modelSelector} onPress={onModelPress}>
-            <Text style={styles.modelText}>{modelName}</Text>
-            <Ionicons name="chevron-down" size={12} color="#666" />
-          </TouchableOpacity>
-        </View>
-      )}
+          {/* Main Input Row */}
+          <View style={styles.mainInputRow}>
+            {/* Left Accessory Button (e.g., inspect mode) */}
+            {leftAccessory && (
+              <View style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}>
+                <IconButton
+                  iconName={leftAccessory.icon}
+                  size={22}
+                  color="#8A8A8A"
+                  onPress={leftAccessory.onPress}
+                  isActive={leftAccessory.isActive}
+                  activeColor={AppColors.primary}
+                  style={styles.iconButtonOverride}
+                />
+              </View>
+            )}
 
-      {/* Main Input Row */}
-      <View style={styles.mainInputRow}>
-        {/* Left Accessory Button (e.g., inspect mode) */}
-        {leftAccessory && (
-          <View style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}>
-            <IconButton
-              iconName={leftAccessory.icon}
-              size={22}
-              color="#8A8A8A"
-              onPress={leftAccessory.onPress}
-              isActive={leftAccessory.isActive}
-              activeColor={AppColors.primary}
-              style={styles.iconButtonOverride}
+            {/* Tools Button - only show when showTopBar is true */}
+            {showTopBar && (
+              <IconButton
+                iconName="add"
+                size={24}
+                color="#8A8A8A"
+                onPress={() => { }}
+                style={styles.toolsButton}
+              />
+            )}
+
+            {/* Input Field */}
+            <TextInput
+              style={styles.input}
+              value={value}
+              onChangeText={onChangeText}
+              placeholder={placeholder}
+              placeholderTextColor="#6E7681"
+              multiline
+              maxLength={1000}
+              onSubmitEditing={onSend}
+              keyboardAppearance="dark"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!disabled}
             />
+
+            {/* Send Button */}
+            <TouchableOpacity
+              onPress={onSend}
+              disabled={!value.trim() || disabled || isExecuting}
+              style={styles.sendButton}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.sendButtonInner,
+                value.trim() && !disabled && !isExecuting && styles.sendButtonActive
+              ]}>
+                <Ionicons
+                  name="arrow-up"
+                  size={18}
+                  color={value.trim() && !disabled && !isExecuting ? '#fff' : '#555'}
+                />
+              </View>
+            </TouchableOpacity>
           </View>
-        )}
-
-        {/* Tools Button - only show when showTopBar is true */}
-        {showTopBar && (
-          <IconButton
-            iconName="attach"
-            size={24}
-            color="#8A8A8A"
-            onPress={() => {}}
-            style={styles.toolsButton}
-          />
-        )}
-
-        {/* Input Field */}
-        <TextInput
-          style={styles.input}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor="#6E7681"
-          multiline
-          maxLength={1000}
-          onSubmitEditing={onSend}
-          keyboardAppearance="dark"
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!disabled}
-        />
-
-        {/* Send Button */}
-        <TouchableOpacity
-          onPress={onSend}
-          disabled={!value.trim() || disabled || isExecuting}
-          style={styles.sendButton}
-          activeOpacity={0.7}
-        >
-          <View style={[
-            styles.sendButtonInner,
-            value.trim() && !disabled && !isExecuting && styles.sendButtonActive
-          ]}>
-            <Ionicons
-              name="arrow-up"
-              size={18}
-              color={value.trim() && !disabled && !isExecuting ? '#fff' : '#555'}
-            />
-          </View>
-        </TouchableOpacity>
-      </View>
         </LinearGradient>
       </BlurView>
     </View>

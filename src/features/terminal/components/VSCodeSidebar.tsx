@@ -3,6 +3,8 @@ import { View, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-na
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
@@ -34,9 +36,11 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [isVerticalPanelMounted, setIsVerticalPanelMounted] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  const [forceHideToggle, setForceHideToggle] = useState(false);
   const [isGitSheetVisible, setIsGitSheetVisible] = useState(false);
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
+  const [showPreviewPanel, setShowPreviewPanel] = useState(false);
 
   // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
@@ -45,6 +49,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const trackpadBrightness = useSharedValue(0);
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
+  const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
 
   // Auto-close sidebar when opening a preview (either as tab or panel)
   useEffect(() => {
@@ -59,7 +64,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [activeTabId, activePanel]); // Check when active tab OR active panel changes
 
   const togglePanel = useCallback((panel: PanelType) => {
-    setActivePanel(prev => (prev === panel ? null : panel));
+    if (panel === 'preview') {
+      setShowPreviewPanel(prev => !prev);
+      setActivePanel(null); // Clear other panels when toggling preview
+    } else {
+      setActivePanel(prev => (prev === panel ? null : panel));
+      // Optionally hide preview when opening other panels? No, user wants it "sotto"
+    }
   }, []);
 
   const handleTerminalClick = useCallback(() => {
@@ -139,13 +150,42 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     setIsVerticalPanelMounted(false);
   }, []);
 
+  const hideSidebar = useCallback(() => {
+    sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
+    setIsSidebarHidden(true);
+  }, []);
+
+  const showSidebar = useCallback(() => {
+    sidebarTranslateX.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+    setIsSidebarHidden(false);
+  }, []);
+
   // Gestures
-  const edgeSwipeGesture = Gesture.Pan()
-    .onStart(() => {
+  const tapGesture = Gesture.Tap()
+    .onEnd(() => {
       'worklet';
       sidebarTranslateX.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
       runOnJS(setIsSidebarHidden)(false);
     });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      'worklet';
+      pillTranslateY.value = event.absoluteY - 32;
+    })
+    .onEnd((event) => {
+      'worklet';
+      if (event.translationX > 15) {
+        sidebarTranslateX.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
+        runOnJS(setIsSidebarHidden)(false);
+      }
+    });
+
+  const edgeSwipeGesture = Gesture.Race(panGesture, tapGesture);
+
+  const pillAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: pillTranslateY.value }],
+  }));
 
   const sidebarSwipeGesture = Gesture.Pan()
     .onUpdate((event) => {
@@ -173,19 +213,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }));
 
   return (
-    <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden }}>
-      {isSidebarHidden && (
+    <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
+      {isSidebarHidden && !forceHideToggle && (
         <GestureDetector gesture={edgeSwipeGesture}>
-          <TouchableWithoutFeedback onPress={() => {
-            sidebarTranslateX.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
-            setIsSidebarHidden(false);
-          }}>
-            <View style={styles.edgeSwipeArea}>
-              <View style={styles.slidePill}>
-                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.9)" />
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
+          <View style={styles.edgeSwipeArea}>
+            <Animated.View style={[styles.slidePillContainer, pillAnimatedStyle]}>
+              <BlurView intensity={60} tint="light" style={styles.slidePillBlur} />
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.slidePillGradient}
+              />
+              <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.3)" />
+            </Animated.View>
+          </View>
         </GestureDetector>
       )}
 
@@ -193,10 +235,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <Animated.View style={[styles.iconBar, sidebarAnimatedStyle]}>
           {/* Top icons */}
           <View style={styles.topIcons}>
-            <IconButton iconName="grid-outline" size={24} color={AppColors.icon.default} onPress={() => setActivePanel(null)} isActive={activePanel === null || activePanel === 'multitasking'} activeColor={AppColors.primary} accessibilityLabel="Tabs view" />
+            <IconButton
+              iconName="grid-outline"
+              size={24}
+              color={AppColors.icon.default}
+              onPress={() => {
+                setActivePanel(null);
+                setShowPreviewPanel(false); // Go back to tabs (hide preview)
+              }}
+              isActive={(activePanel === null || activePanel === 'multitasking') && !showPreviewPanel}
+              activeColor={AppColors.primary}
+              accessibilityLabel="Tabs view"
+            />
             <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
             <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
-            <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={activePanel === 'preview'} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
+            <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
           </View>
 
           {/* Center section with wheel - lowered */}
@@ -208,7 +261,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 { name: 'git-branch-outline', action: handleGitClick },
                 { name: 'key-outline', action: handleEnvVarsClick },
                 // { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
-                { name: 'settings-outline', action: () => togglePanel('settings') },
               ]}
               onIconChange={() => { }}
             />
@@ -223,18 +275,32 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       </GestureDetector>
 
       <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }}>
-        {/* Backdrop overlay - tap to close panel */}
+        {/* Preview Panel - Persistent "under" other panels */}
+        {showPreviewPanel && (
+          <PreviewPanel
+            onClose={() => {
+              setShowPreviewPanel(false);
+              if (activePanel === 'preview') setActivePanel(null);
+            }}
+            previewUrl="http://localhost:3001"
+            projectName="Project Preview"
+          />
+        )}
+
+        {/* Backdrop overlay - tap to close panel with subtle blur */}
         {activePanel && activePanel !== 'multitasking' && activePanel !== 'vertical' && (
           <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
-            <View style={styles.panelBackdrop} />
+            <BlurView intensity={25} tint="dark" style={styles.panelBackdrop} />
           </TouchableWithoutFeedback>
         )}
 
-        {activePanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
-        {activePanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === 'preview' && <PreviewPanel onClose={() => setActivePanel(null)} previewUrl="http://localhost:3001" projectName="Project Preview" />}
-        {activePanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
-        {activePanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
+        {/* Global Panels Container - ensures all menus are above the blur */}
+        <View style={styles.panelsContainer} pointerEvents="box-none">
+          {activePanel === 'files' && <Sidebar onClose={() => setActivePanel(null)} onOpenAllProjects={onOpenAllProjects} />}
+          {activePanel === 'chat' && <ChatPanel onClose={() => setActivePanel(null)} />}
+          {activePanel === 'settings' && <SettingsPanel onClose={() => setActivePanel(null)} />}
+          {activePanel === 'git' && <GitPanel onClose={() => setActivePanel(null)} />}
+        </View>
 
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
@@ -289,7 +355,7 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.dark.backgroundAlt,
     paddingTop: 44,
     paddingBottom: 20,
-    zIndex: 1001,
+    zIndex: 1200,
     alignItems: 'center',
   },
   topIcons: {
@@ -304,27 +370,50 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   edgeSwipeArea: {
+    ...StyleSheet.absoluteFillObject,
+    width: 60, // Wider hit area for gestures
+    zIndex: 1210,
+  },
+  slidePillContainer: {
     position: 'absolute',
     left: 0,
-    top: 0,
-    bottom: 0,
-    width: 32,
-    zIndex: 1001,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-  },
-  slidePill: {
-    width: 24,
-    height: 72,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderTopRightRadius: 12,
-    borderBottomRightRadius: 12,
+    width: 18,
+    height: 64,
+    backgroundColor: 'rgba(255, 255, 255, 0.01)',
+    borderTopRightRadius: 30,
+    borderBottomRightRadius: 30,
+    borderWidth: 0.8,
+    borderLeftWidth: 0,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+  },
+  slidePillBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  slidePillGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  slidePillIndicator: {
+    position: 'absolute',
+    left: 1.5,
+    width: 2,
+    height: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 1,
   },
   panelBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    zIndex: 999,
+    zIndex: 1050,
+  },
+  panelsContainer: {
+    ...StyleSheet.absoluteFillObject,
+    left: 0,
+    zIndex: 1100,
   },
 });

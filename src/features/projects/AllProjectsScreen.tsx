@@ -18,8 +18,8 @@ interface Props {
 const getLanguageIcon = (language: string): string => {
   const lang = (language || '').toLowerCase();
   if (lang.includes('python')) return 'logo-python';
-  if (lang.includes('javascript') || lang.includes('js')) return 'logo-javascript';
-  if (lang.includes('typescript') || lang.includes('ts')) return 'logo-javascript';
+  if (lang.includes('javascript') || lang.includes('js')) return 'logo-react'; // React icon looks better for JS in this context
+  if (lang.includes('typescript') || lang.includes('ts')) return 'logo-react';
   if (lang.includes('react')) return 'logo-react';
   if (lang.includes('node')) return 'logo-nodejs';
   if (lang.includes('html')) return 'logo-html5';
@@ -64,6 +64,14 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'git' | 'personal' | 'local'>('all');
+
+  const filterOptions = [
+    { id: 'all' as const, label: 'Tutti', icon: 'layers-outline' },
+    { id: 'git' as const, label: 'Git', icon: 'logo-github' },
+    { id: 'personal' as const, label: 'Creati', icon: 'create-outline' },
+    { id: 'local' as const, label: 'Local', icon: 'phone-portrait-outline' },
+  ];
 
   // Skeleton animation
   const shimmerAnim = useRef(new Animated.Value(0)).current;
@@ -112,7 +120,6 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   };
 
   const handleOpenProject = async (ws: any) => {
-    // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(ws.id);
     setWorkstation(ws);
     if (onOpenProject) {
@@ -125,21 +132,11 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const handleDeleteProject = async (projectId: string, skipConfirm = false) => {
     const doDelete = async () => {
       try {
-        console.log('🗑️🗑️🗑️ [AllProjects] === DELETE STARTED ===');
-        console.log('🗑️ [AllProjects] projectId:', projectId);
-
-        // Remove associated tabs first
-        console.log('🗑️ [AllProjects] Removing tabs for workstation...');
         removeTabsByWorkstation(projectId);
-
-        console.log('🗑️ [AllProjects] Calling workstationService.deleteWorkstation...');
         await workstationService.deleteWorkstation(projectId);
-
-        console.log('🗑️ [AllProjects] Reloading projects...');
         loadProjects();
-        console.log('🗑️🗑️🗑️ [AllProjects] === DELETE COMPLETE ===');
       } catch (error) {
-        console.error('❌ [AllProjects] Error deleting project:', error);
+        console.error('Error deleting project:', error);
         Alert.alert('Errore', 'Impossibile eliminare il progetto');
       }
     };
@@ -199,7 +196,6 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             setIsDeleting(true);
             try {
               for (const id of selectedIds) {
-                // Remove associated tabs first
                 removeTabsByWorkstation(id);
                 await workstationService.deleteWorkstation(id);
               }
@@ -232,33 +228,41 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         onPress={() => handleDeleteProject(projectId, true)}
         activeOpacity={0.8}
       >
-        <Ionicons name="trash-outline" size={22} color="#fff" />
-        <Text style={styles.swipeDeleteText}>Elimina</Text>
+        <Ionicons name="trash" size={20} color="#fff" />
       </TouchableOpacity>
     );
   };
 
-  const getTimeAgo = (date: Date) => {
+  const getTimeAgo = (date: any) => {
+    if (!date) return 'ora';
     const now = new Date();
-    const diff = now.getTime() - new Date(date).getTime();
+    const then = new Date(date);
+    const diff = now.getTime() - then.getTime();
     const minutes = Math.floor(diff / (1000 * 60));
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
     if (days > 0) return `${days}g fa`;
     if (hours > 0) return `${hours}h fa`;
-    if (minutes > 0) return `${minutes}m fa`;
-    return 'adesso';
+    if (minutes > 1) return `${minutes}m fa`;
+    return 'ora';
   };
 
-  const filteredProjects = projects.filter((ws) =>
-    ws.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProjects = projects.filter((ws) => {
+    const matchesSearch = ws.name.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (activeFilter === 'all') return true;
+    if (activeFilter === 'git') return ws.type === 'git' || !!ws.repositoryUrl;
+    if (activeFilter === 'personal') return ws.type === 'personal' || (!ws.repositoryUrl && ws.type !== 'local');
+    if (activeFilter === 'local') return ws.type === 'local';
+    return true;
+  });
 
   const renderSkeletonCard = (index: number) => {
     const shimmerOpacity = shimmerAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [0.3, 0.7],
+      outputRange: [0.3, 0.6],
     });
 
     return (
@@ -266,9 +270,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         <Animated.View style={[styles.skeletonIcon, { opacity: shimmerOpacity }]} />
         <View style={styles.projectInfo}>
           <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
-          <View style={styles.projectMetaRow}>
-            <Animated.View style={[styles.skeletonMeta, { opacity: shimmerOpacity }]} />
-          </View>
+          <Animated.View style={[styles.skeletonMeta, { opacity: shimmerOpacity }]} />
         </View>
       </View>
     );
@@ -277,6 +279,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const renderProjectCard = (project: any) => {
     const langColor = getLanguageColor(project.language);
     const isSelected = selectedIds.has(project.id);
+    const hasRepo = project.repositoryUrl || project.githubUrl;
 
     const cardContent = (
       <TouchableOpacity
@@ -297,41 +300,43 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         }}
         delayLongPress={400}
       >
-        {selectionMode && (
-          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-            {isSelected && <Ionicons name="checkmark" size={16} color="#fff" />}
-          </View>
-        )}
-        <View style={[styles.projectIcon, { backgroundColor: `${langColor}15` }]}>
-          <Ionicons name={getLanguageIcon(project.language) as any} size={24} color={langColor} />
-        </View>
-        <View style={styles.projectInfo}>
-          <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
-          <View style={styles.projectMetaRow}>
-            <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
-            <View style={styles.metaDot} />
-            <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
-            {(project.repositoryUrl || project.githubUrl) && (
-              <>
-                <View style={styles.metaDot} />
-                <Ionicons name="logo-github" size={12} color="rgba(255,255,255,0.35)" />
-              </>
+        <View style={styles.cardMain}>
+          {selectionMode && (
+            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+              {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+            </View>
+          )}
+
+          <View style={styles.projectIcon}>
+            {hasRepo ? (
+              <Ionicons name="logo-github" size={24} color="rgba(255,255,255,0.7)" />
+            ) : (
+              <Ionicons name={getLanguageIcon(project.language) as any} size={24} color={langColor} />
             )}
           </View>
+
+          <View style={styles.projectInfo}>
+            <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
+            <View style={styles.projectMetaRow}>
+              <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+              <View style={styles.metaDot} />
+              <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
+            </View>
+          </View>
+
+          {!selectionMode && (
+            <TouchableOpacity
+              style={styles.projectMenuBtn}
+              onPress={() => handleDeleteProject(project.id)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="ellipsis-vertical" size={16} color="rgba(255,255,255,0.25)" />
+            </TouchableOpacity>
+          )}
         </View>
-        {!selectionMode && (
-          <TouchableOpacity
-            style={styles.projectMenuBtn}
-            onPress={() => handleDeleteProject(project.id)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.35)" />
-          </TouchableOpacity>
-        )}
       </TouchableOpacity>
     );
 
-    // In selection mode, don't wrap with Swipeable
     if (selectionMode) {
       return <View key={project.id}>{cardContent}</View>;
     }
@@ -356,59 +361,87 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            style={styles.backButton}
-            activeOpacity={0.7}
-            onPress={selectionMode ? exitSelectionMode : onClose}
-          >
-            <Ionicons
-              name={selectionMode ? "close" : "chevron-back"}
-              size={22}
-              color="rgba(255,255,255,0.5)"
-            />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.7}
+          onPress={selectionMode ? exitSelectionMode : onClose}
+        >
+          <Ionicons
+            name={selectionMode ? "close" : "chevron-back"}
+            size={24}
+            color="#fff"
+          />
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>
+          {selectionMode
+            ? `${selectedIds.size} selezionati`
+            : 'Tutti i Progetti'
+          }
+        </Text>
+
+        <TouchableOpacity
+          onPress={selectionMode ? selectAll : () => setSelectionMode(true)}
+          activeOpacity={0.7}
+          style={styles.selectHeaderBtn}
+        >
+          <Text style={styles.selectHeaderBtnText}>
             {selectionMode
-              ? `${selectedIds.size} selezionat${selectedIds.size === 1 ? 'o' : 'i'}`
-              : 'Tutti i Progetti'
+              ? (selectedIds.size === filteredProjects.length ? 'Nessuno' : 'Tutti')
+              : 'Modifica'
             }
           </Text>
-        </View>
-        {selectionMode ? (
-          <TouchableOpacity onPress={selectAll} activeOpacity={0.7}>
-            <Text style={styles.selectAllText}>
-              {selectedIds.size === filteredProjects.length ? 'Deseleziona' : 'Seleziona tutti'}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            onPress={() => setSelectionMode(true)}
-            activeOpacity={0.7}
-            style={styles.selectBtn}
-          >
-            <Text style={styles.selectBtnText}>Seleziona</Text>
-          </TouchableOpacity>
-        )}
+        </TouchableOpacity>
       </View>
 
       {/* Search */}
       <View style={styles.searchSection}>
         <View style={styles.searchContainer}>
-          <Ionicons name="search" size={18} color="rgba(255,255,255,0.35)" />
+          <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Cerca progetti..."
-            placeholderTextColor="rgba(255,255,255,0.3)"
+            placeholder="Search projects..."
+            placeholderTextColor="rgba(255,255,255,0.25)"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            autoCorrect={false}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.35)" />
+              <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
             </TouchableOpacity>
           )}
         </View>
+      </View>
+
+      {/* Filters */}
+      <View style={styles.filterSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterScroll}
+        >
+          {filterOptions.map((opt) => {
+            const isActive = activeFilter === opt.id;
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                style={[styles.filterTab, isActive && styles.filterTabActive]}
+                onPress={() => setActiveFilter(opt.id)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={opt.icon as any}
+                  size={16}
+                  color={isActive ? '#fff' : 'rgba(255,255,255,0.4)'}
+                />
+                <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Content */}
@@ -418,32 +451,29 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         contentContainerStyle={styles.contentContainer}
       >
         {loading ? (
-          <>
-            {[0, 1, 2, 3, 4].map(renderSkeletonCard)}
-          </>
+          <View style={{ gap: 8 }}>
+            {[0, 1, 2, 3, 4, 5].map(renderSkeletonCard)}
+          </View>
         ) : filteredProjects.length > 0 ? (
-          <>
+          <View style={{ gap: 8 }}>
             {filteredProjects.map(renderProjectCard)}
-          </>
+          </View>
         ) : (
           <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="folder-open-outline" size={48} color="rgba(255,255,255,0.2)" />
-            </View>
+            <Ionicons name="folder-open-outline" size={64} color="rgba(255,255,255,0.05)" />
             <Text style={styles.emptyText}>
-              {searchQuery ? 'Nessun risultato' : 'Nessun progetto'}
+              {searchQuery ? 'Nessun risultato' : 'Ancora nessun progetto'}
             </Text>
             <Text style={styles.emptySubtext}>
               {searchQuery
-                ? `Nessun progetto corrisponde a "${searchQuery}"`
-                : 'Crea il tuo primo progetto dalla home'
+                ? `Non abbiamo trovato nulla per "${searchQuery}"`
+                : 'I tuoi progetti appariranno qui'
               }
             </Text>
           </View>
         )}
 
-        {/* Bottom Padding */}
-        <View style={{ height: selectionMode ? 120 : 100 }} />
+        <View style={{ height: selectionMode ? 140 : 100 }} />
       </ScrollView>
 
       {/* Selection Action Bar */}
@@ -457,7 +487,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           >
             <Ionicons name="trash-outline" size={20} color="#fff" />
             <Text style={styles.deleteSelectedText}>
-              {isDeleting ? 'Eliminando...' : `Elimina ${selectedIds.size} progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+              {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
             </Text>
           </TouchableOpacity>
         </View>
@@ -469,7 +499,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0C0C0E',
+    backgroundColor: '#0A0A0C',
   },
   header: {
     flexDirection: 'row',
@@ -477,65 +507,51 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: 60,
     paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    paddingBottom: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    width: 44,
+    height: 44,
+    marginLeft: -10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 17,
     fontWeight: '700',
     color: '#fff',
-    letterSpacing: 0.3,
+    letterSpacing: -0.2,
   },
-  projectCount: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.4)',
-  },
-  selectBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  selectHeaderBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  selectBtnText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: AppColors.primary,
-  },
-  selectAllText: {
-    fontSize: 14,
+  selectHeaderBtnText: {
+    fontSize: 15,
     fontWeight: '500',
     color: AppColors.primary,
   },
   searchSection: {
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 20,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 48,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     color: '#fff',
+    fontWeight: '400',
   },
   content: {
     flex: 1,
@@ -544,25 +560,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   projectCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    marginBottom: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+    overflow: 'hidden',
   },
   projectCardSelected: {
-    backgroundColor: `${AppColors.primary}15`,
-    borderWidth: 1,
-    borderColor: `${AppColors.primary}40`,
+    backgroundColor: 'rgba(123, 107, 255, 0.12)',
+    borderColor: 'rgba(123, 107, 255, 0.3)',
+  },
+  cardMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderColor: 'rgba(255,255,255,0.2)',
     marginRight: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -572,12 +590,11 @@ const styles = StyleSheet.create({
     borderColor: AppColors.primary,
   },
   projectIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 12,
   },
   projectInfo: {
     flex: 1,
@@ -586,111 +603,124 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   projectMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   projectLang: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '400',
   },
   metaDot: {
     width: 3,
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    marginHorizontal: 8,
   },
   projectTime: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.25)',
   },
   projectMenuBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
+    opacity: 0.8,
   },
-  // Skeleton styles
+  // Filters
+  filterSection: {
+    paddingBottom: 16,
+  },
+  filterScroll: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  filterTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  filterTabActive: {
+    backgroundColor: 'rgba(123, 107, 255, 0.15)',
+    borderColor: 'rgba(123, 107, 255, 0.3)',
+  },
+  filterTabText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  filterTabTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
   skeletonIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginRight: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginRight: 12,
   },
   skeletonTitle: {
-    width: '70%',
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: '60%',
+    height: 14,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     marginBottom: 8,
   },
   skeletonMeta: {
-    width: '50%',
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    width: '40%',
+    height: 10,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  // Empty state
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 80,
-  },
-  emptyIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
+    paddingVertical: 100,
+    gap: 16,
   },
   emptyText: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.6)',
-    marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.3)',
     textAlign: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 50,
     lineHeight: 20,
   },
-  // Swipe delete
   swipeDeleteBtn: {
-    backgroundColor: '#ff4d4d',
+    backgroundColor: '#FF453A',
     justifyContent: 'center',
     alignItems: 'center',
-    width: 90,
-    marginBottom: 10,
+    width: 80,
     borderRadius: 16,
-    marginLeft: 10,
+    marginLeft: 8,
+    height: '100%',
   },
-  swipeDeleteText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  // Selection bar
   selectionBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#0C0C0E',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 40,
+    paddingTop: 20,
+    paddingBottom: 44,
+    backgroundColor: '#0A0A0C',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
@@ -699,16 +729,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#ff4d4d',
-    paddingVertical: 16,
-    borderRadius: 14,
+    backgroundColor: '#FF453A',
+    height: 54,
+    borderRadius: 16,
   },
   deleteSelectedBtnDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   deleteSelectedText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
 });
