@@ -50,18 +50,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarTranslateX = useSharedValue(0);
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
+  const prevShowPreviewPanel = React.useRef(showPreviewPanel);
 
   // Auto-close sidebar when opening a preview (either as tab or panel)
+  // Only trigger when showPreviewPanel JUST became true (not when closing other panels)
   useEffect(() => {
     const activeTab = tabs.find(t => t.id === activeTabId);
-    const isPreviewActive = activeTab?.type === 'preview' || activeTab?.type === 'browser' || activePanel === 'preview';
+    const isPreviewTabActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
 
-    if (isPreviewActive && !isSidebarHidden) {
-      console.log('👁️ [VSCodeSidebar] Preview active, auto-hiding sidebar');
+    // Check if showPreviewPanel just became true (rising edge)
+    const previewJustOpened = showPreviewPanel && !prevShowPreviewPanel.current;
+    prevShowPreviewPanel.current = showPreviewPanel;
+
+    // Only auto-hide if preview JUST opened OR preview tab became active
+    if ((previewJustOpened || isPreviewTabActive) && !isSidebarHidden) {
+      console.log('👁️ [VSCodeSidebar] Preview activated, auto-hiding sidebar');
       sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
       setIsSidebarHidden(true);
     }
-  }, [activeTabId, activePanel]); // Check when active tab OR active panel changes
+  }, [activeTabId, showPreviewPanel]);
 
   const togglePanel = useCallback((panel: PanelType) => {
     if (panel === 'preview') {
@@ -75,6 +82,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleTerminalClick = useCallback(() => {
     setActivePanel(null);
+    setShowPreviewPanel(false); // Close preview when switching to terminal
     const aiTerminalTab = tabs.find(t => t.id === 'terminal-ai');
     if (aiTerminalTab) {
       setActiveTab('terminal-ai');
@@ -99,6 +107,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleEnvVarsClick = useCallback(() => {
     // Open as tab instead of panel
+    setShowPreviewPanel(false); // Close preview when switching to env vars
     const envVarsTab = tabs.find(t => t.id === 'env-vars');
     if (envVarsTab) {
       setActiveTab('env-vars');

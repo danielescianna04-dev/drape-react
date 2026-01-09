@@ -69,8 +69,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }
     return '';
   });
-  const slideAnim = useRef(new Animated.Value(-300)).current;
-  const panX = useRef(new Animated.Value(0)).current;
 
   // Delete confirmation state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -101,52 +99,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     currentWorkstation,
   } = useTerminalStore();
 
-  // PanResponder for swipe to close
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Only respond to left swipe (negative dx), more sensitive
-        return gestureState.dx < -5 && Math.abs(gestureState.dy) < 100;
-      },
-      onPanResponderMove: (_, gestureState) => {
-        // Only allow swipe left (close direction)
-        if (gestureState.dx < 0) {
-          panX.setValue(gestureState.dx);
-        }
-      },
-      onPanResponderRelease: (_, gestureState) => {
-        // If swiped more than 50px left or fast swipe, close sidebar
-        const swipeSpeed = Math.abs(gestureState.vx);
-        if (gestureState.dx < -50 || (gestureState.dx < -20 && swipeSpeed > 0.5)) {
-          Animated.timing(panX, {
-            toValue: -300,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => {
-            panX.setValue(0);
-            onClose();
-          });
-        } else {
-          // Snap back to original position
-          Animated.spring(panX, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 10,
-          }).start();
-        }
-      },
-    })
-  ).current;
 
   useEffect(() => {
-    Animated.spring(slideAnim, {
-      toValue: 0,
-      useNativeDriver: true,
-      tension: 65,
-      friction: 11,
-    }).start();
-
     // Carica workstations da Firestore
     const loadData = async () => {
       const workstations = await workstationService.getWorkstations();
@@ -178,11 +132,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   }, [currentWorkstation]);
 
   const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: -300,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => onClose());
+    onClose();
   };
 
   const handleOpenWorkstation = async (ws: any) => {
@@ -367,28 +317,15 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   return (
     <>
-      {/* Backdrop - Click to close */}
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
-
-      <Animated.View
+      <View
         style={[
-          styles.container,
-          {
-            transform: [
-              { translateX: slideAnim },
-              { translateX: panX }
-            ]
-          }
+          styles.container
         ]}
       >
         <View style={StyleSheet.absoluteFill}>
           <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }} />
         </View>
-        <View style={styles.header} {...panResponder.panHandlers}>
+        <View style={styles.header}>
           <Text style={styles.headerTitle}>Files</Text>
           <IconButton
             iconName="close"
@@ -440,7 +377,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
             />
           )}
         </ScrollView>
-      </Animated.View>
+      </View>
 
       {/* Delete Confirmation Modal */}
       <Modal
