@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated as RNAnimated, ScrollView, Keyboard } from 'react-native';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
@@ -20,7 +20,12 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
 
   // Animate TabBar to expand from left edge when sidebar hides
   const tabBarAnimatedStyle = useAnimatedStyle(() => ({
-    left: 44 + sidebarTranslateX.value,
+    left: interpolate(
+      sidebarTranslateX.value,
+      [-50, 0],
+      [0, 44],
+      Extrapolate.CLAMP
+    ),
   }));
 
   useEffect(() => {

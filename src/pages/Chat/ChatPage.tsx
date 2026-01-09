@@ -71,7 +71,6 @@ interface ChatPageProps {
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
-  const contentOffsetStyle = useContentOffset();
 
   const scrollViewRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
@@ -479,6 +478,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     };
   });
 
+  const animatedContentStyle = useAnimatedStyle(() => {
+    'worklet';
+    const paddingLeft = interpolate(
+      sidebarTranslateX.value,
+      [-50, 0],
+      [0, 44],
+      Extrapolate.CLAMP
+    );
+
+    return {
+      paddingLeft,
+    };
+  });
+
   const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
     const animProgress = inputPositionAnim.value;
@@ -506,10 +519,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Calcola left in base allo stato della sidebar
     // Quando sidebar è visibile (sidebarTranslateX = 0), left = 44
-    // Quando sidebar è nascosta (sidebarTranslateX = -44), left = 0
+    // Quando sidebar è nascosta (sidebarTranslateX = -50), left = 0
     const sidebarLeft = interpolate(
       sidebarTranslateX.value,
-      [-44, 0],
+      [-50, 0],
       [0, 44],
       Extrapolate.CLAMP
     );
@@ -1324,7 +1337,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       animatedStyle
     ]}>
       {/* Content wrapper with sidebar offset */}
-      <View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, contentOffsetStyle]}>
+      <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
         {currentTab?.type === 'file' ? (
           <FileViewer
             visible={true}
@@ -1607,7 +1620,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             </Animated.View>
           </>
         )}
-      </View>
+      </Animated.View>
 
       {/* Tools Bottom Sheet */}
       {showToolsSheet && (

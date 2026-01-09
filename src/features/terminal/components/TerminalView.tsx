@@ -255,14 +255,14 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                       <Ionicons
                         name={
                           item.type === TerminalItemType.COMMAND ? 'terminal' :
-                          item.type === TerminalItemType.ERROR ? 'close-circle' :
-                          item.type === TerminalItemType.SYSTEM ? 'information-circle' : 'checkmark-circle'
+                            item.type === TerminalItemType.ERROR ? 'close-circle' :
+                              item.type === TerminalItemType.SYSTEM ? 'information-circle' : 'checkmark-circle'
                         }
                         size={16}
                         color={
                           item.type === TerminalItemType.COMMAND ? AppColors.primary :
-                          item.type === TerminalItemType.ERROR ? AppColors.error :
-                          item.type === TerminalItemType.SYSTEM ? AppColors.terminal.yellow : AppColors.success
+                            item.type === TerminalItemType.ERROR ? AppColors.error :
+                              item.type === TerminalItemType.SYSTEM ? AppColors.terminal.yellow : AppColors.success
                         }
                       />
                       <Text style={[
@@ -273,8 +273,8 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                         item.type === TerminalItemType.OUTPUT && styles.typeLabelOutput,
                       ]}>
                         {item.type === TerminalItemType.COMMAND ? 'COMMAND' :
-                         item.type === TerminalItemType.ERROR ? 'ERROR' :
-                         item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
+                          item.type === TerminalItemType.ERROR ? 'ERROR' :
+                            item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
                       </Text>
                     </View>
 
@@ -290,18 +290,18 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
                           <Ionicons
                             name={
                               item.source === 'preview' ? 'phone-portrait-outline' :
-                              item.source === 'ai' ? 'sparkles' :
-                              item.source === 'terminal' ? 'terminal-outline' :
-                              item.source === 'backend' ? 'server-outline' : 'code-outline'
+                                item.source === 'ai' ? 'sparkles' :
+                                  item.source === 'terminal' ? 'terminal-outline' :
+                                    item.source === 'backend' ? 'server-outline' : 'code-outline'
                             }
                             size={10}
                             color={AppColors.white.w60}
                           />
                           <Text style={styles.sourceText}>
                             {item.source === 'preview' ? 'Preview' :
-                             item.source === 'ai' ? 'AI' :
-                             item.source === 'terminal' ? 'Terminal' :
-                             item.source === 'backend' ? 'Backend' : item.source}
+                              item.source === 'ai' ? 'AI' :
+                                item.source === 'terminal' ? 'Terminal' :
+                                  item.source === 'backend' ? 'Backend' : item.source}
                           </Text>
                         </View>
                       )}
@@ -369,7 +369,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'transparent',
-    paddingLeft: 50, // Account for sidebar width (same as ChatPage output)
   },
   headerContainer: {
     position: 'relative',
