@@ -7,9 +7,9 @@
  * Ask user a question with multiple choice options
  * @param {Array} questions - Array of question objects
  * @param {Object} userAnswers - Answers provided by user (populated by frontend)
- * @returns {Promise<Object>} User answers
+ * @returns {Object} User answers
  */
-async function askUserQuestion(questions, userAnswers = {}) {
+function askUserQuestion(questions, userAnswers = {}) {
     // Validate questions
     if (!Array.isArray(questions) || questions.length === 0) {
         throw new Error('Questions must be a non-empty array');
@@ -43,6 +43,7 @@ async function askUserQuestion(questions, userAnswers = {}) {
     // Return the question payload for SSE streaming
     // The agent loop will handle sending this and waiting for response
     return {
+        success: true,
         type: 'ask_user_question',
         questions,
         userAnswers,

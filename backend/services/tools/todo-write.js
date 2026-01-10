@@ -41,6 +41,7 @@ function todoWrite(todos) {
 
     // Return the todo list payload for SSE streaming
     return {
+        success: true,
         type: 'todo_update',
         todos,
         timestamp: new Date().toISOString()

@@ -21,22 +21,28 @@ async function globSearch(pattern, searchPath = '.', limit = 100) {
             cwd: searchPath,
             ignore: IGNORED_DIRS.map(dir => `**/${dir}/**`),
             nodir: true, // Only return files, not directories
-            absolute: false, // Return relative paths
-            stat: true, // Get file stats for sorting by modification time
-            withFileTypes: true
         };
 
         // Find all matching files
         const results = await glob(pattern, options);
 
-        // Sort by modification time (most recent first)
-        const sortedResults = results
-            .sort((a, b) => {
-                const aStat = a.stat();
-                const bStat = b.stat();
-                return bStat.mtimeMs - aStat.mtimeMs;
+        // Get stats for each file and sort by modification time
+        const filesWithStats = await Promise.all(
+            results.map(async (file) => {
+                try {
+                    const fullPath = path.join(searchPath, file);
+                    const stats = await fs.stat(fullPath);
+                    return { file, mtime: stats.mtimeMs };
+                } catch (error) {
+                    return { file, mtime: 0 };
+                }
             })
-            .map(entry => entry.relative());
+        );
+
+        // Sort by modification time (most recent first)
+        const sortedResults = filesWithStats
+            .sort((a, b) => b.mtime - a.mtime)
+            .map(item => item.file);
 
         // Limit results
         const limitedResults = sortedResults.slice(0, limit);
