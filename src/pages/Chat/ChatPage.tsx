@@ -37,7 +37,7 @@ import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
-import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
+import { AgentExecutionView } from '../../shared/components/agent';
 import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
 import { TodoList } from '../../shared/components/molecules/TodoList';
@@ -1600,7 +1600,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       // Check if this is an agent progress item
                       if ((item as any).isAgentProgress) {
                         acc.push(
-                          <AgentProgress
+                          <AgentExecutionView
                             key={index}
                             events={agentEvents}
                             status={agentStreaming ? 'running' : 'complete'}
