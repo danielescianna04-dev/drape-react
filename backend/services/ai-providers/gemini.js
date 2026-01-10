@@ -33,7 +33,31 @@ class GeminiProvider extends BaseAIProvider {
         if (!this.client) {
             throw new Error('Provider not initialized. Call initialize() first.');
         }
-        return this.client.getGenerativeModel({ model: modelId });
+
+        // Safety settings to reduce false positives (especially for non-English languages)
+        const safetySettings = [
+            {
+                category: 'HARM_CATEGORY_HARASSMENT',
+                threshold: 'BLOCK_ONLY_HIGH'
+            },
+            {
+                category: 'HARM_CATEGORY_HATE_SPEECH',
+                threshold: 'BLOCK_ONLY_HIGH'
+            },
+            {
+                category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                threshold: 'BLOCK_ONLY_HIGH'
+            },
+            {
+                category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                threshold: 'BLOCK_ONLY_HIGH'
+            }
+        ];
+
+        return this.client.getGenerativeModel({
+            model: modelId,
+            safetySettings
+        });
     }
 
     formatTools(tools) {
