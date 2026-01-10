@@ -15,6 +15,7 @@ import {
   LayoutAnimation,
   Pressable,
   KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,10 @@ import { useAuthStore } from '../../core/auth/authStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 import { DescriptionInput } from './DescriptionInput';
+import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
+import { useAgentStore } from '../../core/ai/agentStore';
+import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
+import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -50,6 +55,26 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+
+  // Agent system state
+  const [showModeModal, setShowModeModal] = useState(false);
+  const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
+  const [useAgentSystem, setUseAgentSystem] = useState(true); // Flag to enable/disable agent system
+
+  // Agent stream hook
+  const {
+    startStream,
+    cancel: cancelStream,
+    reset: resetStream,
+    isStreaming,
+    events: agentEvents,
+    currentTool: agentCurrentTool,
+    status: agentStatus,
+    result: agentResult,
+  } = useAgentStream({
+    onComplete: handleAgentComplete,
+    onError: handleAgentError,
+  });
 
   // Get existing workstations to check for duplicate names
   const { workstations } = useTerminalStore();
@@ -110,6 +135,84 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       hideSub.remove();
     };
   }, []);
+
+  // Agent completion callback
+  async function handleAgentComplete(result: any) {
+    console.log('[CreateProject] Agent completed:', result);
+
+    try {
+      const userId = useAuthStore.getState().user?.uid;
+      if (!userId) {
+        throw new Error('No user ID');
+      }
+
+      // Save agent context to backend
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      await fetch(`${apiUrl}/agent/save-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          userId,
+          context: {
+            events: agentEvents,
+            mode: agentMode,
+            timestamp: Date.now(),
+          },
+        }),
+      });
+
+      // Create workstation object
+      const workstation = {
+        id: result.projectId,
+        projectId: result.projectId,
+        name: result.projectName || projectName.trim(),
+        language: result.technology || selectedLanguage,
+        technology: result.technology || selectedLanguage,
+        templateDescription: result.templateDescription || description.trim(),
+        status: 'ready' as const,
+        createdAt: new Date(),
+        files: result.files || [],
+        folderId: null,
+      };
+
+      // Short delay to show completion
+      setTimeout(() => {
+        setIsCreating(false);
+        resetStream();
+        onCreate(workstation);
+      }, 800);
+    } catch (error) {
+      console.error('[CreateProject] Failed to save context:', error);
+      // Still proceed with creation even if context save fails
+      const workstation = {
+        id: result.projectId || Date.now().toString(),
+        projectId: result.projectId || Date.now().toString(),
+        name: result.projectName || projectName.trim(),
+        language: result.technology || selectedLanguage,
+        technology: result.technology || selectedLanguage,
+        templateDescription: result.templateDescription || description.trim(),
+        status: 'ready' as const,
+        createdAt: new Date(),
+        files: result.files || [],
+        folderId: null,
+      };
+
+      setTimeout(() => {
+        setIsCreating(false);
+        resetStream();
+        onCreate(workstation);
+      }, 800);
+    }
+  }
+
+  // Agent error callback
+  function handleAgentError(error: string) {
+    console.error('[CreateProject] Agent error:', error);
+    Alert.alert('Errore', `Impossibile creare il progetto: ${error}`);
+    setIsCreating(false);
+    resetStream();
+  }
 
   const handleNext = () => {
     if (step === 1) {
@@ -212,6 +315,68 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
   const handleCreate = async () => {
     Keyboard.dismiss();
+
+    // Show mode selection modal if using agent system
+    if (useAgentSystem) {
+      setShowModeModal(true);
+    } else {
+      // Fallback to old creation system
+      startOldCreation();
+    }
+  };
+
+  // Handle agent mode selection
+  const handleModeSelect = async (mode: AgentMode) => {
+    setShowModeModal(false);
+    setAgentMode(mode);
+    setIsCreating(true);
+
+    try {
+      const userId = useAuthStore.getState().user?.uid;
+      if (!userId) {
+        Alert.alert('Errore', 'Devi essere loggato per creare un progetto');
+        setIsCreating(false);
+        return;
+      }
+
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+      // Create project first to get projectId
+      const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectName: projectName.trim(),
+          technology: selectedLanguage,
+          description: description.trim(),
+          userId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to start project creation');
+      }
+
+      const projectId = result.taskId || result.projectId;
+      console.log('[CreateProject] Starting agent stream for project:', projectId);
+
+      // Build prompt for agent
+      const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}`;
+
+      // Start agent stream
+      await startStream(projectId, mode, prompt);
+    } catch (error: any) {
+      console.error('[CreateProject] Error starting agent:', error);
+      Alert.alert('Errore', 'Impossibile avviare l\'agente. Riprova.');
+      setIsCreating(false);
+      resetStream();
+    }
+  };
+
+  // Old creation system (fallback)
+  const startOldCreation = async () => {
     setIsCreating(true);
     setCreationTask({ status: 'running', progress: 0, message: 'Starting...', step: 'Initializing' });
 
@@ -614,12 +779,54 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         </TouchableOpacity>
       </View>
 
-      <CreationProgressModal
-        visible={isCreating}
-        progress={creationTask?.progress || 0}
-        status={creationTask?.message || 'Preparing...'}
-        step={creationTask?.step}
+      {/* Agent Mode Selection Modal */}
+      <AgentModeModal
+        visible={showModeModal}
+        onClose={() => setShowModeModal(false)}
+        onSelectMode={handleModeSelect}
       />
+
+      {/* Creation Progress - Show agent progress or old progress */}
+      {isCreating && useAgentSystem && isStreaming ? (
+        <Modal
+          visible={true}
+          transparent={true}
+          animationType="fade"
+          statusBarTranslucent={true}
+        >
+          <View style={styles.progressModalContainer}>
+            <View style={styles.progressModalBackdrop} />
+            <View style={styles.progressModalContent}>
+              <View style={styles.progressModalHeader}>
+                <View style={styles.progressIconContainer}>
+                  <LinearGradient
+                    colors={[AppColors.primary, '#9333EA']}
+                    style={styles.progressIconGradient}
+                  >
+                    <Ionicons name="sparkles" size={24} color="#fff" />
+                  </LinearGradient>
+                </View>
+                <Text style={styles.progressModalTitle}>AI Agent Working</Text>
+                <Text style={styles.progressModalSubtitle}>
+                  Creating your project with {agentMode === 'fast' ? 'Fast Mode' : 'Planning Mode'}
+                </Text>
+              </View>
+              <AgentProgress
+                events={agentEvents}
+                status={agentStatus}
+                currentTool={agentCurrentTool}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : (
+        <CreationProgressModal
+          visible={isCreating}
+          progress={creationTask?.progress || 0}
+          status={creationTask?.message || 'Preparing...'}
+          step={creationTask?.step}
+        />
+      )}
     </View >
   );
 };
@@ -1047,5 +1254,58 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
     marginLeft: 12,
     fontStyle: 'italic',
-  }
+  },
+  // Agent Progress Modal
+  progressModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+  },
+  progressModalContent: {
+    width: SCREEN_WIDTH * 0.9,
+    maxWidth: 500,
+    backgroundColor: '#13131F',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  progressModalHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  progressIconContainer: {
+    marginBottom: 16,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+  },
+  progressIconGradient: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  progressModalSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    textAlign: 'center',
+  },
 });

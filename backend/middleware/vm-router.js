@@ -28,7 +28,7 @@ module.exports = async (req, res, next) => {
     const systemRoutes = [
         '/fly/', '/api/', '/ai/', '/github/', '/git/',
         '/workstation/', '/preview/', '/terminal/',
-        '/expo-preview/', '/health'
+        '/expo-preview/', '/health', '/agent/'
     ];
 
     if (systemRoutes.some(route => req.url.startsWith(route))) {

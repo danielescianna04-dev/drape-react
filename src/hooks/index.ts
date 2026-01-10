@@ -10,3 +10,12 @@ export { useContentOffset } from './ui/useContentOffset';
 export { useChatState } from './business/useChatState';
 export { useEnvVariables } from './business/useEnvVariables';
 export type { EnvVariable } from './business/useEnvVariables';
+
+// API Hooks - Handle API and data fetching concerns
+export { useAgentStream } from './api/useAgentStream';
+export type {
+  ToolEvent,
+  Plan,
+  PlanStep,
+  AgentEventType,
+} from './api/useAgentStream';

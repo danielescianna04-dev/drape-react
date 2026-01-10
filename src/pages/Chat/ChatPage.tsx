@@ -39,6 +39,9 @@ import { useAgentStore } from '../../core/agent/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
+import { TodoList } from '../../shared/components/molecules/TodoList';
+import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQuestionModal';
+import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -119,6 +122,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     reset: resetAgent
   } = useAgentStream(agentMode);
   const [showPlanApproval, setShowPlanApproval] = useState(false);
+
+  // New Claude Code components state
+  const [currentTodos, setCurrentTodos] = useState<any[]>([]);
+  const [pendingQuestion, setPendingQuestion] = useState<any>(null);
+  const [currentSubAgent, setCurrentSubAgent] = useState<any>(null);
 
   // Agent store - use specific selectors to prevent unnecessary re-renders
   const agentIteration = useAgentStore((state) => state.iteration);
@@ -313,6 +321,44 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setShowPlanApproval(true);
     }
   }, [agentPlan, agentMode, showPlanApproval]);
+
+  // Process agent events for todos, questions, and sub-agents
+  useEffect(() => {
+    if (!agentEvents || agentEvents.length === 0) return;
+
+    // Extract latest todo_update event
+    const todoEvents = agentEvents.filter((e: any) => e.type === 'todo_update');
+    if (todoEvents.length > 0) {
+      const latestTodo = todoEvents[todoEvents.length - 1];
+      setCurrentTodos((latestTodo as any).todos || []);
+    }
+
+    // Extract latest ask_user_question event
+    const questionEvents = agentEvents.filter((e: any) => e.type === 'ask_user_question');
+    if (questionEvents.length > 0) {
+      const latestQuestion = questionEvents[questionEvents.length - 1];
+      setPendingQuestion((latestQuestion as any).questions || null);
+    }
+
+    // Extract latest sub_agent_start event
+    const subAgentStartEvents = agentEvents.filter((e: any) => e.type === 'sub_agent_start');
+    const subAgentCompleteEvents = agentEvents.filter((e: any) => e.type === 'sub_agent_complete');
+
+    if (subAgentCompleteEvents.length > subAgentStartEvents.length - 1) {
+      // Sub-agent completed
+      setCurrentSubAgent(null);
+    } else if (subAgentStartEvents.length > 0) {
+      const latestSubAgent = subAgentStartEvents[subAgentStartEvents.length - 1];
+      setCurrentSubAgent({
+        id: (latestSubAgent as any).agentId,
+        type: (latestSubAgent as any).agentType,
+        description: (latestSubAgent as any).description,
+        iteration: (latestSubAgent as any).iteration || 0,
+        maxIterations: (latestSubAgent as any).maxIterations || 50,
+        status: 'running',
+      });
+    }
+  }, [agentEvents]);
 
   // Replace AgentProgress with normal message when agent completes without tool calls
   useEffect(() => {
@@ -1562,9 +1608,33 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       return acc;
                     }, [] as JSX.Element[]);
                   })()}
+
+                  {/* Show TodoList if agent has active todos */}
+                  {currentTodos.length > 0 && (
+                    <TodoList todos={currentTodos} />
+                  )}
+
+                  {/* Show SubAgentStatus if a sub-agent is running */}
+                  {currentSubAgent && (
+                    <SubAgentStatus subAgent={currentSubAgent} />
+                  )}
                 </>
               )}
             </ScrollView>
+
+            {/* AskUserQuestion Modal */}
+            <AskUserQuestionModal
+              visible={!!pendingQuestion}
+              questions={pendingQuestion || []}
+              onAnswer={(answers) => {
+                // TODO: Send answers back to agent via SSE or API call
+                console.log('User answers:', answers);
+                setPendingQuestion(null);
+              }}
+              onCancel={() => {
+                setPendingQuestion(null);
+              }}
+            />
 
             <Animated.View style={[
               styles.inputWrapper,

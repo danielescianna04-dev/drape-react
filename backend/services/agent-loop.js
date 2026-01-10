@@ -16,6 +16,11 @@ const workspaceOrchestrator = require('./workspace-orchestrator');
 const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const TOOLS_CONFIG = require('./agent-tools.json');
+const { globSearch } = require('./tools/glob');
+const { grepSearch } = require('./tools/grep');
+const { launchSubAgent } = require('./tools/task');
+const { todoWrite } = require('./tools/todo-write');
+const { askUserQuestion } = require('./tools/ask-user-question');
 
 // Configuration
 const MAX_ITERATIONS = 50;
@@ -307,6 +312,81 @@ DRAPE_EOF`;
                 return { success: true, plan: input };
             }
 
+            case 'glob_search': {
+                try {
+                    const result = await globSearch(
+                        input.pattern,
+                        input.path || '.',
+                        input.limit || 100
+                    );
+                    return {
+                        success: true,
+                        files: result.files,
+                        count: result.count,
+                        total: result.total
+                    };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'grep_search': {
+                try {
+                    const result = await grepSearch(input.pattern, {
+                        searchPath: input.search_path || '.',
+                        glob: input.glob,
+                        type: input.type,
+                        outputMode: input.output_mode || 'files_with_matches',
+                        caseInsensitive: input.case_insensitive,
+                        contextBefore: input.context_before,
+                        contextAfter: input.context_after,
+                        contextAround: input.context_around,
+                        showLineNumbers: input.show_line_numbers !== false,
+                        headLimit: input.head_limit || 0,
+                        offset: input.offset || 0,
+                        multiline: input.multiline || false
+                    });
+                    return {
+                        success: true,
+                        results: result.results,
+                        count: result.count
+                    };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'todo_write': {
+                try {
+                    const result = todoWrite(input.todos);
+                    // Todos will be sent via SSE in the main loop
+                    this.currentTodos = input.todos;
+                    return { success: true, todos: input.todos };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'ask_user_question': {
+                try {
+                    const result = askUserQuestion(input.questions, input.userAnswers);
+                    // Questions will be sent via SSE in the main loop
+                    this.pendingQuestion = result;
+                    return {
+                        success: true,
+                        answers: input.userAnswers || {}
+                    };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'launch_sub_agent': {
+                // Sub-agent handled differently - cannot be async generator in tool execution
+                // Will need to be refactored to support streaming
+                return { success: false, error: 'launch_sub_agent not yet supported in this context' };
+            }
+
             default:
                 return { success: false, error: `Unknown tool: ${toolName}` };
         }
@@ -406,6 +486,24 @@ DRAPE_EOF`;
                                 result: result,
                                 timestamp: new Date().toISOString()
                             };
+
+                            // Emit todo_update event if todos were updated
+                            if (toolName === 'todo_write' && this.currentTodos) {
+                                yield {
+                                    type: 'todo_update',
+                                    todos: this.currentTodos,
+                                    timestamp: new Date().toISOString()
+                                };
+                            }
+
+                            // Emit ask_user_question event if question was set
+                            if (toolName === 'ask_user_question' && this.pendingQuestion) {
+                                yield {
+                                    type: 'ask_user_question',
+                                    questions: this.pendingQuestion.questions,
+                                    timestamp: new Date().toISOString()
+                                };
+                            }
 
                             toolResults.push({
                                 tool_use_id: toolCall.id,

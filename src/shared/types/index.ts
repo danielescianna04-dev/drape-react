@@ -20,6 +20,7 @@ export interface TerminalItem {
   previewUrl?: string;
   source?: TerminalSource; // Where the command originated from
   isThinking?: boolean; // Show "Thinking..." indicator for AI response placeholder
+  isAgentProgress?: boolean; // Show agent progress UI for this item
 }
 
 export interface ChatSession {

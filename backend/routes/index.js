@@ -135,7 +135,14 @@ router.get('/', (req, res) => {
                 prompts: 'GET /agent/prompts/:mode',
                 executeTool: 'POST /agent/execute-tool',
                 createProject: 'POST /agent/create-project',
-                status: 'GET /agent/status'
+                status: 'GET /agent/status',
+                runFast: 'POST /agent/run/fast',
+                runPlan: 'POST /agent/run/plan',
+                runExecute: 'POST /agent/run/execute',
+                approvePlan: 'POST /agent/approve-plan',
+                getPlan: 'GET /agent/plan/:projectId',
+                saveContext: 'POST /agent/save-context',
+                getContext: 'GET /agent/context/:projectId'
             }
         }
     });

@@ -252,11 +252,12 @@ router.get('/status', (req, res) => {
 });
 
 /**
- * POST /agent/run/fast
+ * GET/POST /agent/run/fast
  * Run agent loop in fast mode with SSE streaming
  */
-router.post('/run/fast', async (req, res) => {
-    const { prompt, projectId } = req.body;
+const runFastHandler = async (req, res) => {
+    // Support both GET (query params) and POST (body)
+    const { prompt, projectId } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -280,6 +281,8 @@ router.post('/run/fast', async (req, res) => {
 
         // Run the loop and stream events
         for await (const event of agent.run(prompt)) {
+            // SSE format: event type + data
+            res.write(`event: ${event.type}\n`);
             res.write(`data: ${JSON.stringify(event)}\n\n`);
 
             // If client disconnected, stop
@@ -300,15 +303,20 @@ router.post('/run/fast', async (req, res) => {
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.end();
     }
-});
+};
+
+// Register both GET and POST for fast mode
+router.get('/run/fast', runFastHandler);
+router.post('/run/fast', runFastHandler);
 
 /**
- * POST /agent/run/plan
+ * GET/POST /agent/run/plan
  * Run agent loop in planning mode with SSE streaming
  * Returns a plan for user approval
  */
-router.post('/run/plan', async (req, res) => {
-    const { prompt, projectId } = req.body;
+const runPlanHandler = async (req, res) => {
+    // Support both GET (query params) and POST (body)
+    const { prompt, projectId } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -331,6 +339,8 @@ router.post('/run/plan', async (req, res) => {
 
         // Run the loop and stream events
         for await (const event of agent.run(prompt)) {
+            // SSE format: event type + data
+            res.write(`event: ${event.type}\n`);
             res.write(`data: ${JSON.stringify(event)}\n\n`);
 
             // Store plan if created
@@ -357,14 +367,19 @@ router.post('/run/plan', async (req, res) => {
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.end();
     }
-});
+};
+
+// Register both GET and POST for plan mode
+router.get('/run/plan', runPlanHandler);
+router.post('/run/plan', runPlanHandler);
 
 /**
- * POST /agent/run/execute
+ * GET/POST /agent/run/execute
  * Execute an approved plan with SSE streaming
  */
-router.post('/run/execute', async (req, res) => {
-    const { projectId } = req.body;
+const runExecuteHandler = async (req, res) => {
+    // Support both GET (query params) and POST (body)
+    const { projectId } = req.method === 'GET' ? req.query : req.body;
 
     if (!projectId) {
         return res.status(400).json({ error: 'projectId is required' });
@@ -403,6 +418,8 @@ Execute each step in order. Call signal_completion when done.`;
 
         // Run the loop
         for await (const event of agent.run(executePrompt)) {
+            // SSE format: event type + data
+            res.write(`event: ${event.type}\n`);
             res.write(`data: ${JSON.stringify(event)}\n\n`);
 
             // Clear plan after successful completion
@@ -425,7 +442,11 @@ Execute each step in order. Call signal_completion when done.`;
         res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
         res.end();
     }
-});
+};
+
+// Register both GET and POST for execute mode
+router.get('/run/execute', runExecuteHandler);
+router.post('/run/execute', runExecuteHandler);
 
 /**
  * POST /agent/approve-plan
