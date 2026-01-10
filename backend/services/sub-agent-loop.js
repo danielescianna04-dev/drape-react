@@ -3,10 +3,8 @@
  * Based on Claude Code's Task tool and sub-agent architecture
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { Anthropic } = require('@anthropic-ai/sdk');
-const Groq = require('groq-sdk');
-const { AI_KEYS, AI_MODELS, DEFAULT_AI_MODEL } = require('../utils/constants');
+const { getProviderForModel } = require('./ai-providers');
+const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const { globSearch } = require('./tools/glob');
 const { grepSearch } = require('./tools/grep');
 
@@ -19,6 +17,40 @@ class SubAgentLoop {
         this.maxIterations = 50;
         this.isComplete = false;
         this.result = null;
+    }
+
+    /**
+     * Get tools for this sub-agent
+     */
+    getTools() {
+        // Sub-agents have access to limited tools
+        return [
+            {
+                name: 'glob_search',
+                description: 'Search for files matching a glob pattern',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        pattern: { type: 'string', description: 'Glob pattern like **/*.js' },
+                        path: { type: 'string', description: 'Directory to search in' },
+                        limit: { type: 'number', description: 'Max results to return' }
+                    },
+                    required: ['pattern']
+                }
+            },
+            {
+                name: 'grep_search',
+                description: 'Search for content in files using regex',
+                input_schema: {
+                    type: 'object',
+                    properties: {
+                        pattern: { type: 'string', description: 'Regex pattern to search for' },
+                        options: { type: 'object', description: 'Search options' }
+                    },
+                    required: ['pattern']
+                }
+            }
+        ];
     }
 
     /**
@@ -120,9 +152,9 @@ Guidelines:
      * Execute the sub-agent with a given prompt
      */
     async *run(prompt, model = DEFAULT_AI_MODEL) {
-        const modelConfig = AI_MODELS[model];
-        if (!modelConfig) {
-            throw new Error(`Unknown model: ${model}`);
+        const { provider, modelId } = getProviderForModel(model);
+        if (!provider.client && provider.isAvailable()) {
+            await provider.initialize();
         }
 
         const systemPrompt = this.getSystemPrompt();
@@ -130,6 +162,8 @@ Guidelines:
             role: 'user',
             content: prompt
         }];
+
+        const tools = this.getTools();
 
         yield {
             type: 'sub_agent_start',
@@ -148,18 +182,27 @@ Guidelines:
             };
 
             try {
-                // Call AI based on provider
-                let response;
-                if (modelConfig.provider === 'gemini') {
-                    response = await this.callGemini(systemPrompt, messages, modelConfig);
-                } else if (modelConfig.provider === 'anthropic') {
-                    response = await this.callClaude(systemPrompt, messages, modelConfig);
-                } else if (modelConfig.provider === 'groq') {
-                    response = await this.callGroq(systemPrompt, messages, modelConfig);
+                // Call AI using provider
+                let text = '';
+                let toolCalls = [];
+
+                const stream = provider.chatStream(messages, {
+                    model: modelId,
+                    maxTokens: 4000,
+                    temperature: 0.7,
+                    systemPrompt,
+                    tools
+                });
+
+                for await (const chunk of stream) {
+                    if (chunk.type === 'text') {
+                        text += chunk.text;
+                    } else if (chunk.type === 'tool_use') {
+                        toolCalls.push(chunk);
+                    }
                 }
 
                 // Process response
-                const { text, toolCalls } = response;
 
                 if (toolCalls && toolCalls.length > 0) {
                     // Execute tools

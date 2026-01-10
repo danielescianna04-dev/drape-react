@@ -8,10 +8,19 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "Relative path from project root"},
-            "content": {"type": "string", "description": "Complete file content to write"}
+            "path": {
+              "type": "string",
+              "description": "Relative path from project root"
+            },
+            "content": {
+              "type": "string",
+              "description": "Complete file content to write"
+            }
           },
-          "required": ["path", "content"]
+          "required": [
+            "path",
+            "content"
+          ]
         }
       }
     },
@@ -23,9 +32,14 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "Relative path to read"}
+            "path": {
+              "type": "string",
+              "description": "Relative path to read"
+            }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -37,9 +51,14 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "Directory path. Use '.' for project root"}
+            "path": {
+              "type": "string",
+              "description": "Directory path. Use '.' for project root"
+            }
           },
-          "required": ["path"]
+          "required": [
+            "path"
+          ]
         }
       }
     },
@@ -51,10 +70,18 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "command": {"type": "string", "description": "Command to execute"},
-            "timeout_ms": {"type": "number", "description": "Timeout in ms. Default: 60000"}
+            "command": {
+              "type": "string",
+              "description": "Command to execute"
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Timeout in ms. Default: 60000"
+            }
           },
-          "required": ["command"]
+          "required": [
+            "command"
+          ]
         }
       }
     },
@@ -66,11 +93,24 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "File to edit"},
-            "search": {"type": "string", "description": "Exact text to find"},
-            "replace": {"type": "string", "description": "Text to replace with"}
+            "path": {
+              "type": "string",
+              "description": "File to edit"
+            },
+            "search": {
+              "type": "string",
+              "description": "Exact text to find"
+            },
+            "replace": {
+              "type": "string",
+              "description": "Text to replace with"
+            }
           },
-          "required": ["path", "search", "replace"]
+          "required": [
+            "path",
+            "search",
+            "replace"
+          ]
         }
       }
     },
@@ -82,11 +122,22 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "pattern": {"type": "string", "description": "Glob pattern (e.g., '**/*.js', 'src/**/*.tsx')"},
-            "path": {"type": "string", "description": "Directory to search in. Defaults to current working directory"},
-            "limit": {"type": "number", "description": "Maximum number of results. Default: 100"}
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern (e.g., '**/*.js', 'src/**/*.tsx')"
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in. Defaults to current working directory"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of results. Default: 100"
+            }
           },
-          "required": ["pattern"]
+          "required": [
+            "pattern"
+          ]
         }
       }
     },
@@ -98,21 +149,67 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "pattern": {"type": "string", "description": "Regex pattern to search for"},
-            "search_path": {"type": "string", "description": "Directory to search in. Default: '.'"},
-            "glob": {"type": "string", "description": "Glob pattern to filter files (e.g., '*.js', '**/*.tsx')"},
-            "type": {"type": "string", "description": "File type filter (js, py, rust, go, java, etc.)"},
-            "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"], "description": "Output mode. Default: 'files_with_matches'"},
-            "case_insensitive": {"type": "boolean", "description": "Case insensitive search"},
-            "context_before": {"type": "number", "description": "Lines before match (requires output_mode: 'content')"},
-            "context_after": {"type": "number", "description": "Lines after match (requires output_mode: 'content')"},
-            "context_around": {"type": "number", "description": "Lines around match (requires output_mode: 'content')"},
-            "show_line_numbers": {"type": "boolean", "description": "Show line numbers. Default: true"},
-            "head_limit": {"type": "number", "description": "Limit results to first N"},
-            "offset": {"type": "number", "description": "Skip first N results"},
-            "multiline": {"type": "boolean", "description": "Enable multiline mode where . matches newlines"}
+            "pattern": {
+              "type": "string",
+              "description": "Regex pattern to search for"
+            },
+            "search_path": {
+              "type": "string",
+              "description": "Directory to search in. Default: '.'"
+            },
+            "glob": {
+              "type": "string",
+              "description": "Glob pattern to filter files (e.g., '*.js', '**/*.tsx')"
+            },
+            "type": {
+              "type": "string",
+              "description": "File type filter (js, py, rust, go, java, etc.)"
+            },
+            "output_mode": {
+              "type": "string",
+              "enum": [
+                "content",
+                "files_with_matches",
+                "count"
+              ],
+              "description": "Output mode. Default: 'files_with_matches'"
+            },
+            "case_insensitive": {
+              "type": "boolean",
+              "description": "Case insensitive search"
+            },
+            "context_before": {
+              "type": "number",
+              "description": "Lines before match (requires output_mode: 'content')"
+            },
+            "context_after": {
+              "type": "number",
+              "description": "Lines after match (requires output_mode: 'content')"
+            },
+            "context_around": {
+              "type": "number",
+              "description": "Lines around match (requires output_mode: 'content')"
+            },
+            "show_line_numbers": {
+              "type": "boolean",
+              "description": "Show line numbers. Default: true"
+            },
+            "head_limit": {
+              "type": "number",
+              "description": "Limit results to first N"
+            },
+            "offset": {
+              "type": "number",
+              "description": "Skip first N results"
+            },
+            "multiline": {
+              "type": "boolean",
+              "description": "Enable multiline mode where . matches newlines"
+            }
           },
-          "required": ["pattern"]
+          "required": [
+            "pattern"
+          ]
         }
       }
     },
@@ -124,13 +221,37 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "subagent_type": {"type": "string", "enum": ["explore", "plan", "general", "bash"], "description": "Type of specialized agent to launch"},
-            "prompt": {"type": "string", "description": "Task description for the agent"},
-            "description": {"type": "string", "description": "Short description (3-5 words) summarizing what the agent will do"},
-            "model": {"type": "string", "description": "AI model to use. Default: gemini-2.5-flash"},
-            "run_in_background": {"type": "boolean", "description": "Run agent in background. Default: false"}
+            "subagent_type": {
+              "type": "string",
+              "enum": [
+                "explore",
+                "plan",
+                "general",
+                "bash"
+              ],
+              "description": "Type of specialized agent to launch"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Task description for the agent"
+            },
+            "description": {
+              "type": "string",
+              "description": "Short description (3-5 words) summarizing what the agent will do"
+            },
+            "model": {
+              "type": "string",
+              "description": "AI model to use. Default: gemini-2.5-flash"
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Run agent in background. Default: false"
+            }
           },
-          "required": ["subagent_type", "prompt"]
+          "required": [
+            "subagent_type",
+            "prompt"
+          ]
         }
       }
     },
@@ -148,15 +269,35 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "content": {"type": "string", "description": "Imperative form describing what needs to be done (e.g., 'Run tests', 'Build the project')"},
-                  "status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Task status"},
-                  "activeForm": {"type": "string", "description": "Present continuous form shown during execution (e.g., 'Running tests', 'Building the project')"}
+                  "content": {
+                    "type": "string",
+                    "description": "Imperative form describing what needs to be done (e.g., 'Run tests', 'Build the project')"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ],
+                    "description": "Task status"
+                  },
+                  "activeForm": {
+                    "type": "string",
+                    "description": "Present continuous form shown during execution (e.g., 'Running tests', 'Building the project')"
+                  }
                 },
-                "required": ["content", "status", "activeForm"]
+                "required": [
+                  "content",
+                  "status",
+                  "activeForm"
+                ]
               }
             }
           },
-          "required": ["todos"]
+          "required": [
+            "todos"
+          ]
         }
       }
     },
@@ -176,9 +317,19 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "question": {"type": "string", "description": "Complete question ending with '?'"},
-                  "header": {"type": "string", "maxLength": 12, "description": "Very short label (max 12 chars) like 'Auth method', 'Library', 'Approach'"},
-                  "multiSelect": {"type": "boolean", "description": "Allow multiple options to be selected. Default: false"},
+                  "question": {
+                    "type": "string",
+                    "description": "Complete question ending with '?'"
+                  },
+                  "header": {
+                    "type": "string",
+                    "maxLength": 12,
+                    "description": "Very short label (max 12 chars) like 'Auth method', 'Library', 'Approach'"
+                  },
+                  "multiSelect": {
+                    "type": "boolean",
+                    "description": "Allow multiple options to be selected. Default: false"
+                  },
                   "options": {
                     "type": "array",
                     "minItems": 2,
@@ -187,18 +338,274 @@
                     "items": {
                       "type": "object",
                       "properties": {
-                        "label": {"type": "string", "description": "Display text (1-5 words) for this option"},
-                        "description": {"type": "string", "description": "Explanation of what this option means or implications"}
+                        "label": {
+                          "type": "string",
+                          "description": "Display text (1-5 words) for this option"
+                        },
+                        "description": {
+                          "type": "string",
+                          "description": "Explanation of what this option means or implications"
+                        }
                       },
-                      "required": ["label", "description"]
+                      "required": [
+                        "label",
+                        "description"
+                      ]
                     }
                   }
                 },
-                "required": ["question", "header", "options", "multiSelect"]
+                "required": [
+                  "question",
+                  "header",
+                  "options",
+                  "multiSelect"
+                ]
               }
             }
           },
-          "required": ["questions"]
+          "required": [
+            "questions"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "enter_plan_mode",
+        "description": "Transition into plan mode for designing implementation approaches. Requires user approval.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "exit_plan_mode",
+        "description": "Signal that the plan is complete and ready for user approval. Submit plan with title and steps.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Plan title"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Implementation steps"
+            },
+            "estimated_files": {
+              "type": "number",
+              "description": "Estimated number of files to modify"
+            },
+            "technologies": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Technologies involved"
+            }
+          },
+          "required": [
+            "title",
+            "steps"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "web_search",
+        "description": "Search the web for information. Returns search results formatted as blocks with links. CRITICAL: After answering, MUST include Sources section with markdown hyperlinks.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query"
+            },
+            "allowed_domains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Only include results from these domains"
+            },
+            "blocked_domains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Never include results from these domains"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "execute_skill",
+        "description": "Execute a skill within the conversation (slash commands like /commit, /review-pr, /pdf). Available skills: commit, review-pr, pdf.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "skill": {
+              "type": "string",
+              "description": "Skill name (e.g., commit, review-pr, pdf)"
+            },
+            "args": {
+              "type": "string",
+              "description": "Optional arguments for the skill"
+            }
+          },
+          "required": [
+            "skill"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "notebook_edit",
+        "description": "Edit cells in Jupyter notebooks (.ipynb files). Supports replace, insert, delete modes. cell_number is 0-indexed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "notebook_path": {
+              "type": "string",
+              "description": "Absolute path to .ipynb file"
+            },
+            "cell_id": {
+              "type": "string",
+              "description": "ID of cell to edit"
+            },
+            "cell_number": {
+              "type": "number",
+              "description": "0-indexed cell number"
+            },
+            "new_source": {
+              "type": "string",
+              "description": "New source code/markdown for the cell"
+            },
+            "cell_type": {
+              "type": "string",
+              "enum": [
+                "code",
+                "markdown"
+              ],
+              "description": "Type of cell"
+            },
+            "edit_mode": {
+              "type": "string",
+              "enum": [
+                "replace",
+                "insert",
+                "delete"
+              ],
+              "description": "Edit mode. Default: replace"
+            }
+          },
+          "required": [
+            "notebook_path",
+            "new_source"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "kill_shell",
+        "description": "Kill a running background bash shell by its ID. Use /tasks command to see active shells.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "shell_id": {
+              "type": "string",
+              "description": "ID of the background shell to kill"
+            }
+          },
+          "required": [
+            "shell_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_task_output",
+        "description": "Retrieve output from a running or completed task (background shell, agent, remote session). Use block=true to wait for completion.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "Task ID to get output from"
+            },
+            "block": {
+              "type": "boolean",
+              "description": "Whether to wait for completion. Default: true"
+            },
+            "timeout": {
+              "type": "number",
+              "description": "Max wait time in ms. Default: 30000"
+            }
+          },
+          "required": [
+            "task_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mcp__ide__getDiagnostics",
+        "description": "Get language diagnostics from VS Code or IDE. Returns errors, warnings, and hints.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "uri": {
+              "type": "string",
+              "description": "Optional file URI to get diagnostics for. If not provided, gets diagnostics for all files."
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mcp__ide__executeCode",
+        "description": "Execute python code in Jupyter kernel. All code persists across calls unless kernel is restarted.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Python code to execute"
+            },
+            "kernel_id": {
+              "type": "string",
+              "description": "Optional kernel ID"
+            }
+          },
+          "required": [
+            "code"
+          ]
         }
       }
     },
@@ -210,12 +617,32 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "summary": {"type": "string", "description": "Summary of completed work"},
-            "files_created": {"type": "array", "items": {"type": "string"}, "description": "List of files created"},
-            "files_modified": {"type": "array", "items": {"type": "string"}, "description": "List of files modified"},
-            "verification": {"type": "string", "description": "How to verify the work"}
+            "summary": {
+              "type": "string",
+              "description": "Summary of completed work"
+            },
+            "files_created": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of files created"
+            },
+            "files_modified": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of files modified"
+            },
+            "verification": {
+              "type": "string",
+              "description": "How to verify the work"
+            }
           },
-          "required": ["summary"]
+          "required": [
+            "summary"
+          ]
         }
       }
     }

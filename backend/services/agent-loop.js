@@ -21,6 +21,15 @@ const { grepSearch } = require('./tools/grep');
 const { launchSubAgent } = require('./tools/task');
 const { todoWrite } = require('./tools/todo-write');
 const { askUserQuestion } = require('./tools/ask-user-question');
+const { enterPlanMode } = require('./tools/enter-plan-mode');
+const { exitPlanMode } = require('./tools/exit-plan-mode');
+const { webSearch } = require('./tools/web-search');
+const { executeSkill } = require('./tools/skill');
+const { notebookEdit } = require('./tools/notebook-edit');
+const { killShell } = require('./tools/kill-shell');
+const { getTaskOutput } = require('./tools/task-output');
+const { getIDEDiagnostics } = require('./tools/mcp-ide-diagnostics');
+const { executeCode } = require('./tools/mcp-ide-execute-code');
 
 // Configuration
 const MAX_ITERATIONS = 50;
@@ -385,6 +394,98 @@ DRAPE_EOF`;
                 // Sub-agent handled differently - cannot be async generator in tool execution
                 // Will need to be refactored to support streaming
                 return { success: false, error: 'launch_sub_agent not yet supported in this context' };
+            }
+
+            case 'enter_plan_mode': {
+                try {
+                    const result = enterPlanMode();
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'exit_plan_mode': {
+                try {
+                    const result = exitPlanMode(input);
+                    if (result.planReady) {
+                        this.lastPlan = result.plan;
+                    }
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'web_search': {
+                try {
+                    const result = await webSearch(
+                        input.query,
+                        input.allowed_domains || [],
+                        input.blocked_domains || []
+                    );
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'execute_skill': {
+                try {
+                    const result = await executeSkill(input.skill, input.args);
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'notebook_edit': {
+                try {
+                    const result = await notebookEdit(input);
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'kill_shell': {
+                try {
+                    const result = killShell(input.shell_id);
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'get_task_output': {
+                try {
+                    const result = await getTaskOutput(
+                        input.task_id,
+                        input.block !== false,
+                        input.timeout || 30000
+                    );
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'mcp__ide__getDiagnostics': {
+                try {
+                    const result = await getIDEDiagnostics(input.uri);
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
+            }
+
+            case 'mcp__ide__executeCode': {
+                try {
+                    const result = await executeCode(input.code, input.kernel_id);
+                    return result;
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
             }
 
             default:
