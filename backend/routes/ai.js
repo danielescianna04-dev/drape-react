@@ -12,6 +12,104 @@ const { getProviderForModel, standardTools, getAvailableModels } = require('../s
 const { executeTool, createContext } = require('../services/tool-executor');
 const { AI_MODELS, DEFAULT_AI_MODEL } = require('../utils/constants');
 const contextService = require('../services/context-service'); // Import Singleton
+const storageService = require('../services/storage-service'); // For reading project files
+
+/**
+ * Helper: Read key project files to understand what the project actually does
+ * This is critical for answering questions like "what is this project about?"
+ * @param {string} projectId - The project ID
+ * @returns {Object} - { projectContext, keyFilesContent }
+ */
+async function readProjectContextFiles(projectId) {
+    const result = {
+        projectContext: null,  // From .drape/project.json
+        keyFilesContent: {},   // Content of key files like App.jsx, package.json
+        summary: ''            // Brief summary of what the project does
+    };
+
+    if (!projectId) return result;
+
+    try {
+        // Key files to read (in priority order)
+        const KEY_FILES = [
+            '.drape/project.json',  // Project context/description
+            'package.json',         // Dependencies and project name
+            'src/App.jsx',          // Main app component
+            'src/App.tsx',          // TypeScript version
+            'src/main.jsx',         // Entry point
+            'src/main.tsx',         // TypeScript entry
+            'index.html',           // HTML structure
+            'src/pages/Home.jsx',   // Home page
+            'src/pages/Home.tsx',   // TypeScript Home
+        ];
+
+        // Read each key file
+        for (const filePath of KEY_FILES) {
+            try {
+                const fileResult = await storageService.readFile(projectId, filePath);
+                if (fileResult.success && fileResult.content) {
+                    // Truncate large files to 2000 chars
+                    const content = fileResult.content.length > 2000
+                        ? fileResult.content.substring(0, 2000) + '\n... (truncated)'
+                        : fileResult.content;
+
+                    result.keyFilesContent[filePath] = content;
+
+                    // Parse .drape/project.json if found
+                    if (filePath === '.drape/project.json') {
+                        try {
+                            result.projectContext = JSON.parse(fileResult.content);
+                        } catch (e) {
+                            console.warn('Could not parse .drape/project.json:', e.message);
+                        }
+                    }
+                }
+            } catch (e) {
+                // File not found, skip silently
+            }
+        }
+
+        // Generate a brief summary based on what we found
+        if (result.projectContext) {
+            result.summary = `Progetto "${result.projectContext.name}" - ${result.projectContext.description || 'Nessuna descrizione'}`;
+            if (result.projectContext.industry) {
+                result.summary += ` (${result.projectContext.industry})`;
+            }
+        } else if (result.keyFilesContent['package.json']) {
+            try {
+                const pkg = JSON.parse(result.keyFilesContent['package.json']);
+                result.summary = `Progetto Node.js: ${pkg.name || 'Unknown'} - ${pkg.description || 'Nessuna descrizione'}`;
+            } catch (e) {
+                // Ignore parse errors
+            }
+        }
+
+        console.log(`📖 [AI] Read ${Object.keys(result.keyFilesContent).length} key project files for context`);
+
+    } catch (error) {
+        console.error('Error reading project context files:', error.message);
+    }
+
+    return result;
+}
+
+/**
+ * Helper: Detect if user is asking about the project itself
+ * @param {string} prompt - User's message
+ * @returns {boolean}
+ */
+function isProjectContextQuestion(prompt) {
+    const lowerPrompt = prompt.toLowerCase();
+    const contextKeywords = [
+        'cosa fa', 'cosa è', "cos'è", 'di cosa', 'che progetto',
+        'what is this', 'what does', 'about this project', 'describe',
+        'qual è lo scopo', 'a cosa serve', 'che tipo di',
+        'what kind of', 'what type of', 'explain this project',
+        'dimmi del progetto', 'parlami del', 'descrivimi'
+    ];
+
+    return contextKeywords.some(keyword => lowerPrompt.includes(keyword));
+}
 
 /**
  * GET /ai/models
@@ -78,9 +176,11 @@ router.post('/chat', asyncHandler(async (req, res) => {
     // Restore Lightweight File Context (Map of the project)
     // This allows AI to "see" the file structure without reading content
     let projectFiles = [];
+    let projectFilesContent = {};  // Content of KEY files for context
+    let projectContextData = null; // From .drape/project.json
+
     if (effectiveProjectId) {
         try {
-            const storageService = require('../services/storage-service');
             const { files } = await storageService.listFiles(effectiveProjectId);
             if (files) {
                 projectFiles = files.map(f => ({ path: f.path, size: f.size }));
@@ -89,11 +189,25 @@ router.post('/chat', asyncHandler(async (req, res) => {
         } catch (e) {
             console.warn('Could not load project file tree:', e.message);
         }
+
+        // 🔑 CRITICAL FIX: Always read key project files to understand what the project ACTUALLY does
+        // This ensures AI can answer questions like "what is this project about?" correctly
+        // by looking at the REAL code, not just the original description
+        try {
+            const contextData = await readProjectContextFiles(effectiveProjectId);
+            projectFilesContent = contextData.keyFilesContent;
+            projectContextData = contextData.projectContext;
+
+            if (contextData.summary) {
+                console.log(`   📋 Project context: ${contextData.summary}`);
+            }
+        } catch (e) {
+            console.warn('Could not load project context files:', e.message);
+        }
     }
 
-    // Build base system message (Personality + Design Rules + File Tree)
-    // We pass projectFiles (list) but NO content (empty obj)
-    const systemMessage = buildSystemMessage(execContext, userContext, projectFiles, {});
+    // Build base system message with actual file contents for context awareness
+    const systemMessage = buildSystemMessage(execContext, userContext, projectFiles, projectFilesContent, projectContextData);
 
     // Context Engine Optimization
     let historyMessages = [];
@@ -236,8 +350,13 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
 /**
  * Build system message for AI (in Italian, with project files, technology awareness, and design guidelines)
+ * @param {Object} execContext - Execution context with projectId, projectPath, etc.
+ * @param {string} userContext - Additional user context
+ * @param {Array} projectFiles - List of project files with paths
+ * @param {Object} projectFilesContent - Content of key files (App.jsx, package.json, etc.)
+ * @param {Object} projectContextData - Parsed .drape/project.json data
  */
-function buildSystemMessage(execContext, userContext, projectFiles = [], projectFilesContent = {}) {
+function buildSystemMessage(execContext, userContext, projectFiles = [], projectFilesContent = {}, projectContextData = null) {
     // Detect project technology from files
     let technology = 'generico';
     const filePaths = projectFiles.map(f => f.path);
@@ -404,12 +523,39 @@ CONTESTO DEL PROGETTO:
         // Add file contents for small files
         const contentEntries = Object.entries(projectFilesContent);
         if (contentEntries.length > 0) {
-            systemMessage += `\nCONTENUTO DEI FILE:\n`;
+            systemMessage += `\nCONTENUTO DEI FILE CHIAVE (per capire cosa fa il progetto):\n`;
             for (const [filePath, content] of contentEntries) {
                 const ext = filePath.split('.').pop();
                 systemMessage += `\n--- ${filePath} ---\n\`\`\`${ext}\n${content}\n\`\`\`\n`;
             }
         }
+
+        // Add project context data if available (.drape/project.json)
+        if (projectContextData) {
+            systemMessage += `
+📋 CONTESTO PROGETTO (da .drape/project.json):
+- Nome: ${projectContextData.name || 'N/A'}
+- Descrizione ORIGINALE: "${projectContextData.description || 'N/A'}"
+- Industry: ${projectContextData.industry || 'general'}
+- Features: ${projectContextData.features?.join(', ') || 'nessuna'}
+- Creato: ${projectContextData.createdAt || 'N/A'}
+`;
+        }
+
+        // 🔑 CRITICAL: Instructions for context-aware responses
+        systemMessage += `
+🧠 REGOLA FONDAMENTALE - CONTESTO DEL PROGETTO:
+
+Quando l'utente chiede "cosa fa questo progetto?" o "di cosa è questo sito?":
+1. GUARDA IL CODICE REALE sopra (App.jsx, Home.jsx, etc.)
+2. Analizza i componenti, le sezioni, i prodotti/contenuti REALI nel codice
+3. Rispondi basandoti su cosa c'è EFFETTIVAMENTE nei file, NON sulla descrizione originale
+
+⚠️ IMPORTANTE: La descrizione originale in .drape/project.json è solo un riferimento storico.
+L'utente può aver modificato completamente il progetto!
+Se il codice mostra un ristorante ma la descrizione dice "vape shop", rispondi che è un RISTORANTE.
+
+`;
 
         systemMessage += `
 Hai accesso a questi tool per operazioni sui file:

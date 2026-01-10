@@ -13,6 +13,7 @@ const gitRoutes = require('./git');
 const workstationRoutes = require('./workstation');
 const terminalRoutes = require('./terminal');
 const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
+const agentRoutes = require('./agent'); // Agent tools & modes
 const globalLogService = require('../services/global-log-service');
 
 // Health check - top level
@@ -34,6 +35,7 @@ router.use('/git', gitRoutes);
 router.use('/workstation', workstationRoutes);
 router.use('/terminal', terminalRoutes);
 router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
+router.use('/agent', agentRoutes); // Agent tools & modes
 
 // SSE endpoint for streaming ALL backend logs to frontend
 router.get('/logs/stream', (req, res) => {
@@ -127,6 +129,13 @@ router.get('/', (req, res) => {
                 execute: 'POST /terminal/execute',
                 kill: 'POST /terminal/kill',
                 logs: 'GET /terminal/logs/:workstationId'
+            },
+            agent: {
+                tools: 'GET /agent/tools',
+                prompts: 'GET /agent/prompts/:mode',
+                executeTool: 'POST /agent/execute-tool',
+                createProject: 'POST /agent/create-project',
+                status: 'GET /agent/status'
             }
         }
     });

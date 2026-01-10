@@ -87,6 +87,78 @@ class FlyService {
     }
 
     /**
+     * Check if app is suspended and auto-resume if needed
+     * @returns {boolean} true if app is ready, false if failed to resume
+     */
+    async ensureAppNotSuspended() {
+        try {
+            // Use GraphQL API to check app status (machines API doesn't expose this)
+            const graphqlClient = axios.create({
+                baseURL: 'https://api.fly.io/graphql',
+                headers: {
+                    'Authorization': `Bearer ${process.env.FLY_API_TOKEN}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            const query = `
+                query GetApp($name: String!) {
+                    app(name: $name) {
+                        id
+                        name
+                        status
+                    }
+                }
+            `;
+
+            const response = await graphqlClient.post('', {
+                query,
+                variables: { name: this.appName }
+            });
+
+            const app = response.data?.data?.app;
+            if (!app) {
+                console.error(`❌ [Fly] App ${this.appName} not found`);
+                return false;
+            }
+
+            console.log(`📊 [Fly] App status: ${app.status}`);
+
+            if (app.status === 'suspended') {
+                console.log(`⏸️ [Fly] App is suspended, resuming...`);
+
+                // Resume the app using GraphQL mutation
+                const resumeMutation = `
+                    mutation ResumeApp($appId: ID!) {
+                        resumeApp(input: { appId: $appId }) {
+                            app {
+                                id
+                                status
+                            }
+                        }
+                    }
+                `;
+
+                await graphqlClient.post('', {
+                    query: resumeMutation,
+                    variables: { appId: app.id }
+                });
+
+                console.log(`✅ [Fly] App resumed successfully`);
+
+                // Wait a bit for the app to fully resume
+                await new Promise(r => setTimeout(r, 2000));
+            }
+
+            return true;
+        } catch (error) {
+            console.error(`❌ [Fly] Failed to check/resume app:`, error.message);
+            // Don't block - try to create machine anyway
+            return true;
+        }
+    }
+
+    /**
      * Create a new MicroVM for a project
      * @param {string} projectId - Unique project identifier
      * @param {object} options - Machine options
@@ -94,6 +166,9 @@ class FlyService {
      */
     async createMachine(projectId, options = {}) {
         const machineId = `ws-${projectId}`.substring(0, 30); // Fly has name limits
+
+        // AUTO-RESUME: Check if app is suspended and resume if needed
+        await this.ensureAppNotSuspended();
 
         console.log(`🚀 [Fly] Creating MicroVM: ${machineId} in ${this.FLY_REGION}...`);
         console.log(`   📦 Image: ${this.DRAPE_IMAGE}`);

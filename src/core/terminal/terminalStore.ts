@@ -92,6 +92,7 @@ interface TerminalState {
   previewServerStatus: 'checking' | 'running' | 'stopped';
   previewServerUrl: string | null; // The actual running server URL
   flyMachineId: string | null; // Fly.io VM machine ID for session routing
+  projectMachineIds: Record<string, string>; // 🔑 FIX: Persist machineId per project
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
@@ -138,7 +139,7 @@ interface TerminalState {
   setPreviewUrl: (url: string | null) => void;
   setPreviewServerStatus: (status: 'checking' | 'running' | 'stopped') => void;
   setPreviewServerUrl: (url: string | null) => void;
-  setFlyMachineId: (id: string | null) => void;
+  setFlyMachineId: (id: string | null, projectId?: string) => void;
   setIsToolsExpanded: (value: boolean) => void;
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
@@ -179,6 +180,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   previewServerStatus: 'stopped',
   previewServerUrl: null,
   flyMachineId: null,
+  projectMachineIds: {}, // 🔑 FIX: Persist machineId per project
   isToolsExpanded: false,
   isSidebarOpen: false,
   autocompleteOptions: [],
@@ -277,13 +279,15 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     set((state) => {
       // If switching to a different workstation (or clearing it), reset preview state
       if (state.currentWorkstation?.id !== workstation?.id) {
-        console.log('🔄 [TerminalStore] Switching project - resetting preview state');
+        // 🔑 FIX: Try to restore saved machineId for this project
+        const savedMachineId = workstation?.id ? state.projectMachineIds[workstation.id] : null;
+        console.log(`🔄 [TerminalStore] Switching to project ${workstation?.id} - restored machineId: ${savedMachineId || 'none'}`);
         return {
           currentWorkstation: workstation,
           previewUrl: null,
           previewServerStatus: 'stopped',
           previewServerUrl: null,
-          flyMachineId: null, // Reset Fly.io machine ID for new project
+          flyMachineId: savedMachineId, // 🔑 FIX: Restore saved machineId instead of null
         };
       }
       return { currentWorkstation: workstation };
@@ -396,7 +400,17 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setPreviewUrl: (url) => set({ previewUrl: url }),
   setPreviewServerStatus: (status) => set({ previewServerStatus: status }),
   setPreviewServerUrl: (url) => set({ previewServerUrl: url }),
-  setFlyMachineId: (id) => set({ flyMachineId: id }),
+  // 🔑 FIX: Persist machineId per project
+  setFlyMachineId: (id, projectId) => set((state) => {
+    if (id && projectId) {
+      console.log(`💾 [TerminalStore] Saving machineId ${id} for project ${projectId}`);
+      return {
+        flyMachineId: id,
+        projectMachineIds: { ...state.projectMachineIds, [projectId]: id }
+      };
+    }
+    return { flyMachineId: id };
+  }),
   setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
   setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
   setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),

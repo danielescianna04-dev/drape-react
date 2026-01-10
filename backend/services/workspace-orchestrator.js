@@ -859,6 +859,11 @@ class WorkspaceOrchestrator {
                 if (response.data.status === 'ok') {
                     const elapsed = Date.now() - startTime;
                     console.log(`✅ [Orchestrator] Agent ready in ${elapsed}ms`);
+
+                    // Phase 3: Wait for Fly proxy to propagate the route
+                    // This prevents PR04 "could not find candidate" errors
+                    await this._waitForProxyRoute(agentUrl, machineId);
+
                     return true;
                 }
             } catch {
@@ -878,6 +883,61 @@ class WorkspaceOrchestrator {
         }
 
         throw new Error(`Agent not ready after ${maxTimeout / 1000}s`);
+    }
+
+    /**
+     * Wait for Fly.io proxy to register the machine route
+     * This prevents PR04 "could not find a good candidate" errors
+     *
+     * @param {string} agentUrl - Base URL for the agent
+     * @param {string} machineId - Fly machine ID for routing
+     * @param {number} maxWait - Maximum wait time (default 10s)
+     */
+    async _waitForProxyRoute(agentUrl, machineId, maxWait = 10000) {
+        if (!machineId) return;
+
+        console.log(`🔗 [Orchestrator] Verifying proxy route for ${machineId}...`);
+        const startTime = Date.now();
+        let attempts = 0;
+
+        while (Date.now() - startTime < maxWait) {
+            attempts++;
+            try {
+                // Make a request through the public proxy WITH the routing header
+                // This verifies the Fly edge proxy can route to our specific machine
+                const response = await axios.get(`${agentUrl}/health`, {
+                    timeout: 2000,
+                    headers: { 'Fly-Force-Instance-Id': machineId },
+                    // Disable any keep-alive to force fresh connection through proxy
+                    httpAgent: new (require('http').Agent)({ keepAlive: false }),
+                    httpsAgent: new (require('https').Agent)({ keepAlive: false })
+                });
+
+                if (response.data.status === 'ok') {
+                    const elapsed = Date.now() - startTime;
+                    console.log(`✅ [Orchestrator] Proxy route verified in ${elapsed}ms (${attempts} attempts)`);
+                    return true;
+                }
+            } catch (e) {
+                // Check if it's a PR04 error (proxy can't find machine)
+                const isPR04 = e.message?.includes('PR04') ||
+                               e.response?.status === 502 ||
+                               e.response?.status === 503;
+
+                if (isPR04) {
+                    // Proxy not ready yet, wait longer
+                    await new Promise(r => setTimeout(r, 500));
+                    continue;
+                }
+                // Other errors - might be transient, retry
+            }
+
+            await new Promise(r => setTimeout(r, 300));
+        }
+
+        // Don't throw - just log warning and continue
+        // Sometimes the route works even if verification times out
+        console.warn(`⚠️ [Orchestrator] Proxy route verification timed out after ${attempts} attempts (continuing anyway)`);
     }
 
     /**

@@ -764,8 +764,14 @@ async function runProjectCreationTask(taskId, wsId, params) {
     update(10, 'Preparing AI Model...', 'Configuration');
     const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
 
+    console.log(`   📋 Description provided: "${description?.substring(0, 80)}..."`);
+    console.log(`   🤖 Provider available: ${provider?.isAvailable?.() || 'unknown'}`);
+
     if (!provider.client && provider.isAvailable()) {
         await provider.initialize();
+        console.log('   ✅ Provider initialized');
+    } else if (!provider.isAvailable()) {
+        console.error('   ❌ AI Provider not available - check GEMINI_API_KEY');
     }
 
     // Premium system prompt with contextual content generation
@@ -905,7 +911,7 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
 
     try {
         update(20, 'Designing Architecture...', 'AI Generating');
-        console.log('   🤖 Calling Claude to generate project...');
+        console.log(`   🤖 Calling Gemini to generate project for: "${description?.substring(0, 50)}..."`);
 
         const messages = [
             { role: 'user', content: systemPrompt }
@@ -918,7 +924,7 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
         while (attempts < maxAttempts) {
             attempts++;
             update(20 + (attempts * 5), `Generating Code (Attempt ${attempts})...`, 'AI Generating');
-            console.log(`   🤖 Calling Claude (attempt ${attempts})...`);
+            console.log(`   🤖 Calling Gemini (attempt ${attempts})...`);
 
             let responseText = '';
             const stream = provider.chatStream(messages, {
@@ -945,31 +951,126 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
             }
 
             update(75, 'Parsing Generated Code...', 'Processing');
-            console.log('   📦 Claude response received, parsing files...');
+            console.log(`   📦 Gemini response received (${responseText.length} chars), parsing files...`);
+            console.log(`   📝 Response preview: ${responseText.substring(0, 200)}...`);
+
+            // 🔑 FIX: Strip markdown code blocks before parsing JSON
+            // Gemini often wraps JSON in ```json ... ``` blocks
+            let cleanedResponse = responseText.trim();
+
+            // Method 1: Try to extract JSON from markdown code block
+            const markdownMatch = cleanedResponse.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (markdownMatch) {
+                cleanedResponse = markdownMatch[1].trim();
+                console.log('   🧹 Stripped markdown code block wrapper');
+            }
+
+            // Method 2: If still starts with ``` (malformed), strip manually
+            if (cleanedResponse.startsWith('```json')) {
+                cleanedResponse = cleanedResponse.slice(7);
+            } else if (cleanedResponse.startsWith('```')) {
+                cleanedResponse = cleanedResponse.slice(3);
+            }
+            if (cleanedResponse.endsWith('```')) {
+                cleanedResponse = cleanedResponse.slice(0, -3);
+            }
+            cleanedResponse = cleanedResponse.trim();
+
+            // 🔑 FIX: Sanitize JSON to fix common escape character issues
+            // Gemini sometimes generates invalid escape sequences in JSON strings
+            function sanitizeJsonString(jsonStr) {
+                // Fix control characters that break JSON parsing
+                // Replace actual newlines/tabs inside string values with escaped versions
+                let result = jsonStr;
+
+                // Fix literal control characters that should be escaped
+                // This handles cases where Gemini puts actual newlines inside JSON strings
+                result = result
+                    .replace(/\r\n/g, '\\n')  // Windows newlines
+                    .replace(/\r/g, '\\r')     // Carriage returns
+                    // Don't replace \n globally - only unescaped ones inside strings are problematic
+
+                // Fix invalid backslash sequences
+                // Valid: \n \t \r \\ \" \/ \b \f \uXXXX
+                // Invalid: \x \a \e \s etc - replace with escaped backslash
+                result = result.replace(/\\([^nrtbfuv\\"\/])/g, (match, char) => {
+                    // If it's a hex escape like \x00, leave it (some JSON parsers handle it)
+                    if (char === 'x' || char === 'X') return match;
+                    // Otherwise escape the backslash
+                    return '\\\\' + char;
+                });
+
+                return result;
+            }
+
+            // Try to parse with sanitization
+            function tryParseJson(str) {
+                // First attempt: direct parse
+                try {
+                    return JSON.parse(str);
+                } catch (e1) {
+                    // Second attempt: sanitize and parse
+                    try {
+                        const sanitized = sanitizeJsonString(str);
+                        return JSON.parse(sanitized);
+                    } catch (e2) {
+                        // Third attempt: more aggressive cleanup
+                        try {
+                            // Remove any BOM or zero-width characters
+                            let aggressive = str.replace(/[\u0000-\u001F\u007F-\u009F]/g, (char) => {
+                                // Keep valid JSON whitespace
+                                if (char === '\n' || char === '\r' || char === '\t') {
+                                    return char;
+                                }
+                                return '';
+                            });
+                            // Fix common issues with quotes inside strings
+                            aggressive = aggressive.replace(/([^\\])"/g, (match, before, offset) => {
+                                // Check if we're inside a string value - this is complex
+                                // For now, just try parsing as-is
+                                return match;
+                            });
+                            return JSON.parse(aggressive);
+                        } catch (e3) {
+                            throw e2; // Return the sanitization error for logging
+                        }
+                    }
+                }
+            }
 
             try {
-                filesObj = JSON.parse(responseText);
+                filesObj = tryParseJson(cleanedResponse);
+                console.log('   ✅ JSON parsed successfully');
                 break;
             } catch (e) {
-                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                console.log(`   ⚠️ Initial parse failed: ${e.message}`);
+                // Fallback: Try to find JSON object pattern in response
+                const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
                     try {
-                        filesObj = JSON.parse(jsonMatch[0]);
+                        filesObj = tryParseJson(jsonMatch[0]);
+                        console.log('   ✅ JSON extracted via regex fallback');
                         break;
                     } catch (e2) {
                         if (attempts < maxAttempts) {
-                            console.log(`   ⚠️ JSON error, retrying...`);
+                            console.log(`   ⚠️ JSON error: ${e2.message}, retrying...`);
                             messages.push({ role: 'assistant', content: responseText });
                             messages.push({
                                 role: 'user',
-                                content: `Your response had a JSON syntax error. Please fix and respond with ONLY valid JSON.`
+                                content: `Your response had a JSON syntax error: ${e2.message}.
+
+CRITICAL: You MUST respond with ONLY valid JSON.
+- All string values must have properly escaped special characters
+- Use \\n for newlines, \\t for tabs, \\\\ for backslashes, \\" for quotes
+- No markdown, no code blocks, no explanation
+- Just the raw JSON object starting with { and ending with }`
                             });
                         } else {
-                            throw new Error('Could not parse JSON after retries');
+                            throw new Error(`Could not parse JSON after retries: ${e2.message}`);
                         }
                     }
                 } else {
-                    throw new Error('Could not find JSON in response');
+                    throw new Error('Could not find JSON object in response');
                 }
             }
         }
@@ -985,10 +1086,13 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
             };
         });
 
+        console.log(`   ✅ AI Generated ${filesArray.length} files:`);
+        filesArray.forEach(f => console.log(`      - ${f.path}`));
+
         templateDescription = `AI-generated: ${description?.substring(0, 100) || projectName}`;
 
     } catch (aiError) {
-        console.error('   ⚠️ AI generation failed, falling back to template');
+        console.error('   ⚠️ AI generation failed, falling back to GENERIC TEMPLATE (not based on description!)');
         console.error('   ❌ AI Error details:', aiError.message);
         console.error('   ❌ AI Error stack:', aiError.stack?.split('\n').slice(0, 3).join('\n'));
         update(85, 'AI Generation failed, using template...', 'Fallback');
@@ -1001,13 +1105,34 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
                 path: filePath,
                 content
             }));
-            templateDescription = template.description;
+            templateDescription = `⚠️ FALLBACK TEMPLATE (AI failed): ${template.description}`;
+            console.error(`   ⚠️ Created ${filesArray.length} files from GENERIC TEMPLATE - description was ignored!`);
         } else {
             filesArray = [
                 { path: 'index.html', content: `<!DOCTYPE html><html><body><h1>${projectName}</h1></body></html>` }
             ];
+            console.error('   ⚠️ Created minimal fallback HTML - description was ignored!');
         }
     }
+
+    // Add project context file (.drape/project.json)
+    const { detectIndustry, extractFeatures } = require('../services/agent-loop');
+    const projectContext = {
+        name: projectName,
+        description: description || '',
+        technology: technology || 'react',
+        industry: detectIndustry(description),
+        createdAt: new Date().toISOString(),
+        features: extractFeatures(description)
+    };
+
+    // Add context file to the files array
+    filesArray.push({
+        path: '.drape/project.json',
+        content: JSON.stringify(projectContext, null, 2)
+    });
+
+    console.log(`   📋 Added project context: industry=${projectContext.industry}, features=${projectContext.features.join(',')}`);
 
     // Storage
     update(90, 'Saving Project Files...', 'Finalizing');

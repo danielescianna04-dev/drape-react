@@ -577,17 +577,66 @@ router.get('/health', (req, res) => {
 });
 
 /**
+ * POST /fly/heartbeat
+ * 🔑 FIX 4: Keep VM alive while user has project open
+ * Frontend sends this every 60 seconds to prevent VM timeout
+ */
+router.post('/heartbeat', asyncHandler(async (req, res) => {
+    const { projectId } = req.body;
+
+    if (!projectId) {
+        return res.status(400).json({ error: 'projectId required' });
+    }
+
+    // Get active VMs and update lastUsed timestamp
+    const activeVMs = await orchestrator.getActiveVMs();
+    const vm = activeVMs.find(v => v.projectId === projectId);
+
+    if (vm) {
+        // Update lastUsed to keep VM alive
+        vm.lastUsed = Date.now();
+        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (${vm.machineId})`);
+        res.json({ success: true, machineId: vm.machineId, status: 'alive' });
+    } else {
+        // VM not active - maybe stopped or never started
+        console.log(`💔 [Heartbeat] ${projectId} - No active VM found`);
+        res.json({ success: true, status: 'no_vm' });
+    }
+}));
+
+/**
  * POST /fly/session
  * Set routing cookie for the Gateway
+ * 🔑 FIX: Can auto-create VM if projectId is provided but machineId is not
  */
-router.post('/session', (req, res) => {
-    const { machineId } = req.body;
+router.post('/session', asyncHandler(async (req, res) => {
+    let { machineId, projectId } = req.body;
+
+    // 🔑 AUTO-CREATE VM if machineId not provided but projectId is
+    if (!machineId && projectId) {
+        console.log(`🔄 [Fly] Session: No machineId, auto-creating VM for ${projectId}...`);
+        try {
+            const vmSession = await orchestrator.getOrCreateVM(projectId);
+            if (vmSession && vmSession.machineId) {
+                machineId = vmSession.machineId;
+                console.log(`✅ [Fly] Session: VM auto-created: ${machineId}`);
+            }
+        } catch (vmError) {
+            console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
+            return res.status(503).json({
+                error: 'VM_STARTING',
+                message: 'Starting workspace, please retry in a few seconds',
+                details: vmError.message
+            });
+        }
+    }
+
     if (!machineId) {
-        return res.status(400).json({ error: 'machineId required' });
+        return res.status(400).json({ error: 'machineId or projectId required' });
     }
 
     // Set cookie valid for session
-    // SameSite=None; Secure required for iframes if cross-site, 
+    // SameSite=None; Secure required for iframes if cross-site,
     // but here we are on same domain (sub paths), so Lax is fine.
     // However, if we move to subdomains later, we might need adjustments.
     // For now, simple cookie.
@@ -597,8 +646,8 @@ router.post('/session', (req, res) => {
         path: '/'
     });
 
-    res.json({ success: true, message: 'Session set' });
-});
+    res.json({ success: true, message: 'Session set', machineId });
+}));
 
 /**
  * POST /fly/inspect
@@ -686,6 +735,7 @@ router.post('/reload', asyncHandler(async (req, res) => {
 /**
  * GET /fly/logs/:projectId
  * Stream live terminal output from VM via SSE proxy
+ * 🔑 FIX: Auto-creates VM if not exists (Option A from VM_AUTO_CREATE_BUG.md)
  */
 router.get('/logs/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
@@ -694,11 +744,39 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
     console.log(`📺 [Fly] Streaming logs for: ${projectId}`);
 
     // Get active VM for this project
-    const activeVMs = await orchestrator.getActiveVMs();
-    const vm = activeVMs.find(v => v.projectId === projectId);
+    let activeVMs = await orchestrator.getActiveVMs();
+    let vm = activeVMs.find(v => v.projectId === projectId);
 
+    // 🔑 AUTO-CREATE VM if not exists
     if (!vm) {
-        return res.status(404).json({ error: 'No active VM for this project' });
+        console.log(`🔄 [Fly] No active VM for ${projectId}, auto-creating...`);
+        try {
+            // Try to get or create VM
+            const vmSession = await orchestrator.getOrCreateVM(projectId);
+            if (vmSession && vmSession.machineId) {
+                console.log(`✅ [Fly] VM auto-created: ${vmSession.machineId}`);
+                vm = {
+                    projectId,
+                    agentUrl: vmSession.agentUrl,
+                    machineId: vmSession.machineId
+                };
+            }
+        } catch (vmError) {
+            console.error(`❌ [Fly] Auto-create VM failed:`, vmError.message);
+            return res.status(503).json({
+                error: 'VM_STARTING',
+                message: 'Starting workspace, please retry in a few seconds',
+                details: vmError.message
+            });
+        }
+    }
+
+    // Final check - if still no VM, return 503 (not 404)
+    if (!vm || !vm.agentUrl) {
+        return res.status(503).json({
+            error: 'VM_UNAVAILABLE',
+            message: 'Workspace is not available. Please start the preview first.'
+        });
     }
 
     // Set up SSE headers

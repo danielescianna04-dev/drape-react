@@ -131,6 +131,40 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }
   }, [currentWorkstation]);
 
+  // ============ HEARTBEAT: Keep VM alive while project is open ============
+  // 🔑 FIX 4b: Send heartbeat every 60 seconds to prevent VM timeout
+  useEffect(() => {
+    if (!currentWorkstation?.id || !apiUrl) {
+      return;
+    }
+
+    const projectId = currentWorkstation.projectId || currentWorkstation.id;
+
+    // Send heartbeat immediately, then every 60 seconds
+    const sendHeartbeat = () => {
+      fetch(`${apiUrl}/fly/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId }),
+      }).catch(() => {
+        // Silent fail - heartbeat is non-critical
+      });
+    };
+
+    // Send initial heartbeat
+    sendHeartbeat();
+
+    // Set up interval
+    const interval = setInterval(sendHeartbeat, 60000); // 60 seconds
+
+    console.log(`💓 [Heartbeat] Started for project ${projectId}`);
+
+    return () => {
+      clearInterval(interval);
+      console.log(`💔 [Heartbeat] Stopped for project ${projectId}`);
+    };
+  }, [currentWorkstation?.id, currentWorkstation?.projectId, apiUrl]);
+
   const handleClose = () => {
     onClose();
   };

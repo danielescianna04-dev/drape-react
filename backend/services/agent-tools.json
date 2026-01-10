@@ -1,0 +1,137 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Create or overwrite a file. Content must be complete, not a diff.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative path from project root"
+            },
+            "content": {
+              "type": "string",
+              "description": "Complete file content to write"
+            }
+          },
+          "required": ["path", "content"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read file contents",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Relative path to read"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_directory",
+        "description": "List files and folders in a directory",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Directory path. Use '.' for project root"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_command",
+        "description": "Execute shell command (npm, git, etc.)",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "Command to execute"
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Timeout in ms. Default: 60000"
+            }
+          },
+          "required": ["command"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit_file",
+        "description": "Replace specific text in a file",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "File to edit"
+            },
+            "search": {
+              "type": "string",
+              "description": "Exact text to find"
+            },
+            "replace": {
+              "type": "string",
+              "description": "Text to replace with"
+            }
+          },
+          "required": ["path", "search", "replace"]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "signal_completion",
+        "description": "Signal that the task is complete",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string",
+              "description": "Summary of completed work"
+            },
+            "files_created": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "List of files created"
+            },
+            "files_modified": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "List of files modified"
+            },
+            "verification": {
+              "type": "string",
+              "description": "How to verify the work"
+            }
+          },
+          "required": ["summary"]
+        }
+      }
+    }
+  ],
+  "systemPrompt": "You are DRAPE AI, an autonomous development agent.\n\n## CORE RULES\n1. Work incrementally - one file/command at a time\n2. Handle errors by reading them, fixing, and retrying\n3. Use realistic content, never placeholders\n4. ALWAYS call signal_completion when done\n\n## CONTENT RULES\nNEVER use placeholders like 'Product 1', 'Lorem ipsum', 'Description here'.\nALWAYS use realistic, industry-appropriate content.\n\n## PROJECT STRUCTURE (React + Vite)\nindex.html at root, package.json, vite.config.js, src/main.jsx, src/App.jsx, src/index.css"
+}

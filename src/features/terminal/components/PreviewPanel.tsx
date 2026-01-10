@@ -489,6 +489,31 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }, [serverStatus, webViewReady]);
   */
 
+  // ============ AUTO-RECOVERY: Request machineId if missing ============
+  // 🔑 FIX 3: If server is running but machineId is lost, request a new session
+  useEffect(() => {
+    if (serverStatus === 'running' && !globalFlyMachineId && currentWorkstation?.id) {
+      console.log('⚠️ [AutoRecovery] Server running but machineId missing, requesting new session...');
+
+      fetch(`${apiUrl}/fly/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: currentWorkstation.id }),
+        credentials: 'include'
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.machineId) {
+            console.log(`✅ [AutoRecovery] Recovered machineId: ${data.machineId}`);
+            setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
+          }
+        })
+        .catch(err => {
+          console.error('❌ [AutoRecovery] Failed to recover machineId:', err.message);
+        });
+    }
+  }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl, setGlobalFlyMachineId]);
+
   // ============ LIVE LOGS STREAMING ============
   // Connect to SSE stream for terminal output using XMLHttpRequest (React Native compatible)
   useEffect(() => {
@@ -1823,10 +1848,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         }}
                         sharedCookiesEnabled={true}
                         thirdPartyCookiesEnabled={true}
-                        style={[
-                          styles.webView,
-                          { opacity: webViewReady ? 1 : 0 }
-                        ]}
+                        // 🔑 FIX: Always show WebView (no opacity:0 hiding)
+                        // The LOADING SPIRIT MASK overlay handles the loading state
+                        // This prevents black screen when webViewReady is false
+                        style={styles.webView}
 
                         injectedJavaScriptBeforeContentLoaded={`
                           (function() {
