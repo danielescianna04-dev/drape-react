@@ -36,6 +36,7 @@ import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
 import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
 import { useAgentStore } from '../../core/agent/agentStore';
+import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
@@ -363,6 +364,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Replace AgentProgress with normal message when agent completes without tool calls
   useEffect(() => {
     if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
+      // Invalidate file cache when agent completes - triggers FileExplorer refresh
+      const hadFileChanges = agentEvents.some(e =>
+        e.type === 'tool_complete' &&
+        ['write_file', 'edit_file', 'run_command', 'notebook_edit', 'launch_sub_agent'].includes((e as any).tool)
+      );
+
+      const projectId = currentTab?.data?.projectId;
+      if (hadFileChanges && projectId) {
+        console.log('🔄 [ChatPage] Agent completed with file changes - invalidating cache');
+        useFileCacheStore.getState().invalidateCache(projectId);
+      }
+
       // Check if there were any tool calls
       const hadToolCalls = agentEvents.some(e =>
         e.type === 'tool_start' || e.type === 'tool_complete'
@@ -406,7 +419,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
       }
     }
-  }, [agentStreaming, agentEvents.length, currentTab?.id]);
+  }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {

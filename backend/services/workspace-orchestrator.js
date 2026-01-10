@@ -26,7 +26,7 @@ const vmLocks = new Map(); // projectId -> Promise
 
 class WorkspaceOrchestrator {
     constructor() {
-        this.vmTimeout = 30 * 60 * 1000; // 30 minutes idle timeout
+        this.vmTimeout = 24 * 60 * 60 * 1000; // 24 hours idle timeout (keep VMs alive longer to avoid cold starts)
     }
 
     /**
