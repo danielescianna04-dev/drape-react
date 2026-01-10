@@ -14,6 +14,7 @@
 const flyService = require('./fly-service');
 const workspaceOrchestrator = require('./workspace-orchestrator');
 const { getProviderForModel } = require('./ai-providers');
+const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const TOOLS_CONFIG = require('./agent-tools.json');
 
 // Configuration
@@ -21,38 +22,46 @@ const MAX_ITERATIONS = 50;
 const MAX_SAME_ERROR = 3;
 const TOOL_TIMEOUT = 60000; // 60 seconds
 
-// Mode-specific tool configurations
-const TOOLS_FAST = TOOLS_CONFIG.tools;
+// Convert tools from OpenAI format to standard format
+function convertToolsFormat(tools) {
+    return tools.map(t => ({
+        name: t.function.name,
+        description: t.function.description,
+        input_schema: t.function.parameters
+    }));
+}
 
-const TOOLS_PLANNING = TOOLS_CONFIG.tools.filter(t =>
-    ['read_file', 'list_directory'].includes(t.function.name)
+// Mode-specific tool configurations
+const TOOLS_FAST = convertToolsFormat(TOOLS_CONFIG.tools);
+
+const TOOLS_PLANNING = convertToolsFormat(
+    TOOLS_CONFIG.tools.filter(t =>
+        ['read_file', 'list_directory'].includes(t.function.name)
+    )
 ).concat([{
-    type: 'function',
-    function: {
-        name: 'create_plan',
-        description: 'Create a step-by-step execution plan for approval',
-        parameters: {
-            type: 'object',
-            properties: {
-                title: { type: 'string', description: 'Plan title' },
-                steps: {
-                    type: 'array',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            step: { type: 'number' },
-                            action: { type: 'string' },
-                            files: { type: 'array', items: { type: 'string' } },
-                            description: { type: 'string' }
-                        }
-                    },
-                    description: 'List of steps to execute'
+    name: 'create_plan',
+    description: 'Create a step-by-step execution plan for approval',
+    input_schema: {
+        type: 'object',
+        properties: {
+            title: { type: 'string', description: 'Plan title' },
+            steps: {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: {
+                        step: { type: 'number' },
+                        action: { type: 'string' },
+                        files: { type: 'array', items: { type: 'string' } },
+                        description: { type: 'string' }
+                    }
                 },
-                estimated_files: { type: 'number', description: 'Number of files to create/modify' },
-                technologies: { type: 'array', items: { type: 'string' }, description: 'Technologies used' }
+                description: 'List of steps to execute'
             },
-            required: ['title', 'steps']
-        }
+            estimated_files: { type: 'number', description: 'Number of files to create/modify' },
+            technologies: { type: 'array', items: { type: 'string' }, description: 'Technologies used' }
+        },
+        required: ['title', 'steps']
     }
 }]);
 
@@ -72,6 +81,7 @@ class AgentLoop {
         this.lastPlan = null;
         this.vmInfo = null;
         this.projectContext = null;
+        this.iterationsWithoutTools = 0;
     }
 
     /**
@@ -318,7 +328,7 @@ DRAPE_EOF`;
         };
 
         // Get AI provider
-        const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
+        const { provider, modelId } = getProviderForModel(DEFAULT_AI_MODEL);
         if (!provider.client && provider.isAvailable()) {
             await provider.initialize();
         }
@@ -371,6 +381,8 @@ DRAPE_EOF`;
 
                 // Process tool calls
                 if (toolCalls.length > 0) {
+                    // Reset counter since agent is using tools
+                    this.iterationsWithoutTools = 0;
                     const toolResults = [];
 
                     for (const toolCall of toolCalls) {
@@ -467,6 +479,23 @@ DRAPE_EOF`;
                         content: responseText,
                         timestamp: new Date().toISOString()
                     };
+
+                    // Increment counter for iterations without tools
+                    this.iterationsWithoutTools++;
+
+                    // If agent responded without tools for 2 iterations, auto-complete
+                    if (this.iterationsWithoutTools >= 2) {
+                        this.isComplete = true;
+                        yield {
+                            type: 'complete',
+                            summary: responseText || 'Conversation completed',
+                            filesCreated: this.filesCreated,
+                            filesModified: this.filesModified,
+                            iterations: this.iteration,
+                            timestamp: new Date().toISOString()
+                        };
+                        break;
+                    }
 
                     // Check for completion markers in text
                     if (responseText.includes('<completion>') || responseText.includes('TASK_COMPLETE')) {

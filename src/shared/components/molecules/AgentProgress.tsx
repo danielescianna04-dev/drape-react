@@ -9,13 +9,15 @@ import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 
 interface ToolEvent {
-    type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete';
+    type: 'tool_start' | 'tool_complete' | 'tool_error' | 'status' | 'complete' | 'message' | 'thinking' | 'iteration_start';
     tool?: string;
     input?: any;
     success?: boolean;
     error?: string;
     message?: string;
+    content?: string;  // For message events
     timestamp?: number;
+    iteration?: number;
 }
 
 interface Props {
@@ -57,7 +59,7 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
     const getToolIcon = (tool: string) => TOOL_ICONS[tool] || 'build';
 
     const filteredEvents = events.filter(e =>
-        ['tool_start', 'tool_complete', 'tool_error', 'complete', 'status'].includes(e.type)
+        ['tool_start', 'tool_complete', 'tool_error', 'complete', 'status', 'message', 'iteration_start'].includes(e.type)
     );
 
     return (
@@ -100,6 +102,8 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
                             <Ionicons
                                 name={event.tool ? getToolIcon(event.tool) :
                                       event.type === 'complete' ? 'checkmark-circle' :
+                                      event.type === 'message' ? 'chatbubble' :
+                                      event.type === 'iteration_start' ? 'refresh' :
                                       event.type === 'status' ? 'information-circle' : 'ellipse'}
                                 size={18}
                                 color={event.type === 'tool_error' ? '#ff4444' :
@@ -107,18 +111,30 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
                             />
                         </View>
                         <View style={styles.eventContent}>
-                            <Text style={styles.eventTitle}>
-                                {event.tool || event.message || event.type}
-                            </Text>
-                            {event.input && (
-                                <Text style={styles.eventDetail} numberOfLines={1}>
-                                    {typeof event.input === 'object'
-                                        ? JSON.stringify(event.input)
-                                        : event.input}
+                            {event.type === 'message' ? (
+                                <Text style={styles.messageText}>
+                                    {event.content || event.message || ''}
                                 </Text>
-                            )}
-                            {event.error && (
-                                <Text style={styles.eventError}>{event.error}</Text>
+                            ) : event.type === 'iteration_start' ? (
+                                <Text style={styles.eventTitle}>
+                                    Iteration {event.iteration || 0}
+                                </Text>
+                            ) : (
+                                <>
+                                    <Text style={styles.eventTitle}>
+                                        {event.tool || event.message || event.type}
+                                    </Text>
+                                    {event.input && (
+                                        <Text style={styles.eventDetail} numberOfLines={1}>
+                                            {typeof event.input === 'object'
+                                                ? JSON.stringify(event.input)
+                                                : event.input}
+                                        </Text>
+                                    )}
+                                    {event.error && (
+                                        <Text style={styles.eventError}>{event.error}</Text>
+                                    )}
+                                </>
                             )}
                         </View>
                         {event.success !== undefined && (
@@ -203,6 +219,11 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '500',
         fontSize: 14,
+    },
+    messageText: {
+        color: '#fff',
+        fontSize: 13,
+        lineHeight: 18,
     },
     eventDetail: {
         color: '#666',

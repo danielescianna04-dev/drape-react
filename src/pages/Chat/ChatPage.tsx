@@ -34,6 +34,11 @@ import { useContentOffset } from '../../hooks/ui/useContentOffset';
 import { AnthropicIcon, GoogleIcon } from '../../shared/components/icons';
 import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
 import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
+import { useAgentStream } from '../../hooks/api/useAgentStream';
+import { useAgentStore } from '../../core/agent/agentStore';
+import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
+import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
+import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -102,6 +107,26 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     cardModeAnim,
     keyboardHeight,
   } = chatState;
+
+  // Agent state - 2-mode system (Fast or Planning only)
+  const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
+  const {
+    start: startAgent,
+    isRunning: agentStreaming,
+    events: agentEvents,
+    currentTool: agentCurrentTool,
+    plan: agentPlan,
+    reset: resetAgent
+  } = useAgentStream(agentMode);
+  const [showPlanApproval, setShowPlanApproval] = useState(false);
+
+  // Agent store - use specific selectors to prevent unnecessary re-renders
+  const agentIteration = useAgentStore((state) => state.iteration);
+  const agentCurrentPrompt = useAgentStore((state) => state.currentPrompt);
+  const agentFilesCreated = useAgentStore((state) => state.filesCreated);
+  const agentFilesModified = useAgentStore((state) => state.filesModified);
+  const setCurrentPrompt = useAgentStore((state) => state.setCurrentPrompt);
+  const setCurrentProjectId = useAgentStore((state) => state.setCurrentProjectId);
 
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
@@ -281,6 +306,61 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   useEffect(() => {
     useFileHistoryStore.getState().loadHistory();
   }, []);
+
+  // Handle plan approval modal for planning mode
+  useEffect(() => {
+    if (agentMode === 'planning' && agentPlan && !showPlanApproval) {
+      setShowPlanApproval(true);
+    }
+  }, [agentPlan, agentMode, showPlanApproval]);
+
+  // Replace AgentProgress with normal message when agent completes without tool calls
+  useEffect(() => {
+    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
+      // Check if there were any tool calls
+      const hadToolCalls = agentEvents.some(e =>
+        e.type === 'tool_start' || e.type === 'tool_complete'
+      );
+
+      // If no tool calls, extract messages and replace AgentProgress with normal output
+      if (!hadToolCalls) {
+        const messages = agentEvents
+          .filter(e => e.type === 'message')
+          .map(e => (e as any).content || (e as any).message)
+          .filter(Boolean);
+
+        if (messages.length > 0) {
+          // Find if AgentProgress item exists
+          const hasAgentProgress = currentTab.terminalItems?.some(item => (item as any).isAgentProgress);
+
+          if (hasAgentProgress) {
+            // Get the last message
+            const finalMessage = messages[messages.length - 1];
+
+            // Replace AgentProgress with normal message in a single setState
+            useTabStore.setState((state) => ({
+              tabs: state.tabs.map(t =>
+                t.id === currentTab.id
+                  ? {
+                    ...t,
+                    terminalItems: [
+                      ...(t.terminalItems?.filter(item => !(item as any).isAgentProgress) || []),
+                      {
+                        id: `agent-msg-${Date.now()}`,
+                        content: finalMessage,
+                        type: TerminalItemType.OUTPUT,
+                        timestamp: new Date(),
+                      }
+                    ]
+                  }
+                  : t
+              )
+            }));
+          }
+        }
+      }
+    }
+  }, [agentStreaming, agentEvents.length, currentTab?.id]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -496,30 +576,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     'worklet';
     const animProgress = inputPositionAnim.value;
 
-    // Anima da top:410 (centro) verso posizione più bassa (ma non troppo)
-    const baseTranslateY = interpolate(
-      animProgress,
-      [0, 1],
-      [0, 280], // Sposta 280px verso il basso quando chat si avvia
-      Extrapolate.CLAMP
-    );
-
-    // Calcola l'offset extra per compensare la crescita del widget
-    // widgetHeight inizia a 90px, quando cresce (es. 150px), compensiamo con 60px in più
-    const heightDiff = Math.max(0, widgetHeight.value - 90);
-
-    let translateY = baseTranslateY - heightDiff;
-
-    if (keyboardHeight.value > 0) {
-      // Quando la tastiera è aperta, posiziona l'input appena sopra la tastiera
-      // keyboardHeight include già tutto, sottraiamo insets.bottom perché è già considerato
-      const keyboardOffset = keyboardHeight.value - insets.bottom;
-      translateY = translateY - keyboardOffset;
-    }
-
     // Calcola left in base allo stato della sidebar
-    // Quando sidebar è visibile (sidebarTranslateX = 0), left = 44
-    // Quando sidebar è nascosta (sidebarTranslateX = -50), left = 0
     const sidebarLeft = interpolate(
       sidebarTranslateX.value,
       [-50, 0],
@@ -527,9 +584,32 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       Extrapolate.CLAMP
     );
 
+    // Se la tastiera è aperta, usa bottom positioning (appena sopra la tastiera)
+    if (keyboardHeight.value > 0) {
+      return {
+        bottom: keyboardHeight.value,
+        left: sidebarLeft,
+        top: undefined,
+        transform: []
+      };
+    }
+
+    // Altrimenti usa top + translateY (comportamento normale)
+    const baseTranslateY = interpolate(
+      animProgress,
+      [0, 1],
+      [0, 280], // Sposta 280px verso il basso quando chat si avvia
+      Extrapolate.CLAMP
+    );
+
+    // Compensa la crescita del widget
+    const heightDiff = Math.max(0, widgetHeight.value - 90);
+    const translateY = baseTranslateY - heightDiff;
+
     return {
       top: 410,
       left: sidebarLeft,
+      bottom: undefined,
       transform: [{ translateY }]
     };
   });
@@ -562,19 +642,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
 
 
-  const handleToggleMode = (mode: 'terminal' | 'ai') => {
-    if (forcedMode === mode) {
-      // Doppio click - disattiva forced mode
-      setForcedMode(null);
-      // Torna in auto mode
-      if (input.trim()) {
-        setIsTerminalMode(isCommand(input.trim()));
-      }
-    } else {
-      // Attiva forced mode
-      setForcedMode(mode);
-      setIsTerminalMode(mode === 'terminal');
-    }
+  const handleToggleMode = (mode: 'fast' | 'planning') => {
+    // Switch between fast and planning agent modes
+    setAgentMode(mode);
   };
 
   useEffect(() => {
@@ -640,6 +710,43 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     Keyboard.dismiss();
 
     const userMessage = input.trim();
+
+    // Check if agent mode is active (fast or planning)
+    const isAgentMode = agentMode === 'fast' || agentMode === 'planning';
+
+    // If agent mode AND we have a workstation, use agent stream
+    if (isAgentMode && currentWorkstation?.id) {
+      // Add user message to terminal
+      addTerminalItem({
+        id: Date.now().toString(),
+        content: userMessage,
+        type: TerminalItemType.USER_MESSAGE,
+        timestamp: new Date(),
+      });
+
+      setInput('');
+      setLoading(true);
+
+      // Store the prompt in the agent store
+      setCurrentPrompt(userMessage);
+      setCurrentProjectId(currentWorkstation.id);
+
+      // Start agent stream
+      startAgent(userMessage, currentWorkstation.id);
+
+      // Add agent progress placeholder
+      const agentProgressId = `agent-progress-${Date.now()}`;
+      addTerminalItem({
+        id: agentProgressId,
+        content: '',
+        type: TerminalItemType.OUTPUT,
+        timestamp: new Date(),
+        isAgentProgress: true,
+      });
+
+      setLoading(false);
+      return;
+    }
 
     // Auto-save chat on first message - check if this is the first USER message (not system messages)
     const userMessages = currentTab?.terminalItems?.filter(item =>
@@ -1392,11 +1499,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 <>
                   {(() => {
                     // Filter out null items, empty content items, and "Executing:" placeholders
-                    // BUT: Keep items with isThinking=true even if content is empty (to show "Thinking..." indicator)
+                    // BUT: Keep items with isThinking=true or isAgentProgress=true even if content is empty
                     const filtered = terminalItems.filter(item =>
                       item &&
                       item.content != null &&
-                      (item.content.trim() !== '' || item.isThinking) &&  // Allow empty content if isThinking
+                      (item.content.trim() !== '' || item.isThinking || (item as any).isAgentProgress) &&  // Allow empty content if isThinking or isAgentProgress
                       item.content !== '...' &&  // Filter out placeholder ellipsis
                       !item.content.startsWith('Executing: ')  // Filter out tool execution indicators (replaced by tool results)
                     );
@@ -1431,15 +1538,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       const isLastItem = index === filteredArray.length - 1;
                       const shouldShowLoading = isLastItem && isLoading;
 
-                      acc.push(
-                        <TerminalItemComponent
-                          key={index}
-                          item={item}
-                          isNextItemOutput={isNextItemAI}
-                          outputItem={outputItem}
-                          isLoading={shouldShowLoading}
-                        />
-                      );
+                      // Check if this is an agent progress item
+                      if ((item as any).isAgentProgress) {
+                        acc.push(
+                          <AgentProgress
+                            key={index}
+                            events={agentEvents}
+                            status={agentStreaming ? 'running' : 'complete'}
+                            currentTool={agentCurrentTool}
+                          />
+                        );
+                      } else {
+                        acc.push(
+                          <TerminalItemComponent
+                            key={index}
+                            item={item}
+                            isNextItemOutput={isNextItemAI}
+                            outputItem={outputItem}
+                            isLoading={shouldShowLoading}
+                          />
+                        );
+                      }
                       return acc;
                     }, [] as JSX.Element[]);
                   })()}
@@ -1463,46 +1582,52 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               >
                 {/* Top Controls */}
                 <View style={styles.topControls}>
-                  {/* Mode Toggle */}
+                  {/* Mode Toggle - 2-button system: Fast or Planning */}
                   <View style={styles.modeToggleContainer}>
                     <View style={styles.modeToggle}>
+                      {/* Fast Agent Mode */}
                       <TouchableOpacity
-                        onPress={() => handleToggleMode('terminal')}
+                        onPress={() => handleToggleMode('fast')}
                         style={[
                           styles.modeButton,
-                          isTerminalMode && styles.modeButtonActive,
-                          forcedMode === 'terminal' && styles.modeButtonForced
+                          agentMode === 'fast' && styles.modeButtonActive,
                         ]}
                       >
-                        <Animated.View style={isTerminalMode ? terminalModeAnimatedStyle : undefined}>
+                        <Animated.View style={agentMode === 'fast' ? aiModeAnimatedStyle : undefined}>
                           <Ionicons
-                            name="code-slash"
+                            name="flash"
                             size={14}
-                            color={isTerminalMode ? AppColors.white.full : '#8A8A8A'}
+                            color={agentMode === 'fast' ? AppColors.white.full : '#8A8A8A'}
                           />
                         </Animated.View>
                       </TouchableOpacity>
+
+                      {/* Planning Agent Mode */}
                       <TouchableOpacity
-                        onPress={() => handleToggleMode('ai')}
+                        onPress={() => handleToggleMode('planning')}
                         style={[
                           styles.modeButton,
-                          !isTerminalMode && styles.modeButtonActive,
-                          forcedMode === 'ai' && styles.modeButtonForced
+                          agentMode === 'planning' && styles.modeButtonActive,
                         ]}
                       >
-                        <Animated.View style={!isTerminalMode ? aiModeAnimatedStyle : undefined}>
-                          <Text style={{
-                            fontSize: 10,
-                            fontWeight: '800',
-                            color: !isTerminalMode ? AppColors.white.full : '#8A8A8A',
-                            letterSpacing: 0.5,
-                          }}>AI</Text>
+                        <Animated.View style={agentMode === 'planning' ? aiModeAnimatedStyle : undefined}>
+                          <Ionicons
+                            name="clipboard"
+                            size={14}
+                            color={agentMode === 'planning' ? AppColors.white.full : '#8A8A8A'}
+                          />
                         </Animated.View>
                       </TouchableOpacity>
                     </View>
 
-
-
+                    {/* Agent Status Badge - show when agent is running */}
+                    {agentStreaming && (
+                      <AgentStatusBadge
+                        isRunning={agentStreaming}
+                        currentTool={agentCurrentTool}
+                        iteration={agentIteration}
+                      />
+                    )}
                   </View>
 
                   {/* Model Selector */}
@@ -1548,7 +1673,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     style={[styles.input, { textTransform: 'none' }]}
                     value={input}
                     onChangeText={handleInputChange}
-                    placeholder={isTerminalMode ? 'Scrivi un comando...' : 'Chiedi qualcosa all\'AI...'}
+                    placeholder={
+                      agentMode === 'fast'
+                        ? 'Fast agent - esecuzione diretta...'
+                        : 'Planning agent - crea un piano...'
+                    }
                     placeholderTextColor={AppColors.dark.bodyText}
                     multiline
                     maxLength={1000}
@@ -1710,6 +1839,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           </LinearGradient>
         </BlurView>
       </Animated.View>
+
+      {/* Plan Approval Modal - for planning mode */}
+      <PlanApprovalModal
+        visible={showPlanApproval}
+        plan={agentPlan ? {
+          title: `Plan for: ${agentCurrentPrompt || 'Task'}`,
+          steps: agentPlan.steps.map(s => s.description),
+          estimated_files: agentFilesCreated.length + agentFilesModified.length,
+        } : null}
+        onApprove={() => {
+          setShowPlanApproval(false);
+          // Execute the plan - switch to executing mode
+          if (currentWorkstation?.id && agentCurrentPrompt) {
+            // The agent will continue automatically
+          }
+        }}
+        onReject={() => {
+          setShowPlanApproval(false);
+          resetAgent();
+          setLoading(false);
+        }}
+        onClose={() => {
+          setShowPlanApproval(false);
+        }}
+      />
     </Animated.View>
   );
 };
