@@ -271,6 +271,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
               'launch_sub_agent': { label: 'AGENT', color: '#BF40BF', icon: 'rocket-outline' },
               'think': { label: 'THINK', color: '#F0E68C', icon: 'bulb-outline' },
               'notebook_edit': { label: 'NB', color: '#E3B341', icon: 'journal-outline' },
+              'signal_completion': { label: 'DONE', color: '#3FB950', icon: 'checkmark-circle-outline' },
             };
 
             const config = toolConfig[toolName] || { label: toolName.toUpperCase().slice(0, 4), color: '#8B949E', icon: 'cog-outline' };
@@ -282,6 +283,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             else if (input.query || input.pattern) mainDetail = input.query || input.pattern;
             else if (input.url) mainDetail = input.url;
             else if (input.sourcePath) mainDetail = `${input.sourcePath} -> ${input.destPath}`;
+            else if (toolName === 'signal_completion') mainDetail = 'Task Completed';
             else mainDetail = JSON.stringify(input).substring(0, 50);
 
             // Common Header Renderer
@@ -380,6 +382,27 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   <View style={styles.bashContent}>
                     <Text style={styles.bashOutput}>{out || (status === 'running' ? 'Executing...' : 'No output')}</Text>
                   </View>
+                </View>
+              );
+            }
+
+            // 4. SIGNAL COMPLETION - Show as Assistant Message (cleaner look)
+            if (toolName === 'signal_completion') {
+              const summary = info.input?.summary || info.output?.summary || (typeof info.output === 'string' ? info.output : '') || '';
+              // If it's just running, don't show anything yet, or show a subtle "Finishing..."
+              if (!isCompleted) {
+                return (
+                  <View style={styles.readFileInline}>
+                    <Text style={[styles.readingDots, { marginLeft: 0 }]}>Finishing task...</Text>
+                  </View>
+                );
+              }
+              // If completed, show as a nice message
+              return (
+                <View style={{ marginTop: 8, marginBottom: 8 }}>
+                  <Text style={[styles.terminalOutput, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 14 }]}>
+                    {summary}
+                  </Text>
                 </View>
               );
             }
