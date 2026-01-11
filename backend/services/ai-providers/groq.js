@@ -208,7 +208,10 @@ class GroqProvider extends BaseAIProvider {
         }));
 
         for (const toolCall of toolCalls) {
-            yield { type: 'tool_call', toolCall };
+            yield {
+                type: 'tool_use',
+                ...toolCall
+            };
         }
 
         yield { type: 'done', fullText, toolCalls };

@@ -131,6 +131,17 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [activeTabId, showPreviewPanel]);
 
+  const getTabIcon = useCallback((tabType: string) => {
+    switch (tabType) {
+      case 'files': return 'folder';
+      case 'chat': return 'chatbubbles';
+      case 'multitasking': return 'grid-outline';
+      case 'settings': return 'settings';
+      case 'tasks': return 'list-circle';
+      default: return 'folder';
+    }
+  }, []);
+
   const togglePanel = useCallback((panel: PanelType) => {
     if (panel === 'preview') {
       setShowPreviewPanel(prev => !prev);
@@ -177,6 +188,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         id: 'env-vars',
         type: 'envVars',
         title: 'Variabili Ambiente',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
+  const handleTasksClick = useCallback(() => {
+    setShowPreviewPanel(false);
+    const tasksTab = tabs.find(t => t.id === 'agent-tasks');
+    if (tasksTab) {
+      setActiveTab('agent-tasks');
+    } else {
+      addTab({
+        id: 'agent-tasks',
+        type: 'tasks',
+        title: 'Task Manager',
         data: {},
       });
     }
@@ -336,6 +362,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               icons={[
                 { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
+                { name: 'list-outline', action: handleTasksClick },
                 { name: 'key-outline', action: handleEnvVarsClick },
                 // { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
               ]}

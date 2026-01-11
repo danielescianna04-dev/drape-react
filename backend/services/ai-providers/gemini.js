@@ -85,12 +85,19 @@ class GeminiProvider extends BaseAIProvider {
                     // Handle tool results
                     const toolResults = msg.content.filter(c => c.type === 'tool_result');
                     if (toolResults.length > 0) {
-                        const parts = toolResults.map(tr => ({
-                            functionResponse: {
-                                name: tr.tool || 'unknown_tool',
-                                response: { result: tr.content }
-                            }
-                        }));
+                        const parts = toolResults.map(tr => {
+                            // Keep the original tool name to match model's expectations exactly
+                            const toolName = tr.tool || 'unknown_tool';
+                            return {
+                                functionResponse: {
+                                    name: toolName,
+                                    response: { result: tr.content }
+                                }
+                            };
+                        });
+                        // Use 'user' role for function responses in modern Gemini SDK, 
+                        // but the parts contain functionResponse. Some SDK versions prefer 'function'.
+                        // We'll use 'function' as it's the most explicit for the wire format.
                         history.push({ role: 'function', parts });
                         continue;
                     }
@@ -108,12 +115,19 @@ class GeminiProvider extends BaseAIProvider {
 
                     const toolUses = msg.content.filter(c => c.type === 'tool_use');
                     toolUses.forEach(tu => {
-                        parts.push({
+                        const part = {
                             functionCall: {
                                 name: tu.name,
                                 args: tu.input
                             }
-                        });
+                        };
+
+                        // Critical: thoughtSignature MUST be at the Part level, not inside functionCall
+                        if (tu.thoughtSignature) {
+                            part.thoughtSignature = tu.thoughtSignature;
+                        }
+
+                        parts.push(part);
                     });
                 } else {
                     parts.push({ text: msg.content });
@@ -203,16 +217,25 @@ class GeminiProvider extends BaseAIProvider {
                 yield { type: 'text', text };
             }
 
-            const calls = chunk.functionCalls();
-            if (calls && calls.length > 0) {
-                for (const call of calls) {
-                    const toolCall = {
-                        id: `call_${Math.random().toString(36).substr(2, 9)}`,
-                        name: call.name,
-                        input: call.args
-                    };
-                    toolCalls.push(toolCall);
-                    yield { type: 'tool_call', toolCall };
+            if (chunk.candidates?.[0]?.content?.parts) {
+                for (const part of chunk.candidates[0].content.parts) {
+                    if (part.functionCall) {
+                        const toolCall = {
+                            id: `call_${Math.random().toString(36).substr(2, 9)}`,
+                            name: part.functionCall.name,
+                            input: part.functionCall.args,
+                            // Capture signature - it might be at the part level or nested in functionCall
+                            thoughtSignature: part.thoughtSignature ||
+                                part.thought_signature ||
+                                part.functionCall.thought_signature ||
+                                part.functionCall.thoughtSignature
+                        };
+                        toolCalls.push(toolCall);
+                        yield {
+                            type: 'tool_use',
+                            ...toolCall
+                        };
+                    }
                 }
             }
         }
@@ -230,7 +253,11 @@ class GeminiProvider extends BaseAIProvider {
                     toolCalls.push({
                         id: `call_${Math.random().toString(36).substr(2, 9)}`,
                         name: part.functionCall.name,
-                        input: part.functionCall.args
+                        input: part.functionCall.args,
+                        thoughtSignature: part.thoughtSignature ||
+                            part.thought_signature ||
+                            part.functionCall.thought_signature ||
+                            part.functionCall.thoughtSignature
                     });
                 }
             }

@@ -10,8 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../theme/colors';
-import SyntaxHighlighter from 'react-native-syntax-highlighter';
-import { atomOneDark, atomOneLight } from 'react-syntax-highlighter/styles/hljs';
+import { JsonCodeBlock } from './JsonCodeBlock';
 
 const colors = AppColors.dark;
 
@@ -188,44 +187,14 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ tool, isExpanded, onToggle 
           {/* Parameters Section */}
           <View style={styles.detailSection}>
             <Text style={styles.sectionLabel}>Parameters:</Text>
-            <View style={styles.codeBlock}>
-              <SyntaxHighlighter
-                language="json"
-                style={atomOneDark}
-                customStyle={{
-                  backgroundColor: 'transparent',
-                  padding: 0,
-                  margin: 0,
-                  fontSize: 12,
-                }}
-                highlighter="hljs"
-              >
-                {JSON.stringify(tool.args, null, 2)}
-              </SyntaxHighlighter>
-            </View>
+            <JsonCodeBlock code={tool.args} />
           </View>
 
           {/* Result Section */}
           {tool.result !== undefined && (
             <View style={styles.detailSection}>
               <Text style={styles.sectionLabel}>Result:</Text>
-              <View style={styles.codeBlock}>
-                <SyntaxHighlighter
-                  language="json"
-                  style={atomOneDark}
-                  customStyle={{
-                    backgroundColor: 'transparent',
-                    padding: 0,
-                    margin: 0,
-                    fontSize: 12,
-                  }}
-                  highlighter="hljs"
-                >
-                  {typeof tool.result === 'string'
-                    ? tool.result
-                    : JSON.stringify(tool.result, null, 2)}
-                </SyntaxHighlighter>
-              </View>
+              <JsonCodeBlock code={tool.result} />
             </View>
           )}
 
@@ -326,13 +295,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textSecondary,
     marginBottom: 6,
-  },
-  codeBlock: {
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 6,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   statusBadge: {
     flexDirection: 'row',

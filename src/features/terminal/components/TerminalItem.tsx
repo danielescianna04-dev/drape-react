@@ -157,6 +157,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
   const getTextColor = () => {
     switch (item.type) {
+      case ItemType.TOOL_USE:
+        return AppColors.info;
       case ItemType.COMMAND:
         return AppColors.primary;
       case ItemType.USER_MESSAGE:
@@ -177,7 +179,11 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
   // Determine dot color based on item type and success
   let dotColor = '#6E7681'; // Default gray
-  if (item.type === ItemType.COMMAND && isTerminalCommand && outputItem) {
+  if (item.type === ItemType.TOOL_USE) {
+    if (item.toolInfo?.status === 'error') dotColor = '#F85149';
+    else if (item.toolInfo?.status === 'completed') dotColor = '#3FB950';
+    else dotColor = '#E3B341'; // Running
+  } else if (item.type === ItemType.COMMAND && isTerminalCommand && outputItem) {
     // Only check for actual errors (starting with "Error:" or "ERROR:")
     const hasError = (outputItem.content || '').match(/^Error:/i) ||
       (outputItem.content || '').match(/^ERROR:/i);
@@ -233,127 +239,392 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
       {/* Main content */}
       <View style={[styles.contentContainer, isUserMessage && styles.userMessageContainer]}>
-        {item.type === ItemType.COMMAND && (
+        {item.type === ItemType.TOOL_USE ? (
+          // RICH TOOL VISUALIZATION - ALL TOOLS SUPPORT
+          (() => {
+            const info = item.toolInfo || { tool: 'unknown', input: {}, status: 'running' };
+            const toolName = info.tool;
+            const status = info.status;
+            const isCompleted = status === 'completed';
+            const hasError = status === 'error';
+            const input = info.input || {};
+
+            // Tool Configuration Map - 20+ Tools Support
+            const toolConfig: any = {
+              'read_file': { label: 'READ', color: '#58A6FF', icon: 'document-text-outline' },
+              'write_file': { label: 'WRITE', color: '#3FB950', icon: 'save-outline' },
+              'edit_file': { label: 'EDIT', color: '#3FB950', icon: 'create-outline' },
+              'todo_write': { label: 'TODO', color: '#3FB950', icon: 'checkbox-outline' },
+              'delete_file': { label: 'DELETE', color: '#F85149', icon: 'trash-outline' },
+              'move_file': { label: 'MOVE', color: '#FFA657', icon: 'arrow-forward-outline' },
+              'copy_file': { label: 'COPY', color: '#A371F7', icon: 'copy-outline' },
+              'create_folder': { label: 'MKDIR', color: '#3FB950', icon: 'folder-open-outline' },
+              'list_directory': { label: 'LS', color: '#58A6FF', icon: 'list-outline' },
+              'list_files': { label: 'LS', color: '#58A6FF', icon: 'list-outline' },
+              'glob_files': { label: 'GLOB', color: '#A371F7', icon: 'search-outline' },
+              'search_in_files': { label: 'GREP', color: '#FFA657', icon: 'search-outline' },
+              'grep_search': { label: 'GREP', color: '#FFA657', icon: 'search-outline' },
+              'run_command': { label: 'EXEC', color: '#8B949E', icon: 'terminal-outline' },
+              'execute_command': { label: 'EXEC', color: '#8B949E', icon: 'terminal-outline' },
+              'web_fetch': { label: 'FETCH', color: '#00E5FF', icon: 'globe-outline' },
+              'web_search': { label: 'WEB', color: '#00E5FF', icon: 'search-outline' },
+              'launch_sub_agent': { label: 'AGENT', color: '#BF40BF', icon: 'rocket-outline' },
+              'think': { label: 'THINK', color: '#F0E68C', icon: 'bulb-outline' },
+              'notebook_edit': { label: 'NB', color: '#E3B341', icon: 'journal-outline' },
+            };
+
+            const config = toolConfig[toolName] || { label: toolName.toUpperCase().slice(0, 4), color: '#8B949E', icon: 'cog-outline' };
+
+            // Determine Main Detail Text (Path, Command, Query)
+            let mainDetail = '';
+            if (input.path || input.filePath || input.file_path) mainDetail = input.path || input.filePath || input.file_path;
+            else if (input.command) mainDetail = input.command;
+            else if (input.query || input.pattern) mainDetail = input.query || input.pattern;
+            else if (input.url) mainDetail = input.url;
+            else if (input.sourcePath) mainDetail = `${input.sourcePath} -> ${input.destPath}`;
+            else mainDetail = JSON.stringify(input).substring(0, 50);
+
+            // Common Header Renderer
+            const renderMainHeader = () => (
+              <View style={styles.readFileInline}>
+                <View style={[styles.toolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
+                  <Ionicons name={config.icon} size={12} color={config.color} />
+                  <Text style={[styles.toolBadgeText, { color: config.color }]}>{config.label}</Text>
+                </View>
+                <Text style={styles.readFileName} numberOfLines={1}>{mainDetail}</Text>
+                {!isCompleted && <Text style={styles.readingDots}>...</Text>}
+                {hasError && <Text style={{ color: '#F85149', fontSize: 12, marginLeft: 8 }}>Failed</Text>}
+              </View>
+            );
+
+            // --- SPECIFIC OUTPUT RENDERERS ---
+
+            // 1. EDIT / WRITE - Show Diff
+            if (toolName === 'edit_file' || toolName === 'write_file' || toolName === 'todo_write') {
+              const diffContent = info.output ? (typeof info.output === 'string' ? info.output : info.output.content || info.output.message || '') : '';
+              const lines = diffContent.split('\n');
+              const hasDiff = lines.some((l: string) => l.startsWith('+ ') || l.startsWith('- '));
+              const codeLines = hasDiff ? lines.filter((l: string) => !l.startsWith('Edit ') && !l.startsWith('Write ') && !l.startsWith('└─')) : lines;
+
+              return (
+                <View>
+                  {renderMainHeader()}
+                  {isCompleted && diffContent && !hasError ? (
+                    <View style={[styles.editCard, !isExpanded && { maxHeight: 'auto' }]}>
+                      <View style={styles.editContent}>
+                        {codeLines.slice(0, isExpanded ? undefined : 6).map((line: string, index: number) => {
+                          const isAdded = line.startsWith('+ ');
+                          const isRemoved = line.startsWith('- ');
+                          const isContext = line.startsWith('  ');
+                          return (
+                            <View key={index} style={[styles.diffLine, isAdded && styles.addedLine, isRemoved && styles.removedLine]}>
+                              <Text style={[styles.terminalOutputLine, isAdded && { color: '#3FB950' }, isRemoved && { color: '#F85149' }, isContext && { color: '#8B949E' }]} numberOfLines={1}>
+                                {line}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                        {!isExpanded && codeLines.length > 6 && (
+                          <TouchableOpacity onPress={() => setIsExpanded(true)} style={styles.showMoreButton}>
+                            <Text style={styles.showMoreText}>Show {codeLines.length - 6} more lines</Text>
+                          </TouchableOpacity>
+                        )}
+                        {isExpanded && (
+                          <TouchableOpacity onPress={() => setIsExpanded(false)} style={styles.showLessButton}>
+                            <Text style={styles.showMoreText}>Show less</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  ) : null}
+                  {hasError && (
+                    <Text style={styles.errorMessage}>{info.output?.error || info.output || 'Unknown error'}</Text>
+                  )}
+                </View>
+              );
+            }
+
+            // 2. READ / FETCH / GLOB / LS / SEARCH - Show Content Card
+            if (['read_file', 'web_fetch', 'glob_files', 'list_directory', 'list_files', 'search_in_files', 'grep_search'].includes(toolName)) {
+              let content = info.output ? (typeof info.output === 'string' ? info.output : info.output.content || info.output.stdout || JSON.stringify(info.output, null, 2)) : '';
+              // Partial cleanup for read_file header duplication
+              if (toolName === 'read_file' && content.startsWith('Read ')) {
+                content = content.split('\n').slice(3).join('\n');
+              }
+
+              return (
+                <View>
+                  {renderMainHeader()}
+                  {isCompleted && content && !hasError ? (
+                    <View style={styles.bashCard}>
+                      <View style={[styles.bashContent, { maxHeight: 300 }]}>
+                        <Text style={styles.terminalOutput} numberOfLines={isExpanded ? undefined : 15}>{content}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {hasError && (
+                    <Text style={styles.errorMessage}>{info.output?.error || info.output || 'Unknown error'}</Text>
+                  )}
+                </View>
+              );
+            }
+
+            // 3. EXEC COMMAND - Show Bash Card
+            if (['run_command', 'execute_command'].includes(toolName)) {
+              const out = info.output ? (typeof info.output === 'string' ? info.output : info.output.stdout || info.output.stderr || info.output.message || '') : '';
+              return (
+                <View style={[styles.bashCard, hasError && styles.bashCardError]}>
+                  <View style={styles.bashHeader}>
+                    <Text style={styles.bashTitle}>{mainDetail}</Text>
+                  </View>
+                  <View style={styles.bashContent}>
+                    <Text style={styles.bashOutput}>{out || (status === 'running' ? 'Executing...' : 'No output')}</Text>
+                  </View>
+                </View>
+              );
+            }
+
+            // Default Fallback for other tools (delete, move, think, etc.)
+            return (
+              <View>
+                {renderMainHeader()}
+                {isCompleted && info.output && (
+                  <Text style={[styles.terminalOutput, { marginLeft: 28, marginTop: 4, opacity: 0.7 }]}>
+                    {typeof info.output === 'string' ? info.output : JSON.stringify(info.output)}
+                  </Text>
+                )}
+                {hasError && (
+                  <Text style={styles.errorMessage}>{info.output?.error || JSON.stringify(info.output)}</Text>
+                )}
+              </View>
+            );
+          })()
+        ) : item.type === ItemType.COMMAND && (
+
+            // Helpers for tool-specific rendering
+            const renderHeader = (badgeText: string, badgeColor: string, mainText: string) => (
+        <View style={styles.readFileInline}>
+          <View style={[styles.toolBadge, { backgroundColor: `${badgeColor}15`, borderColor: `${badgeColor}30` }]}>
+            <Ionicons name={badgeText === 'EDIT' || badgeText === 'WRITE' ? 'create-outline'
+              : badgeText === 'READ' ? 'document-text-outline'
+                : badgeText === 'LIST' ? 'folder-open-outline'
+                  : badgeText === 'EXEC' ? 'terminal-outline'
+                    : 'cog-outline'} size={12} color={badgeColor} />
+            <Text style={[styles.toolBadgeText, { color: badgeColor }]}>{badgeText}</Text>
+          </View>
+          <Text style={styles.readFileName}>{mainText}</Text>
+          {!isCompleted && <Text style={styles.readingDots}>...</Text>}
+        </View>
+        );
+
+        // 1. EDIT / WRITE FILE
+        if (toolName === 'edit_file' || toolName === 'write_file' || toolName === 'todo_write') {
+              const path = info.input.path || info.input.filePath || '?';
+        const diffContent = info.output ? (typeof info.output === 'string' ? info.output : info.output.content || info.output.message || '') : '';
+
+        // Parse diff if present (simple check for diff-like content)
+        const lines = diffContent.split('\n');
+              const hasDiff = lines.some(l => l.startsWith('+ ') || l.startsWith('- '));
+              const codeLines = hasDiff ? lines.filter(l => !l.startsWith('Edit ') && !l.startsWith('Write ') && !l.startsWith('└─')) : lines;
+
+        return (
+        <View>
+          {renderHeader(toolName === 'edit_file' ? 'EDIT' : 'WRITE', '#3FB950', path)}
+          {isCompleted && diffContent ? (
+            <View style={[styles.editCard, !isExpanded && { maxHeight: 'auto' }]}>
+              <View style={styles.editContent}>
+                {codeLines.slice(0, isExpanded ? undefined : 6).map((line: string, index: number) => {
+                  const isAdded = line.startsWith('+ ');
+                  const isRemoved = line.startsWith('- ');
+                  const isContext = line.startsWith('  ');
+                  return (
+                    <View key={index} style={[styles.diffLine, isAdded && styles.addedLine, isRemoved && styles.removedLine]}>
+                      <Text style={[styles.terminalOutputLine, isAdded && { color: '#3FB950' }, isRemoved && { color: '#F85149' }, isContext && { color: '#8B949E' }]} numberOfLines={1}>
+                        {line}
+                      </Text>
+                    </View>
+                  );
+                })}
+                {!isExpanded && codeLines.length > 6 && (
+                  <TouchableOpacity onPress={() => setIsExpanded(true)} style={styles.showMoreButton}>
+                    <Text style={styles.showMoreText}>Show {codeLines.length - 6} more lines</Text>
+                  </TouchableOpacity>
+                )}
+                {isExpanded && (
+                  <TouchableOpacity onPress={() => setIsExpanded(false)} style={styles.showLessButton}>
+                    <Text style={styles.showMoreText}>Show less</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          ) : null}
+        </View>
+        );
+            }
+
+        // 2. READ FILE
+        if (toolName === 'read_file') {
+              const path = info.input.path || info.input.filePath || '?';
+        let content = info.output ? (typeof info.output === 'string' ? info.output : info.output.content || '') : '';
+        // Clean up header if present in content
+        if (content.startsWith('Read ')) content = content.split('\n').splice(3).join('\n'); // skip header lines
+
+        return (
+        <View>
+          {renderHeader('READ', '#58A6FF', path)}
+          {isCompleted && content ? (
+            <View style={styles.bashCard}>
+              <View style={[styles.bashContent, { maxHeight: 200 }]}>
+                <Text style={styles.terminalOutput} numberOfLines={isExpanded ? undefined : 10}>{content}</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+        );
+            }
+
+        // 3. EXEC COMMAND
+        if (toolName === 'run_command' || toolName === 'execute_command') {
+              const cmd = info.input.command || '?';
+        const out = info.output ? (typeof info.output === 'string' ? info.output : info.output.stdout || info.output.stderr || info.output.message || '') : '';
+
+        return (
+        <View style={[styles.bashCard, hasError && styles.bashCardError]}>
+          <View style={styles.bashHeader}>
+            <Text style={styles.bashTitle}>{cmd}</Text>
+          </View>
+          <View style={styles.bashContent}>
+            <Text style={styles.bashOutput}>{out || 'Executing...'}</Text>
+          </View>
+        </View>
+        );
+            }
+
+        // Default
+        const inputSummary = JSON.stringify(info.input).substring(0, 50);
+        return renderHeader(toolName.toUpperCase().replace('_', ' '), '#8B949E', inputSummary);
+          })()
+        ) : item.type === ItemType.COMMAND && (
           (() => {
             // First check if output is a formatted tool result - if so, hide the COMMAND completely
             // Note: Glob is NOT included here because we want to show it as OUTPUT
             const isFormattedToolOutput = outputItem && (
-              (outputItem.content || '').startsWith('Read ') ||
-              (outputItem.content || '').startsWith('Write ') ||
-              (outputItem.content || '').startsWith('Edit ')
-            );
+        (outputItem.content || '').startsWith('Read ') ||
+        (outputItem.content || '').startsWith('Write ') ||
+        (outputItem.content || '').startsWith('Edit ')
+        );
 
-            // If it's a formatted tool output, don't render the COMMAND at all
-            if (isFormattedToolOutput) {
+        // If it's a formatted tool output, don't render the COMMAND at all
+        if (isFormattedToolOutput) {
               return null;
             }
 
-            // Otherwise, render the command normally
-            return isTerminalCommand && outputItem ? (
+        // Otherwise, render the command normally
+        return isTerminalCommand && outputItem ? (
               // Terminal command with output - show as card with title
               (() => {
                 // Only consider it an error if it starts with "Error:" or "ERROR:"
                 const hasError = (outputItem.content || '').match(/^Error:/i) ||
-                  (outputItem.content || '').match(/^ERROR:/i);
+        (outputItem.content || '').match(/^ERROR:/i);
 
-                // Check if this is a read file command (cat)
-                const isCatCommand = (item.content || '').trim().startsWith('cat ');
+        // Check if this is a read file command (cat)
+        const isCatCommand = (item.content || '').trim().startsWith('cat ');
 
-                if (isCatCommand) {
+        if (isCatCommand) {
                   // Extract file path and line count from output
                   // Output format: "Reading: filename\n140 lines\n\ncontent..."
                   const outputText = outputItem.content || '';
-                  const lines = outputText.split('\n');
+        const lines = outputText.split('\n');
 
-                  // Extract filename from first line "Reading: filename"
-                  const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
-                  const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
+        // Extract filename from first line "Reading: filename"
+        const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
+        const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
 
-                  // Extract line count from second line "140 lines"
-                  const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
-                  const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
+        // Extract line count from second line "140 lines"
+        const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
+        const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
 
-                  // Show inline format: READ filename (X lines)
-                  return (
-                    <View style={styles.readFileInline}>
-                      <View style={styles.toolBadge}>
-                        <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
-                        <Text style={styles.toolBadgeText}>READ</Text>
-                      </View>
-                      <Text style={styles.readFileName}>{fileName}</Text>
-                      <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
-                    </View>
-                  );
+        // Show inline format: READ filename (X lines)
+        return (
+        <View style={styles.readFileInline}>
+          <View style={styles.toolBadge}>
+            <Ionicons name="document-text-outline" size={12} color="#58A6FF" />
+            <Text style={styles.toolBadgeText}>READ</Text>
+          </View>
+          <Text style={styles.readFileName}>{fileName}</Text>
+          <Text style={styles.readFileInfo}>({lineCount} lines)</Text>
+        </View>
+        );
                 }
 
-                return (
-                  <View style={[styles.bashCard, hasError && styles.bashCardError]}>
-                    <View style={styles.bashHeader}>
-                      <Text style={styles.bashTitle}>Bash</Text>
-                      <TouchableOpacity
-                        onPress={() => setIsModalVisible(true)}
-                        style={styles.expandButton}
-                      >
-                        <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.bashContent}>
-                      <View style={styles.bashRow}>
-                        <Text style={styles.bashLabel}>IN</Text>
-                        <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
-                      </View>
-                      <View style={styles.bashDivider} />
-                      <View style={styles.bashRow}>
-                        <Text style={styles.bashLabel}>OUT</Text>
-                        <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
-                      </View>
-                    </View>
+        return (
+        <View style={[styles.bashCard, hasError && styles.bashCardError]}>
+          <View style={styles.bashHeader}>
+            <Text style={styles.bashTitle}>Bash</Text>
+            <TouchableOpacity
+              onPress={() => setIsModalVisible(true)}
+              style={styles.expandButton}
+            >
+              <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.bashContent}>
+            <View style={styles.bashRow}>
+              <Text style={styles.bashLabel}>IN</Text>
+              <Text style={styles.bashInput} numberOfLines={2}>{item.content || ''}</Text>
+            </View>
+            <View style={styles.bashDivider} />
+            <View style={styles.bashRow}>
+              <Text style={styles.bashLabel}>OUT</Text>
+              <Text style={styles.bashOutput} numberOfLines={3}>{outputItem.content || ''}</Text>
+            </View>
+          </View>
 
-                    {/* Full screen modal */}
-                    <Modal
-                      visible={isModalVisible}
-                      animationType="slide"
-                      transparent={false}
-                      onRequestClose={() => setIsModalVisible(false)}
-                    >
-                      <View style={styles.modalContainer}>
-                        <View style={styles.modalHeader}>
-                          <Text style={styles.modalTitle}>Bash Output</Text>
-                          <TouchableOpacity
-                            onPress={() => setIsModalVisible(false)}
-                            style={styles.closeButton}
-                          >
-                            <Ionicons name="close" size={24} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
-                        <ScrollView style={styles.modalContent}>
-                          <View style={styles.modalSection}>
-                            <Text style={styles.modalLabel}>INPUT</Text>
-                            <Text style={styles.modalInput}>{item.content || ''}</Text>
-                          </View>
-                          <View style={styles.modalDivider} />
-                          <View style={styles.modalSection}>
-                            <Text style={styles.modalLabel}>OUTPUT</Text>
-                            <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
-                          </View>
-                        </ScrollView>
-                      </View>
-                    </Modal>
-                  </View>
-                );
-              })()
-            ) : isTerminalCommand ? (
-              <View style={styles.terminalCommand}>
-                <Text style={styles.terminalPrompt}>$ </Text>
-                <Text style={styles.terminalText}>{item.content || ''}</Text>
+          {/* Full screen modal */}
+          <Modal
+            visible={isModalVisible}
+            animationType="slide"
+            transparent={false}
+            onRequestClose={() => setIsModalVisible(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Bash Output</Text>
+                <TouchableOpacity
+                  onPress={() => setIsModalVisible(false)}
+                  style={styles.closeButton}
+                >
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
               </View>
-            ) : (
-              <View style={styles.userMessageBlock}>
-                <View style={styles.userMessageCard}>
-                  <Text style={styles.userMessage}>{item.content || ''}</Text>
+              <ScrollView style={styles.modalContent}>
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>INPUT</Text>
+                  <Text style={styles.modalInput}>{item.content || ''}</Text>
                 </View>
-              </View>
-            );
+                <View style={styles.modalDivider} />
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalLabel}>OUTPUT</Text>
+                  <Text style={styles.modalOutput}>{outputItem.content || ''}</Text>
+                </View>
+              </ScrollView>
+            </View>
+          </Modal>
+        </View>
+        );
+              })()
+        ) : isTerminalCommand ? (
+        <View style={styles.terminalCommand}>
+          <Text style={styles.terminalPrompt}>$ </Text>
+          <Text style={styles.terminalText}>{item.content || ''}</Text>
+        </View>
+        ) : (
+        <View style={styles.userMessageBlock}>
+          <View style={styles.userMessageCard}>
+            <Text style={styles.userMessage}>{item.content || ''}</Text>
+          </View>
+        </View>
+        );
           })()
         )}
 

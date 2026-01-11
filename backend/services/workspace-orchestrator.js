@@ -95,17 +95,32 @@ class WorkspaceOrchestrator {
             // await flyService.ensureSingleActiveMachine(machineName);
 
             // Check if we already have an active VM for this project
-            const cached = activeVMs.get(projectId);
+            let cached = activeVMs.get(projectId);
+
+            // If not in memory, try Redis (survives server restarts)
+            if (!cached) {
+                const persisted = await redisService.getVMSession(projectId);
+                if (persisted) {
+                    console.log(`♻️ [Orchestrator] Recovered VM session from Redis: ${persisted.machineId}`);
+                    cached = persisted;
+                    activeVMs.set(projectId, cached);
+                }
+            }
+
             if (cached && !options.forceNew) {
                 // Verify it's still alive
                 try {
-                    await axios.get(`${cached.agentUrl}/health`, { timeout: 5000 });
-                    console.log(`✅ [Orchestrator] Using cached VM (${Date.now() - startTime}ms)`);
+                    await axios.get(`${cached.agentUrl}/health`, {
+                        timeout: 3000, // Faster timeout for check
+                        headers: { 'Fly-Force-Instance-Id': cached.machineId }
+                    });
+                    console.log(`✅ [Orchestrator] Using cached/recovered VM (${Date.now() - startTime}ms)`);
                     cached.lastUsed = Date.now();
                     return cached;
                 } catch {
-                    console.log(`⚠️ [Orchestrator] Cached VM dead, creating new one`);
+                    console.log(`⚠️ [Orchestrator] Cached VM dead or unreachable, creating/finding new one`);
                     activeVMs.delete(projectId);
+                    await redisService.removeVMSession(projectId);
                 }
             }
 
@@ -189,6 +204,7 @@ class WorkspaceOrchestrator {
 
             // Cache it
             activeVMs.set(projectId, vmInfo);
+            await redisService.saveVMSession(projectId, vmInfo);
 
             // Schedule cleanup
             this._scheduleCleanup(projectId);
@@ -273,13 +289,15 @@ class WorkspaceOrchestrator {
      * @param {string} command - Command to execute
      * @param {string} cwd - Working directory
      */
-    async exec(projectId, command, cwd = '/home/coder/project') {
+    async exec(projectId, command, cwd = '/home/coder/project', silent = false) {
         const vm = await this.getOrCreateVM(projectId);
 
-        console.log(`🔗 [Orchestrator] Exec: ${command.substring(0, 50)}...`);
+        if (!silent) {
+            console.log(`🔗 [Orchestrator] Exec: ${command.substring(0, 50)}...`);
+        }
 
         // Pass machineId for routing via Fly-Force-Instance-Id header
-        return await flyService.exec(vm.agentUrl, command, cwd, vm.machineId);
+        return await flyService.exec(vm.agentUrl, command, cwd, vm.machineId, 60000, silent);
     }
 
     /**
@@ -771,8 +789,8 @@ class WorkspaceOrchestrator {
             }
 
             try {
-                // Read new logs using tail
-                const result = await flyService.exec(vm.agentUrl, `tail -c +${lastSize + 1} ${logFile}`, '/home/coder', vm.machineId);
+                // Read new logs using tail (silent=true to avoid terminal spam if file/VM not ready)
+                const result = await flyService.exec(vm.agentUrl, `tail -c +${lastSize + 1} ${logFile}`, '/home/coder', vm.machineId, 5000, true);
 
                 if (result.stdout && result.stdout.trim()) {
                     const lines = result.stdout.split('\n').filter(l => l.trim());
@@ -780,8 +798,8 @@ class WorkspaceOrchestrator {
                         serverLogService.addLog(workstationId, line, 'output');
                     });
 
-                    // Update size (best effort)
-                    const sizeResult = await flyService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId);
+                    // Update size (best effort, silent=true)
+                    const sizeResult = await flyService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId, 5000, true);
                     const newSize = parseInt(sizeResult.stdout);
                     if (!isNaN(newSize)) lastSize = newSize;
                 }
@@ -921,8 +939,8 @@ class WorkspaceOrchestrator {
             } catch (e) {
                 // Check if it's a PR04 error (proxy can't find machine)
                 const isPR04 = e.message?.includes('PR04') ||
-                               e.response?.status === 502 ||
-                               e.response?.status === 503;
+                    e.response?.status === 502 ||
+                    e.response?.status === 503;
 
                 if (isPR04) {
                     // Proxy not ready yet, wait longer
@@ -1078,9 +1096,9 @@ class WorkspaceOrchestrator {
         const startTime = Date.now();
         console.log(`💪 [Orchestrator] Force-syncing files to ${vm.machineId} (using tar.gz)...`);
 
-        const { files } = await storageService.listFiles(projectId);
+        const { files } = await storageService.getAllFilesWithContent(projectId);
 
-        if (files.length === 0) {
+        if (!files || files.length === 0) {
             console.log(`   ⚠️ No files to sync`);
             return;
         }
@@ -1095,9 +1113,8 @@ class WorkspaceOrchestrator {
 
             // Add all files to archive
             for (const file of files) {
-                const fileContent = await storageService.readFile(projectId, file.path);
-                if (fileContent.success) {
-                    archive.append(fileContent.content, { name: file.path });
+                if (file.content !== undefined) {
+                    archive.append(file.content, { name: file.path });
                 }
             }
 

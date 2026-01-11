@@ -1,0 +1,20 @@
+{
+  "ws-1767975714833-t876jh9or": {
+    "id": "287426db990d48",
+    "name": "ws-ws-1767975714833-t876jh9or",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "287426db990d48",
+    "projectId": "ws-1767975714833-t876jh9or",
+    "createdAt": 1768137484551,
+    "lastUsed": 1768142432463
+  },
+  "ws-1767961368949-7yrkeil53": {
+    "id": "e825100f370078",
+    "name": "ws-ws-1767961368949-7yrkeil53",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "e825100f370078",
+    "projectId": "ws-1767961368949-7yrkeil53",
+    "createdAt": 1768142600825,
+    "lastUsed": 1768142600825
+  }
+}

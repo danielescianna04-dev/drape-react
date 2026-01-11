@@ -48,19 +48,33 @@ const AI_MODELS = {
     },
 
     // Gemini Models
+    'gemini-3-pro': {
+        provider: 'gemini',
+        modelId: 'gemini-3-pro-preview',
+        displayName: 'Gemini 3.0 Pro',
+        supportsTools: true,
+        maxTokens: 1000000  // 1M context window
+    },
+    'gemini-3-flash': {
+        provider: 'gemini',
+        modelId: 'gemini-3-flash-preview',
+        displayName: 'Gemini 3.0 Flash',
+        supportsTools: true,
+        maxTokens: 8192
+    },
     'gemini-2.5-flash': {
         provider: 'gemini',
-        modelId: 'gemini-2.0-flash-exp',
+        modelId: 'gemini-2.5-flash-image',
         displayName: 'Gemini 2.5 Flash',
         supportsTools: true,
         maxTokens: 8192
     },
-    'gemini-2.0-flash-thinking': {
+    'gemini-2.5-flash-image': {
         provider: 'gemini',
-        modelId: 'gemini-2.0-flash-thinking-exp-1219',
-        displayName: 'Gemini 2.0 Flash Thinking',
-        supportsTools: false,
-        maxTokens: 32000
+        modelId: 'gemini-2.5-flash-image',
+        displayName: 'Gemini 2.5 Flash Image (High Quota)',
+        supportsTools: true,
+        maxTokens: 8192
     },
     'gemini-exp-1206': {
         provider: 'gemini',
@@ -94,8 +108,8 @@ const AI_MODELS = {
     }
 };
 
-// Default AI Model
-const DEFAULT_AI_MODEL = 'gemini-2.5-flash';
+// Default AI Model (fallback when user doesn't specify)
+const DEFAULT_AI_MODEL = 'gemini-3-flash';
 
 // File Operation Limits
 const FILE_LIMITS = {

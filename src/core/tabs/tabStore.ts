@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useTerminalStore } from '../terminal/terminalStore';
 
-export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview';
+export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks';
 
 export interface Tab {
   id: string;

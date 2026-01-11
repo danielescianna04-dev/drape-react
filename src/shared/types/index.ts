@@ -6,6 +6,7 @@ export enum TerminalItemType {
   LOADING = 'loading',
   USER_MESSAGE = 'user_message', // User message in chat (not a terminal command)
   BACKEND_LOG = 'backend_log', // Real-time backend log
+  TOOL_USE = 'tool_use', // Rich visualization for agent tool tools
 }
 
 export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system';
@@ -21,6 +22,13 @@ export interface TerminalItem {
   source?: TerminalSource; // Where the command originated from
   isThinking?: boolean; // Show "Thinking..." indicator for AI response placeholder
   isAgentProgress?: boolean; // Show agent progress UI for this item
+  agentEvents?: any[]; // Snapshot of tool events for this specific run
+  toolInfo?: {
+    tool: string;
+    input: any;
+    output?: any;
+    status: 'running' | 'completed' | 'error';
+  };
 }
 
 export interface ChatSession {

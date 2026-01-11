@@ -27,6 +27,7 @@ import { PreviewView } from '../../features/terminal/components/views/PreviewVie
 import { SupabaseView } from '../../features/terminal/components/views/SupabaseView';
 import { FigmaView } from '../../features/terminal/components/views/FigmaView';
 import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsView';
+import { TasksView } from '../../features/terminal/components/views/TasksView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
@@ -37,12 +38,12 @@ import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
-import { AgentExecutionView } from '../../shared/components/agent';
 import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
 import { TodoList } from '../../shared/components/molecules/TodoList';
 import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQuestionModal';
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
+import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -67,7 +68,8 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 // Available AI models with custom icon components
 const AI_MODELS = [
   { id: 'claude-sonnet-4', name: 'Claude 4', IconComponent: AnthropicIcon },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5', IconComponent: GoogleIcon },
+  { id: 'gemini-3-pro', name: 'Gemini 3.0', IconComponent: GoogleIcon },
+  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon },
 ];
 
 interface ChatPageProps {
@@ -122,7 +124,108 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     plan: agentPlan,
     reset: resetAgent
   } = useAgentStream(agentMode);
+  // const [activeAgentProgressId, setActiveAgentProgressId] = useState<string | null>(null); // REMOVED
   const [showPlanApproval, setShowPlanApproval] = useState(false);
+
+  // Track processed events to avoid duplicates in terminal
+  const processedEventIdsRef = useRef<Set<string>>(new Set());
+
+  // Effect to map agent events to terminal items (Old School Style)
+  useEffect(() => {
+    if (!agentEvents || agentEvents.length === 0) return;
+
+    agentEvents.forEach(event => {
+      if (processedEventIdsRef.current.has(event.id)) return;
+      processedEventIdsRef.current.add(event.id);
+
+      // Map 'tool_input' to a COMMAND item (simulating user executing a command)
+      // 1. TOOL INPUT -> Start a new Tool Item
+      if (event.type === 'tool_input') {
+        let input: any = {};
+        try {
+          input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
+        } catch (e) { input = {}; }
+
+        addTerminalItem({
+          id: event.id,
+          content: '', // Content is irrelevant for TOOL_USE as it uses toolInfo
+          type: TerminalItemType.TOOL_USE,
+          timestamp: new Date(event.timestamp),
+          toolInfo: {
+            tool: event.tool,
+            input: input,
+            status: 'running'
+          }
+        });
+      }
+
+      // 2. TOOL COMPLETE -> Update the existing Tool Item
+      else if (event.type === 'tool_complete') {
+        // Find the most recent 'running' tool item of this type
+        useTabStore.setState((state) => {
+          const tabs = state.tabs.map(t => {
+            if (t.id !== currentTab?.id) return t;
+
+            const items = [...(t.terminalItems || [])];
+            // Search backwards for the matching tool
+            for (let i = items.length - 1; i >= 0; i--) {
+              const item = items[i];
+              if (item.type === TerminalItemType.TOOL_USE &&
+                item.toolInfo?.tool === event.tool &&
+                item.toolInfo?.status === 'running') {
+
+                // Found it! Update it.
+                items[i] = {
+                  ...item,
+                  toolInfo: {
+                    ...item.toolInfo!,
+                    status: event.success ? 'completed' : 'error',
+                    output: event.result
+                  }
+                };
+                break;
+              }
+            }
+            return { ...t, terminalItems: items };
+          });
+          return { tabs };
+        });
+      }
+
+      // Handle generic messages
+      else if (event.type === 'message') {
+        addTerminalItem({
+          id: event.id,
+          content: event.message || (typeof event.content === 'string' ? event.content : JSON.stringify(event.content)),
+          type: TerminalItemType.OUTPUT, // Or OUTPUT, normally AI messages are just output text in this mode
+          timestamp: new Date(event.timestamp),
+        });
+      }
+
+      // Handle thinking (optional, maybe skip or show as comment)
+      else if (event.type === 'thinking') {
+        // Skip thinking in inline mode to reduce noise, or add as small log
+      }
+
+      // Handle completion
+      else if (event.type === 'complete') {
+        addTerminalItem({
+          id: event.id,
+          content: `✅ ${event.message || event.summary || 'Task Completed'}`,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(event.timestamp),
+        });
+      }
+      else if (event.type === 'error' || event.type === 'fatal_error') {
+        addTerminalItem({
+          id: event.id,
+          content: `❌ ${event.error || event.message}`,
+          type: TerminalItemType.ERROR,
+          timestamp: new Date(event.timestamp),
+        });
+      }
+    });
+  }, [agentEvents]);
 
   // New Claude Code components state
   const [currentTodos, setCurrentTodos] = useState<any[]>([]);
@@ -361,9 +464,46 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [agentEvents]);
 
-  // Replace AgentProgress with normal message when agent completes without tool calls
+  // Replace AgentProgress with normal message when agent completes
+  // Real-time agent message updates during streaming
   useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
+    if (agentStreaming && agentEvents.length > 0 && currentTab?.id) {
+      // Extract all messages
+      const messages = agentEvents
+        .filter(e => e.type === 'message' || e.type === 'response')
+        .map(e => (e as any).content || (e as any).message)
+        .filter(Boolean);
+
+      if (messages.length > 0) {
+        const latestMessage = messages[messages.length - 1];
+
+        // Update or create streaming message
+        useTabStore.setState((state) => ({
+          tabs: state.tabs.map(t =>
+            t.id === currentTab.id
+              ? {
+                ...t,
+                terminalItems: [
+                  ...(t.terminalItems?.filter(item => item.id !== 'agent-streaming') || []),
+                  {
+                    id: 'agent-streaming',
+                    content: latestMessage,
+                    type: TerminalItemType.OUTPUT,
+                    timestamp: new Date(),
+                    isThinking: agentEvents.some(e => e.type === 'thinking') && messages.length === 0,
+                  }
+                ]
+              }
+              : t
+          )
+        }));
+      }
+    }
+  }, [agentStreaming, agentEvents, currentTab?.id]);
+
+  // Effect for cache invalidation on agent completion
+  useEffect(() => {
+    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id && currentTab?.data?.projectId) {
       // Invalidate file cache when agent completes - triggers FileExplorer refresh
       const hadFileChanges = agentEvents.some(e =>
         e.type === 'tool_complete' &&
@@ -374,49 +514,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (hadFileChanges && projectId) {
         console.log('🔄 [ChatPage] Agent completed with file changes - invalidating cache');
         useFileCacheStore.getState().invalidateCache(projectId);
-      }
-
-      // Check if there were any tool calls
-      const hadToolCalls = agentEvents.some(e =>
-        e.type === 'tool_start' || e.type === 'tool_complete'
-      );
-
-      // If no tool calls, extract messages and replace AgentProgress with normal output
-      if (!hadToolCalls) {
-        const messages = agentEvents
-          .filter(e => e.type === 'message')
-          .map(e => (e as any).content || (e as any).message)
-          .filter(Boolean);
-
-        if (messages.length > 0) {
-          // Find if AgentProgress item exists
-          const hasAgentProgress = currentTab.terminalItems?.some(item => (item as any).isAgentProgress);
-
-          if (hasAgentProgress) {
-            // Get the last message
-            const finalMessage = messages[messages.length - 1];
-
-            // Replace AgentProgress with normal message in a single setState
-            useTabStore.setState((state) => ({
-              tabs: state.tabs.map(t =>
-                t.id === currentTab.id
-                  ? {
-                    ...t,
-                    terminalItems: [
-                      ...(t.terminalItems?.filter(item => !(item as any).isAgentProgress) || []),
-                      {
-                        id: `agent-msg-${Date.now()}`,
-                        content: finalMessage,
-                        type: TerminalItemType.OUTPUT,
-                        timestamp: new Date(),
-                      }
-                    ]
-                  }
-                  : t
-              )
-            }));
-          }
-        }
       }
     }
   }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId]);
@@ -790,18 +887,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setCurrentPrompt(userMessage);
       setCurrentProjectId(currentWorkstation.id);
 
-      // Start agent stream
-      startAgent(userMessage, currentWorkstation.id);
+      // Start agent stream with selected model
+      // Start agent stream with selected model
+      startAgent(userMessage, currentWorkstation.id, selectedModel);
 
-      // Add agent progress placeholder
-      const agentProgressId = `agent-progress-${Date.now()}`;
-      addTerminalItem({
-        id: agentProgressId,
-        content: '',
-        type: TerminalItemType.OUTPUT,
-        timestamp: new Date(),
-        isAgentProgress: true,
-      });
+      // (AgentProgress placeholder removed - events will be streamed as items)
+
+      setLoading(false);
+      return;
 
       setLoading(false);
       return;
@@ -1526,6 +1619,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <PreviewView tab={currentTab} />
         ) : currentTab?.type === 'envVars' ? (
           <EnvVarsView tab={currentTab} />
+        ) : currentTab?.type === 'tasks' ? (
+          <TasksView tab={currentTab} />
         ) : currentTab?.type === 'integration' ? (
           currentTab.data?.integration === 'supabase' ? (
             <SupabaseView tab={currentTab} />
@@ -1597,27 +1692,30 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       const isLastItem = index === filteredArray.length - 1;
                       const shouldShowLoading = isLastItem && isLoading;
 
-                      // Check if this is an agent progress item
+                      // Handle agent progress items (thinking, tools trace)
                       if ((item as any).isAgentProgress) {
+                        const isRunning = agentStreaming;
                         acc.push(
-                          <AgentExecutionView
-                            key={index}
-                            events={agentEvents}
-                            status={agentStreaming ? 'running' : 'complete'}
-                            currentTool={agentCurrentTool}
-                          />
+                          <View key={item.id} style={{ marginBottom: 16 }}>
+                            <AgentProgress
+                              events={agentEvents}
+                              status={isRunning ? 'running' : 'complete'}
+                              currentTool={isRunning ? agentCurrentTool : null}
+                            />
+                          </View>
                         );
-                      } else {
-                        acc.push(
-                          <TerminalItemComponent
-                            key={index}
-                            item={item}
-                            isNextItemOutput={isNextItemAI}
-                            outputItem={outputItem}
-                            isLoading={shouldShowLoading}
-                          />
-                        );
+                        return acc;
                       }
+
+                      acc.push(
+                        <TerminalItemComponent
+                          key={index}
+                          item={item}
+                          isNextItemOutput={isNextItemAI}
+                          outputItem={outputItem}
+                          isLoading={shouldShowLoading}
+                        />
+                      );
                       return acc;
                     }, [] as JSX.Element[]);
                   })()}

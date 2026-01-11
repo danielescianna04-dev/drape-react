@@ -50,13 +50,13 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
 
   const contentAnimatedStyle = useAnimatedStyle(() => ({
     transform: [
-      { 
+      {
         scale: interpolate(
-          animProgress.value, 
-          [0, 1], 
+          animProgress.value,
+          [0, 1],
           [1, SCALE],
           Extrapolate.CLAMP
-        ) 
+        )
       }
     ],
   }));
@@ -91,6 +91,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
       case 'file': return 'document-text';
       case 'chat': return 'chatbubbles';
       case 'settings': return 'settings';
+      case 'tasks': return 'list-circle';
       default: return 'folder';
     }
   };
@@ -126,7 +127,7 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
         >
           {tabs.map((tab, index) => {
             const isActive = tab.id === activeTabId;
-            
+
             return (
               <TouchableOpacity
                 key={tab.id}
@@ -144,14 +145,14 @@ export const MultitaskingPanel = ({ onClose, children }: Props) => {
                       {children(tab, true, { width: CARD_WIDTH, height: CARD_HEIGHT }, contentAnimatedStyle)}
                     </View>
                   )}
-                  
+
                   {!isActive && (
                     <View style={styles.inactiveCard}>
                       <Ionicons name={getTabIcon(tab.type)} size={48} color="rgba(255,255,255,0.3)" />
                     </View>
                   )}
-                  
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     onPress={(e) => handleCloseTab(e, tab.id)}
                     style={styles.closeButton}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

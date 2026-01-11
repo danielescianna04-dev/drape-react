@@ -13,6 +13,7 @@ import { useAgentStore } from '../../core/agent/agentStore';
 // SSE Event Types
 export type AgentEventType =
   | 'tool_start'
+  | 'tool_input'
   | 'tool_complete'
   | 'tool_error'
   | 'iteration_start'
@@ -71,7 +72,7 @@ interface UseAgentStreamReturn {
   error: string | null;
   plan: AgentPlan | null;
   summary: string | null;
-  start: (prompt: string, projectId: string) => void;
+  start: (prompt: string, projectId: string, model?: string) => void;
   stop: () => void;
   reset: () => void;
 }
@@ -132,7 +133,22 @@ export function useAgentStream(
     if (!event) return;
 
     // Update local state
-    setEvents((prev) => [...prev, event]);
+    setEvents((prev) => {
+      // If tool_input, try to merge with last tool_start of same tool
+      if (eventType === 'tool_input' && event.tool) {
+        const lastIndex = [...prev].reverse().findIndex(e => e.type === 'tool_start' && e.tool === event.tool);
+        if (lastIndex !== -1) {
+          const realIndex = prev.length - 1 - lastIndex;
+          const newEvents = [...prev];
+          newEvents[realIndex] = {
+            ...newEvents[realIndex],
+            input: event.input
+          };
+          return newEvents;
+        }
+      }
+      return [...prev, event];
+    });
 
     // Update current tool
     if (event.type === 'tool_start' && event.tool) {
@@ -204,8 +220,21 @@ export function useAgentStream(
   /**
    * Connect to SSE endpoint using EventSource - React Native compatible
    */
-  const connect = useCallback((prompt: string, projectId: string) => {
+  const connect = useCallback((prompt: string, projectId: string, model?: string) => {
     if (!enabled) return;
+
+    // Prevent multiple simultaneous connections
+    if (isRunning && eventSourceRef.current) {
+      console.log('[AgentStream] Already running, ignoring new connection request');
+      return;
+    }
+
+    // Close existing connection before creating new one
+    if (eventSourceRef.current) {
+      console.log('[AgentStream] Closing existing connection before reconnecting');
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
 
     try {
       // Determine endpoint based on mode
@@ -216,7 +245,12 @@ export function useAgentStream(
       };
 
       const endpoint = endpointMap[mode];
-      const url = `${config.apiUrl}${endpoint}?projectId=${encodeURIComponent(projectId)}&prompt=${encodeURIComponent(prompt)}`;
+      let url = `${config.apiUrl}${endpoint}?projectId=${encodeURIComponent(projectId)}&prompt=${encodeURIComponent(prompt)}`;
+
+      // Add model parameter if provided
+      if (model) {
+        url += `&model=${encodeURIComponent(model)}`;
+      }
 
       console.log(`[AgentStream] Connecting to ${mode} mode: ${url}`);
 
@@ -234,6 +268,7 @@ export function useAgentStream(
       // Handle all event types
       const eventTypes: AgentEventType[] = [
         'tool_start',
+        'tool_input',
         'tool_complete',
         'tool_error',
         'iteration_start',
@@ -267,14 +302,23 @@ export function useAgentStream(
 
       // Handle errors
       es.addEventListener('error', (error: any) => {
+        // If we're not running anymore (already got a 'done' or 'complete' event),
+        // just ignore any trailing socket errors
+        if (!isRunning) {
+          es.close();
+          return;
+        }
+
         console.error('[AgentStream] EventSource error:', error);
 
         // Close the connection
         es.close();
+        eventSourceRef.current = null;
 
         // Check if this was a network error or server error
         if (error.type === 'error' && error.message) {
           const errorMsg = `Stream error: ${error.message}`;
+          // Only show error if we didn't just finish
           setError(errorMsg);
           getAgentStore().setError(errorMsg);
           setIsRunning(false);
@@ -283,14 +327,14 @@ export function useAgentStream(
           return;
         }
 
-        // Attempt reconnection for network errors
+        // Attempt reconnection for network errors ONLY if we haven't finished
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
           console.log(`[AgentStream] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
 
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
-            connect(prompt, projectId);
+            connect(prompt, projectId, model);
           }, delay);
         } else {
           const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
@@ -311,7 +355,7 @@ export function useAgentStream(
       getAgentStore().stopAgent();
       onError?.(errorMsg);
     }
-  }, [enabled, mode, handleEvent, onError, getAgentStore]);
+  }, [enabled, mode, handleEvent, onError, getAgentStore, isRunning]);
 
   /**
    * Disconnect from SSE endpoint
@@ -336,7 +380,7 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string) => {
+  const start = useCallback((prompt: string, projectId: string, model?: string) => {
     // Reset state
     setEvents([]);
     setError(null);
@@ -346,8 +390,8 @@ export function useAgentStream(
     getAgentStore().reset();
     getAgentStore().setMode(mode);
 
-    // Connect
-    connect(prompt, projectId);
+    // Connect with selected model
+    connect(prompt, projectId, model);
   }, [mode, connect, getAgentStore]);
 
   /**

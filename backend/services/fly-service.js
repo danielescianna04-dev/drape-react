@@ -330,7 +330,7 @@ class FlyService {
      * @param {string} cwd - Working directory
      * @param {string} machineId - Fly machine ID for routing
      */
-    async exec(agentUrl, command, cwd = '/home/coder/project', machineId = null, timeout = 60000) {
+    async exec(agentUrl, command, cwd = '/home/coder/project', machineId = null, timeout = 60000, silent = false) {
         try {
             const headers = { 'Content-Type': 'application/json' };
             if (machineId) {
@@ -351,7 +351,9 @@ class FlyService {
                 stderr: response.data.stderr || ''
             };
         } catch (error) {
-            console.error(`❌ [Fly] Exec failed:`, error.message);
+            if (!silent) {
+                console.error(`❌ [Fly] Exec failed:`, error.message);
+            }
             throw error;
         }
     }

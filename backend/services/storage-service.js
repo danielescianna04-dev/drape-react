@@ -126,6 +126,33 @@ class StorageService {
     }
 
     /**
+     * Get all files with content (for bulk syncing)
+     * @param {string} projectId - Project ID
+     */
+    async getAllFilesWithContent(projectId) {
+        const collection = this._getFilesCollection(projectId);
+
+        try {
+            const snapshot = await collection.get();
+
+            const files = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    path: data.path,
+                    content: data.content,
+                    size: data.size || (data.content ? data.content.length : 0),
+                    updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
+                };
+            });
+
+            return { success: true, files };
+        } catch (error) {
+            console.error(`❌ [Storage] Get all files error:`, error.message);
+            return { success: false, files: [], error: error.message };
+        }
+    }
+
+    /**
      * Save multiple files at once (for cloning repos)
      * Uses chunked batches to handle Firestore's 500 operations limit
      * @param {string} projectId - Project ID

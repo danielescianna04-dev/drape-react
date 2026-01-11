@@ -6,15 +6,22 @@
  */
 
 const Redis = require('ioredis');
+const fs = require('fs');
+const path = require('path');
 
 class RedisService {
     constructor() {
         this.client = null;
-        this.memoryStore = new Map(); // Fallback
+        this.memoryStore = new Map(); // Primary store
         this.useRedis = false;
+        this.persistencePath = path.join(__dirname, '../vm-sessions.json');
 
-        if (process.env.REDIS_URL) {
-            console.log('📦 [Redis] Initializing connection...');
+        // Load persisted memory store if exists
+        this._loadFromDisk();
+
+        // Optional: Redis connection (disabled by default unless requested)
+        if (process.env.USE_REDIS === 'true' && process.env.REDIS_URL) {
+            console.log('📦 [Redis] Initializing connection (Explicitly Enabled)...');
             this.client = new Redis(process.env.REDIS_URL, {
                 retryStrategy: (times) => Math.min(times * 50, 2000),
                 maxRetriesPerRequest: 3
@@ -26,11 +33,41 @@ class RedisService {
             });
 
             this.client.on('error', (err) => {
-                console.warn(`⚠️ [Redis] Connection error: ${err.message}. Using in-memory fallback.`);
+                console.warn(`⚠️ [Redis] Connection error: ${err.message}. Using file-based fallback.`);
                 this.useRedis = false;
             });
         } else {
-            console.log('⚠️ [Redis] REDIS_URL not set. Using in-memory storage (State will be lost on restart).');
+            console.log('📦 [Persistence] Using file-based storage (vm-sessions.json).');
+        }
+    }
+
+    /**
+     * Load memory store from disk
+     */
+    _loadFromDisk() {
+        try {
+            if (fs.existsSync(this.persistencePath)) {
+                const data = fs.readFileSync(this.persistencePath, 'utf8');
+                const parsed = JSON.parse(data);
+                Object.entries(parsed).forEach(([key, val]) => {
+                    this.memoryStore.set(key, val);
+                });
+                console.log(`💾 [Redis] Loaded ${this.memoryStore.size} sessions from disk`);
+            }
+        } catch (e) {
+            console.warn('⚠️ [Redis] Failed to load from disk:', e.message);
+        }
+    }
+
+    /**
+     * Save memory store to disk
+     */
+    _saveToDisk() {
+        try {
+            const data = JSON.stringify(Object.fromEntries(this.memoryStore), null, 2);
+            fs.writeFileSync(this.persistencePath, data);
+        } catch (e) {
+            console.warn('⚠️ [Redis] Failed to save to disk:', e.message);
         }
     }
 
@@ -49,6 +86,7 @@ class RedisService {
             }
         }
         this.memoryStore.set(projectId, data);
+        this._saveToDisk();
         return true;
     }
 
@@ -79,6 +117,7 @@ class RedisService {
             }
         }
         this.memoryStore.delete(projectId);
+        this._saveToDisk();
         return true;
     }
 

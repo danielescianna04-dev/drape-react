@@ -16,6 +16,7 @@ const workspaceOrchestrator = require('./workspace-orchestrator');
 const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const TOOLS_CONFIG = require('./agent-tools.json');
+const { getSystemPrompt } = require('./system-prompt'); // Unified system prompt
 const { globSearch } = require('./tools/glob');
 const { grepSearch } = require('./tools/grep');
 const { launchSubAgent } = require('./tools/task');
@@ -84,8 +85,9 @@ const TOOLS_PLANNING = convertToolsFormat(
  * Manages the execution of AI tasks with tools
  */
 class AgentLoop {
-    constructor(projectId, mode = 'fast') {
+    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL) {
         this.projectId = projectId;
+        this.selectedModel = model;  // Model selected by user
         this.mode = mode;
         this.iteration = 0;
         this.isComplete = false;
@@ -95,6 +97,8 @@ class AgentLoop {
         this.lastPlan = null;
         this.vmInfo = null;
         this.projectContext = null;
+        this.lastToolCall = null;  // Track last tool+params used (JSON string)
+        this.sameToolCount = 0;    // Count consecutive same tool calls
         this.iterationsWithoutTools = 0;
     }
 
@@ -105,8 +109,30 @@ class AgentLoop {
         // Get or create VM for this project
         this.vmInfo = await workspaceOrchestrator.getOrCreateVM(this.projectId);
 
-        // Load project context
-        this.projectContext = await this._loadProjectContext();
+        // Check if project directory has files (including in subdirectories)
+        const fileCheckResult = await flyService.exec(
+            this.vmInfo.agentUrl,
+            '[ "$(ls -A /home/coder/project)" ] && echo "FOUND" || echo "EMPTY"',
+            '/home/coder/project',
+            this.vmInfo.machineId,
+            5000,
+            true // silent
+        );
+
+        const hasFiles = fileCheckResult.stdout.includes('FOUND');
+        if (!hasFiles) {
+            console.log(`⚠️ [AgentLoop] Project directory is empty on VM ${this.vmInfo.machineId}, forcing sync...`);
+            await workspaceOrchestrator.forceSync(this.projectId, this.vmInfo);
+        }
+
+        // Load project context and files
+        const [context, filesResult] = await Promise.all([
+            this._loadProjectContext(),
+            workspaceOrchestrator.listFiles(this.projectId)
+        ]);
+
+        this.projectContext = context;
+        this.projectFiles = filesResult?.files || [];
 
         return this;
     }
@@ -136,98 +162,26 @@ class AgentLoop {
     }
 
     /**
-     * Build unified system prompt
+     * Build unified system prompt using Claude Code official prompt
      */
     _buildSystemPrompt() {
-        let prompt = `You are DRAPE AI, an autonomous development agent inside the Drape IDE.
-
-## PRIMA DI TUTTO: CONTESTO
-
-${this.projectContext ? `
-## CONTESTO PROGETTO CARICATO
-- Nome: ${this.projectContext.name}
-- Descrizione: "${this.projectContext.description}"
+        // Build project context string if available
+        let projectContext = '';
+        if (this.projectContext) {
+            projectContext = `
+## Project Context (from .drape/project.json)
+- Name: ${this.projectContext.name}
+- Description: "${this.projectContext.description}"
 - Industry: ${this.projectContext.industry || 'general'}
-- Features: ${this.projectContext.features?.join(', ') || 'nessuna'}
-- Tecnologia: ${this.projectContext.technology || 'React + Vite'}
-
-USA QUESTO CONTESTO per tutte le risposte e il codice generato.
-` : `
-## NESSUN CONTESTO - CREALO!
-Se stai creando un nuovo progetto, PRIMA crea .drape/project.json con:
-{
-  "name": "nome-progetto",
-  "description": "descrizione utente",
-  "technology": "react",
-  "industry": "vape-shop|restaurant|e-commerce|portfolio|blog|general",
-  "features": ["cart", "products", ...],
-  "createdAt": "timestamp"
-}
-`}
-
-## TOOLS DISPONIBILI
-- write_file: Crea/sovrascrivi file
-- read_file: Leggi file
-- list_directory: Esplora progetto
-- run_command: Comandi shell (npm, git)
-- edit_file: Modifica file (search/replace)
-- signal_completion: OBBLIGATORIO quando finisci!
-
-## REGOLE CONTENUTO - CRITICHE!
-
-❌ MAI USARE:
-- "Product 1", "Lorem ipsum", "Description here"
-- "Company Name", "Feature 1", "https://example.com"
-
-✅ SEMPRE contenuto realistico per industry:
-
-VAPE SHOP:
-- Prodotti: "Elf Bar BC5000", "SMOK Nord 5", "Vaporesso XROS 3"
-- Categorie: "Dispositivi", "Liquidi", "Accessori", "Pod Mod"
-- Prezzi: €12.99, €24.50, €34.99
-- Design: Sfondo scuro (#0d0d0d), neon (#00ff88, #ff00ff)
-
-RISTORANTE:
-- Piatti italiani reali con descrizioni
-- Sezioni: Antipasti, Primi, Secondi, Dolci
-- Design: Toni caldi, elegante
-
-E-COMMERCE:
-- Prodotti realistici per categoria
-- Carrello, filtri, ordinamento
-
-PORTFOLIO:
-- Progetti reali, tecnologie, risultati
-
-## STRUTTURA PROGETTO (React + Vite)
-
-OBBLIGATORIO:
-1. .drape/project.json - SEMPRE PRIMA!
-2. index.html - alla ROOT (NON in public/)
-3. package.json - react, react-dom, react-router-dom
-4. vite.config.js - con host: '0.0.0.0', port: 3000
-5. src/main.jsx, src/App.jsx, src/index.css
-
-## FLUSSO
-
-NUOVO PROGETTO:
-1. Crea .drape/project.json
-2. Crea package.json, vite.config.js, index.html
-3. Crea src/main.jsx, App.jsx, index.css
-4. Crea componenti con CONTENUTO REALISTICO
-5. npm install
-6. signal_completion
-
-MODIFICHE:
-1. Leggi .drape/project.json (se esiste)
-2. Modifica mantenendo lo stile
-3. signal_completion
-
-## PRINCIPIO RALPH WIGGUM
-"Iteration > Perfection" - Muoviti veloce, correggi errori, itera.
+- Features: ${this.projectContext.features?.join(', ') || 'none'}
+- Technology: ${this.projectContext.technology || 'React + Vite'}
 `;
+        }
 
-        return prompt;
+        return getSystemPrompt({
+            projectContext,
+            projectFiles: this.projectFiles
+        });
     }
 
     /**
@@ -236,7 +190,10 @@ MODIFICHE:
     async _executeTool(toolName, input) {
         const { agentUrl, machineId } = this.vmInfo;
 
-        switch (toolName) {
+        // Clean tool name from potential model prefixes (e.g., 'default_api:')
+        const cleanName = toolName.replace(/^.*:/, '');
+
+        switch (cleanName) {
             case 'write_file': {
                 const filePath = input.path.replace(/^\.\//, '');
                 const cmd = `mkdir -p "$(dirname "/home/coder/project/${filePath}")" && cat > "/home/coder/project/${filePath}" << 'DRAPE_EOF'
@@ -508,8 +465,8 @@ DRAPE_EOF`;
             timestamp: new Date().toISOString()
         };
 
-        // Get AI provider
-        const { provider, modelId } = getProviderForModel(DEFAULT_AI_MODEL);
+        // Get AI provider using selected model
+        const { provider, modelId } = getProviderForModel(this.selectedModel);
         if (!provider.client && provider.isAvailable()) {
             await provider.initialize();
         }
@@ -544,7 +501,7 @@ DRAPE_EOF`;
                 const stream = provider.chatStream(messages, {
                     model: modelId,
                     maxTokens: 8000,
-                    temperature: 0.7,
+                    temperature: 0.1,  // Low temp for deterministic agent behavior
                     systemPrompt,
                     tools
                 });
@@ -572,6 +529,13 @@ DRAPE_EOF`;
 
                         yield {
                             type: 'tool_start',
+                            tool: toolName,
+                            input: toolInput,
+                            timestamp: new Date().toISOString()
+                        };
+
+                        yield {
+                            type: 'tool_input',
                             tool: toolName,
                             input: toolInput,
                             timestamp: new Date().toISOString()
@@ -665,12 +629,61 @@ DRAPE_EOF`;
                         }
                     }
 
-                    // Add assistant message with tool calls and results to history
-                    messages.push({ role: 'assistant', content: responseText, tool_calls: toolCalls });
-                    messages.push({ role: 'tool', content: JSON.stringify(toolResults) });
+                    // Track consecutive same tool calls to prevent infinite loops
+                    // Compare both tool name AND parameters to detect true loops
+                    const firstToolCall = toolCalls[0];
+                    const currentToolSignature = JSON.stringify({
+                        name: firstToolCall?.name,
+                        input: firstToolCall?.input
+                    });
+
+                    if (currentToolSignature === this.lastToolCall) {
+                        this.sameToolCount++;
+                    } else {
+                        this.sameToolCount = 1; // Reset if different tool or different params
+                        this.lastToolCall = currentToolSignature;
+                    }
+
+                    // Add assistant message with tool calls
+                    const assistantContent = [];
+                    if (responseText) assistantContent.push({ type: 'text', text: responseText });
+
+                    toolCalls.forEach(tc => {
+                        assistantContent.push({
+                            type: 'tool_use',
+                            id: tc.id,
+                            name: tc.name,
+                            input: tc.input,
+                            thoughtSignature: tc.thoughtSignature
+                        });
+                    });
+
+                    messages.push({ role: 'assistant', content: assistantContent });
+
+                    // Add tool results message
+                    const toolResultContent = toolResults.map(tr => ({
+                        type: 'tool_result',
+                        tool_use_id: tr.tool_use_id,
+                        content: tr.content
+                    }));
+
+                    messages.push({ role: 'user', content: toolResultContent });
+
+                    // Force AI to respond if it's calling the EXACT same tool with EXACT same params too many times
+                    if (this.sameToolCount >= 3) {
+                        const toolName = firstToolCall?.name;
+                        messages.push({
+                            role: 'user',
+                            content: `SYSTEM: You have called the "${toolName}" tool with the same parameters ${this.sameToolCount} times in a row, which appears to be a loop. You MUST now respond to the user explaining what you found. Do NOT call "${toolName}" with the same parameters again. Either use different parameters or respond with your findings.`
+                        });
+                    }
 
                 } else if (responseText.trim()) {
                     // AI responded with text only (no tools)
+                    // Reset same tool counter since we got a text response
+                    this.sameToolCount = 0;
+                    this.lastToolCall = null;
+
                     messages.push({ role: 'assistant', content: responseText });
 
                     yield {
@@ -682,8 +695,8 @@ DRAPE_EOF`;
                     // Increment counter for iterations without tools
                     this.iterationsWithoutTools++;
 
-                    // If agent responded without tools for 2 iterations, auto-complete
-                    if (this.iterationsWithoutTools >= 2) {
+                    // If agent responded without tools, auto-complete (avoid multiple responses)
+                    if (this.iterationsWithoutTools >= 1) {
                         this.isComplete = true;
                         yield {
                             type: 'complete',
@@ -709,6 +722,26 @@ DRAPE_EOF`;
                         };
                         return;
                     }
+                } else {
+                    // No tool calls AND no text response - this is an error
+                    // The AI must respond when it stops using tools
+                    yield {
+                        type: 'error',
+                        error: 'AI did not provide a response. An AI must always respond to the user when it stops using tools.',
+                        timestamp: new Date().toISOString()
+                    };
+
+                    // Force completion to avoid infinite loop
+                    this.isComplete = true;
+                    yield {
+                        type: 'complete',
+                        summary: 'Task completed without AI response',
+                        filesCreated: this.filesCreated,
+                        filesModified: this.filesModified,
+                        iterations: this.iteration,
+                        timestamp: new Date().toISOString()
+                    };
+                    break;
                 }
 
             } catch (aiError) {
@@ -736,7 +769,6 @@ DRAPE_EOF`;
             };
         }
 
-        yield { type: 'done', timestamp: new Date().toISOString() };
     }
 
     /**

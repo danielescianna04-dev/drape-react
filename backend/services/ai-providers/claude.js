@@ -186,7 +186,10 @@ class ClaudeProvider extends BaseAIProvider {
                         currentToolUse.input = {};
                     }
                     toolCalls.push(currentToolUse);
-                    yield { type: 'tool_call', toolCall: currentToolUse };
+                    yield {
+                        type: 'tool_use',
+                        ...currentToolUse
+                    };
                     currentToolUse = null;
                 }
             } else if (event.type === 'message_delta') {

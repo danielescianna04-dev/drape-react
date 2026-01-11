@@ -257,7 +257,7 @@ router.get('/status', (req, res) => {
  */
 const runFastHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -275,8 +275,8 @@ const runFastHandler = async (req, res) => {
     }, 15000);
 
     try {
-        // Create and initialize agent loop
-        const agent = new AgentLoop(projectId, 'fast');
+        // Create and initialize agent loop with selected model
+        const agent = new AgentLoop(projectId, 'fast', model);
         await agent.initialize();
 
         // Run the loop and stream events
@@ -316,7 +316,7 @@ router.post('/run/fast', runFastHandler);
  */
 const runPlanHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -333,8 +333,8 @@ const runPlanHandler = async (req, res) => {
     }, 15000);
 
     try {
-        // Create and initialize agent loop in planning mode
-        const agent = new AgentLoop(projectId, 'planning');
+        // Create and initialize agent loop in planning mode with selected model
+        const agent = new AgentLoop(projectId, 'planning', model);
         await agent.initialize();
 
         // Run the loop and stream events
@@ -348,6 +348,7 @@ const runPlanHandler = async (req, res) => {
                 approvedPlans.set(projectId, {
                     plan: event.plan,
                     prompt,
+                    model,  // Save selected model with plan
                     createdAt: new Date().toISOString()
                 });
             }
@@ -379,7 +380,7 @@ router.post('/run/plan', runPlanHandler);
  */
 const runExecuteHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { projectId } = req.method === 'GET' ? req.query : req.body;
+    const { projectId, model } = req.method === 'GET' ? req.query : req.body;
 
     if (!projectId) {
         return res.status(400).json({ error: 'projectId is required' });
@@ -402,8 +403,8 @@ const runExecuteHandler = async (req, res) => {
     }, 15000);
 
     try {
-        // Create agent in executing mode with the plan
-        const agent = new AgentLoop(projectId, 'executing');
+        // Create agent in executing mode with the plan and selected model
+        const agent = new AgentLoop(projectId, 'executing', model || planData.model);
         agent.lastPlan = planData.plan;
         await agent.initialize();
 

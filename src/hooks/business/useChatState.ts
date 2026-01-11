@@ -13,7 +13,7 @@ export const useChatState = (isCardMode: boolean) => {
   const [input, setInput] = useState('');
   const [isTerminalMode, setIsTerminalMode] = useState(true);
   const [forcedMode, setForcedMode] = useState<'terminal' | 'ai' | null>(null);
-  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4');
+  const [selectedModel, setSelectedModel] = useState('gemini-3-flash');
   const [conversationHistory, setConversationHistory] = useState<string[]>([]);
   const [scrollPaddingBottom, setScrollPaddingBottom] = useState(300);
 
