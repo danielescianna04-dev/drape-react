@@ -73,7 +73,6 @@ const AI_MODELS = [
   { id: 'claude-sonnet-4', name: 'Claude 4', IconComponent: AnthropicIcon },
   { id: 'gemini-3-pro', name: 'Gemini 3.0', IconComponent: GoogleIcon },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon },
-  { id: 'gemini-2.0-flash-thinking', name: 'Gemini 2.0 Flash Thinking', IconComponent: GoogleIcon },
 ];
 
 interface ChatPageProps {
