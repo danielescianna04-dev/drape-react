@@ -210,12 +210,7 @@ class GeminiProvider extends BaseAIProvider {
 
         const generationConfig = {
             temperature: options.temperature || 0.7,
-            maxOutputTokens: options.maxTokens || 8192,
-            // Enable thinking mode for Gemini models that support it
-            ...(options.model?.includes('thinking') && {
-                thinkingMode: 'enabled',
-                responseModalities: ['TEXT', 'THINKING']
-            })
+            maxOutputTokens: options.maxTokens || 8192
         };
 
         const config = {
@@ -247,11 +242,20 @@ class GeminiProvider extends BaseAIProvider {
         for await (const chunk of result.stream) {
             // DEBUG: Log entire chunk structure to see what Gemini sends
             if (process.env.DEBUG_GEMINI_THINKING) {
-                console.log('[Gemini Debug] Chunk:', JSON.stringify(chunk, null, 2));
+                console.log('[Gemini Debug] Full Chunk:', JSON.stringify(chunk, null, 2));
+                console.log('[Gemini Debug] Chunk keys:', Object.keys(chunk));
             }
 
             // Check for thinking/reasoning metadata
             const candidate = chunk.candidates?.[0];
+
+            // Log candidate keys for debugging
+            if (process.env.DEBUG_GEMINI_THINKING && candidate) {
+                console.log('[Gemini Debug] Candidate keys:', Object.keys(candidate));
+                if (candidate.content) {
+                    console.log('[Gemini Debug] Content keys:', Object.keys(candidate.content));
+                }
+            }
 
             // CRITICAL: Check for modelVersion or thinking indicators
             if (candidate) {
@@ -295,9 +299,20 @@ class GeminiProvider extends BaseAIProvider {
             // Check for thought parts in content.parts
             if (candidate?.content?.parts) {
                 for (const part of candidate.content.parts) {
-                    // Check multiple possible field names for thoughts
-                    const thoughtText = part.thought ||
-                                       part.thoughts ||
+                    // Check if this is a thinking part (Gemini 3.0 with includeThoughts: true)
+                    if (part.thought === true && part.text) {
+                        if (!hasStartedThinking) {
+                            hasStartedThinking = true;
+                            yield { type: 'thinking_start' };
+                        }
+                        thinkingContent += part.text;
+                        yield { type: 'thinking', text: part.text };
+                        console.log('[Gemini] Captured thinking:', part.text.substring(0, 100));
+                        continue; // Skip processing this part as regular text
+                    }
+
+                    // Fallback: Check multiple possible field names for thoughts
+                    const thoughtText = part.thoughts ||
                                        part.thinking ||
                                        part.thinkingProcess ||
                                        part.reasoning;
@@ -310,8 +325,7 @@ class GeminiProvider extends BaseAIProvider {
                         const thinkText = typeof thoughtText === 'string' ? thoughtText : JSON.stringify(thoughtText);
                         thinkingContent += thinkText;
                         yield { type: 'thinking', text: thinkText };
-
-                        console.log('[Gemini] Captured thinking:', thinkText.substring(0, 100));
+                        console.log('[Gemini] Captured thinking (fallback):', thinkText.substring(0, 100));
                     }
                 }
             }

@@ -607,21 +607,34 @@ DRAPE_EOF`;
         // Build current message (text + images if present)
         let currentMessage;
         if (images && images.length > 0) {
+            console.log(`[AgentLoop] Building multimodal message with ${images.length} images`);
+            console.log(`[AgentLoop] Image details:`, images.map(img => ({
+                hasBase64: !!img.base64,
+                base64Length: img.base64?.length || 0,
+                type: img.type
+            })));
+
             // Multimodal message with images
+            const imageContent = images.map(img => ({
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: img.type || 'image/jpeg',
+                    data: img.base64
+                }
+            }));
+
+            console.log(`[AgentLoop] Created ${imageContent.length} image content items`);
+
             currentMessage = {
                 role: 'user',
                 content: [
                     { type: 'text', text: prompt || 'Analizza queste immagini' },
-                    ...images.map(img => ({
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: 'image/jpeg', // Assume JPEG for now
-                            data: img.base64
-                        }
-                    }))
+                    ...imageContent
                 ]
             };
+
+            console.log(`[AgentLoop] Final message content parts: ${currentMessage.content.length}`);
         } else {
             // Text-only message
             currentMessage = { role: 'user', content: prompt };
