@@ -319,6 +319,28 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           <View style={styles.userMessageBlock}>
             <View style={styles.userMessageCard}>
               <Text style={styles.userMessage}>{item.content || ''}</Text>
+
+              {/* Render attached images */}
+              {item.images && item.images.length > 0 && (
+                <View style={styles.messageImagesContainer}>
+                  {item.images.map((image, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => {
+                        // TODO: Open image in full screen modal
+                        console.log('[TerminalItem] Image tapped:', image.uri);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Image
+                        source={{ uri: image.uri }}
+                        style={styles.messageImage}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
           </View>
         )}
@@ -1749,6 +1771,19 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     maxWidth: '75%',
     alignSelf: 'flex-end',
+  },
+  messageImagesContainer: {
+    marginTop: 8,
+    gap: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  messageImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   assistantMessageRow: {
     flexDirection: 'row',
