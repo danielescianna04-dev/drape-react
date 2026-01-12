@@ -104,6 +104,65 @@ class AgentLoop {
     }
 
     /**
+     * Estimate token count from text (rough approximation: 1 token ≈ 4 characters)
+     */
+    _estimateTokens(text) {
+        if (!text) return 0;
+        return Math.ceil(text.length / 4);
+    }
+
+    /**
+     * Calculate total tokens in conversation history
+     */
+    _calculateHistoryTokens(messages) {
+        return messages.reduce((total, msg) => {
+            const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            return total + this._estimateTokens(content);
+        }, 0);
+    }
+
+    /**
+     * Summarize old messages to keep context within token limits
+     * Claude Code style: automatic summarization when approaching context limit
+     */
+    async _summarizeHistory(messages, maxTokens = 100000) {
+        const totalTokens = this._calculateHistoryTokens(messages);
+
+        // If under 50% of limit, no need to summarize
+        if (totalTokens < maxTokens * 0.5) {
+            console.log(`[AgentLoop] History tokens: ${totalTokens}/${maxTokens} - no summarization needed`);
+            return messages;
+        }
+
+        console.log(`[AgentLoop] History tokens: ${totalTokens}/${maxTokens} - applying summarization`);
+
+        // Keep last 10 messages intact, summarize older ones
+        const recentMessages = messages.slice(-10);
+        const oldMessages = messages.slice(0, -10);
+
+        if (oldMessages.length === 0) {
+            return messages; // All messages are recent
+        }
+
+        // Build summary of old messages
+        const summaryText = oldMessages
+            .map(msg => `${msg.role}: ${typeof msg.content === 'string' ? msg.content.substring(0, 200) : JSON.stringify(msg.content).substring(0, 200)}`)
+            .join('\n');
+
+        const summarizedMessage = {
+            role: 'assistant',
+            content: `[Previous conversation summary - ${oldMessages.length} messages]:\n${summaryText}`
+        };
+
+        const summarizedHistory = [summarizedMessage, ...recentMessages];
+        const newTotalTokens = this._calculateHistoryTokens(summarizedHistory);
+
+        console.log(`[AgentLoop] Summarized ${oldMessages.length} messages. Tokens: ${totalTokens} → ${newTotalTokens}`);
+
+        return summarizedHistory;
+    }
+
+    /**
      * Initialize the agent loop
      */
     async initialize() {
@@ -534,9 +593,16 @@ DRAPE_EOF`;
 
         // Build messages - include conversation history if available
         const systemPrompt = this._buildSystemPrompt();
+
+        // Summarize history if it's getting too long (Claude Code style)
+        const historyToUse = await this._summarizeHistory(
+            this.conversationHistory.filter(msg => msg.role !== 'system'),
+            100000 // 100k tokens max before summarization
+        );
+
         const messages = [
-            // Add conversation history first (excluding any previous system prompts)
-            ...this.conversationHistory.filter(msg => msg.role !== 'system'),
+            // Add (possibly summarized) conversation history first
+            ...historyToUse,
             // Then add current prompt
             { role: 'user', content: prompt }
         ];

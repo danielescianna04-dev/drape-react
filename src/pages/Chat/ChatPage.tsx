@@ -1191,7 +1191,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setCurrentPrompt(userMessage);
       setCurrentProjectId(currentWorkstation.id);
 
-      // Build conversation history from terminal items (last 20 user/agent exchanges)
+      // Build conversation history from terminal items (ALL messages, no limits - Claude Code style)
+      // Filter only actual conversation (user messages and assistant responses, not tool outputs)
       const conversationHistory = (currentTab?.terminalItems || [])
         .filter(item =>
           item.type === TerminalItemType.USER_MESSAGE ||
@@ -1199,15 +1200,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             !item.content?.startsWith('Write ') && !item.content?.startsWith('Edit ') &&
             !item.content?.startsWith('Execute:') && !item.content?.startsWith('Glob ') &&
             !item.content?.startsWith('Web Search') && !item.content?.startsWith('Agent:') &&
-            !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question'))
+            !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question') &&
+            !item.content?.startsWith('List files'))
         )
-        .slice(-20) // Last 20 messages to keep context reasonable
+        // NO slice() - send ALL conversation history, backend will handle summarization if needed
         .map(item => ({
           role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
           content: item.content || ''
         }));
 
-      console.log(`[ChatPage] Including ${conversationHistory.length} previous messages in agent context`);
+      console.log(`[ChatPage] Including ${conversationHistory.length} messages in agent context (unlimited, Claude Code style)`);
 
       // Start agent stream with selected model and conversation history
       startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory);
