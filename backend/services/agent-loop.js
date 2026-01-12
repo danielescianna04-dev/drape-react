@@ -34,7 +34,6 @@ const { executeCode } = require('./tools/mcp-ide-execute-code');
 
 // Configuration
 const MAX_ITERATIONS = 50;
-const MAX_SAME_ERROR = 3;
 const TOOL_TIMEOUT = 60000; // 60 seconds
 
 // Convert tools from OpenAI format to standard format
@@ -91,7 +90,6 @@ class AgentLoop {
         this.mode = mode;
         this.iteration = 0;
         this.isComplete = false;
-        this.errorCounts = new Map();
         this.filesCreated = [];
         this.filesModified = [];
         this.lastPlan = null;
@@ -100,6 +98,8 @@ class AgentLoop {
         this.lastToolCall = null;  // Track last tool+params used (JSON string)
         this.sameToolCount = 0;    // Count consecutive same tool calls
         this.iterationsWithoutTools = 0;
+        this.consecutiveFailedWebSearches = 0; // Track failed web searches
+        this.consecutiveSuccessfulWebSearches = 0; // Track successful web searches
     }
 
     /**
@@ -249,8 +249,40 @@ DRAPE_EOF`;
                     return { success: false, error: 'Search text not found in file' };
                 }
 
-                // Replace and write
-                const newContent = readResult.stdout.replace(input.search, input.replace);
+                // Generate diff
+                const oldContent = readResult.stdout;
+                const newContent = oldContent.replace(input.search, input.replace);
+
+                // Find the line numbers where the change occurred
+                const oldLines = oldContent.split('\n');
+                const newLines = newContent.split('\n');
+
+                let diffLines = [];
+                let lineNum = 1;
+                for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+                    if (oldLines[i] !== newLines[i]) {
+                        // Show context (2 lines before and after)
+                        const startIdx = Math.max(0, i - 2);
+                        const endIdx = Math.min(newLines.length, i + 3);
+
+                        for (let j = startIdx; j < endIdx; j++) {
+                            const lineNumber = j + 1;
+                            if (j < oldLines.length && oldLines[j] !== newLines[j]) {
+                                // Line was removed
+                                diffLines.push(`- ${lineNumber}: ${oldLines[j]}`);
+                            }
+                            if (j < newLines.length && (j >= oldLines.length || oldLines[j] !== newLines[j])) {
+                                // Line was added
+                                diffLines.push(`+ ${lineNumber}: ${newLines[j]}`);
+                            } else if (oldLines[j] === newLines[j]) {
+                                // Context line (unchanged)
+                                diffLines.push(`  ${lineNumber}: ${newLines[j]}`);
+                            }
+                        }
+                        break;
+                    }
+                }
+
                 const writeCmd = `cat > "/home/coder/project/${filePath}" << 'DRAPE_EOF'
 ${newContent}
 DRAPE_EOF`;
@@ -259,7 +291,10 @@ DRAPE_EOF`;
                     return { success: false, error: writeResult.stderr };
                 }
                 this.filesModified.push(filePath);
-                return { success: true, message: `Edited ${filePath}` };
+                return {
+                    success: true,
+                    content: diffLines.length > 0 ? diffLines.join('\n') : 'File edited successfully'
+                };
             }
 
             case 'signal_completion': {
@@ -348,9 +383,34 @@ DRAPE_EOF`;
             }
 
             case 'launch_sub_agent': {
-                // Sub-agent handled differently - cannot be async generator in tool execution
-                // Will need to be refactored to support streaming
-                return { success: false, error: 'launch_sub_agent not yet supported in this context' };
+                try {
+                    // Launch sub-agent with the provided parameters
+                    const generator = launchSubAgent(
+                        input.subagent_type,
+                        input.prompt,
+                        input.description,
+                        input.model || this.selectedModel,
+                        this.projectId,
+                        input.run_in_background || false,
+                        null
+                    );
+
+                    // Consume the generator and collect result
+                    let finalResult = null;
+                    for await (const event of generator) {
+                        if (event.type === 'task_complete') {
+                            finalResult = event.result;
+                        }
+                    }
+
+                    return {
+                        success: true,
+                        result: finalResult || 'Sub-agent completed successfully',
+                        summary: finalResult
+                    };
+                } catch (error) {
+                    return { success: false, error: error.message };
+                }
             }
 
             case 'enter_plan_mode': {
@@ -575,19 +635,53 @@ DRAPE_EOF`;
                                 content: JSON.stringify(result)
                             });
 
-                            // Track errors for same-error detection
-                            if (!result.success) {
-                                const errorKey = `${toolName}:${result.error}`;
-                                const count = (this.errorCounts.get(errorKey) || 0) + 1;
-                                this.errorCounts.set(errorKey, count);
+                            // Track web searches
+                            if (toolName === 'web_search') {
+                                if (result.count === 0) {
+                                    // Failed search
+                                    this.consecutiveFailedWebSearches++;
+                                    this.consecutiveSuccessfulWebSearches = 0;
+                                    console.log(`[AgentLoop] Failed web search ${this.consecutiveFailedWebSearches}/5: "${toolInput.query}"`);
 
-                                if (count >= MAX_SAME_ERROR) {
-                                    yield {
-                                        type: 'error',
-                                        error: `Same error repeated ${count} times. Trying different approach.`,
-                                        timestamp: new Date().toISOString()
-                                    };
+                                    // After 5 consecutive failed searches, force completion
+                                    if (this.consecutiveFailedWebSearches >= 5) {
+                                        console.log('[AgentLoop] Stopping agent: 5 consecutive failed web searches');
+                                        this.isComplete = true;
+                                        yield {
+                                            type: 'complete',
+                                            summary: 'Unable to find the requested information online after multiple search attempts. Please try rephrasing your search query or providing more specific details.',
+                                            filesCreated: this.filesCreated,
+                                            filesModified: this.filesModified,
+                                            iterations: this.iteration,
+                                            timestamp: new Date().toISOString()
+                                        };
+                                        return;
+                                    }
+                                } else {
+                                    // Successful search
+                                    this.consecutiveFailedWebSearches = 0;
+                                    this.consecutiveSuccessfulWebSearches++;
+                                    console.log(`[AgentLoop] Successful web search ${this.consecutiveSuccessfulWebSearches}/3: "${toolInput.query}" (${result.count} results)`);
+
+                                    // After 3 consecutive successful searches, force completion
+                                    if (this.consecutiveSuccessfulWebSearches >= 3) {
+                                        console.log('[AgentLoop] Stopping agent: 3 consecutive successful web searches - should have enough information');
+                                        this.isComplete = true;
+                                        yield {
+                                            type: 'complete',
+                                            summary: 'Please provide your answer based on the search results found.',
+                                            filesCreated: this.filesCreated,
+                                            filesModified: this.filesModified,
+                                            iterations: this.iteration,
+                                            timestamp: new Date().toISOString()
+                                        };
+                                        return;
+                                    }
                                 }
+                            } else {
+                                // Reset counters if using a different tool
+                                this.consecutiveFailedWebSearches = 0;
+                                this.consecutiveSuccessfulWebSearches = 0;
                             }
 
                             // Check for completion

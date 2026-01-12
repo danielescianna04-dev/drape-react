@@ -130,7 +130,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Track processed events to avoid duplicates in terminal
   const processedEventIdsRef = useRef<Set<string>>(new Set());
 
-  // Effect to map agent events to terminal items (Old School Style)
+  // Track tool_start inputs to get filenames later (since tool_complete may not have input)
+  const toolInputsRef = useRef<Map<string, any>>(new Map());
+
+  // Effect to map agent events to terminal items (Old School Style - Restored UI)
   useEffect(() => {
     if (!agentEvents || agentEvents.length === 0) return;
 
@@ -138,84 +141,323 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (processedEventIdsRef.current.has(event.id)) return;
       processedEventIdsRef.current.add(event.id);
 
-      // Map 'tool_input' to a COMMAND item (simulating user executing a command)
-      // 1. TOOL INPUT -> Start a new Tool Item
-      if (event.type === 'tool_input') {
-        let input: any = {};
-        try {
-          input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
-        } catch (e) { input = {}; }
+      // 1. TOOL START -> Store input for later (input might be in tool_start after merge)
+      if (event.type === 'tool_start') {
+        console.log('[ChatPage] tool_start event:', event.tool, 'input:', event.input);
+
+        // Store the input for later use in tool_complete
+        if (event.tool && event.input) {
+          toolInputsRef.current.set(event.tool, event.input);
+        }
+      }
+
+      // 2. TOOL INPUT -> Show "Executing: tool_name" indicator (will be hidden by old UI)
+      else if (event.type === 'tool_input') {
+        console.log('[ChatPage] tool_input event:', event.tool, 'input:', event.input);
+
+        // Store the input for later use in tool_complete
+        if (event.tool && event.input) {
+          toolInputsRef.current.set(event.tool, event.input);
+        }
 
         addTerminalItem({
           id: event.id,
-          content: '', // Content is irrelevant for TOOL_USE as it uses toolInfo
-          type: TerminalItemType.TOOL_USE,
-          timestamp: new Date(event.timestamp),
-          toolInfo: {
-            tool: event.tool,
-            input: input,
-            status: 'running'
-          }
-        });
-      }
-
-      // 2. TOOL COMPLETE -> Update the existing Tool Item
-      else if (event.type === 'tool_complete') {
-        // Find the most recent 'running' tool item of this type
-        useTabStore.setState((state) => {
-          const tabs = state.tabs.map(t => {
-            if (t.id !== currentTab?.id) return t;
-
-            const items = [...(t.terminalItems || [])];
-            // Search backwards for the matching tool
-            for (let i = items.length - 1; i >= 0; i--) {
-              const item = items[i];
-              if (item.type === TerminalItemType.TOOL_USE &&
-                item.toolInfo?.tool === event.tool &&
-                item.toolInfo?.status === 'running') {
-
-                // Found it! Update it.
-                items[i] = {
-                  ...item,
-                  toolInfo: {
-                    ...item.toolInfo!,
-                    status: event.success ? 'completed' : 'error',
-                    output: event.result
-                  }
-                };
-                break;
-              }
-            }
-            return { ...t, terminalItems: items };
-          });
-          return { tabs };
-        });
-      }
-
-      // Handle generic messages
-      else if (event.type === 'message') {
-        addTerminalItem({
-          id: event.id,
-          content: event.message || (typeof event.content === 'string' ? event.content : JSON.stringify(event.content)),
-          type: TerminalItemType.OUTPUT, // Or OUTPUT, normally AI messages are just output text in this mode
-          timestamp: new Date(event.timestamp),
-        });
-      }
-
-      // Handle thinking (optional, maybe skip or show as comment)
-      else if (event.type === 'thinking') {
-        // Skip thinking in inline mode to reduce noise, or add as small log
-      }
-
-      // Handle completion
-      else if (event.type === 'complete') {
-        addTerminalItem({
-          id: event.id,
-          content: `✅ ${event.message || event.summary || 'Task Completed'}`,
+          content: `Executing: ${event.tool}`,
           type: TerminalItemType.OUTPUT,
           timestamp: new Date(event.timestamp),
         });
       }
+
+      // 3. TOOL COMPLETE -> Show formatted result (Old UI format)
+      // Filter out signal_completion as it's internal
+      else if (event.type === 'tool_complete' && event.tool !== 'signal_completion') {
+        console.log('[ChatPage] tool_complete event:', event.tool, 'input:', event.input, 'result type:', typeof event.result, 'result preview:', typeof event.result === 'string' ? event.result.substring(0, 100) : event.result);
+
+        let formattedOutput = '';
+
+        // Safely get result as string - handle object results with .content field
+        let result = '';
+        let hasError = false;
+        let errorMessage = '';
+        try {
+          if (event.result !== null && event.result !== undefined) {
+            // Check if result is an error object
+            if (typeof event.result === 'object' && event.result.success === false) {
+              hasError = true;
+              errorMessage = event.result.error || 'Unknown error';
+            }
+            // If result is an object with .content field, extract it
+            else if (typeof event.result === 'object' && event.result.content) {
+              result = typeof event.result.content === 'string'
+                ? event.result.content
+                : JSON.stringify(event.result.content);
+            }
+            // If result is an object with .message field (e.g., write_file), extract it
+            else if (typeof event.result === 'object' && event.result.message) {
+              result = event.result.message;
+            } else {
+              result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+            }
+          }
+        } catch (e) {
+          console.warn('[ChatPage] Failed to stringify tool result:', e);
+          result = '';
+        }
+
+        // If there's an error, we'll format it as normal but with error message
+        // The red dot will be shown automatically by TerminalItem based on "Error:" text
+
+        // Safely parse input - try event.input first, then fallback to stored input
+        let input: any = {};
+        try {
+          if (event.input) {
+            input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
+          } else if (event.tool && toolInputsRef.current.has(event.tool)) {
+            // Fallback to stored input from tool_input event
+            const storedInput = toolInputsRef.current.get(event.tool);
+            input = typeof storedInput === 'string' ? JSON.parse(storedInput) : storedInput;
+          }
+        } catch (e) {
+          console.warn('[ChatPage] Failed to parse tool input:', e);
+          input = {};
+        }
+
+        console.log('[ChatPage] Parsed input:', input, 'path:', input?.path, 'filePath:', input?.filePath);
+
+        // Format based on tool type (matching old UI expectations)
+        if (event.tool === 'read_file') {
+          const lines = result ? result.split('\n').length : 0;
+          const filePath = input?.path || input?.filePath || '?';
+          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
+          formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+        }
+        else if (event.tool === 'write_file') {
+          const filePath = input?.path || input?.filePath || '?';
+          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
+          formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
+        }
+        else if (event.tool === 'edit_file') {
+          const filePath = input?.path || input?.filePath || '?';
+          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
+          if (hasError) {
+            // Show error without the diff box
+            formattedOutput = `Edit ${fileName}\n└─ Error: ${errorMessage}`;
+          } else {
+            // Show success with diff
+            formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
+          }
+        }
+        else if (event.tool === 'write_file') {
+          const filePath = input?.path || input?.filePath || '?';
+          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
+
+          if (hasError) {
+            formattedOutput = `Write ${fileName}\n└─ Error: ${errorMessage}`;
+          } else {
+            // Try to extract bytes from result message
+            let bytes = 0;
+            try {
+              if (typeof result === 'string') {
+                const bytesMatch = result.match(/(\d+)\s+bytes/);
+                if (bytesMatch) {
+                  bytes = parseInt(bytesMatch[1]);
+                }
+              }
+            } catch (e) {
+              console.warn('[ChatPage] Failed to parse bytes:', e);
+            }
+
+            formattedOutput = bytes > 0
+              ? `Write ${fileName}\n└─ File created (${bytes} bytes)`
+              : `Write ${fileName}\n└─ File created`;
+          }
+        }
+        else if (event.tool === 'glob_files') {
+          const pattern = input?.pattern || '?';
+          const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+          formattedOutput = `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
+        }
+        else if (event.tool === 'list_directory' || event.tool === 'list_files') {
+          const dir = input?.directory || input?.path || '.';
+          const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+          formattedOutput = `List files in ${dir}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+        }
+        else if (event.tool === 'search_in_files' || event.tool === 'grep_search') {
+          const pattern = input?.pattern || input?.query || '?';
+          const matches = result ? result.split('\n').filter((l: string) => l.includes(':')).length : 0;
+          formattedOutput = `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+        }
+        else if (event.tool === 'run_command' || event.tool === 'execute_command') {
+          const cmd = input?.command || '?';
+
+          // Check if this is a curl command
+          if (cmd.startsWith('curl')) {
+            // Extract URL from curl command
+            const urlMatch = cmd.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
+            const url = urlMatch ? urlMatch[1] : cmd.substring(5).trim();
+
+            // Check for error in result
+            let exitCode = 0;
+            let stdout = '';
+            let stderr = '';
+
+            try {
+              // Try parsing event.result as object first
+              if (typeof event.result === 'object' && event.result !== null) {
+                exitCode = event.result.exitCode || 0;
+                stdout = event.result.stdout || '';
+                stderr = event.result.stderr || '';
+              }
+              // If result is a string (already stringified), try to parse it
+              else if (typeof result === 'string' && result.includes('exitCode')) {
+                const parsed = JSON.parse(result);
+                exitCode = parsed.exitCode || 0;
+                stdout = parsed.stdout || '';
+                stderr = parsed.stderr || '';
+              }
+            } catch (e) {
+              console.warn('[ChatPage] Failed to parse curl result:', e);
+              // If parsing fails, just show the raw result as stdout
+              stdout = result || '';
+            }
+
+            const hasError = exitCode !== 0 || stderr;
+            const status = hasError ? `Error (exit ${exitCode})` : 'Completed';
+
+            // Format: Execute: curl <url>\n└─ status\n\noutput (if any)
+            // Only include output if it's meaningful (not empty and not just JSON metadata)
+            let output = '';
+            if (stdout && stdout.trim()) {
+              output = `\n\n${stdout}`;
+            }
+            if (stderr && stderr.trim()) {
+              output += `\n\nError: ${stderr}`;
+            }
+
+            formattedOutput = `Execute: curl ${url}\n└─ ${status}${output}`;
+          } else {
+            // Regular command
+            formattedOutput = `Execute: ${cmd}\n└─ Command completed\n\n${result}`;
+          }
+        }
+        else if (event.tool === 'launch_sub_agent') {
+          // Parse sub-agent info
+          const agentType = input?.subagent_type || input?.type || 'agent';
+          const description = input?.description || input?.prompt?.substring(0, 60) || 'Task';
+
+          // Check for error
+          if (hasError) {
+            formattedOutput = `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
+          } else {
+            // Parse result if available
+            let summary = '';
+            try {
+              if (typeof event.result === 'object' && event.result.summary) {
+                summary = event.result.summary;
+              } else if (typeof result === 'string' && result.length > 0 && result !== 'undefined') {
+                summary = result;
+              }
+            } catch (e) {
+              console.warn('[ChatPage] Failed to parse sub-agent result:', e);
+            }
+
+            const summaryText = summary ? `\n\n${summary}` : '';
+            formattedOutput = `Agent: ${agentType}\n└─ Completed\n\n${description}${summaryText}`;
+          }
+        }
+        else if (event.tool === 'todo_write') {
+          // Parse todos from input
+          let todos = [];
+          try {
+            todos = input?.todos || [];
+          } catch (e) {
+            console.warn('[ChatPage] Failed to parse todos:', e);
+          }
+
+          const totalTasks = todos.length;
+          const completedTasks = todos.filter((t: any) => t.status === 'completed').length;
+          const inProgressTasks = todos.filter((t: any) => t.status === 'in_progress').length;
+
+          // Format todos as lines
+          const todoLines = todos.map((todo: any) => {
+            const status = todo.status || 'pending';
+            const content = todo.content || '';
+            return `${status}|${content}`;
+          }).join('\n');
+
+          formattedOutput = `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
+        }
+        else if (event.tool === 'web_search') {
+          // Parse web search results from event.result object
+          let searchResults: any[] = [];
+          let query = '';
+          let count = 0;
+
+          try {
+            // event.result is already an object for web_search
+            if (typeof event.result === 'object' && event.result.results) {
+              searchResults = event.result.results || [];
+              query = event.result.query || input?.query || '?';
+              count = event.result.count || searchResults.length;
+            }
+          } catch (e) {
+            console.warn('[ChatPage] Failed to parse web search results:', e);
+          }
+
+          // Format results as lines: title|url|snippet
+          const resultLines = searchResults.map((r: any) => {
+            const title = r.title || 'Untitled';
+            const url = r.url || '';
+            const snippet = r.snippet || '';
+            return `${title}|${url}|${snippet}`;
+          }).join('\n');
+
+          formattedOutput = `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${resultLines}`;
+        }
+        else if (event.tool === 'ask_user_question') {
+          // Parse ask_user_question results
+          let questions: any[] = [];
+          let answers: any = {};
+
+          try {
+            // Get questions from input
+            if (input?.questions) {
+              questions = input.questions;
+            }
+            // Get answers from result
+            if (typeof event.result === 'object' && event.result.answers) {
+              answers = event.result.answers;
+            }
+          } catch (e) {
+            console.warn('[ChatPage] Failed to parse ask_user_question:', e);
+          }
+
+          // Format as question|answer pairs
+          const qaLines = questions.map((q: any, index: number) => {
+            const question = q.question || '';
+            const answer = answers[`q${index}`] || 'No answer';
+            return `${question}|${answer}`;
+          }).join('\n');
+
+          formattedOutput = `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
+        }
+        else {
+          // Generic format for unknown tools
+          formattedOutput = `${event.tool}\n└─ Completed\n\n${result}`;
+        }
+
+        addTerminalItem({
+          id: `${event.id}-result`,
+          content: formattedOutput,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(event.timestamp),
+        });
+      }
+
+      // NOTE: message, thinking, complete are handled by the streaming useEffect below
+      // to avoid duplicates. Only tool events are handled here.
+
+      // Handle errors explicitly
       else if (event.type === 'error' || event.type === 'fatal_error') {
         addTerminalItem({
           id: event.id,
@@ -239,6 +481,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const agentFilesModified = useAgentStore((state) => state.filesModified);
   const setCurrentPrompt = useAgentStore((state) => state.setCurrentPrompt);
   const setCurrentProjectId = useAgentStore((state) => state.setCurrentProjectId);
+
+  // Ref to store a stable message ID for the current agent session
+  // This is set when the user sends a message, before starting the agent
+  const currentAgentMessageIdRef = useRef<string | null>(null);
 
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
@@ -467,39 +713,94 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Replace AgentProgress with normal message when agent completes
   // Real-time agent message updates during streaming
   useEffect(() => {
-    if (agentStreaming && agentEvents.length > 0 && currentTab?.id) {
-      // Extract all messages
+    if (agentEvents.length > 0 && currentTab?.id) {
+      // Extract all messages - try multiple possible fields
       const messages = agentEvents
-        .filter(e => e.type === 'message' || e.type === 'response')
-        .map(e => (e as any).content || (e as any).message)
+        .filter(e => e.type === 'message' || e.type === 'response' || e.type === 'complete')
+        .map(e => {
+          // For complete events, extract summary
+          if (e.type === 'complete') {
+            return (e as any).summary || (e as any).message || '';
+          }
+
+          // Try different possible message fields
+          const msg = (e as any).content || (e as any).message || (e as any).text || (e as any).output;
+          // If it's an object, try to extract text from it
+          if (typeof msg === 'object' && msg !== null) {
+            return msg.text || msg.content || msg.message || JSON.stringify(msg);
+          }
+          return msg;
+        })
         .filter(Boolean);
 
-      if (messages.length > 0) {
-        const latestMessage = messages[messages.length - 1];
+      const hasThinking = agentEvents.some(e => e.type === 'thinking');
+      const latestMessage = messages.length > 0 ? messages[messages.length - 1] : '';
+      const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
 
-        // Update or create streaming message
+      // Debug log
+      if (messages.length > 0) {
+        console.log('[ChatPage] Extracted messages:', messages.length, 'latest:', latestMessage.substring(0, 100));
+      }
+
+      // Create/update streaming message (even if empty to show thinking)
+      // Show thinking only if streaming AND no messages yet
+      // Once we have messages or it's complete, show the message
+      if (hasThinking || messages.length > 0) {
+        // Use the stable ID that was set when the user sent the message
+        // Always use the same ID throughout the streaming lifecycle
+        const messageId = currentAgentMessageIdRef.current || `agent-message-${Date.now()}`;
+
+        useTabStore.setState((state) => {
+          // Get the CURRENT tab from state (not from props which might be stale)
+          const currentTabFromState = state.tabs.find(t => t.id === currentTab.id);
+          if (!currentTabFromState) return state;
+
+          return {
+            tabs: state.tabs.map(t => {
+              if (t.id !== currentTab.id) return t;
+
+              // Keep all existing items except the streaming/message placeholders
+              const existingItems = t.terminalItems?.filter(item =>
+                item.id !== 'agent-streaming' && item.id !== messageId
+              ) || [];
+
+              // Check if the agent message already exists to avoid duplicates
+              const agentMessageExists = existingItems.some(item => item.id === messageId);
+
+              return {
+                ...t,
+                terminalItems: agentMessageExists
+                  ? existingItems
+                  : [
+                    ...existingItems,
+                    {
+                      id: messageId,
+                      content: latestMessage,
+                      type: TerminalItemType.OUTPUT,
+                      timestamp: new Date(),
+                      isThinking: agentStreaming && hasThinking && messages.length === 0,
+                    }
+                  ]
+              };
+            })
+          };
+        });
+      }
+      // If complete but no message was ever sent, remove the thinking placeholder
+      else if (isComplete && !agentStreaming) {
         useTabStore.setState((state) => ({
           tabs: state.tabs.map(t =>
             t.id === currentTab.id
               ? {
                 ...t,
-                terminalItems: [
-                  ...(t.terminalItems?.filter(item => item.id !== 'agent-streaming') || []),
-                  {
-                    id: 'agent-streaming',
-                    content: latestMessage,
-                    type: TerminalItemType.OUTPUT,
-                    timestamp: new Date(),
-                    isThinking: agentEvents.some(e => e.type === 'thinking') && messages.length === 0,
-                  }
-                ]
+                terminalItems: t.terminalItems?.filter(item => item.id !== 'agent-streaming') || []
               }
               : t
           )
         }));
       }
     }
-  }, [agentStreaming, agentEvents, currentTab?.id]);
+  }, [agentStreaming, agentEvents, currentTab?.id, agentCurrentPrompt]);
 
   // Effect for cache invalidation on agent completion
   useEffect(() => {
@@ -872,6 +1173,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // If agent mode AND we have a workstation, use agent stream
     if (isAgentMode && currentWorkstation?.id) {
+      // Generate a unique ID for this agent session BEFORE starting
+      currentAgentMessageIdRef.current = `agent-message-${Date.now()}`;
+
       // Add user message to terminal
       addTerminalItem({
         id: Date.now().toString(),
@@ -1709,7 +2013,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                       acc.push(
                         <TerminalItemComponent
-                          key={index}
+                          key={item.id}
                           item={item}
                           isNextItemOutput={isNextItemAI}
                           outputItem={outputItem}
