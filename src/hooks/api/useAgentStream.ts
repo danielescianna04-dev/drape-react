@@ -218,10 +218,10 @@ export function useAgentStream(
   }, [parseEvent, onEvent, onComplete, onError, getAgentStore]);
 
   /**
-   * Connect to SSE endpoint using POST fetch - sends full conversation history
+   * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
+  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
@@ -251,8 +251,8 @@ export function useAgentStream(
       console.log(`[AgentStream] Connecting to ${mode} mode with POST`);
       console.log(`[AgentStream] Conversation history: ${conversationHistory?.length || 0} messages`);
 
-      // Use POST with body to send full conversation history
-      const response = await fetch(url, {
+      // Use EventSource with POST method and body (react-native-sse supports this)
+      const es = new EventSource(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -266,91 +266,90 @@ export function useAgentStream(
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-
-      // Store a fake EventSource for compatibility with disconnect()
-      eventSourceRef.current = { close: () => { /* will be handled by reader cancel */ } } as any;
+      eventSourceRef.current = es;
       setIsRunning(true);
       getAgentStore().startAgent();
-      reconnectAttemptsRef.current = 0;
 
-      // Read SSE stream manually
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      // Handle all event types
+      const eventTypes: AgentEventType[] = [
+        'tool_start',
+        'tool_input',
+        'tool_complete',
+        'tool_error',
+        'iteration_start',
+        'thinking',
+        'message',
+        'plan_ready',
+        'complete',
+        'error',
+        'fatal_error',
+        'done',
+      ];
 
-      const processLine = (line: string) => {
-        if (line.startsWith('event: ')) {
-          const eventType = line.substring(7).trim() as AgentEventType;
-          return { type: 'event', value: eventType };
-        } else if (line.startsWith('data: ')) {
-          const data = line.substring(6);
-          return { type: 'data', value: data };
-        }
-        return null;
-      };
-
-      let currentEvent: AgentEventType | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          console.log('[AgentStream] Stream ended');
-          break;
-        }
-
-        // Decode chunk and add to buffer
-        buffer += decoder.decode(value, { stream: true });
-
-        // Process complete lines
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-
-          if (trimmedLine === '') {
-            // Empty line = end of event, dispatch it
-            if (currentEvent) {
-              // Event already handled by processLine
-              currentEvent = null;
-            }
-            continue;
+      eventTypes.forEach((eventType) => {
+        es.addEventListener(eventType as any, (event: any) => {
+          if (event.data && event.data !== '[DONE]') {
+            handleEvent(eventType, event.data);
           }
 
-          const parsed = processLine(trimmedLine);
-          if (!parsed) continue;
-
-          if (parsed.type === 'event') {
-            currentEvent = parsed.value;
-          } else if (parsed.type === 'data' && currentEvent) {
-            const data = parsed.value;
-
-            // Skip keep-alive comments
-            if (data.startsWith(':')) continue;
-
-            handleEvent(currentEvent, data);
-
-            // Handle stream end
-            if (currentEvent === 'done' || currentEvent === 'complete') {
-              reader.cancel();
-              setIsRunning(false);
-              getAgentStore().stopAgent();
-              return;
-            }
+          // Handle stream end
+          if (eventType === 'done' || eventType === 'complete') {
+            es.close();
           }
-        }
-      }
+        });
+      });
 
-      setIsRunning(false);
-      getAgentStore().stopAgent();
+      // Handle connection open
+      es.addEventListener('open', () => {
+        console.log(`[AgentStream] Connected to ${mode} mode`);
+        reconnectAttemptsRef.current = 0;
+      });
+
+      // Handle errors
+      es.addEventListener('error', (error: any) => {
+        // If we're not running anymore (already got a 'done' or 'complete' event),
+        // just ignore any trailing socket errors
+        if (!isRunning) {
+          es.close();
+          return;
+        }
+
+        console.error('[AgentStream] EventSource error:', error);
+
+        // Close the connection
+        es.close();
+        eventSourceRef.current = null;
+
+        // Check if this was a network error or server error
+        if (error.type === 'error' && error.message) {
+          const errorMsg = `Stream error: ${error.message}`;
+          // Only show error if we didn't just finish
+          setError(errorMsg);
+          getAgentStore().setError(errorMsg);
+          setIsRunning(false);
+          getAgentStore().stopAgent();
+          onError?.(errorMsg);
+          return;
+        }
+
+        // Attempt reconnection for network errors ONLY if we haven't finished
+        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+          console.log(`[AgentStream] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
+
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectAttemptsRef.current++;
+            connect(prompt, projectId, model, conversationHistory);
+          }, delay);
+        } else {
+          const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
+          setError(errorMsg);
+          getAgentStore().setError(errorMsg);
+          setIsRunning(false);
+          getAgentStore().stopAgent();
+          onError?.(errorMsg);
+        }
+      });
 
     } catch (e: any) {
       const errorMsg = `Failed to connect to agent: ${e instanceof Error ? e.message : String(e)}`;
@@ -360,17 +359,6 @@ export function useAgentStream(
       setIsRunning(false);
       getAgentStore().stopAgent();
       onError?.(errorMsg);
-
-      // Attempt reconnection for network errors
-      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-        console.log(`[AgentStream] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectAttemptsRef.current++;
-          connect(prompt, projectId, model, conversationHistory);
-        }, delay);
-      }
     }
   }, [enabled, mode, handleEvent, onError, getAgentStore, isRunning]);
 
