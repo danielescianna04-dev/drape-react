@@ -1147,8 +1147,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     return commandPrefixes.includes(firstWord) || text.includes('&&') || text.includes('|') || text.includes('>');
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (images?: {uri: string; base64?: string; type?: string}[]) => {
+    if ((!input.trim() && (!images || images.length === 0)) || isLoading) return;
 
     // Reset tool processing flag for new message
     isProcessingToolsRef.current = false;
@@ -1166,7 +1166,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Always dismiss keyboard when sending
     Keyboard.dismiss();
 
-    const userMessage = input.trim();
+    const userMessage = input.trim() || (images && images.length > 0 ? `[${images.length} immagini allegate]` : '');
 
     // Check if agent mode is active (fast or planning)
     const isAgentMode = agentMode === 'fast' || agentMode === 'planning';
@@ -1176,12 +1176,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Generate a unique ID for this agent session BEFORE starting
       currentAgentMessageIdRef.current = `agent-message-${Date.now()}`;
 
-      // Add user message to terminal
+      // Add user message to terminal with images
       addTerminalItem({
         id: Date.now().toString(),
         content: userMessage,
         type: TerminalItemType.USER_MESSAGE,
         timestamp: new Date(),
+        images: images, // Attach images to terminal item
       });
 
       setInput('');
@@ -1193,6 +1194,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // Build conversation history from terminal items (ALL messages, no limits - Claude Code style)
       // Filter only actual conversation (user messages and assistant responses, not tool outputs)
+      // Include images in history for multimodal context
       const conversationHistory = (currentTab?.terminalItems || [])
         .filter(item =>
           item.type === TerminalItemType.USER_MESSAGE ||
@@ -1204,15 +1206,25 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             !item.content?.startsWith('List files'))
         )
         // NO slice() - send ALL conversation history, backend will handle summarization if needed
-        .map(item => ({
-          role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
-          content: item.content || ''
-        }));
+        .map(item => {
+          const historyItem: any = {
+            role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
+            content: item.content || ''
+          };
+          // Include images if present (for multimodal context)
+          if (item.images && item.images.length > 0) {
+            historyItem.images = item.images.map(img => ({
+              base64: img.base64,
+              type: img.type || 'image'
+            }));
+          }
+          return historyItem;
+        });
 
       console.log(`[ChatPage] Including ${conversationHistory.length} messages in agent context (unlimited, Claude Code style)`);
 
-      // Start agent stream with selected model and conversation history
-      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory);
+      // Start agent stream with selected model, conversation history, and current images
+      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, images);
 
       // (AgentProgress placeholder removed - events will be streamed as items)
 

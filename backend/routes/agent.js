@@ -257,7 +257,7 @@ router.get('/status', (req, res) => {
  */
 const runFastHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model, conversationHistory } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory, images } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -272,6 +272,19 @@ const runFastHandler = async (req, res) => {
                 : conversationHistory;
         } catch (e) {
             console.warn('[Agent] Failed to parse conversationHistory:', e);
+        }
+    }
+
+    // Parse images if provided
+    let imagesList = [];
+    if (images) {
+        try {
+            imagesList = typeof images === 'string'
+                ? JSON.parse(images)
+                : images;
+            console.log(`[Agent] Received ${imagesList.length} images for multimodal processing`);
+        } catch (e) {
+            console.warn('[Agent] Failed to parse images:', e);
         }
     }
 
@@ -291,8 +304,8 @@ const runFastHandler = async (req, res) => {
         const agent = new AgentLoop(projectId, 'fast', model, history);
         await agent.initialize();
 
-        // Run the loop and stream events
-        for await (const event of agent.run(prompt)) {
+        // Run the loop and stream events (with images if provided)
+        for await (const event of agent.run(prompt, imagesList)) {
             // SSE format: event type + data
             res.write(`event: ${event.type}\n`);
             res.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -328,7 +341,7 @@ router.post('/run/fast', runFastHandler);
  */
 const runPlanHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model, conversationHistory } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory, images } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -343,6 +356,19 @@ const runPlanHandler = async (req, res) => {
                 : conversationHistory;
         } catch (e) {
             console.warn('[Agent] Failed to parse conversationHistory:', e);
+        }
+    }
+
+    // Parse images if provided
+    let imagesList = [];
+    if (images) {
+        try {
+            imagesList = typeof images === 'string'
+                ? JSON.parse(images)
+                : images;
+            console.log(`[Agent] Received ${imagesList.length} images for multimodal processing`);
+        } catch (e) {
+            console.warn('[Agent] Failed to parse images:', e);
         }
     }
 
@@ -361,8 +387,8 @@ const runPlanHandler = async (req, res) => {
         const agent = new AgentLoop(projectId, 'planning', model, history);
         await agent.initialize();
 
-        // Run the loop and stream events
-        for await (const event of agent.run(prompt)) {
+        // Run the loop and stream events (with images if provided)
+        for await (const event of agent.run(prompt, imagesList)) {
             // SSE format: event type + data
             res.write(`event: ${event.type}\n`);
             res.write(`data: ${JSON.stringify(event)}\n\n`);

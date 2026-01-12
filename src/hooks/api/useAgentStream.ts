@@ -72,7 +72,7 @@ interface UseAgentStreamReturn {
   error: string | null;
   plan: AgentPlan | null;
   summary: string | null;
-  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => void;
+  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => void;
   stop: () => void;
   reset: () => void;
 }
@@ -221,7 +221,7 @@ export function useAgentStream(
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
+  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => {
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
@@ -250,6 +250,7 @@ export function useAgentStream(
 
       console.log(`[AgentStream] Connecting to ${mode} mode with POST`);
       console.log(`[AgentStream] Conversation history: ${conversationHistory?.length || 0} messages`);
+      console.log(`[AgentStream] Images attached: ${images?.length || 0}`);
 
       // Use EventSource with POST method and body (react-native-sse supports this)
       const es = new EventSource(url, {
@@ -263,6 +264,7 @@ export function useAgentStream(
           projectId,
           model,
           conversationHistory: conversationHistory || [], // Send ALL history, no limits
+          images: images || [], // Send images for multimodal support
         }),
       });
 
@@ -339,7 +341,7 @@ export function useAgentStream(
 
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
-            connect(prompt, projectId, model, conversationHistory);
+            connect(prompt, projectId, model, conversationHistory, images);
           }, delay);
         } else {
           const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
@@ -385,7 +387,7 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
+  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => {
     // Reset state
     setEvents([]);
     setError(null);
@@ -395,8 +397,8 @@ export function useAgentStream(
     getAgentStore().reset();
     getAgentStore().setMode(mode);
 
-    // Connect with selected model and conversation history
-    connect(prompt, projectId, model, conversationHistory);
+    // Connect with selected model, conversation history, and images
+    connect(prompt, projectId, model, conversationHistory, images);
   }, [mode, connect, getAgentStore]);
 
   /**

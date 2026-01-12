@@ -572,9 +572,13 @@ DRAPE_EOF`;
 
     /**
      * Run the agent loop with SSE streaming
+     * @param {string|object} prompt - Text prompt or object with {text, images}
      */
-    async *run(prompt) {
+    async *run(prompt, images = []) {
         console.log(`\n🤖 [AgentLoop] Starting ${this.mode} mode for project ${this.projectId}`);
+        if (images && images.length > 0) {
+            console.log(`📷 [AgentLoop] Multimodal mode: ${images.length} images attached`);
+        }
 
         // Send start event
         yield {
@@ -600,11 +604,34 @@ DRAPE_EOF`;
             100000 // 100k tokens max before summarization
         );
 
+        // Build current message (text + images if present)
+        let currentMessage;
+        if (images && images.length > 0) {
+            // Multimodal message with images
+            currentMessage = {
+                role: 'user',
+                content: [
+                    { type: 'text', text: prompt || 'Analizza queste immagini' },
+                    ...images.map(img => ({
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/jpeg', // Assume JPEG for now
+                            data: img.base64
+                        }
+                    }))
+                ]
+            };
+        } else {
+            // Text-only message
+            currentMessage = { role: 'user', content: prompt };
+        }
+
         const messages = [
             // Add (possibly summarized) conversation history first
             ...historyToUse,
-            // Then add current prompt
-            { role: 'user', content: prompt }
+            // Then add current message (with images if present)
+            currentMessage
         ];
 
         // Get tools based on mode
