@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { TerminalItemType } from '../../shared/types';
 import { AppColors } from '../../shared/theme/colors';
@@ -489,6 +492,45 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
   const toolsSheetAnim = useSharedValue(SCREEN_HEIGHT);
+  const [recentPhotos, setRecentPhotos] = useState<{uri: string; originalUri?: string; id: string}[]>([]);
+  const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
+
+  // Selected images for input preview (from tools sheet)
+  const [selectedInputImages, setSelectedInputImages] = useState<{uri: string; base64: string; type: string}[]>([]);
+
+  // Load recent photos when sheet opens
+  const loadRecentPhotos = useCallback(async () => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('[ChatPage] Media library permission denied');
+        return;
+      }
+
+      const media = await MediaLibrary.getAssetsAsync({
+        first: 4,
+        mediaType: 'photo',
+        sortBy: ['creationTime'],
+      });
+
+      // Get asset info to obtain localUri for each photo
+      const photosWithLocalUri = await Promise.all(
+        media.assets.map(async (asset) => {
+          const assetInfo = await MediaLibrary.getAssetInfoAsync(asset.id);
+          return {
+            uri: assetInfo.localUri || asset.uri, // Use localUri for rendering
+            originalUri: asset.uri, // Keep original for reference
+            id: asset.id,
+          };
+        })
+      );
+
+      setRecentPhotos(photosWithLocalUri);
+      console.log(`[ChatPage] Loaded ${photosWithLocalUri.length} recent photos`);
+    } catch (error) {
+      console.error('[ChatPage] Failed to load recent photos:', error);
+    }
+  }, []);
 
   const toggleToolsSheet = useCallback(() => {
     if (showToolsSheet) {
@@ -498,17 +540,88 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         duration: 300,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1)
       });
-      setTimeout(() => setShowToolsSheet(false), 300);
+      setTimeout(() => {
+        setShowToolsSheet(false);
+        setSelectedPhotoIds(new Set()); // Clear selection when closing
+      }, 300);
     } else {
       if (hideSidebar) hideSidebar();
       if (setForceHideToggle) setForceHideToggle(true);
       setShowToolsSheet(true);
+      loadRecentPhotos(); // Load photos when opening
       toolsSheetAnim.value = withTiming(0, {
         duration: 400,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1)
       });
     }
-  }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle]);
+  }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle, loadRecentPhotos]);
+
+  const sendSelectedPhotos = useCallback(async () => {
+    console.log('[ChatPage] sendSelectedPhotos called - selectedPhotoIds:', selectedPhotoIds.size);
+    if (selectedPhotoIds.size === 0) return;
+
+    try {
+      // Get selected photos
+      const selectedPhotos = recentPhotos.filter(photo => selectedPhotoIds.has(photo.id));
+      console.log('[ChatPage] Selected photos to process:', selectedPhotos.length);
+
+      // Load photo data with base64
+      const photosWithBase64 = await Promise.all(
+        selectedPhotos.map(async (photo) => {
+          // Use ImageManipulator to handle ph:// URIs and save to file
+          // Use originalUri if available (for ph:// URIs), otherwise use uri
+          const sourceUri = photo.originalUri || photo.uri;
+
+          // Optimize images aggressively: resize to 512px and compress heavily
+          // AI models don't need high resolution - 512px is sufficient for understanding
+          const manipulatedImage = await ImageManipulator.manipulateAsync(
+            sourceUri,
+            [{ resize: { width: 512 } }],  // Resize to max 512px width (maintains aspect ratio)
+            { compress: 0.2, format: ImageManipulator.SaveFormat.JPEG }  // Aggressive compression (80% reduction)
+          );
+
+          // Read the file as base64
+          const base64 = await FileSystem.readAsStringAsync(manipulatedImage.uri, {
+            encoding: 'base64',
+          });
+
+          // Clean up temp file
+          await FileSystem.deleteAsync(manipulatedImage.uri, { idempotent: true });
+
+          // Return clean object with no circular references
+          return {
+            uri: String(photo.uri),
+            base64: String(base64),
+            type: 'image/jpeg'
+          };
+        })
+      );
+
+      // Add photos to input preview instead of sending directly (max 4)
+      console.log('[ChatPage] Adding photos to selectedInputImages:', photosWithBase64.length);
+      setSelectedInputImages(prev => {
+        const remainingSlots = 4 - prev.length;
+        if (remainingSlots <= 0) {
+          Alert.alert('Limite raggiunto', 'Puoi aggiungere massimo 4 immagini');
+          return prev;
+        }
+        const imagesToAdd = photosWithBase64.slice(0, remainingSlots);
+        if (photosWithBase64.length > remainingSlots) {
+          Alert.alert('Limite raggiunto', `Aggiunte solo ${remainingSlots} immagini. Massimo 4 immagini totali.`);
+        }
+        const newImages = [...prev, ...imagesToAdd];
+        console.log('[ChatPage] selectedInputImages updated - total:', newImages.length);
+        return newImages;
+      });
+
+      // Close the sheet
+      toggleToolsSheet();
+
+      console.log(`[ChatPage] Added ${photosWithBase64.length} photos to input preview`);
+    } catch (error) {
+      console.error('[ChatPage] Error selecting photos:', error);
+    }
+  }, [selectedPhotoIds, recentPhotos, toggleToolsSheet]);
 
   const toolsSheetStyle = useAnimatedStyle(() => {
     const sidebarLeft = interpolate(
@@ -1148,7 +1261,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   };
 
   const handleSend = async (images?: {uri: string; base64?: string; type?: string}[]) => {
-    if ((!input.trim() && (!images || images.length === 0)) || isLoading) return;
+    // Use passed images or fall back to selectedInputImages
+    console.log('[ChatPage] handleSend - selectedInputImages.length:', selectedInputImages.length);
+    console.log('[ChatPage] handleSend - images param:', images);
+    const imagesToSend = (images && images.length > 0) ? images : (selectedInputImages.length > 0 ? selectedInputImages : undefined);
+
+    console.log('[ChatPage] handleSend called - input:', input.trim(), 'imagesToSend:', imagesToSend?.length, 'isLoading:', isLoading);
+
+    if ((!input.trim() && (!imagesToSend || imagesToSend.length === 0)) || isLoading) {
+      console.log('[ChatPage] handleSend blocked - no content or loading');
+      return;
+    }
 
     // Reset tool processing flag for new message
     isProcessingToolsRef.current = false;
@@ -1166,7 +1289,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Always dismiss keyboard when sending
     Keyboard.dismiss();
 
-    const userMessage = input.trim() || (images && images.length > 0 ? `[${images.length} immagini allegate]` : '');
+    const userMessage = input.trim() || (imagesToSend && imagesToSend.length > 0 ? `[${imagesToSend.length} immagini allegate]` : '');
 
     // Check if agent mode is active (fast or planning)
     const isAgentMode = agentMode === 'fast' || agentMode === 'planning';
@@ -1177,15 +1300,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       currentAgentMessageIdRef.current = `agent-message-${Date.now()}`;
 
       // Add user message to terminal with images
+      // Clean images to avoid circular references in store
+      const cleanImagesForStore = imagesToSend ? imagesToSend.map(img => ({
+        uri: String(img.uri || ''),
+        base64: String(img.base64 || ''),
+        type: String(img.type || 'image/jpeg')
+      })) : undefined;
+
       addTerminalItem({
         id: Date.now().toString(),
         content: userMessage,
         type: TerminalItemType.USER_MESSAGE,
         timestamp: new Date(),
-        images: images, // Attach images to terminal item
+        images: cleanImagesForStore, // Attach cleaned images to terminal item
       });
 
       setInput('');
+      setSelectedInputImages([]); // Clear images after sending
       setLoading(true);
 
       // Store the prompt in the agent store
@@ -1213,10 +1344,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           };
           // Include images if present (for multimodal context)
           if (item.images && item.images.length > 0) {
-            historyItem.images = item.images.map(img => ({
-              base64: img.base64,
-              type: img.type || 'image'
-            }));
+            historyItem.images = item.images.map(img => {
+              // Create clean object to avoid circular references
+              return {
+                base64: String(img.base64 || ''),
+                type: String(img.type || 'image/jpeg')
+              };
+            });
           }
           return historyItem;
         });
@@ -1224,7 +1358,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       console.log(`[ChatPage] Including ${conversationHistory.length} messages in agent context (unlimited, Claude Code style)`);
 
       // Start agent stream with selected model, conversation history, and current images
-      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, images);
+      // Clean images to avoid circular references
+      const cleanImages = imagesToSend ? imagesToSend.map(img => ({
+        base64: String(img.base64 || ''),
+        type: String(img.type || 'image/jpeg')
+      })) : undefined;
+
+      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, cleanImages);
 
       // (AgentProgress placeholder removed - events will be streamed as items)
 
@@ -2087,9 +2227,38 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               isCardMode && styles.inputWrapperCardMode,
               inputWrapperAnimatedStyle
             ]}>
+              {/* Compact Image Preview Bar - above input */}
+              {selectedInputImages.length > 0 && (
+                <View style={styles.compactImageBar}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.compactImageBarContent}
+                  >
+                    {selectedInputImages.map((img, index) => (
+                      <View key={index} style={styles.compactImageItem}>
+                        <Image source={{ uri: img.uri }} style={styles.compactImage} />
+                        <TouchableOpacity
+                          style={styles.compactRemoveButton}
+                          onPress={() => {
+                            setSelectedInputImages(prev => prev.filter((_, i) => i !== index));
+                          }}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="close-circle" size={16} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <LinearGradient
                 colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
-                style={styles.inputGradient}
+                style={[
+                  styles.inputGradient,
+                  selectedInputImages.length > 0 && styles.inputGradientWithImages
+                ]}
                 onLayout={(e) => {
                   // Aggiorna l'altezza del widget quando cambia
                   const newHeight = e.nativeEvent.layout.height;
@@ -2210,14 +2379,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   {/* Send Button */}
                   <TouchableOpacity
                     onPress={handleSend}
-                    disabled={!input.trim() || isLoading}
+                    disabled={(!input.trim() && selectedInputImages.length === 0) || isLoading}
                     style={styles.sendButton}
                     activeOpacity={0.7}
                   >
                     <Ionicons
                       name="arrow-up-circle"
                       size={32}
-                      color={input.trim() && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
+                      color={(input.trim() || selectedInputImages.length > 0) && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
                     />
                   </TouchableOpacity>
 
@@ -2254,7 +2423,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                             {model.name}
                           </SafeText>
                           {selectedModel === model.id && (
-                            <Ionicons name="checkmark" size={14} color={AppColors.primary} />
+                            <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
                           )}
                         </TouchableOpacity>
                       );
@@ -2298,15 +2467,55 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
                 <Ionicons name="camera-outline" size={20} color="#fff" />
               </TouchableOpacity>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <View key={i} style={styles.galleryCard}>
-                  <View style={styles.galleryImagePlaceholder}>
-                    <Ionicons name="image-outline" size={18} color="rgba(255,255,255,0.2)" />
-                  </View>
-                  <View style={styles.gallerySelectCircle} />
-                </View>
+              {recentPhotos.map((photo) => (
+                <TouchableOpacity
+                  key={photo.id}
+                  style={styles.galleryCard}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setSelectedPhotoIds(prev => {
+                      const newSet = new Set(prev);
+                      if (newSet.has(photo.id)) {
+                        // Always allow deselection
+                        newSet.delete(photo.id);
+                      } else {
+                        // Check total limit (already selected + new selection)
+                        const totalImages = selectedInputImages.length + newSet.size;
+                        if (totalImages < 4) {
+                          newSet.add(photo.id);
+                        } else {
+                          // Show warning if trying to select more than 4 total
+                          Alert.alert('Limite raggiunto', 'Puoi selezionare massimo 4 immagini in totale');
+                        }
+                      }
+                      return newSet;
+                    });
+                  }}
+                >
+                  <Image source={{ uri: photo.uri }} style={styles.galleryImage} />
+                  <View style={[
+                    styles.gallerySelectCircle,
+                    selectedPhotoIds.has(photo.id) && styles.gallerySelectCircleActive
+                  ]} />
+                </TouchableOpacity>
               ))}
             </ScrollView>
+
+            {/* Send Selected Photos Button */}
+            {selectedPhotoIds.size > 0 && (
+              <View style={styles.sendPhotosButtonContainer}>
+                <TouchableOpacity
+                  style={styles.sendPhotosButton}
+                  onPress={sendSelectedPhotos}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                  <Text style={styles.sendPhotosButtonText}>
+                    Seleziona {selectedPhotoIds.size} {selectedPhotoIds.size === 1 ? 'foto' : 'foto'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.sheetDivider} />
 
@@ -2416,6 +2625,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     pointerEvents: 'box-none',
+    overflow: 'visible',
   },
   inputWrapperCentered: {
     top: 100,
@@ -2509,6 +2719,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.4)',
     backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  galleryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gallerySelectCircleActive: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  sendPhotosButtonContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  sendPhotosButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#007AFF',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    gap: 8,
+  },
+  sendPhotosButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
   },
   sheetDivider: {
     height: 1,
@@ -2651,8 +2889,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
     maxHeight: 250, // Limite massimo dell'intero widget
     marginHorizontal: 16, // Margine orizzontale per restringere la card
-    overflow: 'visible',
+    overflow: 'hidden',
     zIndex: 10,
+  },
+  inputGradientWithImages: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderTopWidth: 0,
   },
   topControls: {
     height: 40,
@@ -2730,32 +2973,31 @@ const styles = StyleSheet.create({
     bottom: '100%',
     right: 16,
     marginBottom: 8,
-    backgroundColor: '#242428',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-    minWidth: 150,
+    backgroundColor: '#1a1a1e',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    minWidth: 200,
     zIndex: 999,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
+    shadowOpacity: 0.7,
+    shadowRadius: 20,
     elevation: 20,
+    overflow: 'hidden',
   },
   modelDropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     gap: 10,
-    borderRadius: 10,
-    marginHorizontal: 2,
+    borderRadius: 12,
+    marginHorizontal: 3,
     marginVertical: 2,
   },
   modelDropdownItemActive: {
-    backgroundColor: AppColors.primaryAlpha.a15,
+    backgroundColor: AppColors.primaryAlpha.a25,
   },
   modelDropdownText: {
     flex: 1,
@@ -2765,7 +3007,78 @@ const styles = StyleSheet.create({
   },
   modelDropdownTextActive: {
     color: AppColors.white.full,
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  imagePreviewContainer: {
+    maxHeight: 100,
+    paddingVertical: 8,
+  },
+  imagePreviewContent: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  imagePreviewItem: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 10,
+  },
+  // Compact image preview bar (sopra l'input)
+  compactImageBar: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 16,
+    right: 16,
+    backgroundColor: `${AppColors.dark.surface}F2`,
+    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1.5,
+    borderLeftWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderBottomWidth: 0,
+    borderColor: AppColors.primaryAlpha.a15,
+  },
+  compactImageBarContent: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  compactImageItem: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  compactImage: {
+    width: '100%',
+    height: '100%',
+  },
+  compactRemoveButton: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   mainInputRow: {
     flexDirection: 'row',

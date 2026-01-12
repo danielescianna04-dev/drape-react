@@ -320,12 +320,17 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
         {item.type === ItemType.USER_MESSAGE && (
           <View style={styles.userMessageBlock}>
-            <View style={styles.userMessageCard}>
-              <Text style={styles.userMessage}>{item.content || ''}</Text>
-
+            <View style={[
+              styles.userMessageCard,
+              (item.images?.length === 2 || item.images?.length === 4) && styles.userMessageCardWide
+            ]}>
               {/* Render attached images */}
               {item.images && item.images.length > 0 && (
-                <View style={styles.messageImagesContainer}>
+                <View style={[
+                  styles.messageImagesContainer,
+                  item.images.length === 2 && styles.messageImagesContainerDouble,
+                  item.images.length === 4 && styles.messageImagesContainerQuad
+                ]}>
                   {item.images.map((image, index) => (
                     <TouchableOpacity
                       key={index}
@@ -337,13 +342,19 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                     >
                       <Image
                         source={{ uri: image.uri }}
-                        style={styles.messageImage}
+                        style={[
+                          styles.messageImage,
+                          item.images.length === 2 && styles.messageImageDouble,
+                          item.images.length === 4 && styles.messageImageQuad
+                        ]}
                         resizeMode="cover"
                       />
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
+
+              <Text style={styles.userMessage}>{item.content || ''}</Text>
             </View>
           </View>
         )}
@@ -1782,11 +1793,20 @@ const styles = StyleSheet.create({
     maxWidth: '75%',
     alignSelf: 'flex-end',
   },
+  userMessageCardWide: {
+    maxWidth: '85%',
+  },
   messageImagesContainer: {
-    marginTop: 8,
+    marginBottom: 8,
     gap: 8,
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  messageImagesContainerDouble: {
+    justifyContent: 'flex-start',
+  },
+  messageImagesContainerQuad: {
+    justifyContent: 'flex-start',
   },
   messageImage: {
     width: 120,
@@ -1794,6 +1814,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  messageImageDouble: {
+    width: 90,
+    height: 90,
+    borderRadius: 10,
+  },
+  messageImageQuad: {
+    width: 100,
+    height: 100,
+    borderRadius: 10,
   },
   assistantMessageRow: {
     flexDirection: 'row',
