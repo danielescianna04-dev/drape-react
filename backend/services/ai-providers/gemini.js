@@ -95,10 +95,37 @@ class GeminiProvider extends BaseAIProvider {
                                 }
                             };
                         });
-                        // Use 'user' role for function responses in modern Gemini SDK, 
+                        // Use 'user' role for function responses in modern Gemini SDK,
                         // but the parts contain functionResponse. Some SDK versions prefer 'function'.
                         // We'll use 'function' as it's the most explicit for the wire format.
                         history.push({ role: 'function', parts });
+                        continue;
+                    }
+
+                    // Handle multimodal content (text + images)
+                    const parts = [];
+                    let imageCount = 0;
+                    for (const item of msg.content) {
+                        if (item.type === 'text') {
+                            parts.push({ text: item.text });
+                        } else if (item.type === 'image') {
+                            // Convert Anthropic format to Gemini format
+                            const base64Data = item.source?.data;
+                            if (base64Data) {
+                                imageCount++;
+                                console.log(`[Gemini] Adding image ${imageCount}, base64 length: ${base64Data.length}, format: ${item.source?.media_type}`);
+                                parts.push({
+                                    inlineData: {
+                                        mimeType: item.source?.media_type || 'image/jpeg',
+                                        data: base64Data
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    if (parts.length > 0) {
+                        console.log(`[Gemini] Formatted multimodal message with ${parts.length} parts (${imageCount} images)`);
+                        history.push({ role: 'user', parts });
                         continue;
                     }
                 }
@@ -209,10 +236,48 @@ class GeminiProvider extends BaseAIProvider {
 
         let fullText = '';
         let toolCalls = [];
+        let hasStartedThinking = false;
+        let thinkingContent = '';
 
         for await (const chunk of result.stream) {
+            // Check for thinking/reasoning metadata
+            const candidate = chunk.candidates?.[0];
+
+            // Gemini 2.0 thinking mode: extract thoughts from grounding metadata or special parts
+            if (candidate?.groundingMetadata?.webSearchQueries || candidate?.groundingMetadata?.retrievalQueries) {
+                if (!hasStartedThinking) {
+                    hasStartedThinking = true;
+                    yield { type: 'thinking_start' };
+                }
+                const queries = candidate.groundingMetadata.webSearchQueries || candidate.groundingMetadata.retrievalQueries;
+                if (queries && queries.length > 0) {
+                    const thinkText = `Searching: ${queries.join(', ')}`;
+                    thinkingContent += thinkText + '\n';
+                    yield { type: 'thinking', text: thinkText };
+                }
+            }
+
+            // Check for thought parts (if Gemini adds them in future)
+            if (candidate?.content?.parts) {
+                for (const part of candidate.content.parts) {
+                    if (part.thought || part.thinking) {
+                        if (!hasStartedThinking) {
+                            hasStartedThinking = true;
+                            yield { type: 'thinking_start' };
+                        }
+                        const thinkText = part.thought || part.thinking;
+                        thinkingContent += thinkText;
+                        yield { type: 'thinking', text: thinkText };
+                    }
+                }
+            }
+
             const text = chunk.text();
             if (text) {
+                if (hasStartedThinking && thinkingContent) {
+                    yield { type: 'thinking_end' };
+                    hasStartedThinking = false;
+                }
                 fullText += text;
                 yield { type: 'text', text };
             }
@@ -238,6 +303,11 @@ class GeminiProvider extends BaseAIProvider {
                     }
                 }
             }
+        }
+
+        // End thinking if it was started but never ended
+        if (hasStartedThinking) {
+            yield { type: 'thinking_end' };
         }
 
         yield { type: 'done', fullText, toolCalls };
