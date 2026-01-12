@@ -57,7 +57,7 @@ const AI_MODELS = {
     },
     'gemini-3-flash': {
         provider: 'gemini',
-        modelId: 'gemini-3-flash-preview',
+        modelId: 'gemini-3-flash-preview',  // Gemini 3.0 Flash with multimodal and function calling
         displayName: 'Gemini 3.0 Flash',
         supportsTools: true,
         maxTokens: 8192
@@ -82,6 +82,13 @@ const AI_MODELS = {
         displayName: 'Gemini Exp 1206',
         supportsTools: true,
         maxTokens: 8192
+    },
+    'gemini-2.0-flash-thinking': {
+        provider: 'gemini',
+        modelId: 'gemini-2.0-flash-thinking-exp-01-21',
+        displayName: 'Gemini 2.0 Flash Thinking',
+        supportsTools: true,
+        maxTokens: 32768
     },
 
     // Claude Models
