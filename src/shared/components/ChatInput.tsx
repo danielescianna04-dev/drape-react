@@ -1,15 +1,22 @@
-import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { AppColors } from '../theme/colors';
 import { IconButton } from './atoms';
+import * as ImagePicker from 'expo-image-picker';
+
+export interface ChatImage {
+  uri: string;
+  type: string;
+  base64?: string;
+}
 
 interface ChatInputProps {
   value: string;
   onChangeText: (text: string) => void;
-  onSend: () => void;
+  onSend: (images?: ChatImage[]) => void;
   placeholder?: string;
   disabled?: boolean;
   showTopBar?: boolean;
@@ -43,9 +50,52 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   forcedMode = null,
   leftAccessory,
 }) => {
+  const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
+
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (onToggleMode) {
       onToggleMode(mode);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('È necessario il permesso per accedere alla galleria');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        base64: true, // Get base64 for sending to API
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages: ChatImage[] = result.assets.map(asset => ({
+          uri: asset.uri,
+          type: asset.type || 'image',
+          base64: asset.base64,
+        }));
+        setSelectedImages(prev => [...prev, ...newImages]);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setSelectedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSend = () => {
+    if (selectedImages.length > 0 || value.trim()) {
+      onSend(selectedImages.length > 0 ? selectedImages : undefined);
+      setSelectedImages([]); // Clear images after sending
     }
   };
 
@@ -107,6 +157,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </View>
           )}
 
+          {/* Image Preview */}
+          {selectedImages.length > 0 && (
+            <View style={styles.imagePreviewContainer}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewScroll}>
+                {selectedImages.map((image, index) => (
+                  <View key={index} style={styles.imagePreviewWrapper}>
+                    <Image source={{ uri: image.uri }} style={styles.imagePreview} />
+                    <TouchableOpacity
+                      style={styles.imageRemoveButton}
+                      onPress={() => removeImage(index)}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {/* Main Input Row */}
           <View style={styles.mainInputRow}>
             {/* Left Accessory Button (e.g., inspect mode) */}
@@ -124,16 +193,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </View>
             )}
 
-            {/* Tools Button - only show when showTopBar is true */}
-            {showTopBar && (
-              <IconButton
-                iconName="add"
-                size={24}
-                color="#8A8A8A"
-                onPress={() => { }}
-                style={styles.toolsButton}
-              />
-            )}
+            {/* Image Picker Button */}
+            <IconButton
+              iconName="image-outline"
+              size={24}
+              color={selectedImages.length > 0 ? AppColors.primary : "#8A8A8A"}
+              onPress={pickImage}
+              style={styles.toolsButton}
+            />
 
             {/* Input Field */}
             <TextInput
@@ -144,7 +211,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               placeholderTextColor="#6E7681"
               multiline
               maxLength={1000}
-              onSubmitEditing={onSend}
+              onSubmitEditing={handleSend}
               keyboardAppearance="dark"
               autoCapitalize="none"
               autoCorrect={false}
@@ -153,19 +220,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             {/* Send Button */}
             <TouchableOpacity
-              onPress={onSend}
-              disabled={!value.trim() || disabled || isExecuting}
+              onPress={handleSend}
+              disabled={(!value.trim() && selectedImages.length === 0) || disabled || isExecuting}
               style={styles.sendButton}
               activeOpacity={0.7}
             >
               <View style={[
                 styles.sendButtonInner,
-                value.trim() && !disabled && !isExecuting && styles.sendButtonActive
+                (value.trim() || selectedImages.length > 0) && !disabled && !isExecuting && styles.sendButtonActive
               ]}>
                 <Ionicons
                   name="arrow-up"
                   size={18}
-                  color={value.trim() && !disabled && !isExecuting ? '#fff' : '#555'}
+                  color={(value.trim() || selectedImages.length > 0) && !disabled && !isExecuting ? '#fff' : '#555'}
                 />
               </View>
             </TouchableOpacity>
@@ -348,5 +415,34 @@ const styles = StyleSheet.create({
     maxHeight: 150, // Altezza massima del campo di input
     lineHeight: 20,
     textAlignVertical: 'top', // Allinea il testo in alto nel campo
+  },
+  imagePreviewContainer: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  imagePreviewScroll: {
+    gap: 8,
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageRemoveButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 10,
   },
 });

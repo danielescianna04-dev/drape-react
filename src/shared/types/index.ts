@@ -23,6 +23,11 @@ export interface TerminalItem {
   isThinking?: boolean; // Show "Thinking..." indicator for AI response placeholder
   isAgentProgress?: boolean; // Show agent progress UI for this item
   agentEvents?: any[]; // Snapshot of tool events for this specific run
+  images?: {
+    uri: string;
+    base64?: string;
+    type?: string;
+  }[]; // Attached images (for multimodal support)
   toolInfo?: {
     tool: string;
     input: any;
