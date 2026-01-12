@@ -21,6 +21,7 @@ export interface TerminalItem {
   previewUrl?: string;
   source?: TerminalSource; // Where the command originated from
   isThinking?: boolean; // Show "Thinking..." indicator for AI response placeholder
+  thinkingContent?: string; // The actual thinking text from Claude (extended thinking)
   isAgentProgress?: boolean; // Show agent progress UI for this item
   agentEvents?: any[]; // Snapshot of tool events for this specific run
   images?: {

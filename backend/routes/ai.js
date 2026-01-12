@@ -273,6 +273,12 @@ router.post('/chat', asyncHandler(async (req, res) => {
                 if (chunk.type === 'text') {
                     fullText += chunk.text;
                     res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+                } else if (chunk.type === 'thinking_start') {
+                    res.write(`data: ${JSON.stringify({ type: 'thinking_start' })}\n\n`);
+                } else if (chunk.type === 'thinking') {
+                    res.write(`data: ${JSON.stringify({ type: 'thinking', text: chunk.text })}\n\n`);
+                } else if (chunk.type === 'thinking_end') {
+                    res.write(`data: ${JSON.stringify({ type: 'thinking_end' })}\n\n`);
                 } else if (chunk.type === 'tool_start') {
                     res.write(`data: ${JSON.stringify({ type: 'tool_start', tool: chunk.name })}\n\n`);
                 } else if (chunk.type === 'tool_call') {

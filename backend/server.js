@@ -322,6 +322,12 @@ async function handleWebSocketChat(ws, payload) {
                     if (chunk.type === 'text') {
                         fullText += chunk.text;
                         ws.send(JSON.stringify({ type: 'text', text: chunk.text }));
+                    } else if (chunk.type === 'thinking_start') {
+                        ws.send(JSON.stringify({ type: 'thinking_start' }));
+                    } else if (chunk.type === 'thinking') {
+                        ws.send(JSON.stringify({ type: 'thinking', text: chunk.text }));
+                    } else if (chunk.type === 'thinking_end') {
+                        ws.send(JSON.stringify({ type: 'thinking_end' }));
                     } else if (chunk.type === 'tool_start') {
                         ws.send(JSON.stringify({ type: 'tool_start', tool: chunk.name }));
                     } else if (chunk.type === 'tool_call') {

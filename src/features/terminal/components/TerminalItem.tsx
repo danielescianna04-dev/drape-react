@@ -1077,10 +1077,23 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   ) : (
                   <View style={styles.assistantMessageContent}>
                     {showThinking && !item.content ? (
-                      <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
+                      <View>
+                        <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
+                        {item.thinkingContent && (
+                          <Text style={styles.thinkingText}>{item.thinkingContent}</Text>
+                        )}
+                      </View>
                     ) : (
-                      <View style={{ overflow: 'hidden', flex: 1 }}>
-                        <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
+                      <View>
+                        {item.thinkingContent && (
+                          <View style={styles.thinkingContainer}>
+                            <Text style={styles.thinkingLabel}>Thinking:</Text>
+                            <Text style={styles.thinkingText}>{item.thinkingContent}</Text>
+                          </View>
+                        )}
+                        <View style={{ overflow: 'hidden', flex: 1 }}>
+                          <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
+                        </View>
                       </View>
                     )}
                   </View>
@@ -1840,6 +1853,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: 'rgba(255, 255, 255, 0.5)',
     fontStyle: 'italic',
+  },
+  thinkingContainer: {
+    marginTop: 8,
+    marginBottom: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  thinkingLabel: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  thinkingText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontStyle: 'italic',
+    lineHeight: 20,
+    marginTop: 4,
   },
   userName: {
     fontSize: 13,

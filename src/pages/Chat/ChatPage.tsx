@@ -1515,6 +1515,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           xhr.timeout = 60000; // 60 second timeout
 
           let buffer = '';
+          let thinkingContent = '';
+          let isThinking = false;
 
           xhr.onprogress = () => {
             const newData = xhr.responseText.substring(buffer.length);
@@ -1803,6 +1805,64 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       type: TerminalItemType.OUTPUT,
                       timestamp: new Date(),
                     });
+                  }
+                  // Handle thinking start
+                  else if (parsed.type === 'thinking_start') {
+                    isThinking = true;
+                    thinkingContent = '';
+                    // Update UI to show thinking indicator
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: true, thinkingContent: '' }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
+                  }
+                  // Handle thinking content
+                  else if (parsed.type === 'thinking' && parsed.text) {
+                    thinkingContent += parsed.text;
+                    // Update UI with thinking content
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: true, thinkingContent }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
+                  }
+                  // Handle thinking end
+                  else if (parsed.type === 'thinking_end') {
+                    isThinking = false;
+                    // Keep thinking content visible but mark as ended
+                    useTabStore.setState((state) => ({
+                      tabs: state.tabs.map(t =>
+                        t.id === tab.id
+                          ? {
+                            ...t,
+                            terminalItems: t.terminalItems?.map(item =>
+                              item.id === streamingMessageId
+                                ? { ...item, isThinking: false, thinkingContent }
+                                : item
+                            )
+                          }
+                          : t
+                      )
+                    }));
                   }
                   // Handle text responses
                   else if (parsed.text) {
