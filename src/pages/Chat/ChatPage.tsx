@@ -1191,9 +1191,26 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setCurrentPrompt(userMessage);
       setCurrentProjectId(currentWorkstation.id);
 
-      // Start agent stream with selected model
-      // Start agent stream with selected model
-      startAgent(userMessage, currentWorkstation.id, selectedModel);
+      // Build conversation history from terminal items (last 20 user/agent exchanges)
+      const conversationHistory = (currentTab?.terminalItems || [])
+        .filter(item =>
+          item.type === TerminalItemType.USER_MESSAGE ||
+          (item.type === TerminalItemType.OUTPUT && !item.content?.startsWith('Read ') &&
+            !item.content?.startsWith('Write ') && !item.content?.startsWith('Edit ') &&
+            !item.content?.startsWith('Execute:') && !item.content?.startsWith('Glob ') &&
+            !item.content?.startsWith('Web Search') && !item.content?.startsWith('Agent:') &&
+            !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question'))
+        )
+        .slice(-20) // Last 20 messages to keep context reasonable
+        .map(item => ({
+          role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
+          content: item.content || ''
+        }));
+
+      console.log(`[ChatPage] Including ${conversationHistory.length} previous messages in agent context`);
+
+      // Start agent stream with selected model and conversation history
+      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory);
 
       // (AgentProgress placeholder removed - events will be streamed as items)
 

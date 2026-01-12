@@ -257,10 +257,22 @@ router.get('/status', (req, res) => {
  */
 const runFastHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
+    }
+
+    // Parse conversation history if provided (might be JSON string from GET)
+    let history = [];
+    if (conversationHistory) {
+        try {
+            history = typeof conversationHistory === 'string'
+                ? JSON.parse(conversationHistory)
+                : conversationHistory;
+        } catch (e) {
+            console.warn('[Agent] Failed to parse conversationHistory:', e);
+        }
     }
 
     // Set up SSE
@@ -275,8 +287,8 @@ const runFastHandler = async (req, res) => {
     }, 15000);
 
     try {
-        // Create and initialize agent loop with selected model
-        const agent = new AgentLoop(projectId, 'fast', model);
+        // Create and initialize agent loop with selected model and conversation history
+        const agent = new AgentLoop(projectId, 'fast', model, history);
         await agent.initialize();
 
         // Run the loop and stream events
@@ -316,10 +328,22 @@ router.post('/run/fast', runFastHandler);
  */
 const runPlanHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
+    }
+
+    // Parse conversation history if provided (might be JSON string from GET)
+    let history = [];
+    if (conversationHistory) {
+        try {
+            history = typeof conversationHistory === 'string'
+                ? JSON.parse(conversationHistory)
+                : conversationHistory;
+        } catch (e) {
+            console.warn('[Agent] Failed to parse conversationHistory:', e);
+        }
     }
 
     // Set up SSE
@@ -333,8 +357,8 @@ const runPlanHandler = async (req, res) => {
     }, 15000);
 
     try {
-        // Create and initialize agent loop in planning mode with selected model
-        const agent = new AgentLoop(projectId, 'planning', model);
+        // Create and initialize agent loop in planning mode with selected model and conversation history
+        const agent = new AgentLoop(projectId, 'planning', model, history);
         await agent.initialize();
 
         // Run the loop and stream events

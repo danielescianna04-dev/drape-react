@@ -84,7 +84,7 @@ const TOOLS_PLANNING = convertToolsFormat(
  * Manages the execution of AI tasks with tools
  */
 class AgentLoop {
-    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL) {
+    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL, conversationHistory = []) {
         this.projectId = projectId;
         this.selectedModel = model;  // Model selected by user
         this.mode = mode;
@@ -100,6 +100,7 @@ class AgentLoop {
         this.iterationsWithoutTools = 0;
         this.consecutiveFailedWebSearches = 0; // Track failed web searches
         this.consecutiveSuccessfulWebSearches = 0; // Track successful web searches
+        this.conversationHistory = conversationHistory; // Previous conversation messages
     }
 
     /**
@@ -531,9 +532,12 @@ DRAPE_EOF`;
             await provider.initialize();
         }
 
-        // Build messages
+        // Build messages - include conversation history if available
         const systemPrompt = this._buildSystemPrompt();
         const messages = [
+            // Add conversation history first (excluding any previous system prompts)
+            ...this.conversationHistory.filter(msg => msg.role !== 'system'),
+            // Then add current prompt
             { role: 'user', content: prompt }
         ];
 

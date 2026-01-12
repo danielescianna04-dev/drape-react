@@ -72,7 +72,7 @@ interface UseAgentStreamReturn {
   error: string | null;
   plan: AgentPlan | null;
   summary: string | null;
-  start: (prompt: string, projectId: string, model?: string) => void;
+  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => void;
   stop: () => void;
   reset: () => void;
 }
@@ -220,7 +220,7 @@ export function useAgentStream(
   /**
    * Connect to SSE endpoint using EventSource - React Native compatible
    */
-  const connect = useCallback((prompt: string, projectId: string, model?: string) => {
+  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
@@ -250,6 +250,13 @@ export function useAgentStream(
       // Add model parameter if provided
       if (model) {
         url += `&model=${encodeURIComponent(model)}`;
+      }
+
+      // Add conversation history if provided (limit to last 10 messages to avoid URL length issues)
+      if (conversationHistory && conversationHistory.length > 0) {
+        const recentHistory = conversationHistory.slice(-10);
+        url += `&conversationHistory=${encodeURIComponent(JSON.stringify(recentHistory))}`;
+        console.log(`[AgentStream] Including ${recentHistory.length} previous messages in context`);
       }
 
       console.log(`[AgentStream] Connecting to ${mode} mode: ${url}`);
@@ -380,7 +387,7 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string, model?: string) => {
+  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[]) => {
     // Reset state
     setEvents([]);
     setError(null);
@@ -390,8 +397,8 @@ export function useAgentStream(
     getAgentStore().reset();
     getAgentStore().setMode(mode);
 
-    // Connect with selected model
-    connect(prompt, projectId, model);
+    // Connect with selected model and conversation history
+    connect(prompt, projectId, model, conversationHistory);
   }, [mode, connect, getAgentStore]);
 
   /**
