@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
 import { TerminalItem as TerminalItemType, TerminalItemType as ItemType } from '../../../shared/types';
 import { AppColors } from '../../../shared/theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,6 +7,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import Markdown from 'react-native-markdown-display';
 import { CollapsibleCodeBlock } from './CollapsibleCodeBlock';
+import { ImageViewerModal } from '../../../shared/components/modals/ImageViewerModal';
 
 const colors = AppColors.dark;
 
@@ -25,6 +26,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const [isExpanded, setIsExpanded] = useState(false);
   const [dotCount, setDotCount] = useState(1);
   const [loadingDots, setLoadingDots] = useState('.');
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [selectedImageUri, setSelectedImageUri] = useState<string>('');
 
   // 🔍 LOGGING DETTAGLIATO - Disabled for performance
   // useEffect(() => {
@@ -327,8 +330,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                     <TouchableOpacity
                       key={index}
                       onPress={() => {
-                        // TODO: Open image in full screen modal
-                        console.log('[TerminalItem] Image tapped:', image.uri);
+                        setSelectedImageUri(image.uri);
+                        setImageViewerVisible(true);
                       }}
                       activeOpacity={0.8}
                     >
@@ -1132,6 +1135,13 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           </View>
         )}
       </View>
+
+      {/* Image Viewer Modal */}
+      <ImageViewerModal
+        visible={imageViewerVisible}
+        imageUri={selectedImageUri}
+        onClose={() => setImageViewerVisible(false)}
+      />
     </Animated.View>
   );
 };
