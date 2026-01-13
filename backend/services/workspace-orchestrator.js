@@ -1769,9 +1769,9 @@ class WorkspaceOrchestrator {
                 installCmd = 'npm ci'; // faster than npm install with package-lock
                 console.log('   ⚡ Using npm (detected package-lock.json)');
             } else {
-                // No lock file, use npm without ci
+                // No lock file, use npm with --prefer-offline to use pre-warmed cache
                 pkgManager = 'npm';
-                installCmd = 'npm install';
+                installCmd = 'npm install --prefer-offline --no-audit --no-fund';
                 console.log('   ⚠️ Using npm install (no lock file detected)');
             }
 
@@ -1792,13 +1792,13 @@ class WorkspaceOrchestrator {
             // Phase 2.3: Smart npm install - skip if node_modules exists and package.json unchanged
             let shouldInstall = true;
             try {
-                // Check if node_modules exists
+                // Check if node_modules exists (increased timeout for pool VMs)
                 const checkNodeModules = await flyService.exec(
                     agentUrl,
                     'test -d node_modules && echo "EXISTS"',
                     '/home/coder/project',
                     machineId,
-                    3000,
+                    10000, // FIX: Increased from 3s to 10s for pool VMs
                     true
                 );
 
@@ -1810,13 +1810,13 @@ class WorkspaceOrchestrator {
                         const crypto = require('crypto');
                         const currentHash = crypto.createHash('md5').update(packageJson.content).digest('hex');
 
-                        // Get stored hash from VM
+                        // Get stored hash from VM (increased timeout)
                         const storedHashResult = await flyService.exec(
                             agentUrl,
                             'cat .package-json-hash 2>/dev/null || echo ""',
                             '/home/coder/project',
                             machineId,
-                            3000,
+                            10000, // FIX: Increased from 3s to 10s
                             true
                         );
 
