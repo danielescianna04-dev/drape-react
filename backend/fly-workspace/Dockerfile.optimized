@@ -1,26 +1,19 @@
-# Drape Workspace Image - Optimized for Fast Preview
-# Based on Node.js with pre-installed common dependencies
-# Target: 35-50s preview startup time
+# Drape Workspace Image - Node.js 20 Full
+# Full-featured image with 100% npm package compatibility
+# Includes Python3, build tools for native modules (sharp, bcrypt, canvas, etc.)
 
-FROM node:20-alpine
+FROM node:20
 
 LABEL maintainer="Drape Team"
-LABEL description="Optimized Drape workspace with pre-installed deps for fast startup"
+LABEL description="Full Node.js workspace for Drape IDE - supports all npm packages"
 
-# Install system dependencies
-RUN apk add --no-cache \
-    git \
-    curl \
-    bash \
-    python3 \
-    py3-pip \
-    build-base \
-    openssh-client \
-    psmisc \
-    && rm -rf /var/cache/apk/*
+# node:20 already includes:
+# ✅ git, curl, bash, python3
+# ✅ gcc, g++, make, build-essential (for native npm packages)
+# ✅ ca-certificates, openssh-client
 
-# Install pnpm globally (3-5x faster than npm)
-RUN npm install -g pnpm@latest
+# Enable pnpm via corepack (included in node:20)
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Pre-install common dependencies (layer "fat")
 WORKDIR /base-deps

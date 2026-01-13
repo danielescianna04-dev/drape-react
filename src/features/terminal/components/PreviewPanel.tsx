@@ -153,6 +153,8 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     { id: 'cloning', label: 'Preparazione file', status: 'pending' },
     { id: 'detecting', label: 'Configurazione', status: 'pending' },
     { id: 'booting', label: 'Accensione server', status: 'pending' },
+    { id: 'installing', label: 'Installazione dipendenze', status: 'pending' },
+    { id: 'starting', label: 'Avvio dev server', status: 'pending' },
     { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
   ]);
   const [currentStepId, setCurrentStepId] = useState<string | null>(null);
@@ -854,7 +856,20 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 const parsed = JSON.parse(dataStr);
                 console.log('📬 Preview SSE:', parsed.type, parsed.step || '');
 
-                if (parsed.type === 'step') {
+                if (parsed.type === 'warning') {
+                  // Handle warnings (e.g., Next.js version issues)
+                  try {
+                    const warningData = JSON.parse(parsed.step);
+                    console.warn('⚠️ Preview Warning:', warningData);
+                    // Store warning for display
+                    if (warningData.type === 'nextjs-version') {
+                      logOutput(`⚠️ ${warningData.message}`, 'preview', 0);
+                      logOutput(`   Recommended: ${warningData.recommendation}`, 'preview', 0);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse warning:', e);
+                  }
+                } else if (parsed.type === 'step') {
                   // Capture step progress for error reporting
                   recentLogsRef.current.push(`[STEP] ${parsed.step}: ${parsed.message}`);
                   if (recentLogsRef.current.length > 50) recentLogsRef.current.shift();
@@ -865,7 +880,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   setStartupSteps(prev => prev.map(step => {
                     if (step.id === parsed.step) return { ...step, status: 'active' };
                     // Mark previous steps as complete
-                    const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'ready'];
+                    const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'installing', 'starting', 'ready'];
                     const currentIdx = stepOrder.indexOf(parsed.step);
                     const stepIdx = stepOrder.indexOf(step.id);
                     if (stepIdx < currentIdx) return { ...step, status: 'complete' };

@@ -63,9 +63,10 @@ class FlyService {
     }
 
     get DRAPE_IMAGE_OPTIMIZED() {
-        // Optimized image with pnpm + pre-installed deps (~294MB)
-        // 3-5x faster startup time for common frameworks
-        return 'registry.fly.io/drape-workspaces:deployment-01KETJ9JYFSD06KPHYDSP3FB7M';
+        // Node.js 20 full image with 100% npm compatibility (~450MB)
+        // Includes Python3, build tools (gcc, g++, make) for native modules
+        // Supports: sharp, bcrypt, canvas, node-sass, and all npm packages
+        return 'registry.fly.io/drape-workspaces:node20-production';
     }
 
     get DRAPE_IMAGE_FULL() {

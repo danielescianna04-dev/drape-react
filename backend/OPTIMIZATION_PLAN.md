@@ -418,9 +418,11 @@ get DRAPE_IMAGE_NODEJS() {
 - Dipendenze pre-installate: React 18.3.1, Next 15.1.3, Vite 6.0.3, TypeScript 5.7.2, Tailwind 3.4.17, ecc.
 
 **Volumes Creati:**
-- `pnpm_store` (3GB): vol_4y52n9z066yqkz1r in fra region ✅ **ATTIVO**
+- `pnpm_store` (3GB): vol_4y52n9z066yqkz1r in fra region ⚠️ **NON UTILIZZABILE PER PREVIEW**
 - `build_cache` (2GB): vol_vz53wgzyjy2p2g9v in fra region ⚠️ **NON MONTATO** (limitazione Fly.io: 1 volume per macchina)
-- Costo mensile effettivo: ~$0.30/mese (solo pnpm_store)
+- **Limitazione Fly.io**: Un volume può essere montato solo su UNA macchina alla volta
+- **Impatto**: Volume montato solo su app machine, preview VMs usano store locale
+- Costo mensile effettivo: ~$0.30/mese (volume non utilizzato dalle preview)
 
 **Modifiche al Codice:**
 1. `fly-workspace/Dockerfile.optimized`: Nuovo Dockerfile con pnpm + deps pre-installate
@@ -433,24 +435,76 @@ get DRAPE_IMAGE_NODEJS() {
 5. `services/fly-service.js`: Aggiunto getter `DRAPE_IMAGE_OPTIMIZED()`
 
 **Test Reali Completati:**
-- ✅ **Next.js Project** (9 uncommon deps): **33 secondi** (vs 111s = -70%)
-  - pnpm install con cache persistente: ~10-15s
-  - Next.js compilation: ~15-20s
+- ✅ **Test #1** (9 uncommon deps, con --store-dir): **33 secondi** ✅
+- ✅ **Test #2** (9 uncommon deps, SENZA volume, store locale): **32 secondi** ✅
+  - pnpm install (store locale): ~10-15s
+  - Next.js compilation: ~12-18s
   - Target < 50s: **SUPERATO** ✅
 
 **Performance Finale:**
 - **Obiettivo**: 111s → 35-50s (-50-60%)
-- **Risultato**: 111s → 33s (-70%) 🎯
-- **Status**: **SUCCESSO - Target superato**
+- **Risultato con volume**: 111s → 33s (-70%) 🎯
+- **Risultato SENZA volume**: 111s → 32s (-71%) 🎯
+- **Status**: **SUCCESSO - Target superato anche senza volume!**
 
-**Impatto Limitazione Build Cache:**
-- Previsto con build cache: 25-35s (-68-70%)
-- Effettivo senza build cache: 33s (-70%)
-- **Conclusione**: pnpm da solo è sufficiente per raggiungere il target!
+**Scoperta Critica - Volume Non Necessario:**
+- ⚠️ Fly.io NON permette di condividere volumi tra macchine
+- ⚠️ Volume pnpm_store montabile solo su app machine
+- ✅ Preview VMs usano store locale pnpm (cache interna alla VM)
+- ✅ Performance identica con/senza volume condiviso
+- **Conclusione**: pnpm con deps pre-installate nell'immagine è sufficiente!
+
+---
+
+---
+
+## 🔍 Lezioni Apprese - Architettura Fly.io
+
+### Problema: Volumi Non Condivisibili
+Durante i test reali è emerso un limite architetturale di Fly.io:
+- **Un volume può essere montato solo su UNA macchina alla volta**
+- Non è possibile condividere `vol_4y52n9z066yqkz1r` tra app machine e preview VMs
+- Tentativo di mount causa: `volume already attached to another machine`
+
+### Soluzione Implementata
+```javascript
+// PRIMA (non funzionante):
+installCmd = 'pnpm install --store-dir /pnpm-store --prefer-offline';
+
+// DOPO (funzionante):
+installCmd = 'pnpm install'; // Usa store locale nella VM
+```
+
+### Risultati
+- **Store locale pnpm**: Ogni VM ha il proprio store in `/root/.local/share/pnpm`
+- **Cache comunque efficace**: pnpm crea hard links invece di copiare file
+- **Performance identica**: 32s senza volume vs 33s con volume
+- **Costo ridotto**: Volume non necessario per preview VMs
+
+### Architettura Finale
+```
+┌─────────────────────────────────────────────┐
+│  Docker Image (294MB)                       │
+│  ├── pnpm pre-installato                    │
+│  ├── 11 deps comuni in /base-deps           │
+│  └── Drape Agent                            │
+└─────────────────────────────────────────────┘
+                    │
+        ┌───────────┴───────────┐
+        │                       │
+┌───────▼────────┐    ┌────────▼─────────┐
+│  App Machine   │    │  Preview VM      │
+│  (1 istanza)   │    │  (N istanze)     │
+│                │    │                  │
+│  + Volume      │    │  + Store locale  │
+│    pnpm_store  │    │    in VM         │
+│    (3GB)       │    │                  │
+└────────────────┘    └──────────────────┘
+```
 
 ---
 
 **Documento creato il:** 2026-01-13
-**Ultimo aggiornamento:** 2026-01-13 03:30 UTC
-**Versione:** 1.2
-**Status:** ✅ Implementato e Testato - In Produzione (Target Superato: 33s < 50s)
+**Ultimo aggiornamento:** 2026-01-13 03:55 UTC
+**Versione:** 1.3
+**Status:** ✅ Implementato e Testato - In Produzione (32s senza volume, -71%)

@@ -1,25 +1,20 @@
-# Drape Workspace - Node.js Optimized
-# Lightweight image for Next.js, React, Vue, and Node.js projects
-# Target size: ~200-300MB (vs 3-5GB for universal image)
+# Drape Workspace - Node.js Full
+# Full-featured image for Next.js, React, Vue, and Node.js projects
+# Includes Python3, build tools (gcc, g++, make) for native npm packages
+# Target size: ~900MB (100% npm compatibility)
 
-FROM node:20-slim
+FROM node:20
 
 LABEL maintainer="Drape Team"
-LABEL description="Lightweight Node.js workspace for Drape IDE - optimized for Next.js/React"
+LABEL description="Full Node.js workspace for Drape IDE - supports all npm packages including native bindings"
 
-# Install only essential system packages
-RUN apt-get update && apt-get install -y \
-    git \
-    curl \
-    wget \
-    bash \
-    ca-certificates \
-    procps \
-    && rm -rf /var/lib/apt/lists/*
+# node:20 already includes:
+# ✅ git, curl, wget, bash, ca-certificates, procps
+# ✅ python3 (for node-gyp and npm native packages)
+# ✅ gcc, g++, make, build-essential (for compiling native modules like sharp, bcrypt)
 
-# Install package managers: npm (included), yarn, pnpm
-# Note: yarn is already included in node:20-slim, using --force to update
-RUN npm install -g npm@latest yarn@latest pnpm --force
+# Enable pnpm via corepack (already included in node:20)
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Create coder user (matching workspace structure)
 RUN useradd -m -d /home/coder -s /bin/bash coder

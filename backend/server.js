@@ -207,6 +207,24 @@ async function startServer() {
     const orchestrator = require('./services/workspace-orchestrator');
     orchestrator.startReaper();
 
+    // Initialize VM Pool for instant preview creation (Phase 2.1)
+    const vmPoolManager = require('./services/vm-pool-manager');
+    console.log('🏊 Initializing VM Pool...');
+    vmPoolManager.initialize().catch(e => {
+        console.warn(`⚠️ VM Pool initialization failed: ${e.message}`);
+    });
+
+    // Initialize Metrics Service (Phase 3.1)
+    const metricsService = require('./services/metrics-service');
+    console.log('📊 Initializing Metrics Service...');
+    metricsService.initialize().catch(e => {
+        console.warn(`⚠️ Metrics initialization failed: ${e.message}`);
+    });
+
+    // Start Resource Monitor (Phase 3.3)
+    const resourceMonitor = require('./services/resource-monitor-service');
+    resourceMonitor.start();
+
     const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
 
     console.log('🤖 Initializing AI providers...');

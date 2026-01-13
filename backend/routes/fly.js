@@ -23,6 +23,8 @@ const { CODER_SESSION_TOKEN } = require('../utils/constants');
 const orchestrator = require('../services/workspace-orchestrator');
 const storageService = require('../services/storage-service');
 const flyService = require('../services/fly-service');
+const metricsService = require('../services/metrics-service');
+const errorTracker = require('../services/error-tracking-service');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { analyzeProjectWithAI, analyzeEnvVars } = require('../services/project-analyzer');
 
@@ -384,13 +386,17 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         // Detect project type with AI
         // ... (existing detection logic)
 
+        // Declare config variables outside try-catch for use in fallback logic
+        let viteConfig = null;
+        let nextConfig = null;
+
         // 🚀 PATCH: Ensure Vite/Next.js allow our proxy host
         try {
             // 1. Vite Patch
             let viteConfigJS = await withTimeout(orchestrator.readFile(projectId, 'vite.config.js'), 2000, 'readViteConfigJS');
             let viteConfigTS = !viteConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'vite.config.ts'), 2000, 'readViteConfigTS') : { success: false };
 
-            const viteConfig = viteConfigJS.success ? { name: 'vite.config.js', result: viteConfigJS } : (viteConfigTS.success ? { name: 'vite.config.ts', result: viteConfigTS } : null);
+            viteConfig = viteConfigJS.success ? { name: 'vite.config.js', result: viteConfigJS } : (viteConfigTS.success ? { name: 'vite.config.ts', result: viteConfigTS } : null);
 
             if (viteConfig && viteConfig.result.content) {
                 let content = viteConfig.result.content;
@@ -413,7 +419,7 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
             let nextConfigJS = await withTimeout(orchestrator.readFile(projectId, 'next.config.js'), 2000, 'readNextConfigJS');
             let nextConfigMJS = !nextConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'next.config.mjs'), 2000, 'readNextConfigMJS') : { success: false };
 
-            const nextConfig = nextConfigJS.success ? { name: 'next.config.js', result: nextConfigJS } : (nextConfigMJS.success ? { name: 'next.config.mjs', result: nextConfigMJS } : null);
+            nextConfig = nextConfigJS.success ? { name: 'next.config.js', result: nextConfigJS } : (nextConfigMJS.success ? { name: 'next.config.mjs', result: nextConfigMJS } : null);
 
             if (nextConfig && nextConfig.result.content) {
                 let content = nextConfig.result.content;
@@ -438,24 +444,106 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
             console.warn(`   ⚠️ Config patch warning: ${e.message}`);
         }
 
-        let projectInfo = { type: 'static', startCommand: 'python3 -m http.server 3000 --bind 0.0.0.0' };
+        // Smart fallback based on config files (use npx http-server for static sites)
+        let projectInfo = {
+            type: 'static',
+            startCommand: 'npx http-server . -p 3000 -a 0.0.0.0'
+        };
+
+        // Check for Next.js
+        if (nextConfig || configFiles['package.json']?.content?.includes('"next"')) {
+            projectInfo = {
+                type: 'nextjs',
+                description: 'Next.js Application',
+                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                port: 3000
+            };
+            console.log(`   🔍 [Fly] Detected Next.js from config`);
+
+            // Check Next.js version for known issues
+            if (configFiles['package.json']?.content) {
+                try {
+                    const pkg = JSON.parse(configFiles['package.json'].content);
+                    const nextVersion = pkg.dependencies?.next || pkg.devDependencies?.next;
+
+                    if (nextVersion) {
+                        const versionMatch = nextVersion.match(/(\d+)\.(\d+)\.(\d+)/);
+                        if (versionMatch) {
+                            const [, major, minor, patch] = versionMatch;
+                            const majorNum = parseInt(major);
+                            const minorNum = parseInt(minor);
+
+                            // Next.js 16.0-16.1 has known dev server hanging issues
+                            if (majorNum === 16 && minorNum <= 1) {
+                                console.log(`⚠️ [Fly] Next.js ${major}.${minor}.${patch} detected - known hanging issue`);
+                                projectInfo.nextJsVersionWarning = {
+                                    version: `${major}.${minor}.${patch}`,
+                                    message: 'Next.js 16.0-16.1 has known dev server hanging issues',
+                                    recommendation: 'Consider downgrading to Next.js 15.3.0',
+                                    link: 'https://github.com/vercel/next.js/discussions/77102'
+                                };
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Ignore package.json parse errors
+                }
+            }
+        }
+        // Check for Vite/React
+        else if (viteConfig || configFiles['vite.config.js'] || configFiles['vite.config.ts']) {
+            projectInfo = {
+                type: 'vite',
+                description: 'Vite Application',
+                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                port: 3000
+            };
+            console.log(`   🔍 [Fly] Detected Vite from config`);
+        }
+        // Check for generic Node.js
+        else if (configFiles['package.json']) {
+            projectInfo = {
+                type: 'nodejs',
+                description: 'Node.js Application',
+                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                port: 3000
+            };
+            console.log(`   🔍 [Fly] Detected Node.js from package.json`);
+        }
+
+        // Try AI detection to override smart fallback
         try {
             if (fileNames.length > 0) {
                 const detected = await analyzeProjectWithAI(fileNames, configFiles);
                 if (detected) {
                     projectInfo = detected;
-                    console.log(`🧠 [Fly] Detected: ${projectInfo.description}`);
+                    console.log(`🧠 [Fly] AI Detection: ${projectInfo.description}`);
                 }
             }
         } catch (e) {
-            console.log(`   Detection failed, using static fallback`);
+            console.log(`   AI detection failed, using smart fallback: ${projectInfo.type}`);
+        }
+
+        // Send Next.js version warning if detected
+        if (projectInfo.nextJsVersionWarning) {
+            sendStep('warning', JSON.stringify({
+                type: 'nextjs-version',
+                ...projectInfo.nextJsVersionWarning
+            }));
         }
 
         console.log(`   [3/5] Booting MicroVM...`);
         sendStep('booting', 'Avvio della MicroVM su Fly.io...');
 
-        // Start the preview (3 min timeout for large repos with many files)
-        const result = await withTimeout(orchestrator.startPreview(projectId, projectInfo), 180000, 'startPreview');
+        // Start the preview with progress callback (3 min timeout for large repos with many files)
+        const result = await withTimeout(
+            orchestrator.startPreview(projectId, projectInfo, (step, message) => {
+                // Forward progress updates from orchestrator to SSE stream
+                sendStep(step, message);
+            }),
+            180000,
+            'startPreview'
+        );
 
         const elapsed = Date.now() - startTime;
         console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
@@ -463,6 +551,17 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         // Use Fly.io agent URL directly for preview (agent proxies to dev server on port 3000)
         // The agent handles: API routes (/health, /exec, etc.) + proxies all other routes to dev server
         const flyPreviewUrl = result.agentUrl;
+
+        // Track metrics (Phase 3.1)
+        metricsService.trackPreviewCreation({
+            projectId,
+            duration: elapsed,
+            success: true,
+            vmSource: result.vmSource || 'unknown',
+            skipInstall: result.skipInstall || false,
+            projectType: projectInfo.type,
+            phases: result.phases || {}
+        }).catch(e => console.warn(`Metrics error: ${e.message}`));
 
         // Send final result
         console.log(`   [4/5] Ready!`);
@@ -481,6 +580,31 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
 
     } catch (error) {
         console.error('❌ Preview start failed:', error);
+
+        // Track error (Phase 3.2)
+        errorTracker.trackError({
+            operation: 'preview_creation',
+            error,
+            projectId,
+            severity: 'critical',
+            context: {
+                projectType: projectInfo?.type,
+                repositoryUrl
+            }
+        }).catch(e => console.warn(`Error tracker failed: ${e.message}`));
+
+        // Track metrics (Phase 3.1)
+        const elapsed = Date.now() - startTime;
+        metricsService.trackPreviewCreation({
+            projectId,
+            duration: elapsed,
+            success: false,
+            vmSource: 'unknown',
+            skipInstall: false,
+            projectType: projectInfo?.type || 'unknown',
+            error: error.message
+        }).catch(e => console.warn(`Metrics error: ${e.message}`));
+
         res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
         if (res.flush) res.flush();
     } finally {
@@ -583,6 +707,50 @@ router.get('/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+
+/**
+ * GET /fly/diagnostics
+ * System diagnostics and monitoring
+ */
+router.get('/diagnostics', asyncHandler(async (req, res) => {
+    const vmPoolManager = require('../services/vm-pool-manager');
+    const metricsService = require('../services/metrics-service');
+    const errorTracker = require('../services/error-tracking-service');
+
+    // Get VM pool stats
+    const poolStats = vmPoolManager.getStats();
+
+    // Get error stats
+    const errorStats = errorTracker.getStats();
+
+    // Get aggregated metrics (last 24 hours)
+    const metrics = await metricsService.getAggregatedMetrics(24 * 60 * 60 * 1000);
+
+    // Get running VMs from Fly
+    const machines = await flyService.listMachines();
+    const runningMachines = machines.filter(m => m.state === 'started');
+
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        vmPool: {
+            ...poolStats,
+            description: `${poolStats.available} VMs ready for instant allocation`
+        },
+        runningVMs: {
+            total: runningMachines.length,
+            machines: runningMachines.map(m => ({
+                id: m.id,
+                name: m.name,
+                state: m.state,
+                region: m.region,
+                created: m.created_at
+            }))
+        },
+        errors: errorStats,
+        metrics: metrics || { message: 'No metrics available yet' }
+    });
+}));
 
 /**
  * POST /fly/heartbeat
