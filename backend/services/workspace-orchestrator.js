@@ -250,11 +250,18 @@ class WorkspaceOrchestrator {
             if (cached && !options.forceNew) {
                 // Verify it's still alive
                 try {
-                    // Double check image version even for memory-cached if it's not the first time
-                    // (This handles image updates while server is running)
-                    const machine = await flyService.getMachine(cached.machineId);
-                    if (!machine || machine.config?.image !== flyService.DRAPE_IMAGE) {
-                        throw new Error("Machine dead or outdated image");
+                    // Check VM age - skip image check if VM was just created (< 90s ago)
+                    // This prevents race conditions with concurrent calls and Fly.io API lag
+                    const vmAge = Date.now() - (cached.createdAt || 0);
+                    const isRecentlyCreated = vmAge < 90000; // 90 seconds
+
+                    if (!isRecentlyCreated) {
+                        // Double check image version for older VMs
+                        // (This handles image updates while server is running)
+                        const machine = await flyService.getMachine(cached.machineId);
+                        if (!machine || machine.config?.image !== flyService.DRAPE_IMAGE) {
+                            throw new Error("Machine dead or outdated image");
+                        }
                     }
 
                     // Health check with retry (Fly.io routing needs time to update)
