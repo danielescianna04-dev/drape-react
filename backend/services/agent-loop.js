@@ -1,3 +1,4 @@
+// RELOAD_CHECK_1768252870
 /**
  * Agent Loop Service - Ralph Loop Implementation
  *
@@ -256,12 +257,10 @@ class AgentLoop {
         switch (cleanName) {
             case 'write_file': {
                 const filePath = input.path.replace(/^\.\//, '');
-                const cmd = `mkdir -p "$(dirname "/home/coder/project/${filePath}")" && cat > "/home/coder/project/${filePath}" << 'DRAPE_EOF'
-${input.content}
-DRAPE_EOF`;
-                const result = await flyService.exec(agentUrl, cmd, '/home/coder/project', machineId, TOOL_TIMEOUT);
-                if (result.exitCode !== 0) {
-                    return { success: false, error: result.stderr || 'Write failed' };
+                // Use orchestrator to save to Firebase AND sync to VM with file watcher notification
+                const result = await workspaceOrchestrator.writeFile(this.projectId, filePath, input.content);
+                if (!result.success) {
+                    return { success: false, error: 'Write failed' };
                 }
                 this.filesCreated.push(filePath);
                 return { success: true, message: `Written ${filePath} (${input.content.length} bytes)` };
@@ -343,12 +342,10 @@ DRAPE_EOF`;
                     }
                 }
 
-                const writeCmd = `cat > "/home/coder/project/${filePath}" << 'DRAPE_EOF'
-${newContent}
-DRAPE_EOF`;
-                const writeResult = await flyService.exec(agentUrl, writeCmd, '/home/coder/project', machineId, TOOL_TIMEOUT);
-                if (writeResult.exitCode !== 0) {
-                    return { success: false, error: writeResult.stderr };
+                // Use orchestrator to save to Firebase AND sync to VM with file watcher notification
+                const result = await workspaceOrchestrator.writeFile(this.projectId, filePath, newContent);
+                if (!result.success) {
+                    return { success: false, error: 'Failed to write edited file' };
                 }
                 this.filesModified.push(filePath);
                 return {
@@ -1091,3 +1088,5 @@ module.exports = {
     TOOLS_FAST,
     TOOLS_PLANNING
 };
+// Force reload: 1768252494
+// FINAL_LOAD_1768253553

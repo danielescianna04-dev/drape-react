@@ -1,20 +1,56 @@
 {
-  "ws-1767975714833-t876jh9or": {
-    "id": "287426db990d48",
-    "name": "ws-ws-1767975714833-t876jh9or",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "287426db990d48",
-    "projectId": "ws-1767975714833-t876jh9or",
-    "createdAt": 1768137484551,
-    "lastUsed": 1768142432463
-  },
   "ws-1767961368949-7yrkeil53": {
-    "id": "e825100f370078",
+    "id": "48e3376f2de358",
     "name": "ws-ws-1767961368949-7yrkeil53",
     "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "e825100f370078",
+    "machineId": "48e3376f2de358",
     "projectId": "ws-1767961368949-7yrkeil53",
-    "createdAt": 1768142600825,
-    "lastUsed": 1768142600825
+    "createdAt": 1768238896347,
+    "lastUsed": 1768255371223
+  },
+  "ws-1767975714833-t876jh9or": {
+    "id": "683951ead40158",
+    "name": "ws-ws-1767975714833-t876jh9or",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "683951ead40158",
+    "projectId": "ws-1767975714833-t876jh9or",
+    "createdAt": 1768255453771,
+    "lastUsed": 1768255544556
+  },
+  "7qOmxnumsyp1jfovWTmJ": {
+    "id": "1859d5dc129e28",
+    "name": "ws-7qOmxnumsyp1jfovWTmJ",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "1859d5dc129e28",
+    "projectId": "7qOmxnumsyp1jfovWTmJ",
+    "createdAt": 1768264221562,
+    "lastUsed": 1768264221562
+  },
+  "OqWrsizrE4zGYnwPk5jY": {
+    "id": "781906df511238",
+    "name": "ws-OqWrsizrE4zGYnwPk5jY",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "781906df511238",
+    "projectId": "OqWrsizrE4zGYnwPk5jY",
+    "createdAt": 1768265074373,
+    "lastUsed": 1768265074373
+  },
+  "1CQJLqrbklYjpDHpJKlJ": {
+    "id": "d896310f459918",
+    "name": "ws-1CQJLqrbklYjpDHpJKlJ",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d896310f459918",
+    "projectId": "1CQJLqrbklYjpDHpJKlJ",
+    "createdAt": 1768267531961,
+    "lastUsed": 1768267556234
+  },
+  "ehkMVJ7o40lJ72xb6Tb9": {
+    "id": "d890e55c044258",
+    "name": "ws-ehkMVJ7o40lJ72xb6Tb9",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d890e55c044258",
+    "projectId": "ehkMVJ7o40lJ72xb6Tb9",
+    "createdAt": 1768267745206,
+    "lastUsed": 1768267745206
   }
 }

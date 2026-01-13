@@ -13,6 +13,7 @@
 const flyService = require('./fly-service');
 const storageService = require('./storage-service');
 const redisService = require('./redis-service');
+const fileWatcherService = require('./file-watcher');
 const axios = require('axios');
 const serverLogService = require('./server-log-service');
 const archiver = require('archiver');
@@ -27,6 +28,123 @@ const vmLocks = new Map(); // projectId -> Promise
 class WorkspaceOrchestrator {
     constructor() {
         this.vmTimeout = 24 * 60 * 60 * 1000; // 24 hours idle timeout (keep VMs alive longer to avoid cold starts)
+    }
+
+    /**
+     * Auto-detect memory requirements based on project's package.json
+     * @param {string} projectId - Project ID
+     * @returns {number} Memory in MB (2048, 4096, or 8192)
+     */
+    async _detectMemoryRequirements(projectId) {
+        try {
+            // Try to read package.json from storage
+            const result = await storageService.readFile(projectId, 'package.json');
+
+            if (!result.success || !result.content) {
+                console.log(`   ℹ️ [Orchestrator] No package.json found, using default memory (2GB)`);
+                return 2048;
+            }
+
+            const packageJson = JSON.parse(result.content);
+            const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+            const depCount = Object.keys(deps).length;
+
+            // Heavy frameworks that need more memory
+            const heavyFrameworks = {
+                'next': { name: 'Next.js', memory: 4096 },
+                '@angular/core': { name: 'Angular', memory: 4096 },
+                '@nuxt/': { name: 'Nuxt', memory: 4096 },
+                'gatsby': { name: 'Gatsby', memory: 4096 }
+            };
+
+            // Check for heavy frameworks
+            for (const [dep, config] of Object.entries(heavyFrameworks)) {
+                if (Object.keys(deps).some(d => d.startsWith(dep))) {
+                    console.log(`   🔍 [Orchestrator] Detected ${config.name} → ${config.memory}MB RAM`);
+                    return config.memory;
+                }
+            }
+
+            // React/Vue with large dependency count = more memory
+            if ((deps['react'] || deps['vue']) && depCount > 50) {
+                console.log(`   🔍 [Orchestrator] Detected React/Vue with ${depCount} deps → 4GB RAM`);
+                return 4096;
+            }
+
+            // TypeScript with many dependencies
+            if (deps['typescript'] && depCount > 40) {
+                console.log(`   🔍 [Orchestrator] Detected TypeScript with ${depCount} deps → 4GB RAM`);
+                return 4096;
+            }
+
+            // Default for smaller projects
+            console.log(`   🔍 [Orchestrator] Standard project (${depCount} deps) → 2GB RAM`);
+            return 2048;
+
+        } catch (error) {
+            console.warn(`   ⚠️ [Orchestrator] Failed to detect memory requirements: ${error.message}`);
+            return 2048; // Safe default
+        }
+    }
+
+    /**
+     * Detect project type to determine which Docker image to use
+     * @param {string} projectId - Project ID
+     * @returns {string} Project type ('nodejs', 'python', 'go', etc.)
+     */
+    async _detectProjectType(projectId) {
+        try {
+            // Check for package.json (Node.js/Next.js/React)
+            const packageResult = await storageService.readFile(projectId, 'package.json');
+            if (packageResult.success) {
+                const packageJson = JSON.parse(packageResult.content);
+                const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+                // Check for specific frameworks
+                if (Object.keys(deps).some(d => d.startsWith('next'))) {
+                    console.log(`   🔍 [Orchestrator] Detected Next.js project`);
+                    return 'nextjs';
+                }
+                if (deps['react']) {
+                    console.log(`   🔍 [Orchestrator] Detected React project`);
+                    return 'react';
+                }
+                console.log(`   🔍 [Orchestrator] Detected Node.js project`);
+                return 'nodejs';
+            }
+
+            // Check for Python (requirements.txt, pyproject.toml, setup.py)
+            const pythonFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
+            for (const file of pythonFiles) {
+                const result = await storageService.readFile(projectId, file);
+                if (result.success) {
+                    console.log(`   🔍 [Orchestrator] Detected Python project (${file})`);
+                    return 'python';
+                }
+            }
+
+            // Check for Go (go.mod)
+            const goResult = await storageService.readFile(projectId, 'go.mod');
+            if (goResult.success) {
+                console.log(`   🔍 [Orchestrator] Detected Go project`);
+                return 'go';
+            }
+
+            // Check for Rust (Cargo.toml)
+            const rustResult = await storageService.readFile(projectId, 'Cargo.toml');
+            if (rustResult.success) {
+                console.log(`   🔍 [Orchestrator] Detected Rust project`);
+                return 'rust';
+            }
+
+            // Default to nodejs (most common)
+            console.log(`   🔍 [Orchestrator] Unknown project type, defaulting to Node.js`);
+            return 'nodejs';
+
+        } catch (error) {
+            console.warn(`   ⚠️ [Orchestrator] Failed to detect project type: ${error.message}`);
+            return 'nodejs'; // Safe default
+        }
     }
 
     /**
@@ -102,20 +220,47 @@ class WorkspaceOrchestrator {
                 const persisted = await redisService.getVMSession(projectId);
                 if (persisted) {
                     console.log(`♻️ [Orchestrator] Recovered VM session from Redis: ${persisted.machineId}`);
-                    cached = persisted;
-                    activeVMs.set(projectId, cached);
+                    // Check if it's the right image VERSION before adopting
+                    try {
+                        const machine = await flyService.getMachine(persisted.machineId);
+                        if (machine && machine.config?.image !== flyService.DRAPE_IMAGE) {
+                            console.log(`⚠️ [Orchestrator] Recovered VM image outdated: ${machine.config?.image}. Skipping cache.`);
+                            await redisService.removeVMSession(projectId);
+                        } else {
+                            cached = persisted;
+                            activeVMs.set(projectId, cached);
+                        }
+                    } catch (e) {
+                        console.warn(`   ⚠️ Status check for recovered VM failed: ${e.message}`);
+                        await redisService.removeVMSession(projectId);
+                    }
                 }
             }
 
             if (cached && !options.forceNew) {
                 // Verify it's still alive
                 try {
+                    // Double check image version even for memory-cached if it's not the first time
+                    // (This handles image updates while server is running)
+                    const machine = await flyService.getMachine(cached.machineId);
+                    if (!machine || machine.config?.image !== flyService.DRAPE_IMAGE) {
+                        throw new Error("Machine dead or outdated image");
+                    }
+
                     await axios.get(`${cached.agentUrl}/health`, {
                         timeout: 3000, // Faster timeout for check
                         headers: { 'Fly-Force-Instance-Id': cached.machineId }
                     });
                     console.log(`✅ [Orchestrator] Using cached/recovered VM (${Date.now() - startTime}ms)`);
                     cached.lastUsed = Date.now();
+
+                    // Ensure file watcher is running
+                    try {
+                        await fileWatcherService.startWatching(projectId, cached.agentUrl, cached.machineId);
+                    } catch (e) {
+                        console.warn(`⚠️ File watcher start failed: ${e.message}`);
+                    }
+
                     return cached;
                 } catch {
                     console.log(`⚠️ [Orchestrator] Cached VM dead or unreachable, creating/finding new one`);
@@ -136,10 +281,28 @@ class WorkspaceOrchestrator {
 
             if (existing && existing.state !== 'destroyed') {
                 console.log(`♻️ [Orchestrator] Found existing Fly machine: ${existing.id} (state: ${existing.state})`);
-                vm = existing;
+
+                // Detect project type to get the correct expected image
+                const projectType = await this._detectProjectType(projectId);
+                const expectedImage = flyService.getImageForProject(projectType);
+                const currentImage = existing.config?.image;
+
+                if (currentImage && currentImage !== expectedImage) {
+                    console.log(`⚠️ [Orchestrator] Machine image mismatch. Current: ${currentImage}, Expected: ${expectedImage}`);
+                    console.log(`🔄 [Orchestrator] Destroying old machine to force update...`);
+                    try {
+                        await flyService.destroyMachine(existing.id);
+                        vm = null; // Force creation of new VM
+                    } catch (e) {
+                        console.warn(`⚠️ [Orchestrator] Failed to destroy old machine: ${e.message}`);
+                        vm = existing; // Fallback to existing
+                    }
+                } else {
+                    vm = existing;
+                }
 
                 // If machine is already running, fast-path: just check health and return
-                if (existing.state === 'started') {
+                if (vm && existing.state === 'started') {
                     const agentUrl = 'https://drape-workspaces.fly.dev';
                     try {
                         // Quick health check (2s timeout)
@@ -161,6 +324,14 @@ class WorkspaceOrchestrator {
                         };
                         activeVMs.set(projectId, vmInfo);
                         this._scheduleCleanup(projectId);
+
+                        // Start file watching
+                        try {
+                            await fileWatcherService.startWatching(projectId, agentUrl, existing.id);
+                        } catch (e) {
+                            console.warn(`⚠️ File watcher start failed: ${e.message}`);
+                        }
+
                         return vmInfo;
                     } catch (e) {
                         console.log(`   ⚠️ Health check failed, will wait for agent...`);
@@ -168,13 +339,23 @@ class WorkspaceOrchestrator {
                 }
 
                 // If stopped, start it
-                if (existing.state === 'stopped') {
+                if (vm && existing.state === 'stopped') {
                     console.log(`   🔄 Starting stopped machine...`);
                     await flyService.startMachine(existing.id);
                 }
             } else {
                 console.log(`📦 [Orchestrator] Creating new MicroVM...`);
+
+                // Auto-detect memory requirements based on project
+                const memoryMb = await this._detectMemoryRequirements(projectId);
+
+                // Auto-detect project type to select Docker image
+                const projectType = await this._detectProjectType(projectId);
+                const dockerImage = flyService.getImageForProject(projectType);
+
                 vm = await flyService.createMachine(projectId, {
+                    memory_mb: memoryMb,
+                    image: dockerImage,
                     env: {
                         PROJECT_ID: projectId
                     }
@@ -220,6 +401,14 @@ class WorkspaceOrchestrator {
 
             // Initialize Git Repo (Critical for UI "Changes" view)
             await this.ensureGitRepo(projectId, agentUrl, vm.id);
+
+            // Start file watching for real-time updates
+            try {
+                await fileWatcherService.startWatching(projectId, agentUrl, vm.id);
+                console.log(`👀 [Orchestrator] File watcher started for ${projectId}`);
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] Failed to start file watcher: ${e.message}`);
+            }
 
             const elapsed = Date.now() - startTime;
             console.log(`✅ [Orchestrator] VM ready in ${elapsed}ms`);
@@ -492,22 +681,59 @@ class WorkspaceOrchestrator {
     }
 
     /**
+     * Check if a file is binary based on extension
+     */
+    _isBinaryFile(filePath) {
+        const binaryExtensions = [
+            '.ico', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg',
+            '.woff', '.woff2', '.ttf', '.otf', '.eot',
+            '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.avi', '.mov',
+            '.exe', '.dll', '.so', '.dylib'
+        ];
+        return binaryExtensions.some(ext => filePath.toLowerCase().endsWith(ext));
+    }
+
+    /**
      * Write a file to a project
      * Saves to storage AND syncs to VM if active
-     * 
+     *
      * @param {string} projectId - Project ID
      * @param {string} filePath - File path
-     * @param {string} content - File content
+     * @param {string|Buffer} content - File content
      */
     async writeFile(projectId, filePath, content) {
-        // Save to persistent storage
-        await storageService.saveFile(projectId, filePath, content);
+        console.log(`📝 [Orchestrator] writeFile called: ${filePath} for project ${projectId}`);
+
+        // Skip .ico files temporarily (known corruption issue)
+        if (filePath.toLowerCase().endsWith('.ico')) {
+            console.log(`   ⏭️ Skipping .ico file: ${filePath}`);
+            return { success: true, skipped: true };
+        }
+
+        // Detect if binary
+        const isBinary = this._isBinaryFile(filePath);
+        if (isBinary) {
+            console.log(`   🖼️ Binary file detected: ${filePath}`);
+        }
+
+        // Save to persistent storage (handles binary conversion)
+        const saveResult = await storageService.saveFile(projectId, filePath, content);
+        console.log(`   💾 Saved to Firebase storage`);
 
         // Sync to VM if active (for hot reload)
-        let vm = await redisService.getVMSession(projectId);
+        // Check memory cache first (fastest)
+        let vm = activeVMs.get(projectId);
+        console.log(`   🔍 Memory cache lookup: ${vm ? 'FOUND' : 'NOT FOUND'}`);
+
+        // Then check Redis
+        if (!vm) {
+            vm = await redisService.getVMSession(projectId);
+            console.log(`   🔍 Redis cache lookup: ${vm ? 'FOUND' : 'NOT FOUND'}`);
+        }
 
         // Recovery: If not in cache, check if VM exists in Fly
         if (!vm) {
+            console.log(`   🔧 Attempting VM recovery from Fly.io...`);
             try {
                 const machineName = `ws-${projectId}`.substring(0, 30);
                 const machines = await flyService.listMachines();
@@ -521,6 +747,8 @@ class WorkspaceOrchestrator {
                         agentUrl: `https://${flyService.appName}.fly.dev`
                     };
                     activeVMs.set(projectId, vm);
+                } else {
+                    console.log(`   ❌ No active VM found in Fly.io`);
                 }
             } catch (e) {
                 console.warn(`⚠️ [Orchestrator] Failed to recover VM session: ${e.message}`);
@@ -528,21 +756,39 @@ class WorkspaceOrchestrator {
         }
 
         if (vm) {
+            console.log(`   🚀 VM found, syncing to VM: ${vm.machineId}`);
             try {
                 // Ensure we send the Instance ID header for proper routing if using shared domain
                 const headers = { 'Fly-Force-Instance-Id': vm.machineId };
 
+                // Prepare content for transmission
+                let contentToSend = content;
+                if (isBinary && typeof content !== 'string') {
+                    // Convert Buffer to base64 for binary files
+                    contentToSend = content.toString('base64');
+                }
+
                 await axios.post(`${vm.agentUrl}/file`, {
                     path: filePath,
-                    content
+                    content: contentToSend,
+                    isBinary: isBinary
                 }, {
                     timeout: 30000,
                     headers
                 });
-                console.log(`   ✅ [HotReload] Synced ${filePath} to VM`);
+                console.log(`   ✅ [HotReload] Synced ${filePath} to VM${isBinary ? ' (binary)' : ''}`);
+
+                // Notify file watcher immediately instead of waiting for next poll
+                try {
+                    fileWatcherService.notifyFileChange(projectId, filePath, 'created');
+                } catch (e) {
+                    console.warn(`⚠️ [Orchestrator] Failed to notify file watcher:`, e.message);
+                }
             } catch (error) {
                 console.warn(`⚠️ [Orchestrator] Failed to sync to VM:`, error.message);
             }
+        } else {
+            console.log(`   ⚠️ [Orchestrator] No VM found for ${projectId}, file only saved to Firebase`);
         }
 
         return { success: true };
@@ -650,7 +896,53 @@ class WorkspaceOrchestrator {
      * List files in a project
      * @param {string} projectId - Project ID
      */
+    /**
+     * List files in a project
+     * Authoritative source: VM if active, Storage otherwise
+     * @param {string} projectId - Project ID
+     */
     async listFiles(projectId) {
+        // Try active VM first for live file list
+        let vm = activeVMs.get(projectId);
+
+        // Then check Redis if not in memory
+        if (!vm) {
+            vm = await redisService.getVMSession(projectId);
+        }
+
+        if (vm) {
+            try {
+                // Get live files from VM
+                // We use find to get all files. We exclude node_modules and .git for speed.
+                const result = await flyService.exec(
+                    vm.agentUrl,
+                    'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | sort',
+                    '/home/coder/project',
+                    vm.machineId,
+                    10000,
+                    true // silent
+                );
+
+                if (result.exitCode === 0) {
+                    const files = result.stdout.trim().split('\n')
+                        .filter(f => f)
+                        .map(f => f.replace(/^\.\//, ''));
+
+                    console.log(`📂 [Orchestrator] Listed ${files.length} files from live VM for ${projectId}`);
+
+                    // Return in same format as storageService.listFiles for compatibility
+                    return {
+                        success: true,
+                        files: files.map(path => ({ path })),
+                        source: 'vm'
+                    };
+                }
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] VM listFiles failed for ${projectId}, falling back to storage: ${e.message}`);
+            }
+        }
+
+        console.log(`📂 [Orchestrator] Listing files from storage for ${projectId}`);
         return await storageService.listFiles(projectId);
     }
 
@@ -666,13 +958,21 @@ class WorkspaceOrchestrator {
 
         const vm = await this.getOrCreateVM(projectId);
 
-        // CRITICAL: Clean project folder before sync to avoid stale files
-        console.log(`🧹 [Orchestrator] Cleaning project folder on VM...`);
+        // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
+        console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
         try {
-            await flyService.exec(vm.agentUrl, 'rm -rf /home/coder/project/*', '/home/coder', vm.machineId);
-            console.log(`   ✅ Project folder cleaned`);
+            const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -exec rm -rf {} +`;
+            await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+            console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
         } catch (e) {
             console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+        }
+
+        // Pre-create log file to avoid tail errors
+        try {
+            await flyService.exec(vm.agentUrl, 'touch /home/coder/server.log && chown coder:coder /home/coder/server.log', '/home/coder', vm.machineId, 5000, true);
+        } catch (e) {
+            // ignore
         }
 
         // Sync files from storage to VM
@@ -697,25 +997,46 @@ class WorkspaceOrchestrator {
 
             if (missingFiles.length > 0) {
                 console.warn(`⚠️ [Orchestrator] Found ${missingFiles.length} missing files on VM: ${missingFiles.map(f => f.path).join(', ')}`);
-                console.log(`🚑 [Orchestrator] Initiating repair sync...`);
+                console.log(`🚑 [Orchestrator] Initiating parallel repair sync (10 at a time)...`);
 
-                for (const missing of missingFiles) {
-                    const fileContent = await storageService.readFile(projectId, missing.path);
-                    if (fileContent.success) {
+                const REPAIR_BATCH_SIZE = 10;
+                let repairedCount = 0;
+                let failedCount = 0;
+
+                // Repair in batches of 10 in parallel
+                for (let i = 0; i < missingFiles.length; i += REPAIR_BATCH_SIZE) {
+                    const batch = missingFiles.slice(i, i + REPAIR_BATCH_SIZE);
+
+                    const repairPromises = batch.map(async (missing) => {
                         try {
+                            const fileContent = await storageService.readFile(projectId, missing.path);
+                            if (!fileContent.success) {
+                                throw new Error(`Failed to read from storage`);
+                            }
+
                             await axios.post(`${vm.agentUrl}/file`, {
                                 path: missing.path,
-                                content: fileContent.content
+                                content: fileContent.content,
+                                isBinary: fileContent.isBinary || false
                             }, {
                                 timeout: 30000,
                                 headers: { 'Fly-Force-Instance-Id': vm.machineId }
                             });
+
                             console.log(`   ✅ Repaired: ${missing.path}`);
+                            return { success: true, path: missing.path };
                         } catch (e) {
                             console.error(`   ❌ Failed to repair ${missing.path}: ${e.message}`);
+                            return { success: false, path: missing.path };
                         }
-                    }
+                    });
+
+                    const results = await Promise.all(repairPromises);
+                    repairedCount += results.filter(r => r.success).length;
+                    failedCount += results.filter(r => !r.success).length;
                 }
+
+                console.log(`🚑 [Orchestrator] Repair complete: ${repairedCount} fixed, ${failedCount} failed`);
             } else {
                 console.log(`✅ [Orchestrator] File integrity verified. All files present.`);
             }
@@ -790,23 +1111,44 @@ class WorkspaceOrchestrator {
 
             try {
                 // Read new logs using tail (silent=true to avoid terminal spam if file/VM not ready)
-                const result = await flyService.exec(vm.agentUrl, `tail -c +${lastSize + 1} ${logFile}`, '/home/coder', vm.machineId, 5000, true);
+                // Use a larger tail buffer if lastSize is 0 to catch initial output
+                const tailCmd = lastSize === 0
+                    ? `tail -n 100 ${logFile} 2>/dev/null || echo ""`
+                    : `tail -c +${lastSize + 1} ${logFile} 2>/dev/null || echo ""`;
+
+                const result = await flyService.exec(vm.agentUrl, tailCmd, '/home/coder', vm.machineId, 5000, true);
 
                 if (result.stdout && result.stdout.trim()) {
                     const lines = result.stdout.split('\n').filter(l => l.trim());
                     lines.forEach(line => {
-                        serverLogService.addLog(workstationId, line, 'output');
+                        // Extract message if it contains agent metadata prefix [timestamp] [stream]
+                        let cleanLine = line;
+                        if (line.includes('] [') && line.startsWith('[')) {
+                            // Match: [2026-01-12T22:24:57.123Z] [stdout] My Message
+                            const match = line.match(/^\[.*?\] \[(.*?)\] (.*)$/);
+                            if (match) cleanLine = match[2];
+                        }
+
+                        // Avoid system noise from 'tail' or 'exec' in the log view
+                        if (cleanLine.includes('[Agent]') || cleanLine.trim() === '') return;
+
+                        serverLogService.addLog(workstationId, cleanLine, 'output');
                     });
 
                     // Update size (best effort, silent=true)
                     const sizeResult = await flyService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId, 5000, true);
                     const newSize = parseInt(sizeResult.stdout);
-                    if (!isNaN(newSize)) lastSize = newSize;
+                    if (!isNaN(newSize) && newSize >= lastSize) {
+                        lastSize = newSize;
+                    } else if (!isNaN(newSize) && newSize < lastSize) {
+                        // File was truncated/recreated
+                        lastSize = newSize;
+                    }
                 }
             } catch (err) {
                 // Silent fail if file not ready yet
             }
-        }, 3000);
+        }, 1500); // Polling faster (1.5s) for responsiveness
 
         // Limit streaming to 30 mins to avoid leaks
         setTimeout(() => clearInterval(tailInterval), 30 * 60 * 1000);

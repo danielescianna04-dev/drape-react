@@ -57,9 +57,34 @@ class FlyService {
         return process.env.FLY_REGION || 'fra';
     }
 
+    get DRAPE_IMAGE_NODEJS() {
+        // Lightweight Node.js image (102MB) for Next.js, React, Vue projects
+        return 'registry.fly.io/drape-workspaces:deployment-01KETB6Y0X8VYZFF704M543V1T';
+    }
+
+    get DRAPE_IMAGE_FULL() {
+        // Universal image (1.6GB) for Python, Go, Rust, PHP, etc.
+        return 'registry.fly.io/drape-workspaces:deployment-01KET4Q1G6KFJNZ2JGAQMAWFY8';
+    }
+
     get DRAPE_IMAGE() {
-        // Use the deployment tag from the latest flyctl deploy
-        return process.env.FLY_IMAGE || 'registry.fly.io/drape-workspaces:deployment-01KEEMCGKQHSWJ13W3JRYZ1W3B';
+        // Default image (lightweight Node.js)
+        return this.DRAPE_IMAGE_NODEJS;
+    }
+
+    /**
+     * Get the appropriate Docker image based on project type
+     * @param {string} projectType - Type of project ('nodejs', 'python', 'go', etc.)
+     * @returns {string} Docker image URL
+     */
+    getImageForProject(projectType) {
+        if (projectType === 'nodejs' || projectType === 'nextjs' || projectType === 'react') {
+            console.log(`   🐳 [Fly] Using lightweight Node.js image (102MB)`);
+            return this.DRAPE_IMAGE_NODEJS;
+        } else {
+            console.log(`   🐳 [Fly] Using universal image for ${projectType || 'unknown'} (1.6GB)`);
+            return this.DRAPE_IMAGE_FULL;
+        }
     }
 
     /**
@@ -170,8 +195,12 @@ class FlyService {
         // AUTO-RESUME: Check if app is suspended and resume if needed
         await this.ensureAppNotSuspended();
 
+        const memoryMb = options.memory_mb || DEFAULT_MACHINE_CONFIG.guest.memory_mb;
+        const image = options.image || this.DRAPE_IMAGE_NODEJS; // Default to Node.js image
+
         console.log(`🚀 [Fly] Creating MicroVM: ${machineId} in ${this.FLY_REGION}...`);
-        console.log(`   📦 Image: ${this.DRAPE_IMAGE}`);
+        console.log(`   📦 Image: ${image}`);
+        console.log(`   💾 Memory: ${memoryMb}MB`);
         const startTime = Date.now();
 
         try {
@@ -180,7 +209,11 @@ class FlyService {
                 region: this.FLY_REGION,
                 config: {
                     ...DEFAULT_MACHINE_CONFIG,
-                    image: options.image || this.DRAPE_IMAGE,
+                    guest: {
+                        ...DEFAULT_MACHINE_CONFIG.guest,
+                        memory_mb: memoryMb
+                    },
+                    image: image,
                     env: {
                         PROJECT_ID: projectId,
                         DRAPE_AGENT_PORT: '13338',

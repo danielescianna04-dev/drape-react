@@ -7,6 +7,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
+import { websocketService } from '../../../core/websocket/websocketService';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -59,6 +60,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     );
     return unsubscribe;
   }, [projectId]);
+
 
   // Debounced content search
   useEffect(() => {

@@ -517,92 +517,119 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   // ============ LIVE LOGS STREAMING ============
   // Connect to SSE stream for terminal output using XMLHttpRequest (React Native compatible)
   useEffect(() => {
-    // Only subscribe to logs when server is running and we have a project
-    if (serverStatus !== 'running' || !currentWorkstation?.id) {
-      return;
-    }
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isMounted = true;
 
-    // Clean up any existing connection
-    if (logsXhrRef.current) {
-      logsXhrRef.current.abort();
-      logsXhrRef.current = null;
-    }
+    const connectToLogs = () => {
+      if (!isMounted) return;
+      // Only subscribe to logs when server is running OR starting and we have a project
+      if ((serverStatus !== 'running' && !isStarting && serverStatus !== 'checking') || !currentWorkstation?.id) {
+        return;
+      }
 
-    console.log('📺 Connecting to live logs stream...');
+      // Clean up any existing connection
+      if (logsXhrRef.current) {
+        logsXhrRef.current.abort();
+        logsXhrRef.current = null;
+      }
 
-    const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}`;
-    const xhr = new XMLHttpRequest();
-    logsXhrRef.current = xhr;
+      console.log('📺 Connecting to live logs stream...');
 
-    let lastIndex = 0;
-    let dataBuffer = '';
+      const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}`;
+      const xhr = new XMLHttpRequest();
+      logsXhrRef.current = xhr;
 
-    xhr.open('GET', logsUrl);
-    xhr.setRequestHeader('Accept', 'text/event-stream');
+      let lastIndex = 0;
+      let dataBuffer = '';
 
-    xhr.onprogress = () => {
-      // Process new data since last check
-      const newData = xhr.responseText.substring(lastIndex);
-      if (!newData) return;
-      lastIndex = xhr.responseText.length;
+      xhr.open('GET', logsUrl);
+      xhr.setRequestHeader('Accept', 'text/event-stream');
 
-      dataBuffer += newData;
+      xhr.onprogress = () => {
+        // Process new data since last check
+        const newData = xhr.responseText.substring(lastIndex);
+        if (!newData) return;
+        lastIndex = xhr.responseText.length;
 
-      // Process complete lines
-      let lineEndIndex;
-      while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
-        const line = dataBuffer.substring(0, lineEndIndex).trim();
-        dataBuffer = dataBuffer.substring(lineEndIndex + 1);
+        dataBuffer += newData;
 
-        if (line.startsWith('data: ')) {
-          try {
-            const dataStr = line.substring(6);
-            if (dataStr === '[DONE]') continue;
+        // Process complete lines
+        let lineEndIndex;
+        while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
+          const line = dataBuffer.substring(0, lineEndIndex).trim();
+          dataBuffer = dataBuffer.substring(lineEndIndex + 1);
 
-            const data = JSON.parse(dataStr);
+          if (line.startsWith('data: ')) {
+            try {
+              const dataStr = line.substring(6);
+              if (dataStr === '[DONE]') continue;
 
-            // Skip connection/system messages
-            if (data.type === 'connected' || data.type === 'error') {
-              console.log('📺 Logs:', data);
-              continue;
-            }
+              const data = JSON.parse(dataStr);
 
-            // Add log line to terminal output
-            if (data.text) {
-              setTerminalOutput(prev => {
-                const newOutput = [...prev, data.text];
-                // Keep only last 500 lines
-                if (newOutput.length > 500) {
-                  return newOutput.slice(-500);
+              // Skip connection/system messages
+              if (data.type === 'connected' || data.type === 'error') {
+                console.log('📺 Logs:', data);
+                continue;
+              }
+
+              // Add log line to terminal output
+              if (data.text) {
+                // Also update the status message in the loading screen in real-time
+                if (serverStatus !== 'running') {
+                  setDisplayedMessage(data.text);
                 }
-                return newOutput;
-              });
 
-              // Auto-scroll to bottom
-              setTimeout(() => {
-                terminalScrollRef.current?.scrollToEnd({ animated: true });
-              }, 50);
+                setTerminalOutput(prev => {
+                  const newOutput = [...prev, data.text];
+                  // Keep only last 500 lines
+                  if (newOutput.length > 500) {
+                    return newOutput.slice(-500);
+                  }
+                  return newOutput;
+                });
+
+                // Auto-scroll to bottom
+                setTimeout(() => {
+                  terminalScrollRef.current?.scrollToEnd({ animated: true });
+                }, 50);
+              }
+            } catch (e) {
+              // Ignore parse errors
             }
-          } catch (e) {
-            // Ignore parse errors
           }
         }
-      }
+      };
+
+      xhr.onerror = () => {
+        console.log('📺 Logs stream error, will reconnect...');
+        if (isMounted) {
+          reconnectTimeout = setTimeout(connectToLogs, 3000);
+        }
+      };
+
+      xhr.onload = () => {
+        // If we got a 503 (VM starting), retry
+        if (xhr.status === 503 && isMounted) {
+          console.log('📺 VM starting (503), retrying logs in 3s...');
+          reconnectTimeout = setTimeout(connectToLogs, 3000);
+        }
+      };
+
+      xhr.send();
     };
 
-    xhr.onerror = () => {
-      console.log('📺 Logs stream error, will reconnect...');
-    };
-
-    xhr.send();
+    connectToLogs();
 
     // Cleanup on unmount or dependency change
     return () => {
-      console.log('📺 Closing logs stream');
-      xhr.abort();
-      logsXhrRef.current = null;
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (logsXhrRef.current) {
+        logsXhrRef.current.abort();
+        logsXhrRef.current = null;
+      }
     };
-  }, [serverStatus, currentWorkstation?.id, apiUrl]);
+  }, [serverStatus, isStarting, currentWorkstation?.id, apiUrl]);
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;

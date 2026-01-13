@@ -34,6 +34,7 @@ import { config } from './src/config/config';
 import { useCloneStatusStore } from './src/core/clone/cloneStatusStore';
 import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
+import { useFileSync } from './src/hooks/business/useFileSync';
 
 console.log('App.tsx loaded');
 
@@ -53,6 +54,9 @@ export default function App() {
 
   // Stream backend logs to terminal (always enabled when logged in)
   useBackendLogs({ enabled: isInitialized && !!user });
+
+  // Global file synchronization via WebSocket
+  useFileSync();
 
   // Track projects currently being cloned to prevent duplicates
   const cloningProjects = useRef<Set<string>>(new Set());

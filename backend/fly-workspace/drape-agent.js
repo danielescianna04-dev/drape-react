@@ -29,8 +29,10 @@ const logBuffer = [];
 let logSequence = 0;
 const logSubscribers = new Set(); // SSE clients
 
+const LOG_FILE = '/home/coder/server.log';
+
 // Add line to log buffer and notify subscribers
-function appendLog(line, stream = 'stdout') {
+async function appendLog(line, stream = 'stdout') {
     const entry = {
         id: ++logSequence,
         timestamp: Date.now(),
@@ -41,6 +43,16 @@ function appendLog(line, stream = 'stdout') {
     logBuffer.push(entry);
     if (logBuffer.length > LOG_BUFFER_SIZE) {
         logBuffer.shift();
+    }
+
+    // Persist to file for Orchestrator tailing
+    try {
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [${stream}] ${line}\n`;
+        // Use fs.appendFile for persistent logs
+        await fs.appendFile(LOG_FILE, logLine);
+    } catch (e) {
+        // console.error(`Failed to write to log file: ${e.message}`);
     }
 
     // Notify all SSE subscribers
@@ -128,12 +140,22 @@ async function readFile(filePath) {
 }
 
 // Write file content
-async function writeFile(filePath, content) {
+async function writeFile(filePath, content, isBinary = false) {
     const fullPath = path.join(PROJECT_DIR, filePath);
     try {
         // Ensure directory exists
         await fs.mkdir(path.dirname(fullPath), { recursive: true });
-        await fs.writeFile(fullPath, content, 'utf-8');
+
+        // Handle binary files (base64 encoded) vs text files
+        if (isBinary) {
+            // Decode base64 to Buffer for binary files
+            const buffer = Buffer.from(content, 'base64');
+            await fs.writeFile(fullPath, buffer);
+        } else {
+            // Write as UTF-8 for text files
+            await fs.writeFile(fullPath, content, 'utf-8');
+        }
+
         return { success: true };
     } catch (error) {
         return { success: false, error: error.message };
@@ -421,13 +443,13 @@ const server = http.createServer(async (req, res) => {
         // Write file
         if (pathname === '/file' && req.method === 'POST') {
             const body = await parseBody(req);
-            const { path: filePath, content } = body;
+            const { path: filePath, content, isBinary } = body;
 
             if (!filePath) {
                 return sendJson(req, res, { error: 'path required' }, 400);
             }
 
-            const result = await writeFile(filePath, content || '');
+            const result = await writeFile(filePath, content || '', isBinary || false);
             return sendJson(req, res, result);
         }
 
@@ -485,7 +507,7 @@ const server = http.createServer(async (req, res) => {
                 );
 
                 // Cleanup temp file
-                await fs.unlink(tempFile).catch(() => {});
+                await fs.unlink(tempFile).catch(() => { });
 
                 if (extractResult.exitCode !== 0) {
                     return sendJson(req, res, {
@@ -511,7 +533,7 @@ const server = http.createServer(async (req, res) => {
                 });
             } catch (error) {
                 // Cleanup on error
-                await fs.unlink(tempFile).catch(() => {});
+                await fs.unlink(tempFile).catch(() => { });
                 return sendJson(req, res, {
                     success: false,
                     error: error.message,

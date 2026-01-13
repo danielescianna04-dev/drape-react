@@ -169,10 +169,18 @@ router.get('/project/:id/files', asyncHandler(async (req, res) => {
         }
     }
 
+    // Disable caching to ensure fresh file list
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.removeHeader('ETag');
+    res.removeHeader('Last-Modified');
+
     res.json({
         success: true,
         files: result.files || [],
-        count: result.files?.length || 0
+        count: result.files?.length || 0,
+        timestamp: Date.now() // Force different response each time
     });
 }));
 

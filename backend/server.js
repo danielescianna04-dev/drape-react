@@ -5,6 +5,7 @@
 
 // FIRST: Initialize global log service to capture ALL logs
 const globalLogService = require('./services/global-log-service');
+const fileWatcherService = require('./services/file-watcher');
 
 require('dotenv').config();
 
@@ -132,6 +133,43 @@ async function startServer() {
                         ws.send(JSON.stringify({ type: 'unsubscribed_logs' }));
                         break;
 
+                    case 'subscribe_files':
+                        // Subscribe to file changes for a project
+                        const { projectId } = data;
+                        if (!projectId) {
+                            ws.send(JSON.stringify({ type: 'error', message: 'projectId is required' }));
+                            break;
+                        }
+
+                        fileWatcherService.registerClient(projectId, ws);
+                        ws.subscribedFileProject = projectId;
+
+                        // Get VM info from orchestrator and start watching
+                        try {
+                            const vmInfo = await orchestrator.getOrCreateVM(projectId);
+                            if (vmInfo && vmInfo.agentUrl && vmInfo.machineId) {
+                                await fileWatcherService.startWatching(
+                                    projectId,
+                                    vmInfo.agentUrl,
+                                    vmInfo.machineId
+                                );
+                            }
+                        } catch (err) {
+                            console.warn(`⚠️ Could not start file watcher for ${projectId}:`, err.message);
+                        }
+
+                        ws.send(JSON.stringify({ type: 'subscribed_files', projectId }));
+                        break;
+
+                    case 'unsubscribe_files':
+                        // Unsubscribe from file changes
+                        if (ws.subscribedFileProject) {
+                            fileWatcherService.unregisterClient(ws.subscribedFileProject, ws);
+                            ws.subscribedFileProject = null;
+                        }
+                        ws.send(JSON.stringify({ type: 'unsubscribed_files' }));
+                        break;
+
                     case 'chat':
                         // Forward to AI chat handler
                         await handleWebSocketChat(ws, data.payload);
@@ -151,6 +189,10 @@ async function startServer() {
             // Cleanup log subscription
             if (ws.subscribedToLogs) {
                 globalLogService.removeWsListener(ws);
+            }
+            // Cleanup file subscription
+            if (ws.subscribedFileProject) {
+                fileWatcherService.unregisterClient(ws.subscribedFileProject, ws);
             }
         });
 

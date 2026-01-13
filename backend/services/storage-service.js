@@ -46,6 +46,29 @@ class StorageService {
     }
 
     /**
+     * Check if a file is binary based on extension
+     */
+    _isBinaryFile(filePath) {
+        const binaryExtensions = [
+            '.ico', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg',
+            '.woff', '.woff2', '.ttf', '.otf', '.eot',
+            '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.avi', '.mov',
+            '.exe', '.dll', '.so', '.dylib'
+        ];
+        return binaryExtensions.some(ext => filePath.toLowerCase().endsWith(ext));
+    }
+
+    /**
+     * Check if a file should be ignored/excluded from sync
+     * @param {string} filePath - File path to check
+     * @returns {boolean} True if file should be ignored
+     */
+    _shouldIgnoreFile(filePath) {
+        const ignoredExtensions = ['.ico']; // Exclude .ico files (often corrupted and cause Next.js issues)
+        return ignoredExtensions.some(ext => filePath.toLowerCase().endsWith(ext));
+    }
+
+    /**
      * Save a single file to storage
      * @param {string} projectId - Project ID
      * @param {string} filePath - Path within project (e.g., "src/App.tsx")
@@ -56,14 +79,25 @@ class StorageService {
         const docId = this._encodeFilePath(filePath);
 
         try {
+            const isBinary = this._isBinaryFile(filePath);
+            let contentToSave;
+
+            if (typeof content === 'string') {
+                contentToSave = content;
+            } else {
+                // Buffer: convert to base64 if binary, utf-8 if text
+                contentToSave = isBinary ? content.toString('base64') : content.toString('utf-8');
+            }
+
             await collection.doc(docId).set({
                 path: filePath,
-                content: typeof content === 'string' ? content : content.toString('utf-8'),
+                content: contentToSave,
+                isBinary: isBinary,
                 size: content.length,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            return { success: true, path: filePath };
+            return { success: true, path: filePath, isBinary };
         } catch (error) {
             console.error(`❌ [Storage] Save failed for ${filePath}:`, error.message);
             return { success: false, error: error.message };
@@ -91,7 +125,8 @@ class StorageService {
                 success: true,
                 content: data.content,
                 path: data.path,
-                size: data.size
+                size: data.size,
+                isBinary: data.isBinary || false
             };
         } catch (error) {
             console.error(`❌ [Storage] Read failed for ${filePath}:`, error.message);
@@ -109,14 +144,16 @@ class StorageService {
         try {
             const snapshot = await collection.get();
 
-            const files = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    path: data.path,
-                    size: data.size || 0,
-                    updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
-                };
-            });
+            const files = snapshot.docs
+                .map(doc => {
+                    const data = doc.data();
+                    return {
+                        path: data.path,
+                        size: data.size || 0,
+                        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
+                    };
+                })
+                .filter(file => !this._shouldIgnoreFile(file.path)); // Exclude ignored files
 
             return { success: true, files };
         } catch (error) {
@@ -135,15 +172,17 @@ class StorageService {
         try {
             const snapshot = await collection.get();
 
-            const files = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    path: data.path,
-                    content: data.content,
-                    size: data.size || (data.content ? data.content.length : 0),
-                    updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
-                };
-            });
+            const files = snapshot.docs
+                .map(doc => {
+                    const data = doc.data();
+                    return {
+                        path: data.path,
+                        content: data.content,
+                        size: data.size || (data.content ? data.content.length : 0),
+                        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || null
+                    };
+                })
+                .filter(file => !this._shouldIgnoreFile(file.path)); // Exclude ignored files
 
             return { success: true, files };
         } catch (error) {
@@ -159,7 +198,15 @@ class StorageService {
      * @param {Array} files - Array of {path, content} objects
      */
     async saveFiles(projectId, files) {
-        console.log(`💾 [Storage] Saving ${files.length} files for project ${projectId}`);
+        // Filter out ignored files (e.g., .ico files that cause issues)
+        const filteredFiles = files.filter(f => !this._shouldIgnoreFile(f.path));
+        const ignoredCount = files.length - filteredFiles.length;
+
+        if (ignoredCount > 0) {
+            console.log(`⏭️ [Storage] Ignoring ${ignoredCount} files (.ico, etc.)`);
+        }
+
+        console.log(`💾 [Storage] Saving ${filteredFiles.length} files for project ${projectId}`);
 
         const db = this._getDb();
         const collection = this._getFilesCollection(projectId);
@@ -169,8 +216,8 @@ class StorageService {
         let batchIndex = 0;
 
         // Chunk files into groups of BATCH_LIMIT
-        for (let i = 0; i < files.length; i += BATCH_LIMIT) {
-            const chunk = files.slice(i, i + BATCH_LIMIT);
+        for (let i = 0; i < filteredFiles.length; i += BATCH_LIMIT) {
+            const chunk = filteredFiles.slice(i, i + BATCH_LIMIT);
             const batch = db.batch();
             batchIndex++;
 
@@ -322,32 +369,34 @@ class StorageService {
             return [];
         }
 
-        // Skip binary files that get corrupted during text-based sync
-        const SKIP_EXTENSIONS = [
-            // Images
-            '.ico', '.icns', '.cur', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.svg',
-            // Fonts
-            '.woff', '.woff2', '.ttf', '.otf', '.eot',
-            // Other binary
-            '.pdf', '.zip', '.tar', '.gz', '.mp3', '.mp4', '.wav', '.mov', '.avi'
-        ];
-
         const bundle = [];
 
         for (const file of files) {
-            // Skip problematic binary files
-            const ext = file.path.substring(file.path.lastIndexOf('.')).toLowerCase();
-            if (SKIP_EXTENSIONS.includes(ext)) {
-                console.log(`   ⏭️ Skipping binary: ${file.path}`);
+            const result = await this.readFile(projectId, file.path);
+
+            if (!result.success || !result.content) {
+                console.warn(`   ⚠️ Failed to read ${file.path}, skipping`);
                 continue;
             }
 
-            const { content } = await this.readFile(projectId, file.path);
-            if (content) {
-                bundle.push({ path: file.path, content });
+            // Detect binary files: use flag if present, otherwise detect by extension
+            const isBinary = result.isBinary || this._isBinaryFile(file.path);
+
+            // Binary files are stored as base64 in Firestore, decode them to Buffer
+            if (isBinary) {
+                try {
+                    const buffer = Buffer.from(result.content, 'base64');
+                    bundle.push({ path: file.path, content: buffer, isBinary: true });
+                } catch (e) {
+                    console.warn(`   ⚠️ Failed to decode binary ${file.path}: ${e.message}`);
+                }
+            } else {
+                // Text files as-is
+                bundle.push({ path: file.path, content: result.content, isBinary: false });
             }
         }
 
+        console.log(`   📦 Bundle created: ${bundle.length} files (${bundle.filter(f => f.isBinary).length} binary)`);
         return bundle;
     }
 

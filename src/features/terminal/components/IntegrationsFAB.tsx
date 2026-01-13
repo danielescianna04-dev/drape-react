@@ -125,7 +125,7 @@ export const IntegrationsFAB: React.FC<IntegrationsFABProps> = ({
     opacity: isDragging.value ? 0.8 : 0.4,
   }));
 
-  if (!visible && scale.value === 0) {
+  if (!visible) {
     return null;
   }
 

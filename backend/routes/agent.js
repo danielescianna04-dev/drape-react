@@ -11,7 +11,19 @@ const router = express.Router();
 const flyService = require('../services/fly-service');
 const workspaceOrchestrator = require('../services/workspace-orchestrator');
 const TOOLS_CONFIG = require('../services/agent-tools.json');
-const { AgentLoop, saveProjectContext, detectIndustry, extractFeatures } = require('../services/agent-loop');
+
+/**
+ * Force reload agent-loop module to get latest code
+ * This is necessary because Node.js caches modules in require.cache
+ */
+function getAgentLoop() {
+    const agentLoopPath = require.resolve('../services/agent-loop');
+    delete require.cache[agentLoopPath];
+    return require('../services/agent-loop');
+}
+
+// Initial load for other exports
+const { saveProjectContext, detectIndustry, extractFeatures } = require('../services/agent-loop');
 
 // Store approved plans for execution
 const approvedPlans = new Map();
@@ -19,15 +31,13 @@ const approvedPlans = new Map();
 /**
  * Execute a tool on the VM
  */
-async function executeTool(toolName, input, agentUrl, machineId) {
+async function executeTool(toolName, input, agentUrl, machineId, projectId) {
     switch (toolName) {
         case 'write_file': {
-            const cmd = `mkdir -p "$(dirname "/home/coder/project/${input.path}")" && cat > "/home/coder/project/${input.path}" << 'DRAPE_EOF'
-${input.content}
-DRAPE_EOF`;
-            const result = await flyService.exec(agentUrl, cmd, '/home/coder/project', machineId, 30000);
-            if (result.exitCode !== 0) {
-                return { success: false, error: result.stderr };
+            // Use orchestrator to save to Firebase AND sync to VM with file watcher notification
+            const result = await workspaceOrchestrator.writeFile(projectId, input.path, input.content);
+            if (!result.success) {
+                return { success: false, error: 'Failed to write file' };
             }
             return { success: true, message: `Written ${input.path} (${input.content.length} bytes)` };
         }
@@ -61,7 +71,7 @@ DRAPE_EOF`;
         }
 
         case 'edit_file': {
-            // Read, replace, write
+            // Read, replace, write using orchestrator
             const readResult = await flyService.exec(agentUrl, `cat "/home/coder/project/${input.path}"`, '/home/coder/project', machineId, 10000);
             if (readResult.exitCode !== 0) {
                 return { success: false, error: `Cannot read file: ${readResult.stderr}` };
@@ -70,12 +80,11 @@ DRAPE_EOF`;
                 return { success: false, error: 'Search text not found in file' };
             }
             const newContent = readResult.stdout.replace(input.search, input.replace);
-            const writeCmd = `cat > "/home/coder/project/${input.path}" << 'DRAPE_EOF'
-${newContent}
-DRAPE_EOF`;
-            const writeResult = await flyService.exec(agentUrl, writeCmd, '/home/coder/project', machineId, 30000);
-            if (writeResult.exitCode !== 0) {
-                return { success: false, error: writeResult.stderr };
+
+            // Use orchestrator to save to Firebase AND sync to VM with file watcher notification
+            const result = await workspaceOrchestrator.writeFile(projectId, input.path, newContent);
+            if (!result.success) {
+                return { success: false, error: 'Failed to write file' };
             }
             return { success: true, message: `Edited ${input.path}` };
         }
@@ -180,7 +189,7 @@ router.post('/execute-tool', async (req, res) => {
         const { agentUrl, machineId } = vmInfo;
 
         // Execute tool
-        const result = await executeTool(tool, input, agentUrl, machineId);
+        const result = await executeTool(tool, input, agentUrl, machineId, projectId);
 
         res.json(result);
     } catch (error) {
@@ -301,6 +310,8 @@ const runFastHandler = async (req, res) => {
 
     try {
         // Create and initialize agent loop with selected model and conversation history
+        // Force reload to get latest code changes
+        const { AgentLoop } = getAgentLoop();
         const agent = new AgentLoop(projectId, 'fast', model, history);
         await agent.initialize();
 
@@ -384,6 +395,8 @@ const runPlanHandler = async (req, res) => {
 
     try {
         // Create and initialize agent loop in planning mode with selected model and conversation history
+        // Force reload to get latest code changes
+        const { AgentLoop } = getAgentLoop();
         const agent = new AgentLoop(projectId, 'planning', model, history);
         await agent.initialize();
 
@@ -454,6 +467,8 @@ const runExecuteHandler = async (req, res) => {
 
     try {
         // Create agent in executing mode with the plan and selected model
+        // Force reload to get latest code changes
+        const { AgentLoop } = getAgentLoop();
         const agent = new AgentLoop(projectId, 'executing', model || planData.model);
         agent.lastPlan = planData.plan;
         await agent.initialize();
