@@ -35,9 +35,10 @@ class FileWatcherService {
             try {
                 await this._checkForChanges(projectId, agentUrl, machineId);
             } catch (err) {
-                console.error(`[FileWatcher] Error checking changes for ${projectId}:`, err.message);
+                // Silent error - don't spam logs
+                // console.error(`[FileWatcher] Error checking changes for ${projectId}:`, err.message);
             }
-        }, 1000); // Check every 1 second
+        }, 3000); // Check every 3 seconds (reduced frequency)
 
         this.watchers.set(projectId, { intervalId, lastFileList: null });
     }
@@ -55,7 +56,8 @@ class FileWatcherService {
             'find /home/coder/project -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.next/*" | sort',
             '/home/coder/project',
             machineId,
-            10000 // Increased timeout for heavy operations
+            30000, // 30s timeout for heavy operations
+            true // silent=true to avoid error spam
         );
 
         if (result.exitCode !== 0) {

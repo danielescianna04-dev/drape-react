@@ -1658,12 +1658,13 @@ class WorkspaceOrchestrator {
             let installCmd;
             if (onlyCommon) {
                 // Symlink node_modules base (instant)
-                installCmd = 'ln -sf /base-deps/node_modules /workspace/node_modules';
+                installCmd = 'ln -sf /base-deps/node_modules /home/coder/project/node_modules';
                 console.log('   ⚡ Using base dependencies (symlink - instant!)');
             } else {
-                // Install with pnpm (fast with cache)
-                installCmd = 'pnpm install --store-dir /pnpm-store --prefer-offline';
-                console.log('   📦 Installing with pnpm (with persistent cache)');
+                // Install with pnpm (NO volume - each VM has its own store)
+                // NOTE: Volume sharing not possible with Fly.io (1 volume = 1 machine)
+                installCmd = 'pnpm install';
+                console.log('   📦 Installing with pnpm (local store)');
             }
 
             // Note: build cache disabled (Fly.io supports only 1 volume per machine)
