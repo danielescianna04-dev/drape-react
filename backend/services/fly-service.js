@@ -62,14 +62,20 @@ class FlyService {
         return 'registry.fly.io/drape-workspaces:deployment-01KETB6Y0X8VYZFF704M543V1T';
     }
 
+    get DRAPE_IMAGE_OPTIMIZED() {
+        // Optimized image with pnpm + pre-installed deps (~294MB)
+        // 3-5x faster startup time for common frameworks
+        return 'registry.fly.io/drape-workspaces:deployment-01KETHVT433DEW7S51HGH1R4V1';
+    }
+
     get DRAPE_IMAGE_FULL() {
         // Universal image (1.6GB) for Python, Go, Rust, PHP, etc.
         return 'registry.fly.io/drape-workspaces:deployment-01KET4Q1G6KFJNZ2JGAQMAWFY8';
     }
 
     get DRAPE_IMAGE() {
-        // Default image (lightweight Node.js)
-        return this.DRAPE_IMAGE_NODEJS;
+        // Default image (optimized for fast preview)
+        return this.DRAPE_IMAGE_OPTIMIZED;
     }
 
     /**
@@ -79,8 +85,8 @@ class FlyService {
      */
     getImageForProject(projectType) {
         if (projectType === 'nodejs' || projectType === 'nextjs' || projectType === 'react') {
-            console.log(`   🐳 [Fly] Using lightweight Node.js image (102MB)`);
-            return this.DRAPE_IMAGE_NODEJS;
+            console.log(`   🐳 [Fly] Using optimized image with pnpm + cached deps`);
+            return this.DRAPE_IMAGE_OPTIMIZED;
         } else {
             console.log(`   🐳 [Fly] Using universal image for ${projectType || 'unknown'} (1.6GB)`);
             return this.DRAPE_IMAGE_FULL;

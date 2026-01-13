@@ -1,11 +1,21 @@
 # Fly.io configuration for Drape Workspace
 # This is a "Machines" app - each user gets their own ephemeral machine
+# Optimized with persistent volumes for fast startup
 
 app = "drape-workspaces"
 primary_region = "fra"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "Dockerfile.optimized"
+
+# Persistent volumes for caching
+[[mounts]]
+  source = "pnpm_store"
+  destination = "/pnpm-store"
+
+[[mounts]]
+  source = "build_cache"
+  destination = "/build-cache"
 
 [env]
   DRAPE_AGENT_PORT = "13338"
