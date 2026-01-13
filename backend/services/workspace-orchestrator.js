@@ -156,10 +156,16 @@ class WorkspaceOrchestrator {
     async stopOtherMachines(currentProjectId) {
         const machineName = `ws-${currentProjectId}`.substring(0, 30);
 
+        // Get the current project's VM from activeVMs
+        const currentVM = activeVMs.get(currentProjectId);
+        const currentMachineId = currentVM?.machineId;
+
         try {
             const machines = await flyService.listMachines();
             const otherMachines = machines.filter(m =>
+                // Exclude by name OR by machineId (important for pool VMs)
                 m.name !== machineName &&
+                m.id !== currentMachineId &&
                 m.state !== 'destroyed' &&
                 m.state !== 'stopped'
             );
@@ -977,11 +983,13 @@ class WorkspaceOrchestrator {
      * @param {function} onProgress - Optional progress callback (step, message)
      */
     async startPreview(projectId, projectInfo, onProgress = null) {
-        // CRITICAL: Stop all other VMs first to ensure correct routing
+        // CRITICAL: Get/Create VM FIRST, then stop others
+        // This ensures we don't stop the VM we just allocated from the pool
+        const vm = await this.getOrCreateVM(projectId);
+
+        // CRITICAL: Stop all other VMs to ensure correct routing
         // All VMs share the same URL (drape-workspaces.fly.dev), so only one can be active
         await this.stopOtherMachines(projectId);
-
-        const vm = await this.getOrCreateVM(projectId);
 
         // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
         console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
