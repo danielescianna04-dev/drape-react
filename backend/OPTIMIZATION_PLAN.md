@@ -389,25 +389,58 @@ get DRAPE_IMAGE_NODEJS() {
 
 ## ✅ Checklist Implementazione
 
-- [ ] Creare `Dockerfile.full`
-- [ ] Creare `base-package.json`
-- [ ] Build immagine Docker
-- [ ] Push su Fly.io registry
-- [ ] Creare volume `pnpm_store` su Fly.io
-- [ ] Creare volume `build_cache` su Fly.io
-- [ ] Aggiornare `workspace-orchestrator.js`
-- [ ] Aggiornare `fly-service.js`
-- [ ] Aggiornare `fly.toml`
+- [x] Creare `Dockerfile.optimized` (base-package.json + pnpm)
+- [x] Creare `base-package.json` (11 dipendenze comuni pre-installate)
+- [x] Build immagine Docker (294MB, deployment-01KETHVT433DEW7S51HGH1R4V1)
+- [x] Push su Fly.io registry
+- [x] Creare volume `pnpm_store` su Fly.io (3GB, vol_4y52n9z066yqkz1r)
+- [x] Creare volume `build_cache` su Fly.io (2GB, vol_vz53wgzyjy2p2g9v)
+- [x] Aggiornare `workspace-orchestrator.js` (hasOnlyCommonDeps + optimizedSetup)
+- [x] Aggiornare `fly-service.js` (DRAPE_IMAGE_OPTIMIZED)
+- [x] Aggiornare `fly.toml` (volumes mount points)
+- [x] Commit e push (commit 821a2f9)
 - [ ] Test su progetto Next.js
 - [ ] Test su progetto Vite
 - [ ] Verificare tempi < 50s
-- [ ] Deploy production
 - [ ] Monitor metriche per 24h
-- [ ] Documentare risultati
+- [ ] Documentare risultati finali
+
+---
+
+## 📊 Risultati Implementazione
+
+### Completato (2026-01-13 03:10 UTC)
+
+**Immagine Docker Ottimizzata:**
+- Tag: `registry.fly.io/drape-workspaces:deployment-01KETHVT433DEW7S51HGH1R4V1`
+- Dimensione: 294MB (vs 102MB base, +188% per deps pre-installate)
+- Base image: node:20-alpine
+- Dipendenze pre-installate: React 18.3.1, Next 15.5.9, Vite 6.4.1, TypeScript 5.9.3, Tailwind 3.4.19, ecc.
+
+**Volumes Creati:**
+- `pnpm_store` (3GB): vol_4y52n9z066yqkz1r in fra region
+- `build_cache` (2GB): vol_vz53wgzyjy2p2g9v in fra region
+- Costo mensile stimato: ~$0.50-0.75
+
+**Modifiche al Codice:**
+1. `fly-workspace/Dockerfile.optimized`: Nuovo Dockerfile con pnpm + deps pre-installate
+2. `fly-workspace/base-package.json`: Manifest con 11 dipendenze comuni
+3. `fly-workspace/fly.toml`: Aggiunto mount per volumes persistenti
+4. `services/workspace-orchestrator.js`:
+   - Nuovo metodo `hasOnlyCommonDeps()` per detection smart
+   - Nuovo metodo `optimizedSetup()` per setup con pnpm
+   - Integrato nel flow `getOrCreateVM()`
+5. `services/fly-service.js`: Aggiunto getter `DRAPE_IMAGE_OPTIMIZED()`
+
+**Prossimi Step:**
+- Testing real-world con progetti Next.js e Vite
+- Benchmark tempi di startup
+- Monitoring cache hit rate
+- Tuning configurazione pnpm se necessario
 
 ---
 
 **Documento creato il:** 2026-01-13
-**Ultimo aggiornamento:** 2026-01-13
-**Versione:** 1.0
-**Status:** Ready for Implementation
+**Ultimo aggiornamento:** 2026-01-13 03:10 UTC
+**Versione:** 1.1
+**Status:** Implementato - In Testing
