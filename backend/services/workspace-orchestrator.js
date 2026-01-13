@@ -14,6 +14,7 @@ const flyService = require('./fly-service');
 const storageService = require('./storage-service');
 const redisService = require('./redis-service');
 const fileWatcherService = require('./file-watcher');
+const vmPoolManager = require('./vm-pool-manager');
 const axios = require('axios');
 const serverLogService = require('./server-log-service');
 const archiver = require('archiver');
@@ -27,7 +28,7 @@ const vmLocks = new Map(); // projectId -> Promise
 
 class WorkspaceOrchestrator {
     constructor() {
-        this.vmTimeout = 24 * 60 * 60 * 1000; // 24 hours idle timeout (keep VMs alive longer to avoid cold starts)
+        this.vmTimeout = 60 * 60 * 1000; // 1 hour idle timeout (FIX #3: reduced from 24h, VMs released to pool instead of destroyed)
     }
 
     /**
@@ -346,20 +347,41 @@ class WorkspaceOrchestrator {
             } else {
                 console.log(`📦 [Orchestrator] Creating new MicroVM...`);
 
-                // Auto-detect memory requirements based on project
-                const memoryMb = await this._detectMemoryRequirements(projectId);
-
-                // Auto-detect project type to select Docker image
-                const projectType = await this._detectProjectType(projectId);
-                const dockerImage = flyService.getImageForProject(projectType);
-
-                vm = await flyService.createMachine(projectId, {
-                    memory_mb: memoryMb,
-                    image: dockerImage,
-                    env: {
-                        PROJECT_ID: projectId
+                // Try to allocate from VM pool first (Phase 2.1: VM Pool)
+                let isFromPool = false;
+                try {
+                    const pooledVM = await vmPoolManager.allocateVM(projectId);
+                    if (pooledVM) {
+                        console.log(`⚡ [Orchestrator] Got VM from pool (instant!)`);
+                        vm = {
+                            id: pooledVM.machineId,
+                            name: machineName, // Use project-specific name for tracking
+                            state: 'started'
+                        };
+                        isFromPool = true; // FIX #2: Track pool VMs
+                        // Skip creation, go directly to agent wait
                     }
-                });
+                } catch (e) {
+                    console.log(`   Pool allocation failed: ${e.message}, creating new VM...`);
+                }
+
+                // If pool didn't work, create new VM directly
+                if (!vm) {
+                    // Auto-detect memory requirements based on project
+                    const memoryMb = await this._detectMemoryRequirements(projectId);
+
+                    // Auto-detect project type to select Docker image
+                    const projectType = await this._detectProjectType(projectId);
+                    const dockerImage = flyService.getImageForProject(projectType);
+
+                    vm = await flyService.createMachine(projectId, {
+                        memory_mb: memoryMb,
+                        image: dockerImage,
+                        env: {
+                            PROJECT_ID: projectId
+                        }
+                    });
+                }
             }
 
             // Wait for machine to be ready (two-phase: 30s fast, then slower polling up to 120s)
@@ -380,7 +402,8 @@ class WorkspaceOrchestrator {
                 machineId: vm.id, // Store for routing
                 projectId,
                 createdAt: Date.now(),
-                lastUsed: Date.now()
+                lastUsed: Date.now(),
+                fromPool: isFromPool // FIX #2: Track if VM came from pool
             };
 
             // Cache it
@@ -950,8 +973,9 @@ class WorkspaceOrchestrator {
      * Start a dev server for preview
      * @param {string} projectId - Project ID
      * @param {object} projectInfo - Project type info (from analyzer)
+     * @param {function} onProgress - Optional progress callback (step, message)
      */
-    async startPreview(projectId, projectInfo) {
+    async startPreview(projectId, projectInfo, onProgress = null) {
         // CRITICAL: Stop all other VMs first to ensure correct routing
         // All VMs share the same URL (drape-workspaces.fly.dev), so only one can be active
         await this.stopOtherMachines(projectId);
@@ -1047,8 +1071,8 @@ class WorkspaceOrchestrator {
         // Setup (Install + Start) via Optimized pnpm (Async)
         if (projectInfo.installCommand || projectInfo.startCommand) {
             try {
-                // Use optimized setup with pnpm
-                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo);
+                // Use optimized setup with pnpm (pass progress callback)
+                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress);
 
                 // Start log streaming
                 this.startLogStreaming(projectId, vm);
@@ -1148,9 +1172,26 @@ class WorkspaceOrchestrator {
         }
 
         try {
-            await flyService.destroyMachine(cached.id);
+            console.log(`⏹️ [Orchestrator] Stopping preview for ${projectId}`);
+
+            // Check if this VM is tracked by the pool
+            const isPoolVM = cached.fromPool === true;
+
+            if (isPoolVM) {
+                // Release back to pool instead of destroying (FIX #1)
+                console.log(`♻️ [Orchestrator] Releasing VM ${cached.machineId} back to pool`);
+                await vmPoolManager.releaseVM(cached.machineId, true); // Keep node_modules
+            } else {
+                // Non-pool VM, destroy it
+                console.log(`🗑️ [Orchestrator] Destroying non-pool VM ${cached.machineId}`);
+                await flyService.destroyMachine(cached.id);
+            }
+
+            // Remove from active VMs
             activeVMs.delete(projectId);
-            return { success: true };
+            await redisService.removeVMSession(projectId);
+
+            return { success: true, released: isPoolVM };
         } catch (error) {
             console.error(`❌ [Orchestrator] Stop failed:`, error.message);
             return { success: false, error: error.message };
@@ -1645,28 +1686,47 @@ class WorkspaceOrchestrator {
      * @param {string} agentUrl - VM agent URL
      * @param {string} machineId - Fly machine ID
      * @param {object} projectInfo - Project metadata
+     * @param {function} onProgress - Optional progress callback (step, message)
      * @returns {object} Result
      */
-    async optimizedSetup(projectId, agentUrl, machineId, projectInfo) {
+    async optimizedSetup(projectId, agentUrl, machineId, projectInfo, onProgress = null) {
         const axios = require('axios');
         const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
 
         try {
-            // Check if has only common deps
-            const onlyCommon = await this.hasOnlyCommonDeps(projectId);
+            // Auto-detect package manager from lock files
+            const filesResult = await this.listFiles(projectId);
+            const fileNames = filesResult.files.map(f => f.path);
 
             let installCmd;
-            // ALWAYS symlink base deps first (instant), then pnpm install adds missing ones
-            // This is MUCH faster than pnpm install from scratch (3m -> 30s)
-            installCmd = 'cp -r /base-deps/node_modules /home/coder/project/ && pnpm install';
-            console.log('   ⚡ Using hybrid approach: base deps + pnpm for extras');
+            let pkgManager = 'npm'; // default
+
+            if (fileNames.includes('pnpm-lock.yaml')) {
+                pkgManager = 'pnpm';
+                installCmd = 'CI=true pnpm config set package-import-method copy && CI=true pnpm install --frozen-lockfile';
+                console.log('   ⚡ Using pnpm (detected pnpm-lock.yaml)');
+            } else if (fileNames.includes('yarn.lock')) {
+                pkgManager = 'yarn';
+                installCmd = 'yarn install --frozen-lockfile';
+                console.log('   ⚡ Using yarn (detected yarn.lock)');
+            } else if (fileNames.includes('package-lock.json')) {
+                pkgManager = 'npm';
+                installCmd = 'npm ci'; // faster than npm install with package-lock
+                console.log('   ⚡ Using npm (detected package-lock.json)');
+            } else {
+                // No lock file, use npm without ci
+                pkgManager = 'npm';
+                installCmd = 'npm install';
+                console.log('   ⚠️ Using npm install (no lock file detected)');
+            }
 
             // Note: build cache disabled (Fly.io supports only 1 volume per machine)
             // Using pnpm cache which provides bigger performance gain
             const cacheCmd = 'true';
 
-            // Get start command
-            const start = projectInfo.startCommand || 'npm run dev -- --host 0.0.0.0 --port 3000';
+            // Get start command using detected package manager
+            const defaultStart = `${pkgManager} run dev -- --host 0.0.0.0 --port 3000`;
+            const start = projectInfo.startCommand || defaultStart;
 
             // Ensure proper binding for common frameworks
             let finalStart = start;
@@ -1674,10 +1734,64 @@ class WorkspaceOrchestrator {
                 finalStart = `${start} -- --host 0.0.0.0`;
             }
 
-            // Setup completo ottimizzato
-            const setupScript = `${installCmd} && ${cacheCmd} && (fuser -k 3000/tcp || true) && ${finalStart}`;
+            // Phase 2.3: Smart npm install - skip if node_modules exists and package.json unchanged
+            let shouldInstall = true;
+            try {
+                // Check if node_modules exists
+                const checkNodeModules = await flyService.exec(
+                    agentUrl,
+                    'test -d node_modules && echo "EXISTS"',
+                    '/home/coder/project',
+                    machineId,
+                    3000,
+                    true
+                );
 
-            console.log(`🚀 [Orchestrator] Triggering Optimized Setup (pnpm)`);
+                if (checkNodeModules.stdout?.includes('EXISTS')) {
+                    // node_modules exists, check if package.json changed
+                    const packageJson = await this.readFile(projectId, 'package.json');
+                    if (packageJson.success) {
+                        // Calculate hash of current package.json
+                        const crypto = require('crypto');
+                        const currentHash = crypto.createHash('md5').update(packageJson.content).digest('hex');
+
+                        // Get stored hash from VM
+                        const storedHashResult = await flyService.exec(
+                            agentUrl,
+                            'cat .package-json-hash 2>/dev/null || echo ""',
+                            '/home/coder/project',
+                            machineId,
+                            3000,
+                            true
+                        );
+
+                        if (storedHashResult.stdout?.trim() === currentHash) {
+                            console.log(`⚡ [Orchestrator] Skipping npm install (node_modules up to date)`);
+                            shouldInstall = false;
+                        } else {
+                            console.log(`   🔄 package.json changed, running install...`);
+                        }
+
+                        // Store the new hash after install
+                        if (shouldInstall) {
+                            installCmd = `${installCmd} && echo "${currentHash}" > .package-json-hash`;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log(`   ℹ️ Could not check node_modules cache: ${e.message}`);
+                // Fall through to install
+            }
+
+            // Setup script - conditionally include install
+            const setupScript = shouldInstall
+                ? `${installCmd} && ${cacheCmd} && (fuser -k 3000/tcp || true) && ${finalStart}`
+                : `(fuser -k 3000/tcp || true) && ${finalStart}`;
+
+            console.log(`🚀 [Orchestrator] Triggering Optimized Setup`);
+
+            // Report progress: Installing dependencies
+            if (onProgress) onProgress('installing', `Installazione dipendenze (${pkgManager})...`);
 
             // Call the /setup endpoint
             await axios.post(`${agentUrl}/setup`, {
@@ -1687,12 +1801,69 @@ class WorkspaceOrchestrator {
                 headers
             });
 
-            console.log(`   ✅ Optimized setup triggered. Expected time: 10-20s (vs 40-60s with npm)`);
-            return { success: true };
+            console.log(`   ✅ Optimized setup triggered.`);
+
+            // Report progress: Starting dev server
+            if (onProgress) onProgress('starting', 'Avvio del dev server...');
+
+            // Wait for dev server to be ready (Phase 1.3: Health Check)
+            const isReady = await this.waitForDevServer(agentUrl, machineId, 120000);
+
+            if (!isReady) {
+                console.warn(`⚠️ Dev server health check timed out, but continuing...`);
+            }
+
+            return { success: true, serverReady: isReady };
         } catch (error) {
             console.error(`❌ [Orchestrator] Optimized setup failed: ${error.message}`);
             return { success: false, error: error.message };
         }
+    }
+
+    /**
+     * Wait for dev server to be ready on port 3000
+     * @param {string} agentUrl - The Fly.io agent URL
+     * @param {string} machineId - The machine ID
+     * @param {number} maxWaitMs - Maximum time to wait (default 120s)
+     * @returns {Promise<boolean>} - true if server is ready, false if timeout
+     */
+    async waitForDevServer(agentUrl, machineId, maxWaitMs = 120000) {
+        const axios = require('axios');
+        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+        const startTime = Date.now();
+        const checkInterval = 2000; // Check every 2 seconds
+
+        console.log(`⏳ [Health Check] Waiting for dev server on port 3000...`);
+
+        while (Date.now() - startTime < maxWaitMs) {
+            try {
+                // Try to reach the dev server through the agent proxy
+                const response = await axios.get(agentUrl, {
+                    timeout: 3000,
+                    headers,
+                    validateStatus: (status) => status < 500 // Accept 200-499 as success
+                });
+
+                // If we get any response (even 404), the server is running
+                if (response.status >= 200 && response.status < 500) {
+                    const elapsed = Date.now() - startTime;
+                    console.log(`✅ [Health Check] Dev server ready! (${elapsed}ms)`);
+                    return true;
+                }
+            } catch (error) {
+                // Connection errors mean server not ready yet
+                const elapsed = Date.now() - startTime;
+                if (elapsed % 10000 < checkInterval) { // Log every ~10s
+                    console.log(`   ⏳ Still waiting... (${Math.floor(elapsed / 1000)}s)`);
+                }
+            }
+
+            // Wait before next check
+            await new Promise(resolve => setTimeout(resolve, checkInterval));
+        }
+
+        console.warn(`⚠️ [Health Check] Dev server did not respond after ${maxWaitMs}ms`);
+        return false;
     }
 
     /**
