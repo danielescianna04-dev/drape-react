@@ -8,15 +8,6 @@
     "createdAt": 1768238896347,
     "lastUsed": 1768255371223
   },
-  "ws-1767975714833-t876jh9or": {
-    "id": "683951ead40158",
-    "name": "ws-ws-1767975714833-t876jh9or",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "683951ead40158",
-    "projectId": "ws-1767975714833-t876jh9or",
-    "createdAt": 1768255453771,
-    "lastUsed": 1768255544556
-  },
   "7qOmxnumsyp1jfovWTmJ": {
     "id": "1859d5dc129e28",
     "name": "ws-7qOmxnumsyp1jfovWTmJ",
@@ -52,5 +43,134 @@
     "projectId": "ehkMVJ7o40lJ72xb6Tb9",
     "createdAt": 1768267745206,
     "lastUsed": 1768267745206
+  },
+  "pool-1768315117027-1k7j51uf7": {
+    "id": "18590d7c243708",
+    "machineId": "18590d7c243708",
+    "vmId": "18590d7c243708",
+    "name": "ws-pool-1768315117027-1k7j51uf",
+    "projectId": "pool-1768315117027-1k7j51uf7",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:502:6ee9:1b02:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T14:38:39Z",
+    "lastUsed": 1768331388025
+  },
+  "pool-1768330706301-y456u60g3": {
+    "id": "185957df196968",
+    "machineId": "185957df196968",
+    "vmId": "185957df196968",
+    "name": "ws-pool-1768330706301-y456u60g",
+    "projectId": "pool-1768330706301-y456u60g3",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:506:e8f2:6100:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T18:58:29Z",
+    "lastUsed": 1768331388025
+  },
+  "pool-1768315117030-yqwlqgeh1": {
+    "id": "185e6ddc517138",
+    "machineId": "185e6ddc517138",
+    "vmId": "185e6ddc517138",
+    "name": "ws-pool-1768315117030-yqwlqgeh",
+    "projectId": "pool-1768315117030-yqwlqgeh1",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:74:37c7:4cfd:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T14:38:39Z",
+    "lastUsed": 1768331388025
+  },
+  "pool-1768306577821-vgjbr1tzf": {
+    "id": "48e4129f365468",
+    "machineId": "48e4129f365468",
+    "vmId": "48e4129f365468",
+    "name": "ws-pool-1768306577821-vgjbr1tz",
+    "projectId": "pool-1768306577821-vgjbr1tzf",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:51c:f094:8e8c:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T12:16:20Z",
+    "lastUsed": 1768331388025
+  },
+  "pool-1768330586299-vua67edy2": {
+    "id": "d896e22b2d6038",
+    "machineId": "d896e22b2d6038",
+    "vmId": "d896e22b2d6038",
+    "name": "ws-pool-1768330586299-vua67edy",
+    "projectId": "pool-1768330586299-vua67edy2",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:47a:b5bd:e285:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T18:56:28Z",
+    "lastUsed": 1768331388025
+  },
+  "ws-1767975714833-t876jh9or": {
+    "id": "28737ddb120e78",
+    "name": "ws-ws-1767975714833-t876jh9or",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "28737ddb120e78",
+    "projectId": "ws-1767975714833-t876jh9or",
+    "createdAt": 1768331576238,
+    "lastUsed": 1768335789403
+  },
+  "pool-1768332626386-my7ufiku4": {
+    "id": "08057deb569e78",
+    "machineId": "08057deb569e78",
+    "vmId": "08057deb569e78",
+    "name": "ws-pool-1768332626386-my7ufiku",
+    "projectId": "pool-1768332626386-my7ufiku4",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:502:420:c2ff:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T19:30:28Z",
+    "lastUsed": 1768332886657
+  },
+  "pool-1768332746387-s1py88dgd": {
+    "id": "78491edb43d9e8",
+    "machineId": "78491edb43d9e8",
+    "vmId": "78491edb43d9e8",
+    "name": "ws-pool-1768332746387-s1py88dg",
+    "projectId": "pool-1768332746387-s1py88dgd",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:521:12f7:63d3:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T19:32:28Z",
+    "lastUsed": 1768332886657
+  },
+  "pool-1768335573634-ipk4l2qen": {
+    "id": "2860956c762948",
+    "machineId": "2860956c762948",
+    "vmId": "2860956c762948",
+    "name": "ws-pool-1768335573634-ipk4l2qe",
+    "projectId": "pool-1768335573634-ipk4l2qen",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:522:6d17:683f:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T20:19:37Z",
+    "lastUsed": 1768335586729
+  },
+  "pool-1768336519949-srodfoo51": {
+    "id": "d8d3106c275568",
+    "machineId": "d8d3106c275568",
+    "vmId": "d8d3106c275568",
+    "name": "ws-pool-1768336519949-srodfoo5",
+    "projectId": "pool-1768336519949-srodfoo51",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:501:104d:ed05:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T20:35:22Z",
+    "lastUsed": 1768336786740
+  },
+  "pool-1768336519958-idymkf8k2": {
+    "id": "e829e40c049968",
+    "machineId": "e829e40c049968",
+    "vmId": "e829e40c049968",
+    "name": "ws-pool-1768336519958-idymkf8k",
+    "projectId": "pool-1768336519958-idymkf8k2",
+    "region": "fra",
+    "privateIp": "fdaa:3b:969:a7b:51d:d19b:85a1:2",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "createdAt": "2026-01-13T20:35:22Z",
+    "lastUsed": 1768336786740
   }
 }
