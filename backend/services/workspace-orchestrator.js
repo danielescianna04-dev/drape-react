@@ -257,10 +257,29 @@ class WorkspaceOrchestrator {
                         throw new Error("Machine dead or outdated image");
                     }
 
-                    await axios.get(`${cached.agentUrl}/health`, {
-                        timeout: 3000, // Faster timeout for check
-                        headers: { 'Fly-Force-Instance-Id': cached.machineId }
-                    });
+                    // Health check with retry (Fly.io routing needs time to update)
+                    let healthOk = false;
+                    for (let attempt = 1; attempt <= 3; attempt++) {
+                        try {
+                            await axios.get(`${cached.agentUrl}/health`, {
+                                timeout: 2000 + (attempt * 1000), // 3s, 4s, 5s
+                                headers: { 'Fly-Force-Instance-Id': cached.machineId }
+                            });
+                            healthOk = true;
+                            break;
+                        } catch (e) {
+                            if (attempt < 3) {
+                                await new Promise(resolve => setTimeout(resolve, 500 * attempt)); // 500ms, 1000ms
+                            } else {
+                                throw e; // Last attempt failed
+                            }
+                        }
+                    }
+
+                    if (!healthOk) {
+                        throw new Error("Health check failed after retries");
+                    }
+
                     console.log(`✅ [Orchestrator] Using cached/recovered VM (${Date.now() - startTime}ms)`);
                     cached.lastUsed = Date.now();
 
@@ -272,8 +291,8 @@ class WorkspaceOrchestrator {
                     }
 
                     return cached;
-                } catch {
-                    console.log(`⚠️ [Orchestrator] Cached VM dead or unreachable, creating/finding new one`);
+                } catch (e) {
+                    console.log(`⚠️ [Orchestrator] Cached VM dead or unreachable: ${e.message}`);
                     activeVMs.delete(projectId);
                     await redisService.removeVMSession(projectId);
                 }
@@ -316,11 +335,28 @@ class WorkspaceOrchestrator {
                 if (vm && existing.state === 'started') {
                     const agentUrl = 'https://drape-workspaces.fly.dev';
                     try {
-                        // Quick health check (2s timeout)
-                        await axios.get(`${agentUrl}/health`, {
-                            timeout: 2000,
-                            headers: { 'fly-force-instance-id': existing.id }
-                        });
+                        // Quick health check with retry
+                        let healthOk = false;
+                        for (let attempt = 1; attempt <= 2; attempt++) {
+                            try {
+                                await axios.get(`${agentUrl}/health`, {
+                                    timeout: 2000 + (attempt * 1000), // 3s, 4s
+                                    headers: { 'Fly-Force-Instance-Id': existing.id } // FIX: consistent capitalization
+                                });
+                                healthOk = true;
+                                break;
+                            } catch (e) {
+                                if (attempt < 2) {
+                                    await new Promise(resolve => setTimeout(resolve, 500));
+                                } else {
+                                    throw e;
+                                }
+                            }
+                        }
+
+                        if (!healthOk) {
+                            throw new Error("Health check failed");
+                        }
 
                         console.log(`⚡ [Orchestrator] VM already running! Fast path. (${Date.now() - startTime}ms)`);
 
@@ -346,7 +382,7 @@ class WorkspaceOrchestrator {
 
                         return vmInfo;
                     } catch (e) {
-                        console.log(`   ⚠️ Health check failed, will wait for agent...`);
+                        console.log(`   ⚠️ Health check failed: ${e.message}, will wait for agent...`);
                     }
                 }
 
