@@ -153,12 +153,15 @@ class WorkspaceOrchestrator {
      * This ensures only one project's VM is active at a time (single-tenant mode)
      * Required because all VMs share the same public URL on Fly.io
      */
-    async stopOtherMachines(currentProjectId) {
+    async stopOtherMachines(currentProjectId, currentMachineId = null) {
         const machineName = `ws-${currentProjectId}`.substring(0, 30);
 
-        // Get the current project's VM from activeVMs
-        const currentVM = activeVMs.get(currentProjectId);
-        const currentMachineId = currentVM?.machineId;
+        // Use provided machineId if available (prevents race conditions during allocation)
+        // Otherwise fallback to activeVMs lookup
+        if (!currentMachineId) {
+            const currentVM = activeVMs.get(currentProjectId);
+            currentMachineId = currentVM?.machineId;
+        }
 
         try {
             const machines = await flyService.listMachines();
@@ -988,8 +991,8 @@ class WorkspaceOrchestrator {
         const vm = await this.getOrCreateVM(projectId);
 
         // CRITICAL: Stop all other VMs to ensure correct routing
-        // All VMs share the same URL (drape-workspaces.fly.dev), so only one can be active
-        await this.stopOtherMachines(projectId);
+        // Pass the current VM's machineId to avoid race conditions
+        await this.stopOtherMachines(projectId, vm.machineId);
 
         // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
         console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
