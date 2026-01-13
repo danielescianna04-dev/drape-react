@@ -332,6 +332,9 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         if (res.flush) res.flush();
     }, 5000);
 
+    // Declare projectInfo outside try block so it's accessible in catch
+    let projectInfo = null;
+
     try {
         console.log(`   [1/5] Analyzing project...`);
         sendStep('analyzing', 'Analisi del progetto...');
@@ -445,7 +448,7 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
         }
 
         // Smart fallback based on config files (use npx http-server for static sites)
-        let projectInfo = {
+        projectInfo = {
             type: 'static',
             startCommand: 'npx http-server . -p 3000 -a 0.0.0.0'
         };

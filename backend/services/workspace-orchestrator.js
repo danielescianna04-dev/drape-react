@@ -275,6 +275,7 @@ class WorkspaceOrchestrator {
             console.log(`📦 [Orchestrator] checking for existing VM: ${machineName}...`);
 
             let vm;
+            let isFromPool = false; // FIX: Define outside if/else so it's available for all paths
 
             // Check Fly API for existing machine to avoid 409 Conflict
             const machines = await flyService.listMachines();
@@ -321,7 +322,8 @@ class WorkspaceOrchestrator {
                             machineId: existing.id,
                             projectId,
                             createdAt: Date.now(),
-                            lastUsed: Date.now()
+                            lastUsed: Date.now(),
+                            fromPool: false // Existing VM, not from pool
                         };
                         activeVMs.set(projectId, vmInfo);
                         this._scheduleCleanup(projectId);
@@ -348,7 +350,6 @@ class WorkspaceOrchestrator {
                 console.log(`📦 [Orchestrator] Creating new MicroVM...`);
 
                 // Try to allocate from VM pool first (Phase 2.1: VM Pool)
-                let isFromPool = false;
                 try {
                     const pooledVM = await vmPoolManager.allocateVM(projectId);
                     if (pooledVM) {
