@@ -8,14 +8,10 @@ primary_region = "fra"
 [build]
   dockerfile = "Dockerfile.optimized"
 
-# Persistent volumes for caching
+# Persistent volume for pnpm cache (only 1 volume supported per machine)
 [[mounts]]
   source = "pnpm_store"
   destination = "/pnpm-store"
-
-[[mounts]]
-  source = "build_cache"
-  destination = "/build-cache"
 
 [env]
   DRAPE_AGENT_PORT = "13338"

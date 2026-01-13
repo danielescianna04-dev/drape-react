@@ -1666,8 +1666,9 @@ class WorkspaceOrchestrator {
                 console.log('   📦 Installing with pnpm (with persistent cache)');
             }
 
-            // Mount build cache for Next.js/.vite
-            const cacheCmd = 'ln -sf /build-cache/.next /workspace/.next 2>/dev/null || true';
+            // Note: build cache disabled (Fly.io supports only 1 volume per machine)
+            // Using pnpm cache which provides bigger performance gain
+            const cacheCmd = 'true';
 
             // Get start command
             const start = projectInfo.startCommand || 'npm run dev -- --host 0.0.0.0 --port 3000';

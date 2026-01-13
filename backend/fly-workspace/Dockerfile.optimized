@@ -31,9 +31,8 @@ COPY base-package.json package.json
 RUN pnpm install --store-dir /pnpm-store \
     && pnpm store prune
 
-# Create volumes mount points
+# Create volume mount point (only 1 volume supported by Fly.io)
 VOLUME /pnpm-store
-VOLUME /build-cache
 
 # Workspace directory
 WORKDIR /workspace

@@ -65,7 +65,7 @@ class FlyService {
     get DRAPE_IMAGE_OPTIMIZED() {
         // Optimized image with pnpm + pre-installed deps (~294MB)
         // 3-5x faster startup time for common frameworks
-        return 'registry.fly.io/drape-workspaces:deployment-01KETHVT433DEW7S51HGH1R4V1';
+        return 'registry.fly.io/drape-workspaces:deployment-01KETJ9JYFSD06KPHYDSP3FB7M';
     }
 
     get DRAPE_IMAGE_FULL() {
