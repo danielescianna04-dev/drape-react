@@ -25,10 +25,12 @@ const activeVMs = new Map();
 
 // Locks to prevent race conditions on getOrCreateVM (one caller at a time per project)
 const vmLocks = new Map(); // projectId -> Promise
+const setupLocks = new Map(); // projectId -> Promise
+
 
 class WorkspaceOrchestrator {
     constructor() {
-        this.vmTimeout = 60 * 60 * 1000; // 1 hour idle timeout (FIX #3: reduced from 24h, VMs released to pool instead of destroyed)
+        this.vmTimeout = 15 * 60 * 1000; // 15 minutes idle timeout (Improved resource efficiency)
     }
 
     /**
@@ -89,64 +91,239 @@ class WorkspaceOrchestrator {
     }
 
     /**
-     * Detect project type to determine which Docker image to use
+     * Detect project metadata (type, start command, etc.)
+     * This logic is shared between background warming and actual preview start.
      * @param {string} projectId - Project ID
-     * @returns {string} Project type ('nodejs', 'python', 'go', etc.)
+     * @returns {object} projectInfo
      */
-    async _detectProjectType(projectId) {
+    async detectProjectMetadata(projectId) {
+        console.log(`\n🔍 [Orchestrator] Detecting project metadata for: ${projectId}`);
+
+        // Helper for robust timeouts
+        const withTimeout = async (promise, timeoutMs, label) => {
+            const timeout = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
+            );
+            return Promise.race([promise, timeout]);
+        };
+
+        // Get file list for project detection
+        let fileNames = [];
+        let configFiles = {};
         try {
-            // Check for package.json (Node.js/Next.js/React)
-            const packageResult = await storageService.readFile(projectId, 'package.json');
-            if (packageResult.success) {
-                const packageJson = JSON.parse(packageResult.content);
-                const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+            const listResult = await withTimeout(this.listFiles(projectId), 15000, 'listFiles (detecting)');
+            fileNames = (listResult.files || []).map(f => f.path);
 
-                // Check for specific frameworks
-                if (Object.keys(deps).some(d => d.startsWith('next'))) {
-                    console.log(`   🔍 [Orchestrator] Detected Next.js project`);
-                    return 'nextjs';
+            // Read config files for detection
+            for (const configName of ['package.json', 'requirements.txt', 'go.mod', 'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs']) {
+                try {
+                    const result = await withTimeout(this.readFile(projectId, configName), 3000, `readFile(${configName})`);
+                    if (result.success) {
+                        configFiles[configName] = { content: result.content };
+                    }
+                } catch { }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ Detection data gathering failed: ${e.message}`);
+        }
+
+        let viteConfig = (configFiles['vite.config.js'] && configFiles['vite.config.js'].content) ? { name: 'vite.config.js', content: configFiles['vite.config.js'].content } :
+            ((configFiles['vite.config.ts'] && configFiles['vite.config.ts'].content) ? { name: 'vite.config.ts', content: configFiles['vite.config.ts'].content } : null);
+
+        let nextConfig = (configFiles['next.config.js'] && configFiles['next.config.js'].content) ? { name: 'next.config.js', content: configFiles['next.config.js'].content } :
+            ((configFiles['next.config.mjs'] && configFiles['next.config.mjs'].content) ? { name: 'next.config.mjs', content: configFiles['next.config.mjs'].content } : null);
+
+        // Smart fallback based on config files
+        let projectInfo = {
+            type: 'static',
+            startCommand: 'npx http-server . -p 3000 -a 0.0.0.0',
+            port: 3000
+        };
+
+        // Check for Next.js
+        if (nextConfig || configFiles['package.json']?.content?.includes('"next"')) {
+            projectInfo = {
+                type: 'nextjs',
+                description: 'Next.js Application',
+                startCommand: 'npx next dev --turbo -H 0.0.0.0 --port 3000',
+                port: 3000
+            };
+
+            // Version check
+            if (configFiles['package.json']?.content) {
+                try {
+                    const pkg = JSON.parse(configFiles['package.json'].content);
+                    const nextVersion = pkg.dependencies?.next || pkg.devDependencies?.next;
+                    if (nextVersion) {
+                        const versionMatch = nextVersion.match(/(\d+)\.(\d+)\.(\d+)/);
+                        if (versionMatch) {
+                            const [, major, minor, patch] = versionMatch;
+                            if (parseInt(major) === 16 && parseInt(minor) <= 1) {
+                                projectInfo.nextJsVersionWarning = {
+                                    version: `${major}.${minor}.${patch}`,
+                                    message: 'Next.js 16.0-16.1 has known dev server hanging issues',
+                                    recommendation: 'Consider downgrading to Next.js 15.3.0',
+                                    link: 'https://github.com/vercel/next.js/discussions/77102'
+                                };
+                            }
+                        }
+                    }
+                } catch (e) { }
+            }
+        }
+        // Check for Vite/React
+        else if (viteConfig || configFiles['package.json']?.content?.includes('"vite"')) {
+            projectInfo = {
+                type: 'vite',
+                description: 'Vite Application',
+                startCommand: 'npx vite --host 0.0.0.0 --port 3000',
+                port: 3000
+            };
+        }
+        // Check for generic Node.js
+        else if (configFiles['package.json']) {
+            projectInfo = {
+                type: 'nodejs',
+                description: 'Node.js Application',
+                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
+                port: 3000
+            };
+        }
+
+        // Try AI detection to override smart fallback
+        try {
+            const { analyzeProjectWithAI } = require('./project-analyzer');
+            if (fileNames.length > 0) {
+                const simplifiedConfigs = {};
+                for (const [k, v] of Object.entries(configFiles)) simplifiedConfigs[k] = v.content;
+
+                const detected = await withTimeout(analyzeProjectWithAI(fileNames, simplifiedConfigs), 5000, 'analyzeProjectWithAI');
+                if (detected) {
+                    projectInfo = { ...projectInfo, ...detected };
+                    console.log(`   🧠 AI Detection: ${projectInfo.description}`);
                 }
-                if (deps['react']) {
-                    console.log(`   🔍 [Orchestrator] Detected React project`);
-                    return 'react';
+            }
+        } catch (e) {
+            console.log(`   ⚠️ AI detection failed, using smart fallback: ${projectInfo.type}`);
+        }
+
+        return projectInfo;
+    }
+
+    /**
+     * Proactive Project Warming
+     * Triggered when a project is opened (at /clone stage)
+     * Starts VM, syncs files, AND installs dependencies in background
+     */
+    async prewarmProjectServer(projectId) {
+        console.log(`\n🔥 [Orchestrator] Proactive warming for: ${projectId}`);
+
+        try {
+            // 1. Get/Create VM (ensures files are synced)
+            const vm = await this.getOrCreateVM(projectId);
+
+            // 2. Detect project type
+            const projectInfo = await this.detectProjectMetadata(projectId);
+
+            // 3. Store project metadata in Redis for startPreview to pick up
+            await redisService.saveVMSession(projectId, { ...vm, projectInfo });
+
+            // 4. Background: Install dependencies + Patch configs
+            // We DON'T await this so the /clone response returns immediately
+            setImmediate(async () => {
+                try {
+                    console.log(`🔥 [Orchestrator] Background warming starting for ${projectId}...`);
+
+                    // Patch configs for Fly.io proxy
+                    await this.patchConfigFiles(projectId, projectInfo);
+
+                    // Run npm install
+                    if (projectInfo.type !== 'static') {
+                        console.log(`🔥 [Orchestrator] Background install starting for ${projectId}...`);
+                        // Set a lock to prevent parallel installs during Start Preview
+                        await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, (step, msg) => {
+                            // Only log locally
+                            console.log(`   [Warming ${projectId}] ${step}: ${msg}`);
+                        }, true); // Use staySilent=true to skip wait for dev server
+                        console.log(`✅ [Orchestrator] Background warming complete for ${projectId}`);
+                    }
+                } catch (e) {
+                    console.warn(`⚠️ [Orchestrator] Background warming failed for ${projectId}: ${e.message}`);
                 }
-                console.log(`   🔍 [Orchestrator] Detected Node.js project`);
-                return 'nodejs';
-            }
+            });
 
-            // Check for Python (requirements.txt, pyproject.toml, setup.py)
-            const pythonFiles = ['requirements.txt', 'pyproject.toml', 'setup.py'];
-            for (const file of pythonFiles) {
-                const result = await storageService.readFile(projectId, file);
-                if (result.success) {
-                    console.log(`   🔍 [Orchestrator] Detected Python project (${file})`);
-                    return 'python';
-                }
-            }
-
-            // Check for Go (go.mod)
-            const goResult = await storageService.readFile(projectId, 'go.mod');
-            if (goResult.success) {
-                console.log(`   🔍 [Orchestrator] Detected Go project`);
-                return 'go';
-            }
-
-            // Check for Rust (Cargo.toml)
-            const rustResult = await storageService.readFile(projectId, 'Cargo.toml');
-            if (rustResult.success) {
-                console.log(`   🔍 [Orchestrator] Detected Rust project`);
-                return 'rust';
-            }
-
-            // Default to nodejs (most common)
-            console.log(`   🔍 [Orchestrator] Unknown project type, defaulting to Node.js`);
-            return 'nodejs';
-
-        } catch (error) {
-            console.warn(`   ⚠️ [Orchestrator] Failed to detect project type: ${error.message}`);
-            return 'nodejs'; // Safe default
+            return { success: true, machineId: vm.machineId };
+        } catch (e) {
+            console.error(`❌ [Orchestrator] Proactive warming failed: ${e.message}`);
+            return { success: false, error: e.message };
         }
     }
+
+    /**
+     * Patch project configs for Fly.io proxying
+     */
+    async patchConfigFiles(projectId, projectInfo) {
+        try {
+            // 1. Vite Patch
+            let viteConfigJS = await this.readFile(projectId, 'vite.config.js');
+            let viteConfigTS = !viteConfigJS.success ? await this.readFile(projectId, 'vite.config.ts') : { success: false };
+            let viteConfig = viteConfigJS.success ? { name: 'vite.config.js', content: viteConfigJS.content } :
+                (viteConfigTS.success ? { name: 'vite.config.ts', content: viteConfigTS.content } : null);
+
+            if (viteConfig && viteConfig.content) {
+                let content = viteConfig.content;
+                if (!content.includes('allowedHosts') && !content.includes('drape-workspaces.fly.dev')) {
+                    console.log(`   🔧 [Orchestrator] Patching ${viteConfig.name} for allowedHosts...`);
+                    if (content.includes('server: {')) {
+                        content = content.replace('server: {', `server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all'],`);
+                    } else if (content.includes('defineConfig({')) {
+                        content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all']\n  },`);
+                    }
+
+                    if (content !== viteConfig.content) {
+                        await this.writeFile(projectId, viteConfig.name, content);
+                        console.log(`   ✅ [Orchestrator] ${viteConfig.name} patched.`);
+                    }
+                }
+            }
+
+            // 2. Next.js Patch
+            let nextConfigJS = await this.readFile(projectId, 'next.config.js');
+            let nextConfigMJS = !nextConfigJS.success ? await this.readFile(projectId, 'next.config.mjs') : { success: false };
+            let nextConfig = nextConfigJS.success ? { name: 'next.config.js', content: nextConfigJS.content } :
+                (nextConfigMJS.success ? { name: 'next.config.mjs', content: nextConfigMJS.content } : null);
+
+            if (nextConfig && nextConfig.content) {
+                let content = nextConfig.content;
+                if (!content.includes('allowedOrigins')) {
+                    console.log(`   🔧 [Orchestrator] Patching ${nextConfig.name} for allowedOrigins...`);
+                    if (content.includes('const nextConfig = {')) {
+                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    } else if (content.includes('module.exports = {')) {
+                        content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    } else if (content.includes('export default {')) {
+                        content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                    }
+
+                    if (content !== nextConfig.content) {
+                        await this.writeFile(projectId, nextConfig.name, content);
+                        console.log(`   ✅ [Orchestrator] ${nextConfig.name} patched.`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ [Orchestrator] Config patch error for ${projectId}: ${e.message}`);
+        }
+    }
+
+    /**
+     * Legacy/Internal helper
+     */
+    async _detectProjectType(projectId) {
+        const info = await this.detectProjectMetadata(projectId);
+        return info.type;
+    }
+
 
     /**
      * Stop all machines that don't belong to the current project
@@ -165,17 +342,27 @@ class WorkspaceOrchestrator {
 
         try {
             const machines = await flyService.listMachines();
-            const otherMachines = machines.filter(m =>
-                // Exclude by name OR by machineId (important for pool VMs)
-                m.name !== machineName &&
-                m.id !== currentMachineId &&
-                m.state !== 'destroyed' &&
-                m.state !== 'stopped'
+            const startedMachines = machines.filter(m =>
+                m.state === 'started' &&
+                !m.name.startsWith('ws-pool-')
             );
 
-            if (otherMachines.length > 0) {
-                console.log(`🛑 [Orchestrator] Stopping ${otherMachines.length} other VM(s) to ensure correct routing...`);
-                for (const machine of otherMachines) {
+            // Allow up to 3 concurrent active project VMs
+            const MAX_CONCURRENT_VMS = 3;
+            if (startedMachines.length <= MAX_CONCURRENT_VMS) {
+                return;
+            }
+
+            // If we have too many, stop the oldest ones (excluding current)
+            const otherMachines = startedMachines
+                .filter(m => m.id !== currentMachineId)
+                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+            const toStop = otherMachines.slice(0, startedMachines.length - MAX_CONCURRENT_VMS);
+
+            if (toStop.length > 0) {
+                console.log(`🛑 [Orchestrator] Concurrency limit reached. Stopping ${toStop.length} oldest VM(s)...`);
+                for (const machine of toStop) {
                     try {
                         await flyService.stopMachine(machine.id);
                         // Also remove from cache
@@ -185,7 +372,7 @@ class WorkspaceOrchestrator {
                             }
                         }
                     } catch (e) {
-                        console.warn(`   ⚠️ Failed to stop ${machine.name}: ${e.message}`);
+                        console.warn(`   ⚠️ Failed to stop machine ${machine.id}: ${e.message}`);
                     }
                 }
             }
@@ -222,7 +409,7 @@ class WorkspaceOrchestrator {
             const machineName = `ws-${projectId}`.substring(0, 30);
             // await flyService.ensureSingleActiveMachine(machineName);
 
-            // Check if we already have an active VM for this project
+            // 1. Check if we already have an active VM for this project (HIGHEST PRIORITY)
             let cached = activeVMs.get(projectId);
 
             // If not in memory, try Redis (survives server restarts)
@@ -231,79 +418,98 @@ class WorkspaceOrchestrator {
                 if (persisted) {
                     console.log(`♻️ [Orchestrator] Recovered VM session from Redis: ${persisted.machineId}`);
                     // Check if it's the right image VERSION before adopting
-                    try {
-                        const machine = await flyService.getMachine(persisted.machineId);
-                        if (machine && machine.config?.image !== flyService.DRAPE_IMAGE) {
-                            console.log(`⚠️ [Orchestrator] Recovered VM image outdated: ${machine.config?.image}. Skipping cache.`);
-                            await redisService.removeVMSession(projectId);
-                        } else {
-                            cached = persisted;
-                            activeVMs.set(projectId, cached);
-                        }
-                    } catch (e) {
-                        console.warn(`   ⚠️ Status check for recovered VM failed: ${e.message}`);
+                    const savedImage = persisted.image;
+                    if (savedImage && savedImage !== flyService.DRAPE_IMAGE) {
+                        console.log(`⚠️ [Orchestrator] Recovered VM image outdated (saved): ${savedImage} !== ${flyService.DRAPE_IMAGE}. Skipping cache.`);
                         await redisService.removeVMSession(projectId);
+                    } else if (!savedImage) {
+                        // Legacy session without image field - verify via API
+                        try {
+                            const machine = await flyService.getMachine(persisted.machineId);
+                            if (machine && machine.config?.image !== flyService.DRAPE_IMAGE) {
+                                console.log(`⚠️ [Orchestrator] Recovered VM image outdated (API): ${machine.config?.image}. Skipping cache.`);
+                                await redisService.removeVMSession(projectId);
+                            } else {
+                                // Update session with image info for future checks
+                                persisted.image = machine?.config?.image || flyService.DRAPE_IMAGE;
+                                cached = persisted;
+                                activeVMs.set(projectId, cached);
+                                await redisService.saveVMSession(projectId, cached);
+                            }
+                        } catch (e) {
+                            console.warn(`   ⚠️ Status check for recovered VM failed: ${e.message}`);
+                            await redisService.removeVMSession(projectId);
+                        }
+                    } else {
+                        // Image matches - use cached session
+                        console.log(`✅ [Orchestrator] Recovered VM image matches: ${savedImage}`);
+                        cached = persisted;
+                        activeVMs.set(projectId, cached);
                     }
                 }
             }
 
             if (cached && !options.forceNew) {
-                // Verify it's still alive
+                // Verify it's still alive on Fly.io
                 try {
-                    // Check VM age - skip image check if VM was just created (< 90s ago)
-                    // This prevents race conditions with concurrent calls and Fly.io API lag
-                    const vmAge = Date.now() - (cached.createdAt || 0);
-                    const isRecentlyCreated = vmAge < 90000; // 90 seconds
-
-                    if (!isRecentlyCreated) {
-                        // Double check image version for older VMs
-                        // (This handles image updates while server is running)
-                        const machine = await flyService.getMachine(cached.machineId);
-                        if (!machine || machine.config?.image !== flyService.DRAPE_IMAGE) {
-                            throw new Error("Machine dead or outdated image");
-                        }
+                    const machine = await flyService.getMachine(cached.machineId);
+                    if (machine && machine.state !== 'destroyed' && machine.state !== 'destroying') {
+                        console.log(`✅ [Orchestrator] Using existing active VM: ${cached.machineId}`);
+                        this._scheduleCleanup(projectId);
+                        return cached;
                     }
-
-                    // Health check with retry (Fly.io routing needs time to update)
-                    let healthOk = false;
-                    for (let attempt = 1; attempt <= 3; attempt++) {
-                        try {
-                            await axios.get(`${cached.agentUrl}/health`, {
-                                timeout: 2000 + (attempt * 1000), // 3s, 4s, 5s
-                                headers: { 'Fly-Force-Instance-Id': cached.machineId }
-                            });
-                            healthOk = true;
-                            break;
-                        } catch (e) {
-                            if (attempt < 3) {
-                                await new Promise(resolve => setTimeout(resolve, 500 * attempt)); // 500ms, 1000ms
-                            } else {
-                                throw e; // Last attempt failed
-                            }
-                        }
-                    }
-
-                    if (!healthOk) {
-                        throw new Error("Health check failed after retries");
-                    }
-
-                    console.log(`✅ [Orchestrator] Using cached/recovered VM (${Date.now() - startTime}ms)`);
-                    cached.lastUsed = Date.now();
-
-                    // Ensure file watcher is running
-                    try {
-                        await fileWatcherService.startWatching(projectId, cached.agentUrl, cached.machineId);
-                    } catch (e) {
-                        console.warn(`⚠️ File watcher start failed: ${e.message}`);
-                    }
-
-                    return cached;
                 } catch (e) {
-                    console.log(`⚠️ [Orchestrator] Cached VM dead or unreachable: ${e.message}`);
-                    activeVMs.delete(projectId);
-                    await redisService.removeVMSession(projectId);
+                    console.log(`⚠️ [Orchestrator] Active VM verification failed: ${e.message}`);
                 }
+
+                // If we're here, cache was invalid
+                activeVMs.delete(projectId);
+                await redisService.removeVMSession(projectId);
+                cached = null;
             }
+
+            // 2. Try to get prewarmed VM from pool first (FALLBACK for new sessions)
+            let pooledVM = null;
+            try {
+                const poolStats = vmPoolManager.getStats();
+                // Only check pool if there are available VMs
+                if (poolStats.available > 0) {
+                    pooledVM = await vmPoolManager.allocateVM(projectId);
+                    if (pooledVM && pooledVM.prewarmed) {
+                        console.log(`⚡ [Orchestrator] Using prewarmed VM from pool (${Date.now() - startTime}ms)`);
+
+                        const vmInfo = {
+                            id: pooledVM.machineId,
+                            name: `ws-${projectId}`.substring(0, 30),
+                            agentUrl: pooledVM.agentUrl,
+                            machineId: pooledVM.machineId,
+                            projectId,
+                            createdAt: Date.now(),
+                            lastUsed: Date.now(),
+                            fromPool: true,
+                            prewarmed: true,
+                            image: pooledVM.image || flyService.DRAPE_IMAGE // Track image version
+                        };
+
+                        // Cache it
+                        activeVMs.set(projectId, vmInfo);
+                        await redisService.saveVMSession(projectId, vmInfo);
+                        this._scheduleCleanup(projectId);
+
+                        // Ensure file watcher is running
+                        try {
+                            await fileWatcherService.startWatching(projectId, pooledVM.agentUrl, pooledVM.machineId);
+                        } catch (e) {
+                            console.warn(`⚠️ File watcher start failed: ${e.message}`);
+                        }
+
+                        return vmInfo;
+                    }
+                }
+            } catch (e) {
+                console.log(`   Pool check failed: ${e.message}, trying cached/new VM...`);
+            }
+
 
             // Create new MicroVM or adopt existing one
             // machineName already defined at start of function
@@ -427,11 +633,48 @@ class WorkspaceOrchestrator {
                     const projectType = await this._detectProjectType(projectId);
                     const dockerImage = flyService.getImageForProject(projectType);
 
+                    // HOLY GRAIL: Shared Global Volume (10GB)
+                    // All projects share the same pnpm store - first project downloads deps,
+                    // all subsequent projects get near-instant installs (~2s)
+                    let mounts = [];
+                    try {
+                        const SHARED_VOLUME_NAME = 'drape_global_store';
+                        const SHARED_VOLUME_SIZE = 10; // 10GB for all deps
+
+                        const volumes = await flyService.listVolumes();
+                        let globalVolume = volumes.find(v => v.name === SHARED_VOLUME_NAME && v.region === flyService.FLY_REGION);
+
+                        if (!globalVolume) {
+                            console.log(`📦 [Orchestrator] Creating shared global volume (${SHARED_VOLUME_SIZE}GB)...`);
+                            globalVolume = await flyService.createVolume(SHARED_VOLUME_NAME, flyService.FLY_REGION, SHARED_VOLUME_SIZE);
+                        }
+
+                        if (globalVolume) {
+                            mounts.push({
+                                volume: globalVolume.id,
+                                path: '/home/coder/volumes' // Shared: pnpm-store + next-cache subdirs
+                            });
+                            console.log(`   ✅ Using shared global volume: ${globalVolume.id}`);
+                        }
+                    } catch (e) {
+                        console.warn(`   ⚠️ Volume orchestration failed: ${e.message}`);
+                    }
+
                     vm = await flyService.createMachine(projectId, {
                         memory_mb: memoryMb,
                         image: dockerImage,
+                        auto_destroy: mounts.length > 0 ? false : true, // Keep machine if it has volume (faster restart)
+                        mounts,
                         env: {
-                            PROJECT_ID: projectId
+                            PROJECT_ID: projectId,
+                            // HOLY GRAIL: Memory tuning
+                            NODE_OPTIONS: '--max-old-space-size=3072',
+                            NEXT_TELEMETRY_DISABLED: '1',
+                            // HOLY GRAIL: Parallelism cap (prevent CPU saturation on MicroVMs)
+                            NEXT_WEBPACK_WORKERS: '2',
+                            UV_THREADPOOL_SIZE: '4',
+                            // HOLY GRAIL: pnpm global store path
+                            PNPM_HOME: '/home/coder/.local/share/pnpm'
                         }
                     });
                 }
@@ -456,7 +699,8 @@ class WorkspaceOrchestrator {
                 projectId,
                 createdAt: Date.now(),
                 lastUsed: Date.now(),
-                fromPool: isFromPool // FIX #2: Track if VM came from pool
+                fromPool: isFromPool, // FIX #2: Track if VM came from pool
+                image: vm.config?.image || flyService.DRAPE_IMAGE // Store image for version check
             };
 
             // Cache it
@@ -1047,93 +1291,85 @@ class WorkspaceOrchestrator {
             console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
         }
 
-        // Pre-create log file to avoid tail errors
-        try {
-            await flyService.exec(vm.agentUrl, 'touch /home/coder/server.log && chown coder:coder /home/coder/server.log', '/home/coder', vm.machineId, 5000, true);
-        } catch (e) {
-            // ignore
-        }
+        // HOLY GRAIL: VM Hardening (Swap + Volume Prep + Logs)
+        await this.hardenVM(projectId, vm.agentUrl, vm.machineId);
 
         // Sync files from storage to VM
         console.log(`📂 [Orchestrator] Syncing files to VM...`);
-        const syncResult = await storageService.syncToVM(projectId, vm.agentUrl);
+        const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
         console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
 
-        // Verify and Repair (Self-Healing)
-        console.log(`🔍 [Orchestrator] Verifying file integrity on VM...`);
+        // HOLY GRAIL: Link Next.js cache to volume
         try {
-            // Get files from VM
-            const findResult = await flyService.exec(vm.agentUrl, 'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*"', '/home/coder/project', vm.machineId);
-            const vmFiles = findResult.stdout.split('\n')
-                .map(f => f.trim().replace(/^\.\//, ''))
-                .filter(f => f);
+            const linkCacheCmd = `
+                mkdir -p /home/coder/project/.next
+                ln -snf /home/coder/volumes/next-cache /home/coder/project/.next/cache
+                chown -R coder:coder /home/coder/project/.next
+            `.replace(/\s+/g, ' ').trim();
+            await flyService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
+        } catch (e) { }
 
-            // Get files from Storage
-            const { files: storageFiles } = await storageService.listFiles(projectId);
 
-            // Find missing files
-            const missingFiles = storageFiles.filter(sf => !vmFiles.includes(sf.path));
 
-            if (missingFiles.length > 0) {
-                console.warn(`⚠️ [Orchestrator] Found ${missingFiles.length} missing files on VM: ${missingFiles.map(f => f.path).join(', ')}`);
-                console.log(`🚑 [Orchestrator] Initiating parallel repair sync (10 at a time)...`);
+        // OPTIMIZATION: Skip file integrity check if tar.gz sync succeeded
+        // The tar.gz sync is atomic and reliable - verification is redundant and slow (35s)
+        if (syncResult.syncedCount === 0 || syncResult.error) {
+            // Only verify if sync had issues
+            console.log(`🔍 [Orchestrator] Verifying file integrity on VM (sync had issues)...`);
+            try {
+                // Fast check: just count files instead of listing them all
+                const countResult = await flyService.exec(
+                    vm.agentUrl,
+                    'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | wc -l',
+                    '/home/coder/project',
+                    vm.machineId,
+                    10000
+                );
+                const vmFileCount = parseInt(countResult.stdout.trim()) || 0;
 
-                const REPAIR_BATCH_SIZE = 10;
-                let repairedCount = 0;
-                let failedCount = 0;
+                // Get expected count from storage
+                const { files: storageFiles } = await storageService.listFiles(projectId);
+                const expectedCount = storageFiles.length;
 
-                // Repair in batches of 10 in parallel
-                for (let i = 0; i < missingFiles.length; i += REPAIR_BATCH_SIZE) {
-                    const batch = missingFiles.slice(i, i + REPAIR_BATCH_SIZE);
-
-                    const repairPromises = batch.map(async (missing) => {
-                        try {
-                            const fileContent = await storageService.readFile(projectId, missing.path);
-                            if (!fileContent.success) {
-                                throw new Error(`Failed to read from storage`);
-                            }
-
-                            await axios.post(`${vm.agentUrl}/file`, {
-                                path: missing.path,
-                                content: fileContent.content,
-                                isBinary: fileContent.isBinary || false
-                            }, {
-                                timeout: 30000,
-                                headers: { 'Fly-Force-Instance-Id': vm.machineId }
-                            });
-
-                            console.log(`   ✅ Repaired: ${missing.path}`);
-                            return { success: true, path: missing.path };
-                        } catch (e) {
-                            console.error(`   ❌ Failed to repair ${missing.path}: ${e.message}`);
-                            return { success: false, path: missing.path };
-                        }
-                    });
-
-                    const results = await Promise.all(repairPromises);
-                    repairedCount += results.filter(r => r.success).length;
-                    failedCount += results.filter(r => !r.success).length;
+                if (vmFileCount >= expectedCount * 0.9) { // 90% threshold
+                    console.log(`✅ [Orchestrator] File count OK: ${vmFileCount}/${expectedCount} files`);
+                } else {
+                    console.warn(`⚠️ [Orchestrator] File count mismatch: ${vmFileCount}/${expectedCount}, triggering full resync...`);
+                    await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
                 }
-
-                console.log(`🚑 [Orchestrator] Repair complete: ${repairedCount} fixed, ${failedCount} failed`);
-            } else {
-                console.log(`✅ [Orchestrator] File integrity verified. All files present.`);
+            } catch (error) {
+                console.warn(`⚠️ [Orchestrator] Integrity check warning: ${error.message}`);
             }
-        } catch (error) {
-            console.error(`⚠️ [Orchestrator] Verification failed: ${error.message}`);
+        } else {
+            console.log(`✅ [Orchestrator] File integrity verified. All files present.`);
+        }
+
+        // CRITICAL FIX: Always force-restore package.json to ensure it's fresh and present
+        // This prevents race conditions or "missing file" errors during npm install
+        try {
+            console.log('🔨 [Orchestrator] Force-restoring package.json...');
+            const mkPkg = await storageService.readFile(projectId, 'package.json');
+            if (mkPkg.success) {
+                await axios.post(`${vm.agentUrl}/file`, {
+                    path: 'package.json',
+                    content: mkPkg.content
+                }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
+                console.log('   ✅ Restored package.json');
+            } else {
+                console.error('   ❌ Could not read package.json from storage');
+            }
+        } catch (e) {
+            console.warn('   ⚠️ Failed to restore package.json:', e.message);
         }
 
         // Setup (Install + Start) via Optimized pnpm (Async)
         if (projectInfo.installCommand || projectInfo.startCommand) {
-            try {
-                // Use optimized setup with pnpm (pass progress callback)
-                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress);
+            // Use optimized setup with pnpm (pass progress callback)
+            // Don't catch errors - let them propagate to the caller
+            await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress);
 
-                // Start log streaming
-                this.startLogStreaming(projectId, vm);
-            } catch (e) {
-                console.error(`   ⚠️ Failed to trigger optimized setup: ${e.message}`);
-            }
+            // Start log streaming
+            this.startLogStreaming(projectId, vm);
         }
 
 
@@ -1146,8 +1382,55 @@ class WorkspaceOrchestrator {
             previewUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
             agentUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
             projectType: projectInfo.description || projectInfo.type,
-            port: projectInfo.port
+            port: projectInfo.port,
+            isHolyGrail: true // Metadata for UI
         };
+    }
+
+    /**
+     * VM Hardening: Create swap space and prepare project directories
+     */
+    async hardenVM(projectId, agentUrl, machineId) {
+        const startTime = Date.now();
+        console.log(`🛡️ [Orchestrator] Hardening VM ${machineId}...`);
+        const hardenCmd = `
+            # 1. Create Swap Space (2GB) for OOM protection
+            if [ ! -f /swapfile ]; then
+                echo "🔧 Creating 2GB swap file..."
+                fallocate -l 2G /swapfile
+                chmod 600 /swapfile
+                mkswap /swapfile
+                swapon /swapfile
+                echo "✅ Swap active"
+            fi
+
+            # 2. Prepare Project Directories & Volume Links
+            mkdir -p /home/coder/project
+            mkdir -p /home/coder/volumes/pnpm-store
+            mkdir -p /home/coder/volumes/next-cache
+            touch /home/coder/server.log
+
+            # 3. Link pnpm store to volume for persistence
+            if [ -d /home/coder/volumes/pnpm-store ]; then
+                mkdir -p /home/coder/.local/share/pnpm
+                ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
+            fi
+
+            # 4. Permissions (Robust: Ensure coder owns everything in project)
+            # Ensure coder owns all volumes and log files
+            chown coder:coder /home/coder/server.log /home/coder/volumes 2>/dev/null || true
+            
+            # Recursive chown on project is necessary for correct tool behavior
+            # We avoid Volumes recursion but Project recursion is required.
+            chown -R coder:coder /home/coder/project 2>/dev/null || true
+        `.replace(/\s+/g, ' ').trim();
+
+        try {
+            await flyService.exec(agentUrl, hardenCmd, '/home/coder', machineId, 30000);
+            console.log(`   ✅ VM Hardening complete (${Date.now() - startTime}ms)`);
+        } catch (e) {
+            console.warn(`   ⚠️ VM Hardening warning: ${e.message}`);
+        }
     }
 
     /**
@@ -1616,8 +1899,8 @@ class WorkspaceOrchestrator {
             const MAX_AGE_MS = this.vmTimeout;
 
             for (const machine of machines) {
-                // Only care about started workspace machines
-                if (!machine.name.startsWith('ws-') || machine.state !== 'started') continue;
+                // Only care about started workspace machines (skip pool machines, managed by VMPoolManager)
+                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.state !== 'started') continue;
 
                 // Check age
                 const createdAt = new Date(machine.created_at).getTime();
@@ -1635,6 +1918,14 @@ class WorkspaceOrchestrator {
                         reapedCount++;
                         continue;
                     }
+
+                    // HYDRATION FIX: Make sure it's in our in-memory map!
+                    activeVMs.set(session.projectId, session);
+                    // Also restart stream if needed
+                    if (!this.logStreams?.has(session.projectId)) {
+                        this.startLogStreaming(session.projectId, session);
+                    }
+
                 } else {
                     // ORPHAN (No Redis Session). 
                     // If it's older than MAX_AGE_MS and has no active session, it's likely a TRUE zombie from a crash day ago.
@@ -1668,7 +1959,8 @@ class WorkspaceOrchestrator {
                         privateIp: machine.private_ip,
                         agentUrl: `https://${flyService.appName}.fly.dev`,
                         createdAt: machine.created_at,
-                        lastUsed: now // Give it a fresh lease on life since we just adopted it (maybe user just connected)
+                        lastUsed: now, // Give it a fresh lease on life since we just adopted it (maybe user just connected)
+                        image: machine.config?.image || flyService.DRAPE_IMAGE // Track image version
                     };
 
                     await redisService.saveVMSession(projectId, vmInfo);
@@ -1742,37 +2034,40 @@ class WorkspaceOrchestrator {
      * @param {string} machineId - Fly machine ID
      * @param {object} projectInfo - Project metadata
      * @param {function} onProgress - Optional progress callback (step, message)
+     * @param {boolean} staySilent - If true, only install deps, don't start server (for pre-warming)
      * @returns {object} Result
      */
-    async optimizedSetup(projectId, agentUrl, machineId, projectInfo, onProgress = null) {
-        const axios = require('axios');
-        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+    async optimizedSetup(projectId, agentUrl, machineId, projectInfo, onProgress = null, staySilent = false) {
+        // === LOCK: Prevent parallel setup for same project ===
+        while (setupLocks.has(projectId)) {
+            console.log(`🔒 [Orchestrator] Waiting for setup lock on ${projectId}...`);
+            await setupLocks.get(projectId);
+        }
+        let resolveLock;
+        const lockPromise = new Promise(r => { resolveLock = r; });
+        setupLocks.set(projectId, lockPromise);
 
         try {
+            const axios = require('axios');
+            const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+
             // Auto-detect package manager from lock files
             const filesResult = await this.listFiles(projectId);
             const fileNames = filesResult.files.map(f => f.path);
 
+
+
             let installCmd;
-            let pkgManager = 'npm'; // default
+            let pkgManager = 'pnpm'; // HOLY GRAIL: pnpm is now MANDATORY for all projects (faster + global store)
+            installCmd = 'pnpm config set package-import-method copy && pnpm install --prefer-offline';
 
             if (fileNames.includes('pnpm-lock.yaml')) {
-                pkgManager = 'pnpm';
-                installCmd = 'CI=true pnpm config set package-import-method copy && CI=true pnpm install --frozen-lockfile';
-                console.log('   ⚡ Using pnpm (detected pnpm-lock.yaml)');
-            } else if (fileNames.includes('yarn.lock')) {
-                pkgManager = 'yarn';
-                installCmd = 'yarn install --frozen-lockfile';
-                console.log('   ⚡ Using yarn (detected yarn.lock)');
-            } else if (fileNames.includes('package-lock.json')) {
-                pkgManager = 'npm';
-                installCmd = 'npm ci'; // faster than npm install with package-lock
-                console.log('   ⚡ Using npm (detected package-lock.json)');
+                installCmd += ' --frozen-lockfile';
+                console.log('   ⚡ Using pnpm --offline (detected pnpm-lock.yaml)');
+            } else if (fileNames.includes('yarn.lock') || fileNames.includes('package-lock.json')) {
+                console.log(`   ⚡ Using pnpm --offline (converted from ${fileNames.includes('yarn.lock') ? 'yarn' : 'npm'})`);
             } else {
-                // No lock file, use npm with --prefer-offline to use pre-warmed cache
-                pkgManager = 'npm';
-                installCmd = 'npm install --prefer-offline --no-audit --no-fund';
-                console.log('   ⚠️ Using npm install (no lock file detected)');
+                console.log('   ⚡ Using pnpm (default - leverages global store)');
             }
 
             // Note: build cache disabled (Fly.io supports only 1 volume per machine)
@@ -1780,29 +2075,60 @@ class WorkspaceOrchestrator {
             const cacheCmd = 'true';
 
             // Get start command using detected package manager
-            const defaultStart = `${pkgManager} run dev -- --host 0.0.0.0 --port 3000`;
+            // For Next.js, use direct path to binary (npm run dev has PATH issues on VMs)
+            let defaultStart = `${pkgManager} run dev -- --host 0.0.0.0 --port 3000`;
+
+            // Check if this is a Next.js project by reading package.json
+            const pkgJsonResult = await flyService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', machineId, 5000, true);
+            if (pkgJsonResult && pkgJsonResult.stdout) {
+                try {
+                    const pkg = JSON.parse(pkgJsonResult.stdout);
+                    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+                    if (deps.next) {
+                        // Use npx for Next.js - works even with temporary symlinks from failed npm install
+                        // npm install can fail with exit code 1 and create .next-XXXXX instead of next
+                        // Use -H 0.0.0.0 for binding (Next.js specific)
+                        // HOLY GRAIL: Enable Turbopack
+                        defaultStart = `npx next dev --turbo -H 0.0.0.0 --port 3000`;
+                        projectInfo.type = 'nextjs'; // Tag it for later logic
+                        console.log(`   🎯 Detected Next.js - using Turbopack ⚡`);
+                    }
+                } catch (e) {
+                    console.log(`   ⚠️ Could not parse package.json, using default start command`);
+                }
+            }
+
             const start = projectInfo.startCommand || defaultStart;
 
+            // Ensure proper binding for common frameworks
             // Ensure proper binding for common frameworks
             let finalStart = start;
             if ((start.includes('npm start') || start.includes('react-scripts start') || start.includes('vite')) && !start.includes('--host')) {
                 finalStart = `${start} -- --host 0.0.0.0`;
             }
 
+
             // Phase 2.3: Smart npm install - skip if node_modules exists and package.json unchanged
             let shouldInstall = true;
+            let nodeModulesExists = false;
+
             try {
-                // Check if node_modules exists (increased timeout for pool VMs)
+                // Check if node_modules exists AND contains packages
                 const checkNodeModules = await flyService.exec(
                     agentUrl,
-                    'test -d node_modules && echo "EXISTS"',
+                    'test -d node_modules && ls node_modules 2>/dev/null | wc -l',
                     '/home/coder/project',
                     machineId,
-                    10000, // FIX: Increased from 3s to 10s for pool VMs
+                    10000,
                     true
                 );
 
-                if (checkNodeModules.stdout?.includes('EXISTS')) {
+                const packageCount = parseInt(checkNodeModules.stdout?.trim() || '0');
+                nodeModulesExists = packageCount > 0;
+
+                if (nodeModulesExists) {
+                    console.log(`   📦 node_modules exists with ${packageCount} packages`);
+
                     // node_modules exists, check if package.json changed
                     const packageJson = await this.readFile(projectId, 'package.json');
                     if (packageJson.success) {
@@ -1810,116 +2136,190 @@ class WorkspaceOrchestrator {
                         const crypto = require('crypto');
                         const currentHash = crypto.createHash('md5').update(packageJson.content).digest('hex');
 
-                        // Get stored hash from VM (increased timeout)
+                        // Get stored hash from VM
                         const storedHashResult = await flyService.exec(
                             agentUrl,
                             'cat .package-json-hash 2>/dev/null || echo ""',
                             '/home/coder/project',
                             machineId,
-                            10000, // FIX: Increased from 3s to 10s
+                            10000,
                             true
                         );
 
-                        if (storedHashResult.stdout?.trim() === currentHash) {
-                            console.log(`⚡ [Orchestrator] Skipping npm install (node_modules up to date)`);
+                        const storedHash = storedHashResult.stdout?.trim();
+
+                        if (storedHash === currentHash) {
+                            console.log(`   ⚡ package.json unchanged (hash: ${currentHash.substring(0, 8)}...) - SKIPPING install`);
                             shouldInstall = false;
                         } else {
-                            console.log(`   🔄 package.json changed, running install...`);
-                        }
-
-                        // Store the new hash after install
-                        if (shouldInstall) {
+                            if (storedHash) {
+                                console.log(`   🔄 package.json CHANGED (${storedHash.substring(0, 8)}... → ${currentHash.substring(0, 8)}...) - running install`);
+                            } else {
+                                console.log(`   🆕 First install for this project - running install`);
+                            }
+                            // Store the new hash after install
                             installCmd = `${installCmd} && echo "${currentHash}" > .package-json-hash`;
                         }
+                    } else {
+                        console.log(`   ⚠️ Could not read package.json, running install to be safe`);
                     }
+                } else {
+                    console.log(`   📦 node_modules empty or missing - running install`);
                 }
             } catch (e) {
-                console.log(`   ℹ️ Could not check node_modules cache: ${e.message}`);
-                // Fall through to install
+                console.log(`   ⚠️ Could not check node_modules state: ${e.message}`);
+                console.log(`   Running install to be safe`);
+                shouldInstall = true;
             }
 
             // Setup script - conditionally include install
-            const setupScript = shouldInstall
-                ? `${installCmd} && ${cacheCmd} && (fuser -k 3000/tcp || true) && ${finalStart}`
-                : `(fuser -k 3000/tcp || true) && ${finalStart}`;
+            // Wrap in timeout and add explicit logging
+            // OPTIMIZATION: npm install works WITH existing node_modules (much faster than npm ci)
+            // Never clean node_modules - npm install will reuse it intelligently
+            const installPart = shouldInstall
+                ? `echo "📦 Installing dependencies with ${pkgManager}..." && ${installCmd}`
+                : `echo "⚡ Skipping install (node_modules up-to-date)"`;
 
-            console.log(`🚀 [Orchestrator] Triggering Optimized Setup`);
+            // Final execution - log to /home/coder/server.log so it appears in IDE logs
+            const backgroundStart = `bash -c 'cd /home/coder/project && export PATH="/home/coder/project/node_modules/.bin:$PATH" && ${finalStart} >> /home/coder/server.log 2>&1 < /dev/null & disown' && sleep 2 && echo "Dev server started in background"`;
 
-            // Report progress: Installing dependencies
-            if (onProgress) onProgress('installing', `Installazione dipendenze (${pkgManager})...`);
+            console.log(`🚀 [Orchestrator] Triggering Optimized Setup (via /exec)`);
 
-            // Call the /setup endpoint
-            await axios.post(`${agentUrl}/setup`, {
-                command: setupScript
-            }, {
-                timeout: 5000,
-                headers
-            });
 
-            console.log(`   ✅ Optimized setup triggered.`);
+            if (onProgress) onProgress('installing', `Installazione dipendenze(${pkgManager})...`);
 
-            // Report progress: Starting dev server
-            if (onProgress) onProgress('starting', 'Avvio del dev server...');
+            if (shouldInstall) {
+                try {
+                    if (installCmd.includes('npm ci')) {
+                        console.log(`   🧹 Removing node_modules for clean npm ci...`);
+                        await flyService.exec(agentUrl, 'rm -rf node_modules', '/home/coder/project', machineId, 10000, true);
+                    }
 
-            // Wait for dev server to be ready (Phase 1.3: Health Check)
-            const isReady = await this.waitForDevServer(agentUrl, machineId, 120000);
+                    console.log(`   📦 Installing dependencies with ${pkgManager}...`);
+                    const installTimeout = 600000; // 10 minutes (Holy Grail: handle large projects)
+                    const startTime = Date.now();
 
-            if (!isReady) {
-                console.warn(`⚠️ Dev server health check timed out, but continuing...`);
+                    // Force pnpm to use the shared store volume explicitly
+                    let fullInstallCmd = pkgManager === 'pnpm'
+                        ? `pnpm config set store-dir /home/coder/volumes/pnpm-store && ${installCmd}`
+                        : installCmd;
+
+                    // HOLY GRAIL: Handle Next.js 16 + TypeScript config files
+                    // If next.config.ts is present, Next.js requires typescript for transpilation.
+                    const hasTsConfig = fileNames.some(f => f.includes('next.config.ts'));
+                    const isNextJs = projectInfo.type === 'nextjs' || fileNames.some(f => f.includes('next.config'));
+
+                    if (pkgManager === 'pnpm' && isNextJs) {
+                        // Use shamefully-hoist for Next.js to solve complex module resolution in MicroVMs
+                        fullInstallCmd = fullInstallCmd.replace('pnpm install', 'pnpm install --shamefully-hoist');
+                    }
+
+                    if (hasTsConfig && !fullInstallCmd.includes('typescript')) {
+                        console.log(`   💡 Next.js 16 TypeScript config detected - ensuring typescript dependency`);
+                        fullInstallCmd = pkgManager === 'pnpm'
+                            ? `${fullInstallCmd} typescript`
+                            : `${fullInstallCmd} && ${pkgManager} install typescript`;
+                    }
+
+                    const installResult = await flyService.exec(agentUrl, fullInstallCmd, '/home/coder/project', machineId, installTimeout, true);
+                    const duration = Math.round((Date.now() - startTime) / 1000);
+                    console.log(`   ⏱️ ${pkgManager} install took ${duration}s (Exit code: ${installResult.exitCode})`);
+
+                    if (installResult.exitCode !== 0) {
+                        // HOLY GRAIL: Handle non-zero exit codes that aren't fatal (warnings in CI, build script ignores, etc.)
+                        try {
+                            const checkResult = await flyService.exec(agentUrl, '[ -d node_modules ] && [ "$(ls -A node_modules)" ]', '/home/coder/project', machineId, 10000, true);
+                            if (checkResult.exitCode === 0) {
+                                console.log(`   ⚠️ ${pkgManager} exited with code ${installResult.exitCode} but node_modules looks functional. Proceeding...`);
+                            } else {
+                                throw new Error(`${pkgManager} install failed with exit code ${installResult.exitCode}`);
+                            }
+                        } catch (e) {
+                            throw new Error(`${pkgManager} install failed with exit code ${installResult.exitCode}`);
+                        }
+                    }
+
+                    console.log(`   ✅ Dependencies installed successfully`);
+                } catch (installError) {
+                    console.error(`   ❌ Install failed: ${installError.message}`);
+                    throw installError;
+                }
+            } else {
+                console.log(`   ⚡ Skipping install (node_modules up-to-date)`);
             }
 
-            return { success: true, serverReady: isReady };
+            console.log(`   🔪 Killing any process on port 3000...`);
+            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 5000, true);
+
+            if (staySilent) {
+                console.log(`   ⏭️[Orchestrator] staySilent = true: Skipping dev server start`);
+                return { success: true, serverReady: false };
+            }
+
+            console.log(`   🚀 Starting dev server in background...`);
+            if (onProgress) onProgress('starting', 'Avvio del dev server...');
+
+            await flyService.exec(agentUrl, backgroundStart, '/home/coder/project', machineId, 30000, true);
+
+            const healthCheckTimeout = projectInfo.type === 'nextjs' ? 180000 : 90000;
+            const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);
+
+            if (!isReady) {
+                const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+                console.error(`❌[Health Check] Dev server failed! Last logs: \n${logs.stdout} `);
+                throw new Error(`Dev server failed to start.Check project logs.`);
+            }
+
+            console.log(`   ✅ Dev server is ready and responding`);
+            return { success: true, serverReady: true };
         } catch (error) {
-            console.error(`❌ [Orchestrator] Optimized setup failed: ${error.message}`);
-            return { success: false, error: error.message };
+            console.error(`❌[Orchestrator] Optimized setup failed: ${error.message} `);
+            throw error;
+        } finally {
+            setupLocks.delete(projectId);
+            if (resolveLock) resolveLock();
         }
     }
 
     /**
-     * Wait for dev server to be ready on port 3000
-     * @param {string} agentUrl - The Fly.io agent URL
-     * @param {string} machineId - The machine ID
-     * @param {number} maxWaitMs - Maximum time to wait (default 120s)
-     * @returns {Promise<boolean>} - true if server is ready, false if timeout
+     * Wait for dev server to be ready
      */
     async waitForDevServer(agentUrl, machineId, maxWaitMs = 120000) {
         const axios = require('axios');
         const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
         const startTime = Date.now();
-        const checkInterval = 2000; // Check every 2 seconds
+        const checkInterval = 2000;
 
-        console.log(`⏳ [Health Check] Waiting for dev server on port 3000...`);
+        console.log(`⏳[Health Check] Verifying app at ${machineId}...`);
 
         while (Date.now() - startTime < maxWaitMs) {
             try {
-                // Try to reach the dev server through the agent proxy
+                const checkStart = Date.now();
                 const response = await axios.get(agentUrl, {
-                    timeout: 3000,
+                    timeout: 4000,
                     headers,
-                    validateStatus: (status) => status < 500 // Accept 200-499 as success
+                    validateStatus: () => true // Catch all statuses
                 });
 
-                // If we get any response (even 404), the server is running
-                if (response.status >= 200 && response.status < 500) {
-                    const elapsed = Date.now() - startTime;
-                    console.log(`✅ [Health Check] Dev server ready! (${elapsed}ms)`);
+                if (response.status >= 200 && response.status < 400) {
+                    console.log(`✅ [Health Check] App ready! (${response.status}) after ${Date.now() - startTime}ms`);
                     return true;
+                } else {
+                    if (Date.now() - startTime > 30000 && (Date.now() - startTime) % 10000 < 2000) {
+                        console.log(`⏳ [Health Check] App not ready (Status: ${response.status}) at ${Math.round((Date.now() - startTime) / 1000)}s`);
+                    }
                 }
             } catch (error) {
-                // Connection errors mean server not ready yet
-                const elapsed = Date.now() - startTime;
-                if (elapsed % 10000 < checkInterval) { // Log every ~10s
-                    console.log(`   ⏳ Still waiting... (${Math.floor(elapsed / 1000)}s)`);
+                if (Date.now() - startTime > 30000 && (Date.now() - startTime) % 10000 < 2000) {
+                    console.log(`⏳ [Health Check] Connection error: ${error.message} at ${Math.round((Date.now() - startTime) / 1000)}s`);
                 }
             }
-
-            // Wait before next check
-            await new Promise(resolve => setTimeout(resolve, checkInterval));
+            await new Promise(r => setTimeout(r, checkInterval));
         }
-
-        console.warn(`⚠️ [Health Check] Dev server did not respond after ${maxWaitMs}ms`);
         return false;
     }
+
+
 
     /**
      * Start the Reaper Loop

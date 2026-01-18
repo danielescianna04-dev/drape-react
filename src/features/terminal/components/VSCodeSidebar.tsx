@@ -386,7 +386,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               setShowPreviewPanel(false);
               if (activePanel === 'preview') setActivePanel(null);
             }}
-            previewUrl="http://localhost:3001"
+            previewUrl={useTabStore.getState().apiUrl || "http://localhost:3000"}
             projectName="Project Preview"
           />
         )}

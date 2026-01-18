@@ -28,6 +28,15 @@ const errorTracker = require('../services/error-tracking-service');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { analyzeProjectWithAI, analyzeEnvVars } = require('../services/project-analyzer');
 
+// Helper for robust timeouts
+const withTimeout = async (promise, timeoutMs, label) => {
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
+    );
+    return Promise.race([promise, timeout]);
+};
+
+
 /**
  * GET /fly/project/:id/env
  * Get Environment Variables (.env)
@@ -278,14 +287,20 @@ router.post('/clone', asyncHandler(async (req, res) => {
             await storageService.saveProjectMetadata(projectId, { repositoryUrl });
         }
 
-        // Get or create VM (includes file sync + git setup)
-        const vm = await orchestrator.getOrCreateVM(projectId);
-        console.log(`   ✅ VM ready: ${vm.machineId}`);
+        // Proactive Warming: Get/Create VM + Install deps in background
+        const result = await orchestrator.prewarmProjectServer(projectId);
+
+        if (!result.success) {
+            throw new Error(result.error);
+        }
+
+        console.log(`   ✅ VM warmed up: ${result.machineId}`);
 
         res.json({
             success: true,
-            machineId: vm.machineId
+            machineId: result.machineId
         });
+
     } catch (error) {
         console.error(`❌ [Fly] Clone warmup failed:`, error.message);
         res.status(500).json({ success: false, error: error.message });
@@ -293,11 +308,15 @@ router.post('/clone', asyncHandler(async (req, res) => {
 }));
 
 /**
- * POST /fly/preview/start
+ * ALL /fly/preview/start
  * Start the preview/dev server for a project
+ * Supports both POST (JSON) and GET (SSE)
  */
-router.post('/preview/start', asyncHandler(async (req, res) => {
-    const { projectId, repositoryUrl, githubToken } = req.body;
+router.all('/preview/start', asyncHandler(async (req, res) => {
+    // Support both body (POST) and query (GET) for projectId
+    const projectId = req.body?.projectId || req.query?.projectId;
+    const repositoryUrl = req.body?.repositoryUrl || req.query?.repositoryUrl;
+    const githubToken = req.body?.githubToken || req.query?.githubToken;
     const startTime = Date.now();
 
     console.log(`\n🚀 [Fly] Starting preview for: ${projectId}`);
@@ -336,196 +355,14 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
     let projectInfo = null;
 
     try {
-        console.log(`   [1/5] Analyzing project...`);
+        console.log(`   [1/3] Analyzing project...`);
         sendStep('analyzing', 'Analisi del progetto...');
 
-        // Helper for robust timeouts
-        const withTimeout = async (promise, timeoutMs, label) => {
-            const timeout = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
-            );
-            return Promise.race([promise, timeout]);
-        };
+        // Detect project type (fast since it's cached in memory/Redis)
+        projectInfo = await orchestrator.detectProjectMetadata(projectId);
 
-        // Clone repo if needed
-        if (repositoryUrl) {
-            console.log(`   Checking files for project: ${projectId}`);
-            try {
-                const filesList = await withTimeout(orchestrator.listFiles(projectId), 8000, 'listFiles');
-                if (!filesList.files || filesList.files.length === 0) {
-                    console.log(`   📥 Cloning repository...`);
-                    sendStep('cloning', 'Download dei file dal repository...');
-                    await withTimeout(orchestrator.cloneRepository(projectId, repositoryUrl, githubToken), 30000, 'cloneRepository');
-                }
-            } catch (e) {
-                console.warn(`   ⚠️ Storage check failed: ${e.message}`);
-                // Continue anyway if it's just a timeout/error on listing
-            }
-        }
-
-        console.log(`   [2/5] Detecting stack...`);
-        sendStep('detecting', 'Rilevamento stack tecnologico...');
-
-        // Get file list for project detection
-        let fileNames = [];
-        let configFiles = {};
-        try {
-            const listResult = await withTimeout(orchestrator.listFiles(projectId), 5000, 'listFiles (detecting)');
-            fileNames = (listResult.files || []).map(f => f.path);
-
-            // Read config files for detection
-            for (const configName of ['package.json', 'requirements.txt', 'go.mod']) {
-                try {
-                    const result = await withTimeout(orchestrator.readFile(projectId, configName), 3000, `readFile(${configName})`);
-                    if (result.success) {
-                        configFiles[configName] = result.content;
-                    }
-                } catch { }
-            }
-        } catch (e) {
-            console.warn(`   ⚠️ Detection data gathering failed: ${e.message}`);
-        }
-
-        // Detect project type with AI
-        // ... (existing detection logic)
-
-        // Declare config variables outside try-catch for use in fallback logic
-        let viteConfig = null;
-        let nextConfig = null;
-
-        // 🚀 PATCH: Ensure Vite/Next.js allow our proxy host
-        try {
-            // 1. Vite Patch
-            let viteConfigJS = await withTimeout(orchestrator.readFile(projectId, 'vite.config.js'), 2000, 'readViteConfigJS');
-            let viteConfigTS = !viteConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'vite.config.ts'), 2000, 'readViteConfigTS') : { success: false };
-
-            viteConfig = viteConfigJS.success ? { name: 'vite.config.js', result: viteConfigJS } : (viteConfigTS.success ? { name: 'vite.config.ts', result: viteConfigTS } : null);
-
-            if (viteConfig && viteConfig.result.content) {
-                let content = viteConfig.result.content;
-                if (!content.includes('allowedHosts') && !content.includes('drape-workspaces.fly.dev')) {
-                    console.log(`   🔧 Patching ${viteConfig.name} for allowedHosts...`);
-                    if (content.includes('server: {')) {
-                        content = content.replace('server: {', `server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all'],`);
-                    } else if (content.includes('defineConfig({')) {
-                        content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all']\n  },`);
-                    }
-
-                    if (content !== viteConfig.result.content) {
-                        await orchestrator.writeFile(projectId, viteConfig.name, content);
-                        console.log(`   ✅ ${viteConfig.name} patched.`);
-                    }
-                }
-            }
-
-            // 2. Next.js Patch (experimental.allowedOrigins for Server Actions)
-            let nextConfigJS = await withTimeout(orchestrator.readFile(projectId, 'next.config.js'), 2000, 'readNextConfigJS');
-            let nextConfigMJS = !nextConfigJS.success ? await withTimeout(orchestrator.readFile(projectId, 'next.config.mjs'), 2000, 'readNextConfigMJS') : { success: false };
-
-            nextConfig = nextConfigJS.success ? { name: 'next.config.js', result: nextConfigJS } : (nextConfigMJS.success ? { name: 'next.config.mjs', result: nextConfigMJS } : null);
-
-            if (nextConfig && nextConfig.result.content) {
-                let content = nextConfig.result.content;
-                if (!content.includes('allowedOrigins')) {
-                    console.log(`   🔧 Patching ${nextConfig.name} for allowedOrigins...`);
-                    // Simple injection for next.config
-                    if (content.includes('const nextConfig = {')) {
-                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
-                    } else if (content.includes('module.exports = {')) {
-                        content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
-                    } else if (content.includes('export default {')) {
-                        content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
-                    }
-
-                    if (content !== nextConfig.result.content) {
-                        await orchestrator.writeFile(projectId, nextConfig.name, content);
-                        console.log(`   ✅ ${nextConfig.name} patched.`);
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn(`   ⚠️ Config patch warning: ${e.message}`);
-        }
-
-        // Smart fallback based on config files (use npx http-server for static sites)
-        projectInfo = {
-            type: 'static',
-            startCommand: 'npx http-server . -p 3000 -a 0.0.0.0'
-        };
-
-        // Check for Next.js
-        if (nextConfig || configFiles['package.json']?.content?.includes('"next"')) {
-            projectInfo = {
-                type: 'nextjs',
-                description: 'Next.js Application',
-                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
-                port: 3000
-            };
-            console.log(`   🔍 [Fly] Detected Next.js from config`);
-
-            // Check Next.js version for known issues
-            if (configFiles['package.json']?.content) {
-                try {
-                    const pkg = JSON.parse(configFiles['package.json'].content);
-                    const nextVersion = pkg.dependencies?.next || pkg.devDependencies?.next;
-
-                    if (nextVersion) {
-                        const versionMatch = nextVersion.match(/(\d+)\.(\d+)\.(\d+)/);
-                        if (versionMatch) {
-                            const [, major, minor, patch] = versionMatch;
-                            const majorNum = parseInt(major);
-                            const minorNum = parseInt(minor);
-
-                            // Next.js 16.0-16.1 has known dev server hanging issues
-                            if (majorNum === 16 && minorNum <= 1) {
-                                console.log(`⚠️ [Fly] Next.js ${major}.${minor}.${patch} detected - known hanging issue`);
-                                projectInfo.nextJsVersionWarning = {
-                                    version: `${major}.${minor}.${patch}`,
-                                    message: 'Next.js 16.0-16.1 has known dev server hanging issues',
-                                    recommendation: 'Consider downgrading to Next.js 15.3.0',
-                                    link: 'https://github.com/vercel/next.js/discussions/77102'
-                                };
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // Ignore package.json parse errors
-                }
-            }
-        }
-        // Check for Vite/React
-        else if (viteConfig || configFiles['vite.config.js'] || configFiles['vite.config.ts']) {
-            projectInfo = {
-                type: 'vite',
-                description: 'Vite Application',
-                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
-                port: 3000
-            };
-            console.log(`   🔍 [Fly] Detected Vite from config`);
-        }
-        // Check for generic Node.js
-        else if (configFiles['package.json']) {
-            projectInfo = {
-                type: 'nodejs',
-                description: 'Node.js Application',
-                startCommand: 'npm run dev -- --host 0.0.0.0 --port 3000',
-                port: 3000
-            };
-            console.log(`   🔍 [Fly] Detected Node.js from package.json`);
-        }
-
-        // Try AI detection to override smart fallback
-        try {
-            if (fileNames.length > 0) {
-                const detected = await analyzeProjectWithAI(fileNames, configFiles);
-                if (detected) {
-                    projectInfo = detected;
-                    console.log(`🧠 [Fly] AI Detection: ${projectInfo.description}`);
-                }
-            }
-        } catch (e) {
-            console.log(`   AI detection failed, using smart fallback: ${projectInfo.type}`);
-        }
+        // Ensure config patching is done (sanity check)
+        await orchestrator.patchConfigFiles(projectId, projectInfo);
 
         // Send Next.js version warning if detected
         if (projectInfo.nextJsVersionWarning) {
@@ -535,27 +372,41 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
             }));
         }
 
-        console.log(`   [3/5] Booting MicroVM...`);
+        console.log(`   [2/3] Booting MicroVM...`);
         sendStep('booting', 'Avvio della MicroVM su Fly.io...');
 
-        // Start the preview with progress callback (3 min timeout for large repos with many files)
+
+        // Start the preview with progress callback
+        // Timeout: 8 minutes total (sufficient for heavy installs + dev server start)
+        // Breakdown:
+        // - VM allocation: ~1s
+        // - File sync: ~1s
+        // - npm install (first time): ~3min
+        // - npm install (cached): ~5-10s
+        // - Dev server start: ~2-10s
+        // - Health check: up to 3min
+        // - Buffer: 2min
         const result = await withTimeout(
             orchestrator.startPreview(projectId, projectInfo, (step, message) => {
                 // Forward progress updates from orchestrator to SSE stream
                 sendStep(step, message);
             }),
-            180000,
+            480000, // 8 minutes
             'startPreview'
         );
 
-        const elapsed = Date.now() - startTime;
-        console.log(`✅ [Fly] Preview ready in ${elapsed}ms`);
+        // Use the Gateway URL (this server) for preview routing.
+        // This ensures all sub-resources (JS, CSS, WS) go through our proxy
+        // where we can inject the routing headers and handle WebSockets.
+        const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+        const host = req.headers.host;
+        const gatewayPreviewUrl = `${protocol}://${host}`;
 
-        // Use Fly.io agent URL directly for preview (agent proxies to dev server on port 3000)
-        // The agent handles: API routes (/health, /exec, etc.) + proxies all other routes to dev server
-        const flyPreviewUrl = result.agentUrl;
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ [Fly] Preview ready in ${elapsed}ms (Routed via Gateway: ${gatewayPreviewUrl})`);
 
         // Track metrics (Phase 3.1)
+
         metricsService.trackPreviewCreation({
             projectId,
             duration: elapsed,
@@ -568,10 +419,11 @@ router.post('/preview/start', asyncHandler(async (req, res) => {
 
         // Send final result
         console.log(`   [4/5] Ready!`);
-        console.log(`   Preview URL: ${flyPreviewUrl}`);
+        console.log(`   Preview URL: ${gatewayPreviewUrl}`);
+        console.log(`   🔑 machineId: ${result.machineId} (client must call /session to set cookie)`);
         sendStep('ready', 'Preview pronta!', {
             success: true,
-            previewUrl: flyPreviewUrl,
+            previewUrl: gatewayPreviewUrl,
             coderToken: CODER_SESSION_TOKEN,
             agentUrl: result.agentUrl,
             machineId: result.machineId,
@@ -712,6 +564,15 @@ router.get('/health', (req, res) => {
 });
 
 /**
+ * GET /fly/vms
+ * List all active VMs for debugging
+ */
+router.get('/vms', asyncHandler(async (req, res) => {
+    const vms = await orchestrator.getActiveVMs();
+    res.json({ success: true, vms });
+}));
+
+/**
  * GET /fly/diagnostics
  * System diagnostics and monitoring
  */
@@ -820,7 +681,7 @@ router.post('/session', asyncHandler(async (req, res) => {
     // However, if we move to subdomains later, we might need adjustments.
     // For now, simple cookie.
     res.cookie('drape_vm_id', machineId, {
-        httpOnly: true, // Not accessible by JS (good for security)
+        httpOnly: false,
         sameSite: 'Lax',
         path: '/'
     });

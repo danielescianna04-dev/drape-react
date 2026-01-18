@@ -203,7 +203,7 @@ class FlyService {
         await this.ensureAppNotSuspended();
 
         const memoryMb = options.memory_mb || DEFAULT_MACHINE_CONFIG.guest.memory_mb;
-        const image = options.image || this.DRAPE_IMAGE_NODEJS; // Default to Node.js image
+        const image = options.image || this.DRAPE_IMAGE; // Use optimized image as default
 
         console.log(`🚀 [Fly] Creating MicroVM: ${machineId} in ${this.FLY_REGION}...`);
         console.log(`   📦 Image: ${image}`);
@@ -221,6 +221,7 @@ class FlyService {
                         memory_mb: memoryMb
                     },
                     image: image,
+                    mounts: options.mounts || [], // Volume mounts
                     env: {
                         PROJECT_ID: projectId,
                         DRAPE_AGENT_PORT: '13338',
@@ -370,7 +371,7 @@ class FlyService {
      * @param {string} cwd - Working directory
      * @param {string} machineId - Fly machine ID for routing
      */
-    async exec(agentUrl, command, cwd = '/home/coder/project', machineId = null, timeout = 60000, silent = false) {
+    async exec(agentUrl, command, cwd = '/home/coder/project', machineId = null, timeout = 300000, silent = false) {
         try {
             const headers = { 'Content-Type': 'application/json' };
             if (machineId) {
@@ -421,10 +422,61 @@ class FlyService {
     async listMachines() {
         try {
             const response = await this.client.get(`/apps/${this.appName}/machines`);
-            return response.data; // Array of machines
+            return response.data || [];
         } catch (error) {
             console.error(`❌ [Fly] List machines failed:`, error.message);
             return [];
+        }
+    }
+
+    // ============ VOLUME MANAGEMENT ============
+
+    /**
+     * Create a persistent volume
+     * @param {string} name - Volume name
+     * @param {string} region - Region (must match machine)
+     * @param {number} sizeGb - Size in GB (default 1)
+     */
+    async createVolume(name, region, sizeGb = 1) {
+        console.log(`📦 [Fly] Creating Volume: ${name} (${sizeGb}GB) in ${region}...`);
+        try {
+            const response = await this.client.post(`/apps/${this.appName}/volumes`, {
+                name,
+                region,
+                size_gb: sizeGb
+            });
+            console.log(`✅ [Fly] Volume created: ${response.data.id}`);
+            return response.data;
+        } catch (error) {
+            console.error(`❌ [Fly] Volume creation failed:`, error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * List all volumes
+     */
+    async listVolumes() {
+        try {
+            const response = await this.client.get(`/apps/${this.appName}/volumes`);
+            return response.data || [];
+        } catch (error) {
+            console.error(`❌ [Fly] List volumes failed:`, error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Delete a volume
+     */
+    async deleteVolume(volumeId) {
+        console.log(`🗑️ [Fly] Deleting Volume: ${volumeId}`);
+        try {
+            await this.client.delete(`/apps/${this.appName}/volumes/${volumeId}`);
+            console.log(`✅ [Fly] Volume deleted`);
+        } catch (error) {
+            console.error(`❌ [Fly] Volume deletion failed:`, error.response?.data || error.message);
+            throw error;
         }
     }
 

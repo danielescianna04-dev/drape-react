@@ -37,7 +37,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     setPreviewServerStatus,
     setPreviewServerUrl,
     flyMachineId: globalFlyMachineId,
-    setFlyMachineId: setGlobalFlyMachineId
+    setFlyMachineId: setGlobalFlyMachineId,
+    projectMachineIds,
+    projectPreviewUrls
   } = useTerminalStore();
   const { apiUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
@@ -108,17 +110,17 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   // Initialize from global store if available, otherwise use prop
   // For Holy Grail: previewUrl comes from SSE (Fly.io agent URL), NOT from apiUrl (backend)
   const getInitialPreviewUrl = () => {
-    // Use global server URL if we have one from previous session
-    if (globalServerUrl) return globalServerUrl;
-    // Otherwise use default - actual Fly.io URL comes from SSE stream
-    return previewUrl;
+    // For Holy Grail: never use localhost:3000 as a fallback on devices
+    if (globalServerUrl && !globalServerUrl.includes('localhost:3000')) return globalServerUrl;
+    // Otherwise use default 
+    return previewUrl || '';
   };
   const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(getInitialPreviewUrl());
 
   // Wrapper to update both local and global URL
   const setCurrentPreviewUrl = (url: string) => {
     setCurrentPreviewUrlLocal(url);
-    setPreviewServerUrl(url);
+    setPreviewServerUrl(url, currentWorkstation?.id);
   };
   const webViewRef = useRef<WebView>(null);
   const inputRef = useRef<TextInput>(null);
@@ -320,27 +322,60 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   // NOTE: Server logs SSE connection is now handled by serverLogService (global singleton)
   // This keeps the connection alive even when PreviewPanel is closed
 
-  // Reset preview state when project changes
+  // Reset OR RESTORE preview state when project changes
   useEffect(() => {
     const currentId = currentWorkstation?.id;
 
-    // If workstation changed, reset preview state
+    // If workstation changed, handle state transition
     if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
-      console.log(`🔄 Project changed: ${prevWorkstationId.current} → ${currentId}, resetting preview`);
-      setServerStatus('stopped');
-      setPreviewServerUrl(null);
-      setGlobalFlyMachineId(null); // Reset machine ID so Start Preview shows
-      setProjectInfo(null);
-      setCoderToken(null);
-      setIsStarting(false);
-      setWebCompatibilityError(null);
-      setWebViewReady(false); // Reset so loading spinner shows for new project
+      console.log(`🔄 Project changed: ${prevWorkstationId.current} → ${currentId}`);
 
+      // 🔑 NEW: Check if the NEW project has an existing machineId in the store
+      const restoredMachineId = currentId ? projectMachineIds[currentId] : null;
+      const restoredUrl = currentId ? projectPreviewUrls[currentId] : null;
 
-      // Disconnect from previous project's logs (will reconnect to new project when server starts)
-      serverLogService.disconnect();
+      if (restoredMachineId) {
+        console.log(`✨ [MultiProject] Restoring session for ${currentId} (machine: ${restoredMachineId}, url: ${restoredUrl})`);
 
-      // Clear any running health checks
+        // Sync routing cookie immediately 
+        fetch(`${apiUrl}/fly/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
+          credentials: 'include'
+        }).catch(err => console.warn('Failed to sync restored session cookie:', err));
+
+        // Restore URL and status
+        if (restoredUrl) {
+          setCurrentPreviewUrl(restoredUrl);
+        }
+
+        setServerStatus('checking');
+        setGlobalFlyMachineId(restoredMachineId, currentId);
+
+        // Reconnect to logs for this project
+        serverLogService.connect(currentId);
+
+        // TRIGGER HEALTH CHECK to verify if VM/Server is still alive
+        // Give cookie a small moment to sync
+        setTimeout(() => {
+          checkServerStatus(restoredUrl || undefined);
+        }, 500);
+      } else {
+        // Full reset for projects with no active session
+        console.log(`   No active session for ${currentId}, showing Start Preview`);
+        setServerStatus('stopped');
+        setPreviewServerUrl(null);
+        setGlobalFlyMachineId(null);
+        setProjectInfo(null);
+        setCoderToken(null);
+        setIsStarting(false);
+        setWebCompatibilityError(null);
+        setWebViewReady(false);
+        serverLogService.disconnect();
+      }
+
+      // Clear any running health checks from previous project
       if (checkInterval.current) {
         clearInterval(checkInterval.current);
         checkInterval.current = null;
@@ -358,26 +393,19 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       useNativeDriver: true,
     }).start();
 
-    // RESTORE SESSION: If we have a running machine ID in global store, verify session cookie
+    // RESTORE SESSION COOKIE ONLY: If we have a running machine ID, ensure the cookie is set
+    // but DON'T change the serverStatus automatically. Let the user click "Start Preview".
     if (globalFlyMachineId && apiUrl) {
-      console.log('🔄 Restoring Preview Session for:', globalFlyMachineId);
+      console.log('🔄 Syncing session cookie for:', globalFlyMachineId);
       flyMachineIdRef.current = globalFlyMachineId;
 
-      // Restore the preview URL from apiUrl if not already set
-      if (!globalServerUrl && apiUrl && !apiUrl.includes('localhost:3001')) {
-        console.log('🔄 Restoring preview URL from apiUrl:', apiUrl);
-        setCurrentPreviewUrl(apiUrl);
-        setServerStatus('running');
-      }
-
-      // Re-set the cookie in the backend gateway to be safe
       fetch(`${apiUrl}/fly/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ machineId: globalFlyMachineId }),
         credentials: 'include'
-      }).then(() => console.log('✅ Session cookie restored'))
-        .catch(e => console.warn('⚠️ Failed to restore session:', e));
+      }).then(() => console.log('✅ Session cookie synced'))
+        .catch(e => console.warn('⚠️ Failed to sync session:', e));
     }
   }, []);
 
@@ -494,8 +522,11 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   // ============ AUTO-RECOVERY: Request machineId if missing ============
   // 🔑 FIX 3: If server is running but machineId is lost, request a new session
   useEffect(() => {
-    if (serverStatus === 'running' && !globalFlyMachineId && currentWorkstation?.id) {
-      console.log('⚠️ [AutoRecovery] Server running but machineId missing, requesting new session...');
+    // 🔑 FIX: Also trigger if serverStatus is stopped but we have no machineId (might have been lost on backend)
+    const shouldRecover = (serverStatus === 'running' || serverStatus === 'stopped') && !globalFlyMachineId && currentWorkstation?.id;
+
+    if (shouldRecover) {
+      console.log(`⚠️ [AutoRecovery] ${serverStatus === 'running' ? 'Server running' : 'Preview panel open'} but machineId missing, requesting session details...`);
 
       fetch(`${apiUrl}/fly/session`, {
         method: 'POST',
@@ -917,7 +948,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                       }
 
                       if (result.machineId) {
-                        setGlobalFlyMachineId(result.machineId);
+                        setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
                         flyMachineIdRef.current = result.machineId;
 
                         // Set session and WAIT for it before showing preview
@@ -1880,12 +1911,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                         key={coderToken || 'init'}
                         ref={webViewRef}
                         source={{
-                          uri: currentPreviewUrl,
+                          uri: currentPreviewUrl || 'about:blank',
                           headers: {
                             'Coder-Session-Token': coderToken || '',
                             'session_token': coderToken || '',
                             ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                            'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`
+                            'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`,
+                            ...(flyMachineIdRef.current ? {
+                              'X-Drape-VM-Id': flyMachineIdRef.current,
+                              'Fly-Force-Instance-Id': flyMachineIdRef.current
+                            } : {})
                           }
                         }}
                         sharedCookiesEnabled={true}

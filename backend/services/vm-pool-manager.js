@@ -6,16 +6,16 @@
  * - Pool allocation: ~0.5s (instant allocation from pool)
  * - 75x faster for first preview!
  *
- * Cost: ~$20-30/month for 2 warm VMs (affordable for production)
+ * Cost: ~$50-75/month for 5 warm VMs (affordable for production)
  */
 
 const flyService = require('./fly-service');
 
 class VMPoolManager {
     constructor() {
-        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null }
-        this.TARGET_POOL_SIZE = 2; // Keep 2 warm VMs ready
-        this.MAX_VM_AGE_MS = 30 * 60 * 1000; // 30 minutes max age
+        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false }
+        this.TARGET_POOL_SIZE = 3; // Keep 5 warm VMs ready
+        this.MAX_VM_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours max age
         this.isInitialized = false;
     }
 
@@ -26,6 +26,29 @@ class VMPoolManager {
         if (this.isInitialized) return;
 
         console.log('🏊 [VM Pool] Initializing VM Pool...');
+
+        // PHASE 2.1 Adoption: Detect existing pool machines on Fly.io (survives restarts)
+        try {
+            const machines = await flyService.listMachines();
+            const poolMachines = machines.filter(m => m.name.startsWith('ws-pool-') && m.state !== 'destroyed');
+
+            for (const vm of poolMachines) {
+                if (!this.pool.find(p => p.machineId === vm.id)) {
+                    console.log(`🏊 [VM Pool] Adopting existing warm VM: ${vm.id}`);
+                    this.pool.push({
+                        machineId: vm.id,
+                        agentUrl: 'https://drape-workspaces.fly.dev',
+                        createdAt: Date.parse(vm.created_at) || Date.now(),
+                        allocatedTo: null,
+                        allocatedAt: null,
+                        prewarmed: true, // Assume pre-warmed if it exists from previous run
+                        image: vm.config?.image || flyService.DRAPE_IMAGE
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn(`⚠️ [VM Pool] Failed to adopt orphans: ${e.message}`);
+        }
 
         // Start the pool replenisher
         this.startPoolReplenisher();
@@ -45,11 +68,21 @@ class VMPoolManager {
      * @returns {Promise<object>} VM object with { machineId, agentUrl }
      */
     async allocateVM(projectId) {
-        // Try to get from pool first
-        const pooledVM = this.pool.find(vm => !vm.allocatedTo);
+        // Try to get prewarmed VM first (has npm cache ready)
+        let pooledVM = this.pool.find(vm => !vm.allocatedTo && vm.prewarmed);
+
+        // If no prewarmed VM, fallback to any available VM
+        if (!pooledVM) {
+            pooledVM = this.pool.find(vm => !vm.allocatedTo);
+        }
 
         if (pooledVM) {
-            // Verify VM is still alive before allocating
+            // VM is about to be used, mark it as RESERVED to prevent cleanup tasks from touching it
+            // during the async verification check
+            pooledVM.allocatedTo = 'RESERVED';
+            pooledVM.allocatedAt = Date.now();
+
+            // Verify VM is still alive before fully allocating
             try {
                 const flyService = require('./fly-service');
                 const machine = await flyService.getMachine(pooledVM.machineId);
@@ -69,8 +102,9 @@ class VMPoolManager {
 
             // VM is alive, allocate it!
             pooledVM.allocatedTo = projectId;
-            pooledVM.allocatedAt = Date.now();
-            console.log(`⚡ [VM Pool] Allocated warm VM ${pooledVM.machineId} to ${projectId} (instant!)`);
+
+            const prewarmStatus = pooledVM.prewarmed ? '⚡ with npm cache' : '🔄 pre-warming in progress';
+            console.log(`⚡ [VM Pool] Allocated VM ${pooledVM.machineId} to ${projectId} (${prewarmStatus})`);
 
             // Trigger async replenishment (don't wait)
             this.replenishPool().catch(e => {
@@ -79,7 +113,8 @@ class VMPoolManager {
 
             return {
                 machineId: pooledVM.machineId,
-                agentUrl: pooledVM.agentUrl
+                agentUrl: pooledVM.agentUrl,
+                prewarmed: pooledVM.prewarmed
             };
         }
 
@@ -169,9 +204,16 @@ class VMPoolManager {
 
         const vm = await flyService.createMachine(poolId, {
             memory_mb: 2048,
+            image: flyService.DRAPE_IMAGE,
             env: {
                 PROJECT_ID: poolId,
-                POOL_VM: 'true'
+                POOL_VM: 'true',
+                // HOLY GRAIL: Same optimizations as project VMs
+                NODE_OPTIONS: '--max-old-space-size=3072',
+                NEXT_TELEMETRY_DISABLED: '1',
+                NEXT_WEBPACK_WORKERS: '2',
+                UV_THREADPOOL_SIZE: '4',
+                PNPM_HOME: '/home/coder/.local/share/pnpm'
             }
         });
 
@@ -195,54 +237,95 @@ class VMPoolManager {
             }
         }
 
-        // Pre-warm: Install common dependencies to speed up first preview
-        console.log(`🔥 [VM Pool] Pre-warming ${vm.id} with common dependencies...`);
-        try {
-            // Install TOP 20 most common dependencies for React/Next.js projects
-            // This populates npm cache, making subsequent installs 2-3x faster
-            const commonDeps = [
-                'react',
-                'react-dom',
-                'next',
-                'typescript',
-                '@types/react',
-                '@types/react-dom',
-                '@types/node',
-                'eslint',
-                'tailwindcss',
-                'autoprefixer',
-                'postcss',
-                '@radix-ui/react-icons',
-                'lucide-react',
-                'axios',
-                'date-fns',
-                'zustand'
-            ].join(' ');
-
-            const prewarmCmd = `cd /tmp && npm init -y && npm install ${commonDeps} --prefer-offline --no-audit --no-fund --legacy-peer-deps 2>&1 | tail -5 || true`;
-
-            const result = await axios.post(`${agentUrl}/exec`, {
-                command: prewarmCmd,
-                cwd: '/tmp'
-            }, {
-                timeout: 90000, // 90s timeout for pre-warm
-                headers: { 'Fly-Force-Instance-Id': vm.id }
-            });
-
-            console.log(`   ✅ Pre-warm complete (npm cache populated with 16 packages)`);
-        } catch (e) {
-            console.warn(`   ⚠️ Pre-warm failed: ${e.message} (continuing anyway)`);
-        }
-
-        this.pool.push({
+        // FIX: Add VM to pool IMMEDIATELY (before pre-warming)
+        // This makes the VM available instantly while pre-warming continues in background
+        const poolEntry = {
             machineId: vm.id,
             agentUrl,
             createdAt: Date.now(),
             allocatedTo: null,
-            allocatedAt: null
+            allocatedAt: null,
+            prewarmed: false, // Will be set to true when pre-warming completes
+            image: flyService.DRAPE_IMAGE // Track image version for cache validation
+        };
+        this.pool.push(poolEntry);
+
+        console.log(`🔥 [VM Pool] Created VM ${vm.id} (pre-warming in background)`);
+
+        // FIX: Pre-warm in background (don't await)
+        // Install common dependencies to populate npm cache
+        setImmediate(async () => {
+            try {
+                // SAFETY CHECK: If VM was already allocated to a project while we were preparing,
+                // abort pre-warming to avoid conflicting with project files/sync
+                if (poolEntry.allocatedTo) {
+                    console.log(`   ⏭️ [VM Pool] Skipping pre-warm for ${vm.id} - already allocated to ${poolEntry.allocatedTo}`);
+                    return;
+                }
+
+                console.log(`🔥 [VM Pool] Pre-warming ${vm.id} with common dependencies...`);
+
+                // HOLY GRAIL: Pre-populate shared pnpm store with ALL common deps
+                // This makes FIRST project installs fast too (not just subsequent)
+                const prewarmCmd = `
+                    # Setup pnpm global store location (shared across all projects)
+                    mkdir -p /home/coder/volumes/pnpm-store
+                    mkdir -p /home/coder/.local/share/pnpm
+                    ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
+                    
+                    # Create temp project for pre-warming
+                    cd /home/coder/project &&
+                    
+                    # MEGA package.json with ALL common deps (Next 14, 15, 16 + UI libs)
+                    echo '{"name":"prewarm","version":"1.0.0","dependencies":{
+                        "react":"^18.0.0",
+                        "react-dom":"^18.0.0",
+                        "next":"14.2.18",
+                        "typescript":"^5.0.0",
+                        "@types/react":"^18.0.0",
+                        "@types/react-dom":"^18.0.0",
+                        "lucide-react":"latest",
+                        "axios":"latest",
+                        "tailwindcss":"latest",
+                        "@tailwindcss/typography":"latest",
+                        "postcss":"latest",
+                        "autoprefixer":"latest",
+                        "clsx":"latest",
+                        "framer-motion":"latest",
+                        "zustand":"latest",
+                        "@supabase/supabase-js":"latest",
+                        "@supabase/auth-helpers-nextjs":"latest",
+                        "sharp":"latest"
+                    }}' > package.json &&
+                    
+                    pnpm config set package-import-method copy &&
+                    CI=true pnpm install --no-frozen-lockfile &&
+                    
+                    # Also pre-install Next 15 and 16 to global store
+                    pnpm store add next@15.1.0 next@16.0.0 2>/dev/null || true &&
+                    
+                    # Cleanup
+                    rm -rf package.json pnpm-lock.yaml node_modules &&
+                    chown -R coder:coder /home/coder
+                `.replace(/\\s+/g, ' ').trim();
+
+                await axios.post(`${agentUrl}/exec`, {
+                    command: prewarmCmd,
+                    cwd: '/home/coder'
+                }, {
+                    timeout: 180000, // 3 min for all deps
+                    headers: { 'Fly-Force-Instance-Id': vm.id }
+                });
+
+                // Mark VM as prewarmed (global store populated)
+                poolEntry.prewarmed = true;
+                console.log(`   ✅ Pre-warm complete for ${vm.id} (global store ready ⚡)`);
+            } catch (e) {
+                console.warn(`   ⚠️ Pre-warm failed for ${vm.id}: ${e.message} (continuing anyway)`);
+                // prewarmed stays false
+            }
         });
 
-        console.log(`🔥 [VM Pool] Created warm VM ${vm.id}`);
         return { machineId: vm.id, agentUrl };
     }
 
@@ -298,6 +381,13 @@ class VMPoolManager {
         // Delete old VMs
         for (const vm of oldVMs) {
             try {
+                // RE-CHECK: Ensure VM wasn't allocated while we were busy destroying the previous one!
+                const currentVM = this.pool.find(v => v.machineId === vm.machineId);
+                if (!currentVM || currentVM.allocatedTo) {
+                    console.log(`   ⏭️ Skipping cleanup of VM ${vm.machineId} (it was allocated or removed)`);
+                    continue;
+                }
+
                 await flyService.destroyMachine(vm.machineId);
                 this.pool = this.pool.filter(v => v.machineId !== vm.machineId);
                 console.log(`   ✅ Deleted old VM ${vm.machineId}`);

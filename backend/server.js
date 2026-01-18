@@ -71,15 +71,16 @@ async function startServer() {
     // ===========================================
     const wss = new WebSocket.Server({ noServer: true });
 
-    // Handle upgrade for our /ws path
+    // Handle upgrade for all WebSocket connections
     server.on('upgrade', (req, socket, head) => {
         if (req.url === '/ws') {
+            // Drape System WebSocket (Logs, File Sync, AI)
             wss.handleUpgrade(req, socket, head, (ws) => {
                 wss.emit('connection', ws, req);
             });
         } else {
-            console.log(`🔌 Unknown WS upgrade: ${req.url}`);
-            socket.destroy();
+            // Preview VM WebSocket (Vite HMR, WDS, etc.)
+            vmRouter.proxyWS(req, socket, head);
         }
     });
 

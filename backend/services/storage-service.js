@@ -360,10 +360,10 @@ class StorageService {
 
     /**
      * Create a bundle of all project files (for syncing to VM)
-     * @param {string} projectId - Project ID
+     * Optimized to use a single bulk query instead of sequential reads.
      */
     async createBundle(projectId) {
-        const { success, files } = await this.listFiles(projectId);
+        const { success, files } = await this.getAllFilesWithContent(projectId);
 
         if (!success || !files.length) {
             return [];
@@ -372,27 +372,22 @@ class StorageService {
         const bundle = [];
 
         for (const file of files) {
-            const result = await this.readFile(projectId, file.path);
+            if (file.content === undefined) continue;
 
-            if (!result.success || !result.content) {
-                console.warn(`   ⚠️ Failed to read ${file.path}, skipping`);
-                continue;
-            }
+            // Detect binary files: detect by extension
+            const isBinary = this._isBinaryFile(file.path);
 
-            // Detect binary files: use flag if present, otherwise detect by extension
-            const isBinary = result.isBinary || this._isBinaryFile(file.path);
-
-            // Binary files are stored as base64 in Firestore, decode them to Buffer
             if (isBinary) {
                 try {
-                    const buffer = Buffer.from(result.content, 'base64');
+                    // Binary files are stored as base64 in Firestore, decode them to Buffer
+                    const buffer = Buffer.from(file.content, 'base64');
                     bundle.push({ path: file.path, content: buffer, isBinary: true });
                 } catch (e) {
                     console.warn(`   ⚠️ Failed to decode binary ${file.path}: ${e.message}`);
                 }
             } else {
                 // Text files as-is
-                bundle.push({ path: file.path, content: result.content, isBinary: false });
+                bundle.push({ path: file.path, content: file.content, isBinary: false });
             }
         }
 

@@ -93,7 +93,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 HOSTNAME=0.0.0.0 ${run} dev`,
+                    startCommand: `${killPort} npx next dev --turbo -H 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -298,7 +298,7 @@ fs.writeFileSync(file, c);
                         language: 'typescript',
                         packageManager: pm,
                         installCommand: install,
-                        startCommand: `${killPort} echo "${b64}" | base64 -d | node && ${run} dev -- --host 0.0.0.0 --port 3000 --strictPort`,
+                        startCommand: `${killPort} echo "${b64}" | base64 -d | node && npx vite --host 0.0.0.0 --port 3000 --strictPort`,
                         defaultPort: 3000,
                         requiresDocker: false
                     };
@@ -326,7 +326,7 @@ fs.writeFileSync(file, c);
                     language: 'javascript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${killPort} npx vite --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };

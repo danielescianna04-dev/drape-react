@@ -93,6 +93,7 @@ interface TerminalState {
   previewServerUrl: string | null; // The actual running server URL
   flyMachineId: string | null; // Fly.io VM machine ID for session routing
   projectMachineIds: Record<string, string>; // 🔑 FIX: Persist machineId per project
+  projectPreviewUrls: Record<string, string>; // 🔑 FIX: Persist preview URL per project
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
@@ -181,6 +182,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   previewServerUrl: null,
   flyMachineId: null,
   projectMachineIds: {}, // 🔑 FIX: Persist machineId per project
+  projectPreviewUrls: {}, // 🔑 FIX: Persist preview URL per project
   isToolsExpanded: false,
   isSidebarOpen: false,
   autocompleteOptions: [],
@@ -399,7 +401,16 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   setIsRecording: (value) => set({ isRecording: value }),
   setPreviewUrl: (url) => set({ previewUrl: url }),
   setPreviewServerStatus: (status) => set({ previewServerStatus: status }),
-  setPreviewServerUrl: (url) => set({ previewServerUrl: url }),
+  projectPreviewUrls: {} as Record<string, string>,
+  setPreviewServerUrl: (url, projectId) => set((state) => {
+    if (url && projectId) {
+      return {
+        previewServerUrl: url,
+        projectPreviewUrls: { ...state.projectPreviewUrls, [projectId]: url }
+      };
+    }
+    return { previewServerUrl: url };
+  }),
   // 🔑 FIX: Persist machineId per project
   setFlyMachineId: (id, projectId) => set((state) => {
     if (id && projectId) {
@@ -409,6 +420,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         projectMachineIds: { ...state.projectMachineIds, [projectId]: id }
       };
     }
+    // If id is null, we only clear the current active ID, NOT the per-project mapping
+    // This allows the mapping to be restored when the project is re-selected.
     return { flyMachineId: id };
   }),
   setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
