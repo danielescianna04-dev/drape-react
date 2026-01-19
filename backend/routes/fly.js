@@ -840,7 +840,8 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         path: `/logs?since=${since}`,
         method: 'GET',
         headers: {
-            'Accept': 'text/event-stream'
+            'Accept': 'text/event-stream',
+            'Fly-Force-Instance-Id': vm.machineId
         }
     }, (proxyRes) => {
         console.log(`📺 [Fly] Connected to agent logs stream`);

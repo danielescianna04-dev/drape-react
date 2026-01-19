@@ -64,7 +64,7 @@ const vmRouterMiddleware = async (req, res, next) => {
     const systemRoutes = [
         '/fly/', '/api/', '/ai/', '/github/', '/git/',
         '/workstation/', '/preview/', '/terminal/',
-        '/expo-preview/', '/health', '/agent/'
+        '/expo-preview/', '/health', '/agent/', '/stats/'
     ];
 
     if (systemRoutes.some(route => req.url.startsWith(route))) {

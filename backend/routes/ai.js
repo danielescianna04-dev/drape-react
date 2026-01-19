@@ -14,6 +14,7 @@ const { AI_MODELS, DEFAULT_AI_MODEL } = require('../utils/constants');
 const contextService = require('../services/context-service'); // Import Singleton
 const storageService = require('../services/storage-service'); // For reading project files
 const { getSystemPrompt } = require('../services/system-prompt'); // Unified system prompt
+const metricsService = require('../services/metrics-service');
 
 /**
  * Helper: Read key project files to understand what the project actually does
@@ -256,6 +257,10 @@ router.post('/chat', asyncHandler(async (req, res) => {
     const MAX_LOOPS = 10;
     let currentMessages = [...messages];
 
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCachedTokens = 0;
+
     while (continueLoop && loopCount < MAX_LOOPS) {
         loopCount++;
 
@@ -281,15 +286,27 @@ router.post('/chat', asyncHandler(async (req, res) => {
                     res.write(`data: ${JSON.stringify({ type: 'thinking_end' })}\n\n`);
                 } else if (chunk.type === 'tool_start') {
                     res.write(`data: ${JSON.stringify({ type: 'tool_start', tool: chunk.name })}\n\n`);
-                } else if (chunk.type === 'tool_call') {
-                    toolCalls.push(chunk.toolCall);
+                } else if (chunk.type === 'tool_input') { // Fixed from 'tool_call' in router logic to match provider yield
                     res.write(`data: ${JSON.stringify({
                         type: 'tool_input',
-                        tool: chunk.toolCall.name,
-                        input: chunk.toolCall.input
+                        tool: chunk.tool,
+                        input: chunk.input
                     })}\n\n`);
+                } else if (chunk.type === 'tool_use') {
+                    toolCalls.push({
+                        id: chunk.id,
+                        name: chunk.name,
+                        input: chunk.input
+                    });
                 } else if (chunk.type === 'done') {
                     if (chunk.toolCalls) toolCalls = chunk.toolCalls;
+
+                    // Accumulate tokens
+                    if (chunk.usage) {
+                        totalInputTokens += chunk.usage.inputTokens || 0;
+                        totalOutputTokens += chunk.usage.outputTokens || 0;
+                        totalCachedTokens += chunk.usage.cachedTokens || 0;
+                    }
                 }
             }
 
@@ -325,8 +342,8 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
                     const result = await executeTool(tc.name, tc.input, execContext);
 
-                    const isSuccess = result.startsWith('✅') ||
-                        (result.length > 0 && !result.startsWith('❌'));
+                    const isSuccess = result?.startsWith('✅') ||
+                        (result?.length > 0 && !result?.startsWith('❌'));
 
                     // Send toolResult event with full data (for formatted output)
                     res.write(`data: ${JSON.stringify({
@@ -357,6 +374,18 @@ router.post('/chat', asyncHandler(async (req, res) => {
             res.write(`data: ${JSON.stringify({ text: `\n❌ Errore: ${error.message}` })}\n\n`);
             continueLoop = false;
         }
+    }
+
+    // TRACK USAGE
+    if (totalInputTokens > 0 || totalOutputTokens > 0) {
+        console.log(`📈 [AI] Tracking total usage: ${totalInputTokens} in, ${totalOutputTokens} out`);
+        metricsService.trackAIUsage({
+            projectId: effectiveProjectId || 'global',
+            model: selectedModel,
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            cachedTokens: totalCachedTokens
+        }).catch(e => console.error('Failed to track AI usage:', e.message));
     }
 
     res.write('data: [DONE]\n\n');

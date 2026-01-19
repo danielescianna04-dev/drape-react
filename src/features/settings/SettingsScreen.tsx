@@ -21,7 +21,32 @@ import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/git
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { AppColors } from '../../shared/theme/colors';
+import { getSystemConfig } from '../../core/config/systemConfig';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
+
+interface SystemStatus {
+  tokens: {
+    used: number;
+    limit: number;
+    percent: number;
+    hourly: number[];
+  };
+  previews: {
+    active: number;
+    limit: number;
+    percent: number;
+  };
+  projects: {
+    active: number;
+    limit: number;
+    percent: number;
+  };
+  search: {
+    used: number;
+    limit: number;
+    percent: number;
+  };
+}
 
 interface Props {
   onClose: () => void;
@@ -78,12 +103,15 @@ export const SettingsScreen = ({ onClose }: Props) => {
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'max'>('free');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(0);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   const userId = user?.uid || useTerminalStore.getState().userId || 'anonymous';
 
   useEffect(() => {
     loadAccounts();
+    fetchSystemStatus();
 
     const shimmerLoop = Animated.loop(
       Animated.sequence([
@@ -103,6 +131,20 @@ export const SettingsScreen = ({ onClose }: Props) => {
 
     return () => shimmerLoop.stop();
   }, []);
+
+  const fetchSystemStatus = async () => {
+    try {
+      setStatusLoading(true);
+      const { apiUrl } = getSystemConfig().backend;
+      const response = await fetch(`${apiUrl}/stats/system-status`);
+      const data = await response.json();
+      setSystemStatus(data);
+    } catch (error) {
+      console.error('Error fetching system status:', error);
+    } finally {
+      setStatusLoading(false);
+    }
+  };
 
   const loadAccounts = async () => {
     try {
@@ -484,12 +526,16 @@ export const SettingsScreen = ({ onClose }: Props) => {
     const numBars = 24;
     const barWidth = (chartWidth - (numBars - 1) * barGap) / numBars;
 
-    const hourlyData = [
-      12, 18, 15, 8, 5, 4, 10, 25, 45, 65, 80, 55,
-      40, 60, 95, 70, 50, 45, 85, 90, 60, 40, 30, 20
-    ];
+    const hourlyData = systemStatus?.tokens.hourly || new Array(24).fill(0);
+    const maxHourlyValue = Math.max(...hourlyData, 1);
+    const avgValue = hourlyData.reduce((a, b) => a + b, 0) / 24;
+    const avgPercent = (avgValue / maxHourlyValue) * 100;
 
-    const avgValue = 42; // Percentage for horizontal line
+    const usedTokens = systemStatus?.tokens.used || 0;
+    const limitTokens = systemStatus?.tokens.limit || 1000000;
+    const tokenDisplay = usedTokens >= 1000
+      ? `${(usedTokens / 1000).toFixed(0)}k / ${(limitTokens / 1000000).toFixed(0)}M`
+      : `${usedTokens} / ${(limitTokens / 1000000).toFixed(0)}M`;
 
     return (
       <View style={styles.container}>
@@ -521,7 +567,7 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 <Text style={styles.monitorSub}>Distribuzione oraria consumi</Text>
               </View>
               <View style={[styles.monitorValueBadge, { backgroundColor: `${activeColor}20` }]}>
-                <Text style={[styles.monitorValueText, { color: activeColor }]}>850k / 1M</Text>
+                <Text style={[styles.monitorValueText, { color: activeColor }]}>{tokenDisplay}</Text>
               </View>
             </View>
 
@@ -530,8 +576,8 @@ export const SettingsScreen = ({ onClose }: Props) => {
               <View style={styles.chartInnerContainer}>
                 {/* Y-Axis Labels */}
                 <View style={styles.yAxisLabels}>
-                  <Text style={styles.axisTextMini}>100k</Text>
-                  <Text style={styles.axisTextMini}>50k</Text>
+                  <Text style={styles.axisTextMini}>{maxHourlyValue >= 1000 ? `${(maxHourlyValue / 1000).toFixed(0)}k` : maxHourlyValue}</Text>
+                  <Text style={styles.axisTextMini}>{maxHourlyValue >= 2000 ? `${(maxHourlyValue / 2000).toFixed(0)}k` : (maxHourlyValue / 2).toFixed(0)}</Text>
                   <Text style={styles.axisTextMini}>0</Text>
                 </View>
 
@@ -552,9 +598,9 @@ export const SettingsScreen = ({ onClose }: Props) => {
                   {/* Average Line */}
                   <Line
                     x1="0"
-                    y1={chartHeight * (1 - avgValue / 100)}
+                    y1={chartHeight * (1 - avgPercent / 100)}
                     x2={chartWidth}
-                    y2={chartHeight * (1 - avgValue / 100)}
+                    y2={chartHeight * (1 - avgPercent / 100)}
                     stroke={activeColor}
                     strokeWidth="1"
                     strokeDasharray="4,4"
@@ -563,7 +609,7 @@ export const SettingsScreen = ({ onClose }: Props) => {
 
                   {/* Bars */}
                   {hourlyData.map((val, i) => {
-                    const h = (val / 100) * chartHeight;
+                    const h = (val / maxHourlyValue) * chartHeight;
                     const x = i * (barWidth + barGap);
                     const y = chartHeight - h;
                     return (
@@ -575,7 +621,7 @@ export const SettingsScreen = ({ onClose }: Props) => {
                         height={Math.max(h, 2)}
                         fill={activeColor}
                         rx={barWidth / 2}
-                        opacity={val > avgValue ? 1 : 0.4}
+                        opacity={val >= avgValue ? 1 : 0.4}
                       />
                     );
                   })}
@@ -625,24 +671,24 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 <Ionicons name="sparkles" size={18} color="#A78BFA" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Token AI</Text>
-                  <Text style={styles.usagePercent}>85%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.tokens.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: '85%', backgroundColor: '#A78BFA' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.tokens.percent || 0}%`, backgroundColor: '#A78BFA' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>850k / 1M utilizzati</Text>
+                <Text style={styles.usageSubtext}>{tokenDisplay} utilizzati</Text>
               </BlurView>
 
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
                 <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Previews</Text>
-                  <Text style={styles.usagePercent}>40%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: '40%', backgroundColor: '#34D399' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.percent || 0}%`, backgroundColor: '#34D399' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>4 / 10 utilizzati</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 10} utilizzati</Text>
               </BlurView>
             </View>
 
@@ -651,24 +697,24 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 <Ionicons name="git-branch" size={18} color="#60A5FA" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Progetti</Text>
-                  <Text style={styles.usagePercent}>60%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.projects.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: '60%', backgroundColor: '#60A5FA' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.projects.percent || 0}%`, backgroundColor: '#60A5FA' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>3 / 5 attivi</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.projects.active || 0} / {systemStatus?.projects.limit || 5} attivi</Text>
               </BlurView>
 
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
                 <Ionicons name="search-outline" size={18} color="#F472B6" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Ricerca</Text>
-                  <Text style={styles.usagePercent}>25%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.search.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: '25%', backgroundColor: '#F472B6' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.search.percent || 0}%`, backgroundColor: '#F472B6' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>5 / 20 al mese</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.search.used || 0} / {systemStatus?.search.limit || 20} al mese</Text>
               </BlurView>
             </View>
           </View>
@@ -806,7 +852,7 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 icon="bar-chart-outline"
                 iconColor="#34D399"
                 title="Utilizzo Risorse"
-                subtitle="75% del limite mensile utilizzato"
+                subtitle={`${systemStatus?.tokens.percent || 0}% del limite mensile utilizzato`}
                 onPress={() => setShowResourceUsage(true)}
               />
             </View>

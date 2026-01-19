@@ -5,6 +5,7 @@
  */
 
 const axios = require('axios');
+const metricsService = require('../metrics-service');
 
 /**
  * Search the web for information
@@ -18,9 +19,12 @@ const cheerio = require('cheerio');
 /**
  * Search the web for information using Google (standard) or DuckDuckGo Scraper (fallback)
  */
-async function webSearch(query, allowed_domains = [], blocked_domains = []) {
+async function webSearch(query, allowed_domains = [], blocked_domains = [], projectId = 'global') {
     try {
-        console.log(`🌐 Searching web for: "${query}"`);
+        console.log(`🌐 Searching web for: "${query}" (Project: ${projectId})`);
+
+        // Track search usage
+        metricsService.trackSearch(projectId).catch(e => console.warn('Failed to track search:', e.message));
 
         let results = [];
 

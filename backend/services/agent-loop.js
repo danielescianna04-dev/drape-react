@@ -496,7 +496,8 @@ class AgentLoop {
                     const result = await webSearch(
                         input.query,
                         input.allowed_domains || [],
-                        input.blocked_domains || []
+                        input.blocked_domains || [],
+                        this.projectId
                     );
                     return result;
                 } catch (error) {

@@ -6,7 +6,7 @@ const getLocalIP = (): string => {
   // @ts-ignore - __DEV__ is a React Native global
   if (typeof __DEV__ === 'undefined' || !__DEV__) {
     // Production: use env or default
-    return process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.1.44';
+    return process.env.EXPO_PUBLIC_LOCAL_IP || '192.168.0.7';
   }
 
   // Development: Try multiple detection methods
@@ -63,7 +63,7 @@ const getLocalIP = (): string => {
   }
 
   // Fallback to environment variables or hardcoded default
-  const finalIP = detectedIP || process.env.EXPO_PUBLIC_LOCAL_IP || process.env.LOCAL_IP || '192.168.1.44';
+  const finalIP = detectedIP || process.env.EXPO_PUBLIC_LOCAL_IP || process.env.LOCAL_IP || '192.168.0.7';
 
   if (!detectedIP) {
     console.log('⚠️ [Config] Could not auto-detect IP, using fallback:', finalIP);

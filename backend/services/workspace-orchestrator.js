@@ -219,16 +219,21 @@ class WorkspaceOrchestrator {
         console.log(`\n🔥 [Orchestrator] Proactive warming for: ${projectId}`);
 
         try {
-            // 1. Get/Create VM (ensures files are synced)
+            // 1. Get/Create VM
             const vm = await this.getOrCreateVM(projectId);
 
-            // 2. Detect project type
+            // 2. Sync files to VM (CRITICAL - needed before install)
+            console.log(`📂 [Orchestrator] Syncing files to VM for warming...`);
+            const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
+            console.log(`   ✅ Synced ${syncResult.syncedCount} files`);
+
+            // 3. Detect project type
             const projectInfo = await this.detectProjectMetadata(projectId);
 
-            // 3. Store project metadata in Redis for startPreview to pick up
-            await redisService.saveVMSession(projectId, { ...vm, projectInfo });
+            // 4. Store project metadata in Redis for startPreview to pick up
+            await redisService.saveVMSession(projectId, { ...vm, projectInfo, lastUsed: Date.now() });
 
-            // 4. Background: Install dependencies + Patch configs
+            // 5. Background: Install dependencies + Patch configs
             // We DON'T await this so the /clone response returns immediately
             setImmediate(async () => {
                 try {
@@ -245,6 +250,14 @@ class WorkspaceOrchestrator {
                             // Only log locally
                             console.log(`   [Warming ${projectId}] ${step}: ${msg}`);
                         }, true); // Use staySilent=true to skip wait for dev server
+
+                        // Update lastUsed after install completes to prevent idle cleanup
+                        const session = await redisService.getVMSession(projectId);
+                        if (session) {
+                            session.lastUsed = Date.now();
+                            await redisService.saveVMSession(projectId, session);
+                        }
+
                         console.log(`✅ [Orchestrator] Background warming complete for ${projectId}`);
                     }
                 } catch (e) {
@@ -1277,27 +1290,55 @@ class WorkspaceOrchestrator {
         // This ensures we don't stop the VM we just allocated from the pool
         const vm = await this.getOrCreateVM(projectId);
 
+        // CRITICAL: Update lastUsed to prevent idle cleanup during long operations
+        // This resets the 15-minute idle timer
+        const vmSession = await redisService.getVMSession(projectId);
+        if (vmSession) {
+            vmSession.lastUsed = Date.now();
+            await redisService.saveVMSession(projectId, vmSession);
+            console.log(`⏰ [Orchestrator] Reset idle timer for ${projectId}`);
+        }
+
         // CRITICAL: Stop all other VMs to ensure correct routing
         // Pass the current VM's machineId to avoid race conditions
         await this.stopOtherMachines(projectId, vm.machineId);
 
-        // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
-        console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
-        try {
-            const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -exec rm -rf {} +`;
-            await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
-            console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
-        } catch (e) {
-            console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+        // CRITICAL: Wait for any background warming to complete before cleaning/syncing
+        // This prevents race conditions where we delete files while background install is running
+        let hadBackgroundWarming = false;
+        if (setupLocks.has(projectId)) {
+            console.log(`🔒 [Orchestrator] Waiting for background warming to complete...`);
+            await setupLocks.get(projectId);
+            hadBackgroundWarming = true;
+            console.log(`   ✅ Background warming complete - skipping clean/sync (files already fresh)`);
         }
 
-        // HOLY GRAIL: VM Hardening (Swap + Volume Prep + Logs)
-        await this.hardenVM(projectId, vm.agentUrl, vm.machineId);
+        // CRITICAL: Only clean and sync if background warming didn't just complete
+        // Background warming already synced files and installed deps, so re-syncing would delete them
+        let syncResult;
+        if (!hadBackgroundWarming) {
+            // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
+            console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
+            try {
+                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -exec rm -rf {} +`;
+                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
+            } catch (e) {
+                console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+            }
 
-        // Sync files from storage to VM
-        console.log(`📂 [Orchestrator] Syncing files to VM...`);
-        const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
-        console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
+            // HOLY GRAIL: VM Hardening (Swap + Volume Prep + Logs)
+            await this.hardenVM(projectId, vm.agentUrl, vm.machineId);
+
+            // Sync files from storage to VM
+            console.log(`📂 [Orchestrator] Syncing files to VM...`);
+            syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
+            console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
+        } else {
+            console.log(`⚡ [Orchestrator] Skipping clean/sync - using warm VM with existing files`);
+            // Fake a successful sync result for warm VM
+            syncResult = { syncedCount: 65, success: true };
+        }
 
         // HOLY GRAIL: Link Next.js cache to volume
         try {
@@ -1309,11 +1350,9 @@ class WorkspaceOrchestrator {
             await flyService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
         } catch (e) { }
 
-
-
-        // OPTIMIZATION: Skip file integrity check if tar.gz sync succeeded
+        // OPTIMIZATION: Skip file integrity check if we used warm VM or tar.gz sync succeeded
         // The tar.gz sync is atomic and reliable - verification is redundant and slow (35s)
-        if (syncResult.syncedCount === 0 || syncResult.error) {
+        if (!hadBackgroundWarming && (syncResult.syncedCount === 0 || syncResult.error)) {
             // Only verify if sync had issues
             console.log(`🔍 [Orchestrator] Verifying file integrity on VM (sync had issues)...`);
             try {
@@ -1344,22 +1383,26 @@ class WorkspaceOrchestrator {
             console.log(`✅ [Orchestrator] File integrity verified. All files present.`);
         }
 
-        // CRITICAL FIX: Always force-restore package.json to ensure it's fresh and present
-        // This prevents race conditions or "missing file" errors during npm install
-        try {
-            console.log('🔨 [Orchestrator] Force-restoring package.json...');
-            const mkPkg = await storageService.readFile(projectId, 'package.json');
-            if (mkPkg.success) {
-                await axios.post(`${vm.agentUrl}/file`, {
-                    path: 'package.json',
-                    content: mkPkg.content
-                }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
-                console.log('   ✅ Restored package.json');
-            } else {
-                console.error('   ❌ Could not read package.json from storage');
+        // CRITICAL FIX: Only force-restore package.json if we didn't use warm VM
+        // If background warming just completed, package.json is already fresh from install
+        if (!hadBackgroundWarming) {
+            try {
+                console.log('🔨 [Orchestrator] Force-restoring package.json...');
+                const mkPkg = await storageService.readFile(projectId, 'package.json');
+                if (mkPkg.success) {
+                    await axios.post(`${vm.agentUrl}/file`, {
+                        path: 'package.json',
+                        content: mkPkg.content
+                    }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
+                    console.log('   ✅ Restored package.json');
+                } else {
+                    console.error('   ❌ Could not read package.json from storage');
+                }
+            } catch (e) {
+                console.warn('   ⚠️ Failed to restore package.json:', e.message);
             }
-        } catch (e) {
-            console.warn('   ⚠️ Failed to restore package.json:', e.message);
+        } else {
+            console.log('⚡ [Orchestrator] Skipping package.json restore - using version from warm VM');
         }
 
         // Setup (Install + Start) via Optimized pnpm (Async)
@@ -2217,26 +2260,88 @@ class WorkspaceOrchestrator {
                     if (hasTsConfig && !fullInstallCmd.includes('typescript')) {
                         console.log(`   💡 Next.js 16 TypeScript config detected - ensuring typescript dependency`);
                         fullInstallCmd = pkgManager === 'pnpm'
-                            ? `${fullInstallCmd} typescript`
+                            ? `${fullInstallCmd} && pnpm install typescript`
                             : `${fullInstallCmd} && ${pkgManager} install typescript`;
                     }
 
-                    const installResult = await flyService.exec(agentUrl, fullInstallCmd, '/home/coder/project', machineId, installTimeout, true);
-                    const duration = Math.round((Date.now() - startTime) / 1000);
-                    console.log(`   ⏱️ ${pkgManager} install took ${duration}s (Exit code: ${installResult.exitCode})`);
+                    // HOLY GRAIL: Run install in background to avoid HTTP timeouts (Fly.io proxy 30s limit)
+                    console.log(`   📦 Triggering ${pkgManager} install in background...`);
+                    const installLog = '/home/coder/install.log';
+                    const installMarker = '/home/coder/install.done';
 
-                    if (installResult.exitCode !== 0) {
-                        // HOLY GRAIL: Handle non-zero exit codes that aren't fatal (warnings in CI, build script ignores, etc.)
-                        try {
-                            const checkResult = await flyService.exec(agentUrl, '[ -d node_modules ] && [ "$(ls -A node_modules)" ]', '/home/coder/project', machineId, 10000, true);
-                            if (checkResult.exitCode === 0) {
-                                console.log(`   ⚠️ ${pkgManager} exited with code ${installResult.exitCode} but node_modules looks functional. Proceeding...`);
-                            } else {
-                                throw new Error(`${pkgManager} install failed with exit code ${installResult.exitCode}`);
+                    // Cleanup old markers
+                    await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 5000, true);
+
+                    // Launch install in background
+                    // 🔑 Robustness: Kill any existing dev servers or stalled installs
+                    // DO NOT use killall node as it kills the agent!
+                    await flyService.exec(agentUrl, 'fuser -k 3000/tcp || true; pkill -9 -f pnpm || true; pkill -9 -f npm || true; pkill -9 -f yarn || true; pkill -9 -f next-server || true; pkill -9 -f vite || true', '/home/coder', machineId, 20000, true);
+
+                    // Create install script on VM (avoids complex shell escaping)
+                    const installScript = `/home/coder/install.sh`;
+                    const scriptContent = `#!/bin/bash
+cd /home/coder/project
+${fullInstallCmd} > ${installLog} 2>&1
+echo $? > ${installMarker}`;
+
+                    await flyService.exec(agentUrl, `cat > ${installScript} << 'EOFSCRIPT'
+${scriptContent}
+EOFSCRIPT
+chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
+
+                    console.log(`   🛠️ BG Install Script: ${installScript}`);
+                    // Run in background (detached from parent)
+                    await flyService.exec(agentUrl, `${installScript} > /dev/null 2>&1 & disown`, '/home/coder', machineId, 3000, true);
+
+                    // Poll for completion
+                    let pollCount = 0;
+                    const maxPolls = 120; // 10 minutes (5s interval)
+                    let installSuccess = false;
+
+                    while (pollCount < maxPolls) {
+                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 5000, true);
+                        const status = checkMarker.stdout?.trim();
+
+                        if (status && status !== 'PENDING') {
+                            // Use regex to strictly extract numbers (ignore any whitespace or garbage)
+                            const match = status.match(/(-?\d+)/);
+                            const exitCode = match ? parseInt(match[1]) : NaN;
+
+                            if (isNaN(exitCode)) {
+                                console.log(`   ⏳ Status marker contains invalid value: "${status}" - continuing to poll...`);
+                                await new Promise(r => setTimeout(r, 2000));
+                                pollCount++;
+                                continue;
                             }
-                        } catch (e) {
-                            throw new Error(`${pkgManager} install failed with exit code ${installResult.exitCode}`);
+
+                            const duration = Math.round((Date.now() - startTime) / 1000);
+                            console.log(`   ⏱️ ${pkgManager} install finished in ${duration}s (Exit code: ${exitCode})`);
+
+                            if (exitCode === 0) {
+                                installSuccess = true;
+                            } else {
+                                // Check if it's a "soft" failure
+                                const checkResult = await flyService.exec(agentUrl, '[ -d node_modules ] && [ "$(ls -A node_modules)" ]', '/home/coder/project', machineId, 10000, true);
+                                if (checkResult.exitCode === 0) {
+                                    console.log(`   ⚠️ ${pkgManager} install had warnings/soft error (${exitCode}) but node_modules exists. Proceeding...`);
+                                    installSuccess = true;
+                                } else {
+                                    const errorLogs = await flyService.exec(agentUrl, `tail -n 20 ${installLog}`, '/home/coder', machineId, 5000, true);
+                                    throw new Error(`${pkgManager} install failed (code ${match ? match[1] : 'unknown'}). Logs:\n${errorLogs.stdout}`);
+                                }
+                            }
+                            break;
                         }
+
+                        await new Promise(r => setTimeout(r, 5000));
+                        pollCount++;
+                        if (pollCount % 3 === 0 && onProgress) {
+                            onProgress('installing', `Installazione dipendenze (${Math.round(pollCount * 5)}s)...`);
+                        }
+                    }
+
+                    if (!installSuccess && pollCount >= maxPolls) {
+                        throw new Error(`${pkgManager} install timed out after 10 minutes`);
                     }
 
                     console.log(`   ✅ Dependencies installed successfully`);
@@ -2259,7 +2364,38 @@ class WorkspaceOrchestrator {
             console.log(`   🚀 Starting dev server in background...`);
             if (onProgress) onProgress('starting', 'Avvio del dev server...');
 
-            await flyService.exec(agentUrl, backgroundStart, '/home/coder/project', machineId, 30000, true);
+            // Create startup script on VM (same pattern as install.sh - avoids complex shell escaping)
+            const startupScript = `/home/coder/start-server.sh`;
+            const startupScriptContent = `#!/bin/bash
+cd /home/coder/project || exit 1
+export PATH="/home/coder/project/node_modules/.bin:$PATH"
+
+# Kill ANY existing vite/dev server processes (not just port 3000)
+pkill -9 -f "vite" || true
+pkill -9 -f "npm.*dev" || true
+pkill -9 -f "node.*dev" || true
+fuser -k 3000/tcp 2>/dev/null || true
+sleep 2
+
+# Start dev server
+${finalStart} > /home/coder/server.log 2>&1 &
+SERVER_PID=$!
+echo "Dev server started with PID $SERVER_PID"
+
+# Small delay to let server initialize
+sleep 1`;
+
+            await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
+${startupScriptContent}
+EOFSCRIPT
+chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
+
+            console.log(`   🛠️ Startup Script: ${startupScript}`);
+            // Run script directly in foreground (let it complete the kill and start)
+            await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 5000, true);
+
+            // Wait a bit more for the server to start
+            await new Promise(r => setTimeout(r, 3000));
 
             const healthCheckTimeout = projectInfo.type === 'nextjs' ? 180000 : 90000;
             const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);

@@ -161,9 +161,12 @@ class ClaudeProvider extends BaseAIProvider {
         let currentToolUse = null;
         let stopReason = null;
         let isThinking = false;
+        let usage = { inputTokens: 0, outputTokens: 0 };
 
         for await (const event of stream) {
-            if (event.type === 'content_block_start') {
+            if (event.type === 'message_start') {
+                usage.inputTokens = event.message?.usage?.input_tokens || 0;
+            } else if (event.type === 'content_block_start') {
                 if (event.content_block?.type === 'tool_use') {
                     currentToolUse = {
                         id: event.content_block.id,
@@ -203,10 +206,13 @@ class ClaudeProvider extends BaseAIProvider {
                 }
             } else if (event.type === 'message_delta') {
                 stopReason = event.delta?.stop_reason;
+                if (event.usage) {
+                    usage.outputTokens = event.usage.output_tokens || 0;
+                }
             }
         }
 
-        yield { type: 'done', fullText, toolCalls, stopReason };
+        yield { type: 'done', fullText, toolCalls, stopReason, usage };
     }
 
     parseToolCalls(response) {

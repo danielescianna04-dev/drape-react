@@ -266,10 +266,10 @@ class GeminiProvider extends BaseAIProvider {
 
                 // Check for thoughts in various possible locations
                 const thoughts = candidate.thought ||
-                                candidate.thoughts ||
-                                candidate.thinking ||
-                                candidate.content?.thought ||
-                                candidate.content?.thoughts;
+                    candidate.thoughts ||
+                    candidate.thinking ||
+                    candidate.content?.thought ||
+                    candidate.content?.thoughts;
 
                 if (thoughts) {
                     if (!hasStartedThinking) {
@@ -313,9 +313,9 @@ class GeminiProvider extends BaseAIProvider {
 
                     // Fallback: Check multiple possible field names for thoughts
                     const thoughtText = part.thoughts ||
-                                       part.thinking ||
-                                       part.thinkingProcess ||
-                                       part.reasoning;
+                        part.thinking ||
+                        part.thinkingProcess ||
+                        part.reasoning;
 
                     if (thoughtText) {
                         if (!hasStartedThinking) {
@@ -368,7 +368,23 @@ class GeminiProvider extends BaseAIProvider {
             yield { type: 'thinking_end' };
         }
 
-        yield { type: 'done', fullText, toolCalls };
+        // Get final usage from the response object (available after stream is consumed)
+        let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0 };
+        try {
+            const finalResponse = await result.response;
+            const metadata = finalResponse.usageMetadata;
+            if (metadata) {
+                usage = {
+                    inputTokens: metadata.promptTokenCount || 0,
+                    outputTokens: metadata.candidatesTokenCount || 0,
+                    cachedTokens: metadata.cachedContentTokenCount || 0
+                };
+            }
+        } catch (e) {
+            console.warn('[Gemini] Could not get usage from stream response:', e.message);
+        }
+
+        yield { type: 'done', fullText, toolCalls, usage };
     }
 
     parseToolCalls(result) {

@@ -14,6 +14,7 @@ const workstationRoutes = require('./workstation');
 const terminalRoutes = require('./terminal');
 const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
 const agentRoutes = require('./agent'); // Agent tools & modes
+const statsRoutes = require('./stats'); // System stats & usage
 const globalLogService = require('../services/global-log-service');
 
 // Health check - top level
@@ -36,6 +37,7 @@ router.use('/workstation', workstationRoutes);
 router.use('/terminal', terminalRoutes);
 router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
 router.use('/agent', agentRoutes); // Agent tools & modes
+router.use('/stats', statsRoutes); // System stats & usage
 
 // SSE endpoint for streaming ALL backend logs to frontend
 router.get('/logs/stream', (req, res) => {
