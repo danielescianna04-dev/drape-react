@@ -6382,5 +6382,35 @@
       "requiresDocker": false,
       "hasWebUI": true
     }
+  },
+  "aYVV4jrd4KTf5iKjxm5b": {
+    "id": "d8d3106c262708",
+    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d8d3106c262708",
+    "projectId": "aYVV4jrd4KTf5iKjxm5b",
+    "createdAt": 1768843708011,
+    "lastUsed": 1768844057124,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:node20-production",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js application",
+      "startCommand": "npx next dev --turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
+        "recommendation": "Consider downgrading to Next.js 15.3.0",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "language": "typescript",
+      "packageManager": "npm",
+      "installCommand": "npm install",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    }
   }
 }

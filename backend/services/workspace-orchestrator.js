@@ -382,7 +382,8 @@ class WorkspaceOrchestrator {
             const machines = await flyService.listMachines();
             const startedMachines = machines.filter(m =>
                 m.state === 'started' &&
-                !m.name.startsWith('ws-pool-')
+                !m.name.startsWith('ws-pool-') &&
+                m.name !== 'ws-cache-master'
             );
 
             // Allow up to 3 concurrent active project VMs
@@ -2014,8 +2015,8 @@ echo "=== END DEBUG ==="
             const MAX_AGE_MS = this.vmTimeout;
 
             for (const machine of machines) {
-                // Only care about started workspace machines (skip pool machines, managed by VMPoolManager)
-                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.state !== 'started') continue;
+                // Only care about started workspace machines (skip pool machines and cache-master, managed by VMPoolManager)
+                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.name === 'ws-cache-master' || machine.state !== 'started') continue;
 
                 // Check age
                 const createdAt = new Date(machine.created_at).getTime();
