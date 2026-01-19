@@ -9,6 +9,22 @@ const fileWatcherService = require('./services/file-watcher');
 
 require('dotenv').config();
 
+// 🔑 Global error handlers to prevent crashes on socket errors
+process.on('uncaughtException', (err) => {
+    // Handle ECONNRESET gracefully (client disconnect during stream)
+    if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ENOTFOUND') {
+        console.log(`⚠️ [Server] Socket error (handled): ${err.code} - ${err.message}`);
+        return; // Don't crash
+    }
+    console.error('❌ [Server] Uncaught Exception:', err);
+    // Don't exit for non-critical errors
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ [Server] Unhandled Rejection:', reason);
+    // Don't exit, just log
+});
+
 const http = require('http');
 const WebSocket = require('ws');
 

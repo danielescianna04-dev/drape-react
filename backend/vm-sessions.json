@@ -26,18 +26,6 @@
     "createdAt": 1768267745206,
     "lastUsed": 1768267745206
   },
-  "aYVV4jrd4KTf5iKjxm5b": {
-    "id": "d8d310df296668",
-    "machineId": "d8d310df296668",
-    "vmId": "d8d310df296668",
-    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
-    "projectId": "aYVV4jrd4KTf5iKjxm5b",
-    "region": "fra",
-    "privateIp": "fdaa:3b:969:a7b:500:12cc:9d6f:2",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "createdAt": "2026-01-13T02:19:11Z",
-    "lastUsed": 1768271667304
-  },
   "pool-1768305948302-re71zu0w6": {
     "id": "d896451fe652d8",
     "machineId": "d896451fe652d8",
@@ -6365,16 +6353,34 @@
     "lastUsed": 1768548087741,
     "image": "registry.fly.io/drape-workspaces:node20-production"
   },
-  "ws-1767975714833-t876jh9or": {
-    "id": "781972df56e9d8",
-    "name": "ws-ws-1767975714833-t876jh9or",
+  "hFy5l3kyhnVvXC5Myo50": {
+    "id": "2860324b711568",
+    "name": "ws-hFy5l3kyhnVvXC5Myo50",
     "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "781972df56e9d8",
-    "projectId": "ws-1767975714833-t876jh9or",
-    "createdAt": 1768705783082,
-    "lastUsed": 1768705783082,
+    "machineId": "2860324b711568",
+    "projectId": "hFy5l3kyhnVvXC5Myo50",
+    "createdAt": 1768823610985,
+    "lastUsed": 1768823850018,
     "fromPool": true,
     "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:node20-production"
+    "image": "registry.fly.io/drape-workspaces:node20-production",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js application",
+      "startCommand": "npx next dev --turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
+        "recommendation": "Consider downgrading to Next.js 15.3.0",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "language": "typescript",
+      "packageManager": "npm",
+      "installCommand": "npm install",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    }
   }
 }

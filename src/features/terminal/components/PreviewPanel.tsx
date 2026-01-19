@@ -862,6 +862,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
         let lastIndex = 0;
         let pollInterval: any = null;
         let dataBuffer = '';
+        let readyReceived = false; // Track if 'ready' event was received
 
         const processResponse = () => {
           const newData = xhr.responseText.substring(lastIndex);
@@ -885,7 +886,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 }
 
                 const parsed = JSON.parse(dataStr);
-                console.log('📬 Preview SSE:', parsed.type, parsed.step || '');
+                console.log('📬 Preview SSE:', parsed.type, parsed.step || '', parsed.machineId ? `(machineId: ${parsed.machineId})` : '');
 
                 if (parsed.type === 'warning') {
                   // Handle warnings (e.g., Next.js version issues)
@@ -919,6 +920,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   }));
 
                   if (parsed.step === 'ready') {
+                    readyReceived = true; // Mark that we received the ready event
                     console.log('🎉 Server is ready, navigating...');
                     const result = parsed;
                     console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
@@ -986,8 +988,9 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                   setPreviewError({ message: parsed.message, timestamp: new Date() });
                   reject(new Error(parsed.message));
                 }
-              } catch (e) {
-                // Ignore parse errors from partial JSON if it somehow slipped through
+              } catch (e: any) {
+                // Log parse errors - they might explain why 'ready' is not received
+                console.warn('⚠️ SSE JSON parse error:', e?.message, 'Data:', dataStr?.substring(0, 200));
               }
             } else if (line.startsWith(':')) {
               // Heartbeat ping
@@ -1002,12 +1005,48 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
 
         pollInterval = setInterval(processResponse, 100);
 
-        xhr.onload = () => {
-          console.log(`📡 XHR onload status: ${xhr.status}`);
+        xhr.onload = async () => {
+          console.log(`📡 XHR onload status: ${xhr.status}, readyReceived: ${readyReceived}`);
           if (pollInterval) clearInterval(pollInterval);
           processResponse();
+
           if (xhr.status < 200 || xhr.status >= 300) {
             reject(new Error(`Server error: ${xhr.status}`));
+            return;
+          }
+
+          // 🔑 RECOVERY: If XHR completed but we never got 'ready' event, try to recover
+          if (!readyReceived && xhr.status === 200) {
+            console.log('⚠️ XHR completed but ready event not received, attempting recovery...');
+            console.log('📋 Final response length:', xhr.responseText?.length);
+            console.log('📋 Last 500 chars:', xhr.responseText?.slice(-500));
+
+            // Try to fetch session to see if VM is actually ready
+            try {
+              const sessionRes = await fetch(`${apiUrl}/fly/session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectId: currentWorkstation?.id }),
+                credentials: 'include'
+              });
+              const sessionData = await sessionRes.json();
+
+              if (sessionData.machineId) {
+                console.log('✅ Recovery: VM is running, manually completing setup');
+                setGlobalFlyMachineId(sessionData.machineId, currentWorkstation?.id);
+                flyMachineIdRef.current = sessionData.machineId;
+                setCurrentPreviewUrl(`${apiUrl}`);
+                setServerStatus('running');
+                setIsStarting(false);
+                resolve();
+              } else {
+                console.error('❌ Recovery failed: No machineId in session');
+                reject(new Error('Preview completed but ready event was lost'));
+              }
+            } catch (recoveryErr: any) {
+              console.error('❌ Recovery fetch failed:', recoveryErr);
+              reject(new Error('Preview completed but ready event was lost'));
+            }
           }
         };
 

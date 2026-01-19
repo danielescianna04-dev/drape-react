@@ -131,9 +131,22 @@ export const FluidTabSwitcher: React.FC<FluidTabSwitcherProps> = ({
             // Check if this tab should be rendered
             const isVisible = visibleTabs.some(v => v.actualIndex === index);
 
+            // 🔑 FIX: Keep preview tabs always mounted to avoid reload on switch
+            // Preview tabs are expensive to remount (WebView, connections, etc.)
+            const isPreviewTab = (tab as any).type === 'preview';
+            const shouldRender = isVisible || isPreviewTab;
+
             return (
               <View key={index} style={[styles.page, { width: containerWidth }]}>
-                {isVisible ? renderTab(tab, containerWidth) : null}
+                {shouldRender ? (
+                  <View style={[
+                    styles.tabContent,
+                    // Hide non-visible preview tabs but keep them mounted
+                    !isVisible && isPreviewTab && styles.hiddenTab
+                  ]}>
+                    {renderTab(tab, containerWidth)}
+                  </View>
+                ) : null}
               </View>
             );
           })}
@@ -156,5 +169,14 @@ const styles = StyleSheet.create({
   page: {
     height: '100%',
     backgroundColor: AppColors.dark.backgroundAlt,
+  },
+  tabContent: {
+    flex: 1,
+    height: '100%',
+  },
+  hiddenTab: {
+    // Keep mounted but visually hidden and non-interactive
+    opacity: 0,
+    pointerEvents: 'none',
   },
 });

@@ -647,27 +647,62 @@ router.post('/heartbeat', asyncHandler(async (req, res) => {
 /**
  * POST /fly/session
  * Set routing cookie for the Gateway
- * 🔑 FIX: Can auto-create VM if projectId is provided but machineId is not
+ * 🔑 FIX: Validates machineId is still active, returns current machineId for project
  */
 router.post('/session', asyncHandler(async (req, res) => {
     let { machineId, projectId } = req.body;
 
-    // 🔑 AUTO-CREATE VM if machineId not provided but projectId is
-    if (!machineId && projectId) {
-        console.log(`🔄 [Fly] Session: No machineId, auto-creating VM for ${projectId}...`);
-        try {
-            const vmSession = await orchestrator.getOrCreateVM(projectId);
-            if (vmSession && vmSession.machineId) {
-                machineId = vmSession.machineId;
-                console.log(`✅ [Fly] Session: VM auto-created: ${machineId}`);
+    // 🔑 FIX: If projectId provided, ALWAYS get/verify the current VM for that project
+    // This handles cases where the frontend has a stale machineId
+    if (projectId) {
+        const activeVMs = await orchestrator.getActiveVMs();
+        const projectVM = activeVMs.find(v => v.projectId === projectId);
+
+        if (projectVM) {
+            // Project has an active VM
+            const currentMachineId = projectVM.vmId || projectVM.machineId;
+
+            // Check if frontend's machineId is stale
+            if (machineId && machineId !== currentMachineId) {
+                console.log(`🔄 [Fly] Session: Frontend has stale machineId ${machineId}, current is ${currentMachineId}`);
             }
-        } catch (vmError) {
-            console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
-            return res.status(503).json({
-                error: 'VM_STARTING',
-                message: 'Starting workspace, please retry in a few seconds',
-                details: vmError.message
-            });
+
+            machineId = currentMachineId;
+            console.log(`✅ [Fly] Session: Using active VM for ${projectId}: ${machineId}`);
+        } else if (!machineId) {
+            // No active VM and no machineId provided - auto-create
+            console.log(`🔄 [Fly] Session: No active VM for ${projectId}, auto-creating...`);
+            try {
+                const vmSession = await orchestrator.getOrCreateVM(projectId);
+                if (vmSession && vmSession.machineId) {
+                    machineId = vmSession.machineId;
+                    console.log(`✅ [Fly] Session: VM auto-created: ${machineId}`);
+                }
+            } catch (vmError) {
+                console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
+                return res.status(503).json({
+                    error: 'VM_STARTING',
+                    message: 'Starting workspace, please retry in a few seconds',
+                    details: vmError.message
+                });
+            }
+        } else {
+            // Frontend provided machineId but no active VM found - it's stale
+            console.log(`⚠️ [Fly] Session: machineId ${machineId} is stale (VM destroyed), auto-creating...`);
+            try {
+                const vmSession = await orchestrator.getOrCreateVM(projectId);
+                if (vmSession && vmSession.machineId) {
+                    machineId = vmSession.machineId;
+                    console.log(`✅ [Fly] Session: New VM created: ${machineId}`);
+                }
+            } catch (vmError) {
+                console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
+                return res.status(503).json({
+                    error: 'VM_STARTING',
+                    message: 'Starting workspace, please retry in a few seconds',
+                    details: vmError.message
+                });
+            }
         }
     }
 
@@ -819,6 +854,16 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         });
     }
 
+    // 🔑 FIX: Get machineId from vm (could be vmId or machineId depending on source)
+    const machineId = vm.machineId || vm.vmId;
+    if (!machineId) {
+        console.error(`❌ [Fly] No machineId for project ${projectId}:`, JSON.stringify(vm));
+        return res.status(503).json({
+            error: 'VM_NOT_READY',
+            message: 'VM is starting, machineId not available yet. Please retry.'
+        });
+    }
+
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -841,7 +886,7 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         method: 'GET',
         headers: {
             'Accept': 'text/event-stream',
-            'Fly-Force-Instance-Id': vm.machineId
+            'Fly-Force-Instance-Id': machineId
         }
     }, (proxyRes) => {
         console.log(`📺 [Fly] Connected to agent logs stream`);
@@ -849,28 +894,53 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         // Pipe the response
         proxyRes.on('data', (chunk) => {
             try {
-                res.write(chunk);
-                if (res.flush) res.flush();
+                if (!res.destroyed && !res.writableEnded) {
+                    res.write(chunk);
+                    if (res.flush) res.flush();
+                }
             } catch (e) {
-                // Client disconnected
+                // Client disconnected, ignore
             }
         });
 
         proxyRes.on('end', () => {
             console.log(`📺 [Fly] Agent logs stream ended`);
-            res.end();
+            try {
+                if (!res.destroyed && !res.writableEnded) res.end();
+            } catch (e) { /* ignore */ }
         });
 
         proxyRes.on('error', (err) => {
             console.error(`📺 [Fly] Proxy stream error:`, err.message);
-            res.end();
+            try {
+                if (!res.destroyed && !res.writableEnded) res.end();
+            } catch (e) { /* ignore */ }
         });
     });
 
     proxyReq.on('error', (err) => {
-        console.error(`📺 [Fly] Failed to connect to agent:`, err.message);
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to connect to VM' })}\n\n`);
-        res.end();
+        // 🔑 FIX: Handle ECONNRESET and other socket errors gracefully
+        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+            console.log(`📺 [Fly] Connection reset (client disconnected): ${err.code}`);
+        } else {
+            console.error(`📺 [Fly] Failed to connect to agent:`, err.message);
+        }
+        try {
+            if (!res.destroyed && !res.writableEnded) {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: 'Connection to VM lost' })}\n\n`);
+                res.end();
+            }
+        } catch (e) { /* ignore */ }
+    });
+
+    // 🔑 FIX: Handle socket errors on response to prevent crash
+    res.on('error', (err) => {
+        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
+            console.log(`📺 [Fly] Client socket error (normal): ${err.code}`);
+        } else {
+            console.error(`📺 [Fly] Response error:`, err.message);
+        }
+        proxyReq.destroy();
     });
 
     proxyReq.end();

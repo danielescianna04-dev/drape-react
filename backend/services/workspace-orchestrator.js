@@ -115,7 +115,7 @@ class WorkspaceOrchestrator {
             fileNames = (listResult.files || []).map(f => f.path);
 
             // Read config files for detection
-            for (const configName of ['package.json', 'requirements.txt', 'go.mod', 'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs']) {
+            for (const configName of ['package.json', 'requirements.txt', 'go.mod', 'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs', 'next.config.ts']) {
                 try {
                     const result = await withTimeout(this.readFile(projectId, configName), 3000, `readFile(${configName})`);
                     if (result.success) {
@@ -131,7 +131,8 @@ class WorkspaceOrchestrator {
             ((configFiles['vite.config.ts'] && configFiles['vite.config.ts'].content) ? { name: 'vite.config.ts', content: configFiles['vite.config.ts'].content } : null);
 
         let nextConfig = (configFiles['next.config.js'] && configFiles['next.config.js'].content) ? { name: 'next.config.js', content: configFiles['next.config.js'].content } :
-            ((configFiles['next.config.mjs'] && configFiles['next.config.mjs'].content) ? { name: 'next.config.mjs', content: configFiles['next.config.mjs'].content } : null);
+            ((configFiles['next.config.mjs'] && configFiles['next.config.mjs'].content) ? { name: 'next.config.mjs', content: configFiles['next.config.mjs'].content } :
+                ((configFiles['next.config.ts'] && configFiles['next.config.ts'].content) ? { name: 'next.config.ts', content: configFiles['next.config.ts'].content } : null));
 
         // Smart fallback based on config files
         let projectInfo = {
@@ -300,28 +301,52 @@ class WorkspaceOrchestrator {
                 }
             }
 
-            // 2. Next.js Patch
+            // 2. Next.js Patch (support .js, .mjs, .ts)
             let nextConfigJS = await this.readFile(projectId, 'next.config.js');
             let nextConfigMJS = !nextConfigJS.success ? await this.readFile(projectId, 'next.config.mjs') : { success: false };
+            let nextConfigTS = !nextConfigJS.success && !nextConfigMJS.success ? await this.readFile(projectId, 'next.config.ts') : { success: false };
             let nextConfig = nextConfigJS.success ? { name: 'next.config.js', content: nextConfigJS.content } :
-                (nextConfigMJS.success ? { name: 'next.config.mjs', content: nextConfigMJS.content } : null);
+                (nextConfigMJS.success ? { name: 'next.config.mjs', content: nextConfigMJS.content } :
+                    (nextConfigTS.success ? { name: 'next.config.ts', content: nextConfigTS.content } : null));
 
             if (nextConfig && nextConfig.content) {
                 let content = nextConfig.content;
+                let needsWrite = false;
+
+                // Patch 2a: Add allowedOrigins for Fly.io CORS
                 if (!content.includes('allowedOrigins')) {
                     console.log(`   🔧 [Orchestrator] Patching ${nextConfig.name} for allowedOrigins...`);
                     if (content.includes('const nextConfig = {')) {
                         content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        needsWrite = true;
                     } else if (content.includes('module.exports = {')) {
                         content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        needsWrite = true;
                     } else if (content.includes('export default {')) {
                         content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        needsWrite = true;
                     }
+                }
 
-                    if (content !== nextConfig.content) {
-                        await this.writeFile(projectId, nextConfig.name, content);
-                        console.log(`   ✅ [Orchestrator] ${nextConfig.name} patched.`);
+                // Patch 2b: Add turbopack.root for Next.js 16 (fixes App Router root inference bug)
+                // This prevents Turbopack from confusing /app directory with project root
+                if (!content.includes('turbopack:') && !content.includes('turbopack.root')) {
+                    console.log(`   🔧 [Orchestrator] Patching ${nextConfig.name} for turbopack.root...`);
+                    if (content.includes('const nextConfig = {')) {
+                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  turbopack: { root: '/home/coder/project' },`);
+                        needsWrite = true;
+                    } else if (content.includes('module.exports = {')) {
+                        content = content.replace('module.exports = {', `module.exports = {\n  turbopack: { root: '/home/coder/project' },`);
+                        needsWrite = true;
+                    } else if (content.includes('export default {')) {
+                        content = content.replace('export default {', `export default {\n  turbopack: { root: '/home/coder/project' },`);
+                        needsWrite = true;
                     }
+                }
+
+                if (needsWrite) {
+                    await this.writeFile(projectId, nextConfig.name, content);
+                    console.log(`   ✅ [Orchestrator] ${nextConfig.name} patched.`);
                 }
             }
         } catch (e) {
@@ -1286,9 +1311,56 @@ class WorkspaceOrchestrator {
      * @param {function} onProgress - Optional progress callback (step, message)
      */
     async startPreview(projectId, projectInfo, onProgress = null) {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`🚀 [DEBUG] START PREVIEW for ${projectId}`);
+        console.log(`${'='.repeat(60)}`);
+        console.log(`   📋 projectInfo:`, JSON.stringify(projectInfo, null, 2));
+
         // CRITICAL: Get/Create VM FIRST, then stop others
         // This ensures we don't stop the VM we just allocated from the pool
         const vm = await this.getOrCreateVM(projectId);
+
+        // === DEBUG: Check VM initial state ===
+        console.log(`\n🔍 [DEBUG] VM INITIAL STATE CHECK for ${vm.machineId}`);
+        try {
+            const debugCmd = `
+echo "=== VM DEBUG INFO ==="
+echo "📅 Current time: $(date)"
+echo ""
+echo "=== PROCESSES ==="
+ps aux | grep -E "(node|pnpm|npm|next|vite)" | grep -v grep || echo "No node/npm/pnpm processes"
+echo ""
+echo "=== PORT 3000 ==="
+fuser 3000/tcp 2>/dev/null && echo "Port 3000 is IN USE" || echo "Port 3000 is FREE"
+echo ""
+echo "=== PROJECT FOLDER ==="
+ls -la /home/coder/project/ 2>/dev/null | head -20 || echo "Project folder empty or not exists"
+echo ""
+echo "=== NODE_MODULES ==="
+if [ -d /home/coder/project/node_modules ]; then
+  echo "node_modules EXISTS"
+  echo "Package count: $(ls /home/coder/project/node_modules 2>/dev/null | wc -l)"
+  echo "Size: $(du -sh /home/coder/project/node_modules 2>/dev/null | cut -f1)"
+else
+  echo "node_modules DOES NOT EXIST"
+fi
+echo ""
+echo "=== PACKAGE.JSON HASH ==="
+cat /home/coder/project/.package-json-hash 2>/dev/null || echo "No hash file"
+echo ""
+echo "=== DISK SPACE ==="
+df -h /home/coder | tail -1
+echo ""
+echo "=== MEMORY ==="
+free -m | head -2
+echo "=== END DEBUG ==="
+            `.trim();
+            const debugResult = await flyService.exec(vm.agentUrl, debugCmd, '/home/coder', vm.machineId, 15000, true);
+            console.log(debugResult.stdout || '(no output)');
+        } catch (e) {
+            console.log(`   ⚠️ Debug check failed: ${e.message}`);
+        }
+        console.log(`${'='.repeat(60)}\n`);
 
         // CRITICAL: Update lastUsed to prevent idle cleanup during long operations
         // This resets the 15-minute idle timer
@@ -1320,7 +1392,7 @@ class WorkspaceOrchestrator {
             // CRITICAL: Clean project folder before sync but PRESERVE node_modules and .git for speed
             console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
             try {
-                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -exec rm -rf {} +`;
+                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
                 await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
                 console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
             } catch (e) {
@@ -2081,6 +2153,13 @@ class WorkspaceOrchestrator {
      * @returns {object} Result
      */
     async optimizedSetup(projectId, agentUrl, machineId, projectInfo, onProgress = null, staySilent = false) {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`🔧 [DEBUG] OPTIMIZED SETUP for ${projectId}`);
+        console.log(`${'='.repeat(60)}`);
+        console.log(`   📋 machineId: ${machineId}`);
+        console.log(`   📋 staySilent: ${staySilent}`);
+        console.log(`   📋 projectInfo:`, JSON.stringify(projectInfo, null, 2));
+
         // === LOCK: Prevent parallel setup for same project ===
         while (setupLocks.has(projectId)) {
             console.log(`🔒 [Orchestrator] Waiting for setup lock on ${projectId}...`);
@@ -2102,7 +2181,8 @@ class WorkspaceOrchestrator {
 
             let installCmd;
             let pkgManager = 'pnpm'; // HOLY GRAIL: pnpm is now MANDATORY for all projects (faster + global store)
-            installCmd = 'pnpm config set package-import-method copy && pnpm install --prefer-offline';
+            // CI=true prevents pnpm from asking for TTY confirmation when removing/replacing node_modules
+            installCmd = 'CI=true pnpm config set package-import-method copy && CI=true pnpm install --prefer-offline';
 
             if (fileNames.includes('pnpm-lock.yaml')) {
                 installCmd += ' --frozen-lockfile';
@@ -2141,9 +2221,13 @@ class WorkspaceOrchestrator {
                 }
             }
 
-            const start = projectInfo.startCommand || defaultStart;
+            let start = projectInfo.startCommand || defaultStart;
 
-            // Ensure proper binding for common frameworks
+            // SAFETY: Strip any legacy fuser/kill prefixes from startCommand
+            // (Old session data may have these - startup script handles killing now)
+            start = start.replace(/^\(fuser -k 3000\/tcp[^)]*\)\s*&&\s*/i, '');
+            start = start.replace(/^fuser -k 3000\/tcp[^&]*&&\s*/i, '');
+
             // Ensure proper binding for common frameworks
             let finalStart = start;
             if ((start.includes('npm start') || start.includes('react-scripts start') || start.includes('vite')) && !start.includes('--host')) {
@@ -2243,8 +2327,9 @@ class WorkspaceOrchestrator {
                     const startTime = Date.now();
 
                     // Force pnpm to use the shared store volume explicitly
+                    // CI=true prevents pnpm from asking for TTY confirmation
                     let fullInstallCmd = pkgManager === 'pnpm'
-                        ? `pnpm config set store-dir /home/coder/volumes/pnpm-store && ${installCmd}`
+                        ? `CI=true pnpm config set store-dir /home/coder/volumes/pnpm-store && CI=true ${installCmd}`
                         : installCmd;
 
                     // HOLY GRAIL: Handle Next.js 16 + TypeScript config files
@@ -2260,7 +2345,7 @@ class WorkspaceOrchestrator {
                     if (hasTsConfig && !fullInstallCmd.includes('typescript')) {
                         console.log(`   💡 Next.js 16 TypeScript config detected - ensuring typescript dependency`);
                         fullInstallCmd = pkgManager === 'pnpm'
-                            ? `${fullInstallCmd} && pnpm install typescript`
+                            ? `${fullInstallCmd} && CI=true pnpm install typescript`
                             : `${fullInstallCmd} && ${pkgManager} install typescript`;
                     }
 
@@ -2275,14 +2360,19 @@ class WorkspaceOrchestrator {
                     // Launch install in background
                     // 🔑 Robustness: Kill any existing dev servers or stalled installs
                     // DO NOT use killall node as it kills the agent!
-                    await flyService.exec(agentUrl, 'fuser -k 3000/tcp || true; pkill -9 -f pnpm || true; pkill -9 -f npm || true; pkill -9 -f yarn || true; pkill -9 -f next-server || true; pkill -9 -f vite || true', '/home/coder', machineId, 20000, true);
+                    const killCmd = 'fuser -k 3000/tcp || true; pkill -9 -f pnpm || true; pkill -9 -f npm || true; pkill -9 -f yarn || true; pkill -9 -f next-server || true; pkill -9 -f vite || true';
+                    console.log(`\n   🔪 [DEBUG] EXECUTING KILL CMD:\n   ${killCmd}`);
+                    await flyService.exec(agentUrl, killCmd, '/home/coder', machineId, 20000, true);
 
                     // Create install script on VM (avoids complex shell escaping)
                     const installScript = `/home/coder/install.sh`;
+                    // FIXED: Wrap in subshell () to capture ALL output, not just last command
                     const scriptContent = `#!/bin/bash
 cd /home/coder/project
-${fullInstallCmd} > ${installLog} 2>&1
+(${fullInstallCmd}) > ${installLog} 2>&1
 echo $? > ${installMarker}`;
+
+                    console.log(`\n   📝 [DEBUG] INSTALL SCRIPT CONTENT:\n${'─'.repeat(40)}\n${scriptContent}\n${'─'.repeat(40)}`);
 
                     await flyService.exec(agentUrl, `cat > ${installScript} << 'EOFSCRIPT'
 ${scriptContent}
@@ -2344,6 +2434,15 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                         throw new Error(`${pkgManager} install timed out after 10 minutes`);
                     }
 
+                    // === DEBUG: Show install.log output ===
+                    console.log(`\n   📋 [DEBUG] INSTALL.LOG (last 30 lines):`);
+                    try {
+                        const installLogs = await flyService.exec(agentUrl, `tail -n 30 ${installLog}`, '/home/coder', machineId, 5000, true);
+                        console.log(`${'─'.repeat(40)}\n${installLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
+                    } catch (e) {
+                        console.log(`   (could not read install.log: ${e.message})`);
+                    }
+
                     console.log(`   ✅ Dependencies installed successfully`);
                 } catch (installError) {
                     console.error(`   ❌ Install failed: ${installError.message}`);
@@ -2375,15 +2474,15 @@ pkill -9 -f "vite" || true
 pkill -9 -f "npm.*dev" || true
 pkill -9 -f "node.*dev" || true
 fuser -k 3000/tcp 2>/dev/null || true
-sleep 2
+sleep 1
 
-# Start dev server
-${finalStart} > /home/coder/server.log 2>&1 &
-SERVER_PID=$!
-echo "Dev server started with PID $SERVER_PID"
+# Start dev server in background and DETACH from parent process
+# nohup + disown ensures the process survives even if parent exits
+nohup ${finalStart} > /home/coder/server.log 2>&1 &
+disown
+echo "Dev server started in background"`;
 
-# Small delay to let server initialize
-sleep 1`;
+            console.log(`\n   📝 [DEBUG] STARTUP SCRIPT CONTENT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
 
             await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
 ${startupScriptContent}
@@ -2391,11 +2490,24 @@ EOFSCRIPT
 chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
             console.log(`   🛠️ Startup Script: ${startupScript}`);
-            // Run script directly in foreground (let it complete the kill and start)
-            await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 5000, true);
 
-            // Wait a bit more for the server to start
-            await new Promise(r => setTimeout(r, 3000));
+            // 🔑 FIX: Fire-and-forget execution - don't wait for response
+            // The script runs the server in background with nohup, so we don't need to wait
+            // If exec times out, the server is still starting - health check will verify
+            try {
+                await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+            } catch (execErr) {
+                // Ignore timeout errors - the script is running, health check will verify
+                if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout')) {
+                    console.log(`   ⏱️ Exec timeout (expected) - server starting in background...`);
+                } else {
+                    // Re-throw non-timeout errors
+                    throw execErr;
+                }
+            }
+
+            // Wait a bit for the server to initialize
+            await new Promise(r => setTimeout(r, 2000));
 
             const healthCheckTimeout = projectInfo.type === 'nextjs' ? 180000 : 90000;
             const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);
@@ -2406,7 +2518,17 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                 throw new Error(`Dev server failed to start.Check project logs.`);
             }
 
+            // === DEBUG: Show server.log output ===
+            console.log(`\n   📋 [DEBUG] SERVER.LOG (last 20 lines):`);
+            try {
+                const serverLogs = await flyService.exec(agentUrl, 'tail -n 20 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+                console.log(`${'─'.repeat(40)}\n${serverLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
+            } catch (e) {
+                console.log(`   (could not read server.log: ${e.message})`);
+            }
+
             console.log(`   ✅ Dev server is ready and responding`);
+            console.log(`${'='.repeat(60)}\n`);
             return { success: true, serverReady: true };
         } catch (error) {
             console.error(`❌[Orchestrator] Optimized setup failed: ${error.message} `);

@@ -75,7 +75,8 @@ function fastDetect(files, configFiles) {
     const pm = detectPackageManager(files);
     const install = getInstallCommand(pm, files);
     const run = getRunCommand(pm);
-    const killPort = '(fuser -k 3000/tcp 2>/dev/null || true) &&';
+    // NOTE: Port killing is handled by startup script in workspace-orchestrator.js
+    // Do NOT add killPort prefix here - it causes invalid nohup syntax
 
     // ====== JAVASCRIPT/TYPESCRIPT FRONTEND ======
     const packageJson = configFiles['package.json'];
@@ -93,7 +94,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} npx next dev --turbo -H 0.0.0.0 --port 3000`,
+                    startCommand: `npx next dev --turbo -H 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -107,7 +108,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -121,7 +122,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -135,7 +136,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -149,7 +150,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -163,7 +164,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} develop -- -H 0.0.0.0 -p 3000`,
+                    startCommand: `${run} develop -- -H 0.0.0.0 -p 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -177,7 +178,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -191,7 +192,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -205,7 +206,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -219,7 +220,7 @@ function fastDetect(files, configFiles) {
                     language: 'javascript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} serve -- --port 3000`,
+                    startCommand: `${run} serve -- --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -233,7 +234,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} start -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} start -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -247,7 +248,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -261,7 +262,7 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} ${run} dev -- --host 0.0.0.0 --port 3000`,
+                    startCommand: `${run} dev -- --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -298,7 +299,7 @@ fs.writeFileSync(file, c);
                         language: 'typescript',
                         packageManager: pm,
                         installCommand: install,
-                        startCommand: `${killPort} echo "${b64}" | base64 -d | node && npx vite --host 0.0.0.0 --port 3000 --strictPort`,
+                        startCommand: `echo "${b64}" | base64 -d | node && npx vite --host 0.0.0.0 --port 3000 --strictPort`,
                         defaultPort: 3000,
                         requiresDocker: false
                     };
@@ -311,7 +312,7 @@ fs.writeFileSync(file, c);
                         language: 'typescript',
                         packageManager: pm,
                         installCommand: install,
-                        startCommand: `${killPort} env PORT=3000 HOST=0.0.0.0 ${run} start`,
+                        startCommand: `env PORT=3000 HOST=0.0.0.0 ${run} start`,
                         defaultPort: 3000,
                         requiresDocker: false
                     };
@@ -326,7 +327,7 @@ fs.writeFileSync(file, c);
                     language: 'javascript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} npx vite --host 0.0.0.0 --port 3000`,
+                    startCommand: `npx vite --host 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -340,7 +341,7 @@ fs.writeFileSync(file, c);
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 ${run} start:dev`,
+                    startCommand: `env PORT=3000 ${run} start:dev`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -353,7 +354,7 @@ fs.writeFileSync(file, c);
                     language: 'typescript',
                     packageManager: 'bun',
                     installCommand: 'bun install',
-                    startCommand: `${killPort} env PORT=3000 bun run dev`,
+                    startCommand: `env PORT=3000 bun run dev`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -366,7 +367,7 @@ fs.writeFileSync(file, c);
                     language: 'typescript',
                     packageManager: 'bun',
                     installCommand: 'bun install',
-                    startCommand: `${killPort} env PORT=3000 bun run dev`,
+                    startCommand: `env PORT=3000 bun run dev`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -379,7 +380,7 @@ fs.writeFileSync(file, c);
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 ${run} dev`,
+                    startCommand: `env PORT=3000 ${run} dev`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -392,7 +393,7 @@ fs.writeFileSync(file, c);
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 ${run} start`,
+                    startCommand: `env PORT=3000 ${run} start`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -405,7 +406,7 @@ fs.writeFileSync(file, c);
                     language: 'javascript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 node server.js || ${run} start`,
+                    startCommand: `env PORT=3000 node server.js || ${run} start`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -419,7 +420,7 @@ fs.writeFileSync(file, c);
                     language: 'javascript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `${killPort} env PORT=3000 HOST=0.0.0.0 ${run} dev`,
+                    startCommand: `env PORT=3000 HOST=0.0.0.0 ${run} dev`,
                     defaultPort: 3000,
                     requiresDocker: false
                 };
@@ -437,7 +438,7 @@ fs.writeFileSync(file, c);
             language: 'typescript',
             packageManager: 'bun',
             installCommand: 'bun install',
-            startCommand: `${killPort} bun run dev --port 3000`,
+            startCommand: `bun run dev --port 3000`,
             defaultPort: 3000,
             requiresDocker: false
         };
@@ -454,7 +455,7 @@ fs.writeFileSync(file, c);
                 language: 'typescript',
                 packageManager: 'deno',
                 installCommand: 'deno cache main.ts',
-                startCommand: `${killPort} deno task start --port 3000`,
+                startCommand: `deno task start --port 3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -467,7 +468,7 @@ fs.writeFileSync(file, c);
                 language: 'typescript',
                 packageManager: 'deno',
                 installCommand: 'deno cache main.ts',
-                startCommand: `${killPort} deno run --allow-all main.ts`,
+                startCommand: `deno run --allow-all main.ts`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -487,7 +488,7 @@ fs.writeFileSync(file, c);
                 language: 'python',
                 packageManager: 'pip',
                 installCommand: 'pip install -r requirements.txt',
-                startCommand: `${killPort} streamlit run app.py --server.port 3000 --server.address 0.0.0.0`,
+                startCommand: `streamlit run app.py --server.port 3000 --server.address 0.0.0.0`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -501,7 +502,7 @@ fs.writeFileSync(file, c);
                 language: 'python',
                 packageManager: 'pip',
                 installCommand: 'pip install -r requirements.txt',
-                startCommand: `${killPort} uvicorn main:app --host 0.0.0.0 --port 3000 --reload`,
+                startCommand: `uvicorn main:app --host 0.0.0.0 --port 3000 --reload`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -515,7 +516,7 @@ fs.writeFileSync(file, c);
                 language: 'python',
                 packageManager: 'pip',
                 installCommand: 'pip install -r requirements.txt',
-                startCommand: `${killPort} python manage.py runserver 0.0.0.0:3000`,
+                startCommand: `python manage.py runserver 0.0.0.0:3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -529,7 +530,7 @@ fs.writeFileSync(file, c);
                 language: 'python',
                 packageManager: 'pip',
                 installCommand: 'pip install -r requirements.txt',
-                startCommand: `${killPort} flask run --host 0.0.0.0 --port 3000`,
+                startCommand: `flask run --host 0.0.0.0 --port 3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -549,7 +550,7 @@ fs.writeFileSync(file, c);
                 language: 'go',
                 packageManager: 'go',
                 installCommand: 'go mod download',
-                startCommand: `${killPort} env PORT=3000 go run main.go`,
+                startCommand: `env PORT=3000 go run main.go`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -563,7 +564,7 @@ fs.writeFileSync(file, c);
                 language: 'go',
                 packageManager: 'go',
                 installCommand: 'go mod download',
-                startCommand: `${killPort} env PORT=3000 go run main.go`,
+                startCommand: `env PORT=3000 go run main.go`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -577,7 +578,7 @@ fs.writeFileSync(file, c);
                 language: 'go',
                 packageManager: 'go',
                 installCommand: 'go mod download',
-                startCommand: `${killPort} env PORT=3000 go run main.go`,
+                startCommand: `env PORT=3000 go run main.go`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -591,7 +592,7 @@ fs.writeFileSync(file, c);
                 language: 'go',
                 packageManager: 'go',
                 installCommand: 'go mod download',
-                startCommand: `${killPort} env PORT=3000 go run main.go`,
+                startCommand: `env PORT=3000 go run main.go`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -604,7 +605,7 @@ fs.writeFileSync(file, c);
             language: 'go',
             packageManager: 'go',
             installCommand: 'go mod download',
-            startCommand: `${killPort} env PORT=3000 go run .`,
+            startCommand: `env PORT=3000 go run .`,
             defaultPort: 3000,
             requiresDocker: false
         };
@@ -623,7 +624,7 @@ fs.writeFileSync(file, c);
                 language: 'rust',
                 packageManager: 'cargo',
                 installCommand: 'cargo build',
-                startCommand: `${killPort} env PORT=3000 cargo run`,
+                startCommand: `env PORT=3000 cargo run`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -637,7 +638,7 @@ fs.writeFileSync(file, c);
                 language: 'rust',
                 packageManager: 'cargo',
                 installCommand: 'cargo build',
-                startCommand: `${killPort} env PORT=3000 cargo run`,
+                startCommand: `env PORT=3000 cargo run`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -651,7 +652,7 @@ fs.writeFileSync(file, c);
                 language: 'rust',
                 packageManager: 'cargo',
                 installCommand: 'cargo build',
-                startCommand: `${killPort} env ROCKET_PORT=3000 ROCKET_ADDRESS=0.0.0.0 cargo run`,
+                startCommand: `env ROCKET_PORT=3000 ROCKET_ADDRESS=0.0.0.0 cargo run`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -665,7 +666,7 @@ fs.writeFileSync(file, c);
                 language: 'rust',
                 packageManager: 'cargo',
                 installCommand: 'cargo build',
-                startCommand: `${killPort} env PORT=3000 cargo run`,
+                startCommand: `env PORT=3000 cargo run`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -678,7 +679,7 @@ fs.writeFileSync(file, c);
             language: 'rust',
             packageManager: 'cargo',
             installCommand: 'cargo build',
-            startCommand: `${killPort} env PORT=3000 cargo run`,
+            startCommand: `env PORT=3000 cargo run`,
             defaultPort: 3000,
             requiresDocker: false
         };
@@ -697,7 +698,7 @@ fs.writeFileSync(file, c);
                 language: 'ruby',
                 packageManager: 'bundle',
                 installCommand: 'bundle install',
-                startCommand: `${killPort} rails server -b 0.0.0.0 -p 3000`,
+                startCommand: `rails server -b 0.0.0.0 -p 3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -711,7 +712,7 @@ fs.writeFileSync(file, c);
                 language: 'ruby',
                 packageManager: 'bundle',
                 installCommand: 'bundle install',
-                startCommand: `${killPort} ruby app.rb -o 0.0.0.0 -p 3000`,
+                startCommand: `ruby app.rb -o 0.0.0.0 -p 3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -724,7 +725,7 @@ fs.writeFileSync(file, c);
             language: 'ruby',
             packageManager: 'bundle',
             installCommand: 'bundle install',
-            startCommand: `${killPort} ruby main.rb`,
+            startCommand: `ruby main.rb`,
             defaultPort: 3000,
             requiresDocker: false
         };
@@ -743,7 +744,7 @@ fs.writeFileSync(file, c);
                 language: 'php',
                 packageManager: 'composer',
                 installCommand: 'composer install',
-                startCommand: `${killPort} php artisan serve --host=0.0.0.0 --port=3000`,
+                startCommand: `php artisan serve --host=0.0.0.0 --port=3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -757,7 +758,7 @@ fs.writeFileSync(file, c);
                 language: 'php',
                 packageManager: 'composer',
                 installCommand: 'composer install',
-                startCommand: `${killPort} symfony server:start --port=3000`,
+                startCommand: `symfony server:start --port=3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -770,7 +771,7 @@ fs.writeFileSync(file, c);
             language: 'php',
             packageManager: 'composer',
             installCommand: 'echo "Ready"',
-            startCommand: `${killPort} php -S 0.0.0.0:3000`,
+            startCommand: `php -S 0.0.0.0:3000`,
             defaultPort: 3000,
             requiresDocker: false
         };
@@ -791,7 +792,7 @@ fs.writeFileSync(file, c);
                 language: 'java',
                 packageManager: 'maven',
                 installCommand: './mvnw install -DskipTests',
-                startCommand: `${killPort} ./mvnw quarkus:dev -Dquarkus.http.port=3000`,
+                startCommand: `./mvnw quarkus:dev -Dquarkus.http.port=3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -805,7 +806,7 @@ fs.writeFileSync(file, c);
                 language: 'java',
                 packageManager: 'maven',
                 installCommand: './mvnw install -DskipTests',
-                startCommand: `${killPort} env PORT=3000 ./mvnw spring-boot:run`,
+                startCommand: `env PORT=3000 ./mvnw spring-boot:run`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -823,7 +824,7 @@ fs.writeFileSync(file, c);
                 language: 'java',
                 packageManager: 'gradle',
                 installCommand: './gradlew build -x test',
-                startCommand: `${killPort} env PORT=3000 ./gradlew bootRun`,
+                startCommand: `env PORT=3000 ./gradlew bootRun`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -843,7 +844,7 @@ fs.writeFileSync(file, c);
                 language: 'csharp',
                 packageManager: 'dotnet',
                 installCommand: 'dotnet restore',
-                startCommand: `${killPort} dotnet run --urls http://0.0.0.0:3000`,
+                startCommand: `dotnet run --urls http://0.0.0.0:3000`,
                 defaultPort: 3000,
                 requiresDocker: false
             };
@@ -856,7 +857,7 @@ fs.writeFileSync(file, c);
             language: 'csharp',
             packageManager: 'dotnet',
             installCommand: 'dotnet restore',
-            startCommand: `${killPort} dotnet run --urls http://0.0.0.0:3000`,
+            startCommand: `dotnet run --urls http://0.0.0.0:3000`,
             defaultPort: 3000,
             requiresDocker: false
         };

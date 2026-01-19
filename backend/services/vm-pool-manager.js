@@ -152,7 +152,7 @@ class VMPoolManager {
         // Clean up project folder but preserve node_modules for speed (Phase 2.3)
         if (keepNodeModules) {
             try {
-                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -exec rm -rf {} +`;
+                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
                 await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', machineId);
                 console.log(`🧹 [VM Pool] Released VM ${machineId} (node_modules preserved)`);
             } catch (e) {
