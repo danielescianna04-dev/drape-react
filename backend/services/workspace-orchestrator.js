@@ -507,45 +507,60 @@ class WorkspaceOrchestrator {
                 cached = null;
             }
 
-            // 2. Try to get prewarmed VM from pool first (FALLBACK for new sessions)
+            // 2. Try to get VM from pool first (FALLBACK for new sessions)
             let pooledVM = null;
             try {
                 const poolStats = vmPoolManager.getStats();
                 // Only check pool if there are available VMs
-                if (poolStats.available > 0) {
-                    pooledVM = await vmPoolManager.allocateVM(projectId);
-                    if (pooledVM && pooledVM.prewarmed) {
-                        console.log(`⚡ [Orchestrator] Using prewarmed VM from pool (${Date.now() - startTime}ms)`);
-
-                        const vmInfo = {
-                            id: pooledVM.machineId,
-                            name: `ws-${projectId}`.substring(0, 30),
-                            agentUrl: pooledVM.agentUrl,
-                            machineId: pooledVM.machineId,
-                            projectId,
-                            createdAt: Date.now(),
-                            lastUsed: Date.now(),
-                            fromPool: true,
-                            prewarmed: true,
-                            image: pooledVM.image || flyService.DRAPE_IMAGE // Track image version
-                        };
-
-                        // Cache it
-                        activeVMs.set(projectId, vmInfo);
-                        await redisService.saveVMSession(projectId, vmInfo);
-                        this._scheduleCleanup(projectId);
-
-                        // Ensure file watcher is running
-                        try {
-                            await fileWatcherService.startWatching(projectId, pooledVM.agentUrl, pooledVM.machineId);
-                        } catch (e) {
-                            console.warn(`⚠️ File watcher start failed: ${e.message}`);
-                        }
-
-                        return vmInfo;
-                    }
+                if (poolStats.available === 0) {
+                    console.log(`🐢 [Orchestrator] Pool empty (${poolStats.total} total, ${poolStats.allocated} allocated)`);
+                    const error = new Error('Stiamo ricevendo tante richieste. Riprova tra qualche minuto!');
+                    error.code = 'POOL_EXHAUSTED';
+                    error.statusCode = 503;
+                    throw error;
                 }
+                pooledVM = await vmPoolManager.allocateVM(projectId);
+                if (pooledVM) {
+                    const prewarmStatus = pooledVM.prewarmed ? '⚡ prewarmed' : '🔄 warming';
+                    console.log(`⚡ [Orchestrator] Using VM from pool (${prewarmStatus}) (${Date.now() - startTime}ms)`);
+
+                    const vmInfo = {
+                        id: pooledVM.machineId,
+                        name: `ws-${projectId}`.substring(0, 30),
+                        agentUrl: pooledVM.agentUrl,
+                        machineId: pooledVM.machineId,
+                        projectId,
+                        createdAt: Date.now(),
+                        lastUsed: Date.now(),
+                        fromPool: true,
+                        prewarmed: pooledVM.prewarmed || false,
+                        image: pooledVM.image || flyService.DRAPE_IMAGE // Track image version
+                    };
+
+                    // Cache it
+                    activeVMs.set(projectId, vmInfo);
+                    await redisService.saveVMSession(projectId, vmInfo);
+                    this._scheduleCleanup(projectId);
+
+                    // Ensure file watcher is running
+                    try {
+                        await fileWatcherService.startWatching(projectId, pooledVM.agentUrl, pooledVM.machineId);
+                    } catch (e) {
+                        console.warn(`⚠️ File watcher start failed: ${e.message}`);
+                    }
+
+                    return vmInfo;
+                }
+                // Pool returned null - throw error
+                const error = new Error('Stiamo ricevendo tante richieste. Riprova tra qualche minuto!');
+                error.code = 'POOL_EXHAUSTED';
+                error.statusCode = 503;
+                throw error;
             } catch (e) {
+                // Re-throw POOL_EXHAUSTED errors to show user-friendly message
+                if (e.code === 'POOL_EXHAUSTED') {
+                    throw e;
+                }
                 console.log(`   Pool check failed: ${e.message}, trying cached/new VM...`);
             }
 
@@ -663,8 +678,16 @@ class WorkspaceOrchestrator {
                     console.log(`   Pool allocation failed: ${e.message}, creating new VM...`);
                 }
 
-                // If pool didn't work, create new VM directly
+                // If pool didn't work, throw user-friendly error (no cold-start VM creation)
                 if (!vm) {
+                    const error = new Error('Stiamo ricevendo tante richieste. Riprova tra qualche minuto!');
+                    error.code = 'POOL_EXHAUSTED';
+                    error.statusCode = 503;
+                    throw error;
+                }
+
+                // DISABLED: Cold-start VM creation (keeping code for reference)
+                if (false) {
                     // Auto-detect memory requirements based on project
                     const memoryMb = await this._detectMemoryRequirements(projectId);
 
@@ -716,7 +739,7 @@ class WorkspaceOrchestrator {
                             PNPM_HOME: '/home/coder/.local/share/pnpm'
                         }
                     });
-                }
+                } // END of if (false) - DISABLED cold-start
             }
 
             // Wait for machine to be ready (two-phase: 30s fast, then slower polling up to 120s)
@@ -1628,6 +1651,18 @@ echo "=== END DEBUG ==="
         try {
             console.log(`⏹️ [Orchestrator] Stopping preview for ${projectId}`);
 
+            // HARDENED SAFETY: Check if this VM is a cache master (NEVER destroy cache masters!)
+            // Use multi-layer protection from vmPoolManager
+            const isCacheMaster = vmPoolManager.isProtectedCacheMaster
+                ? vmPoolManager.isProtectedCacheMaster(cached.machineId)
+                : vmPoolManager.pool?.some(vm => vm.machineId === cached.machineId && vm.isCacheMaster);
+            if (isCacheMaster) {
+                console.log(`🛡️ [Orchestrator] Skipping stopVM for cache master ${cached.machineId}`);
+                activeVMs.delete(projectId);
+                await redisService.removeVMSession(projectId);
+                return { success: true, message: 'Cache master protected' };
+            }
+
             // Check if this VM is tracked by the pool
             const isPoolVM = cached.fromPool === true;
 
@@ -2015,8 +2050,9 @@ echo "=== END DEBUG ==="
             const MAX_AGE_MS = this.vmTimeout;
 
             for (const machine of machines) {
-                // Only care about started workspace machines (skip pool machines and cache-master, managed by VMPoolManager)
-                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.name === 'ws-cache-master' || machine.state !== 'started') continue;
+                // Only care about started workspace machines (skip pool machines and ALL cache masters, managed by VMPoolManager)
+                // FIX: Skip ALL ws-cache-* machines, not just 'ws-cache-master'
+                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.name.startsWith('ws-cache-') || machine.state !== 'started') continue;
 
                 // Check age
                 const createdAt = new Date(machine.created_at).getTime();
@@ -2183,8 +2219,9 @@ echo "=== END DEBUG ==="
             let installCmd;
             let pkgManager = 'pnpm'; // HOLY GRAIL: pnpm is now MANDATORY for all projects (faster + global store)
             // CI=true prevents pnpm from asking for TTY confirmation when removing/replacing node_modules
-            // CRITICAL: Setup pnpm global store (survives across project switches)
-            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm config set store-dir /home/coder/volumes/pnpm-store && CI=true pnpm config set package-import-method copy && CI=true pnpm install --prefer-offline';
+            // CRITICAL: Pass --store-dir directly to pnpm install (more reliable than pnpm config set)
+            // This ensures pnpm uses the prewarmed cache immediately without config persistence issues
+            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store --prefer-offline';
 
             if (fileNames.includes('pnpm-lock.yaml')) {
                 installCmd += ' --frozen-lockfile';
@@ -2324,15 +2361,40 @@ echo "=== END DEBUG ==="
                         await flyService.exec(agentUrl, 'rm -rf node_modules', '/home/coder/project', machineId, 10000, true);
                     }
 
+                    // === DEBUG: Cache status BEFORE install ===
+                    console.log(`\n   ${'═'.repeat(50)}`);
+                    console.log(`   🔍 [DEBUG] PNPM CACHE STATUS (BEFORE INSTALL)`);
+                    console.log(`   ${'═'.repeat(50)}`);
+                    try {
+                        // Check cache store size
+                        const cacheSize = await flyService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
+                        console.log(`   📦 Cache Store Size: ${cacheSize.stdout?.trim() || 'N/A'}`);
+
+                        // Detect pnpm store layout (pnpm 10.x uses files/, older uses v10/files/)
+                        const layoutCheck = await flyService.exec(agentUrl, 'ls -d /home/coder/volumes/pnpm-store/files 2>/dev/null && echo "pnpm10" || (ls -d /home/coder/volumes/pnpm-store/v10 2>/dev/null && echo "v10" || echo "unknown")', '/home/coder', machineId, 5000, true);
+                        const layout = layoutCheck.stdout?.trim().split('\n').pop() || 'unknown';
+                        console.log(`   🏗️ Store Layout: ${layout}`);
+
+                        // Count files in cache based on detected layout
+                        const filesDir = layout === 'pnpm10' ? 'files' : (layout === 'v10' ? 'v10/files' : 'files');
+                        const fileCount = await flyService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | wc -l || echo "0"`, '/home/coder', machineId, 10000, true);
+                        console.log(`   📁 Cached File Hashes: ${fileCount.stdout?.trim() || '0'}`);
+
+                        // List some cached files
+                        const cachedPkgs = await flyService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | head -10 || echo "(empty)"`, '/home/coder', machineId, 10000, true);
+                        console.log(`   📋 Sample cached hashes:\n      ${cachedPkgs.stdout?.trim().split('\n').join('\n      ') || '(none)'}`);
+                    } catch (e) {
+                        console.log(`   ⚠️ Could not read cache status: ${e.message}`);
+                    }
+                    console.log(`   ${'─'.repeat(50)}\n`);
+
                     console.log(`   📦 Installing dependencies with ${pkgManager}...`);
                     const installTimeout = 600000; // 10 minutes (Holy Grail: handle large projects)
                     const startTime = Date.now();
 
-                    // Force pnpm to use the shared store volume explicitly
+                    // installCmd already contains --store-dir flag for pnpm (set above)
                     // CI=true prevents pnpm from asking for TTY confirmation
-                    let fullInstallCmd = pkgManager === 'pnpm'
-                        ? `CI=true pnpm config set store-dir /home/coder/volumes/pnpm-store && CI=true ${installCmd}`
-                        : installCmd;
+                    let fullInstallCmd = installCmd;
 
                     // HOLY GRAIL: Handle Next.js 16 + TypeScript config files
                     // If next.config.ts is present, Next.js requires typescript for transpilation.
@@ -2347,7 +2409,7 @@ echo "=== END DEBUG ==="
                     if (hasTsConfig && !fullInstallCmd.includes('typescript')) {
                         console.log(`   💡 Next.js 16 TypeScript config detected - ensuring typescript dependency`);
                         fullInstallCmd = pkgManager === 'pnpm'
-                            ? `${fullInstallCmd} && CI=true pnpm install typescript`
+                            ? `${fullInstallCmd} && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store typescript`
                             : `${fullInstallCmd} && ${pkgManager} install typescript`;
                     }
 
@@ -2437,13 +2499,38 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     }
 
                     // === DEBUG: Show install.log output ===
-                    console.log(`\n   📋 [DEBUG] INSTALL.LOG (last 30 lines):`);
+                    console.log(`\n   📋 [DEBUG] INSTALL.LOG (last 50 lines):`);
                     try {
-                        const installLogs = await flyService.exec(agentUrl, `tail -n 30 ${installLog}`, '/home/coder', machineId, 5000, true);
+                        const installLogs = await flyService.exec(agentUrl, `tail -n 50 ${installLog}`, '/home/coder', machineId, 5000, true);
                         console.log(`${'─'.repeat(40)}\n${installLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
                     } catch (e) {
                         console.log(`   (could not read install.log: ${e.message})`);
                     }
+
+                    // === DEBUG: Cache status AFTER install ===
+                    console.log(`\n   ${'═'.repeat(50)}`);
+                    console.log(`   🔍 [DEBUG] PNPM CACHE STATUS (AFTER INSTALL)`);
+                    console.log(`   ${'═'.repeat(50)}`);
+                    try {
+                        // Check cache store size after
+                        const cacheSizeAfter = await flyService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
+                        console.log(`   📦 Cache Store Size: ${cacheSizeAfter.stdout?.trim() || 'N/A'}`);
+
+                        // Check node_modules size
+                        const nodeModulesSize = await flyService.exec(agentUrl, 'du -sh /home/coder/project/node_modules 2>/dev/null || echo "not found"', '/home/coder', machineId, 10000, true);
+                        console.log(`   📁 node_modules Size: ${nodeModulesSize.stdout?.trim() || 'N/A'}`);
+
+                        // Count packages installed
+                        const installedPkgs = await flyService.exec(agentUrl, 'ls /home/coder/project/node_modules 2>/dev/null | wc -l || echo "0"', '/home/coder', machineId, 10000, true);
+                        console.log(`   📊 Packages in node_modules: ${installedPkgs.stdout?.trim() || '0'}`);
+
+                        // Check pnpm store status (packages count)
+                        const storeStatus = await flyService.exec(agentUrl, 'pnpm store status 2>&1 | head -5 || echo "N/A"', '/home/coder/project', machineId, 15000, true);
+                        console.log(`   🗄️ Store Status:\n      ${storeStatus.stdout?.trim().split('\n').join('\n      ') || 'N/A'}`);
+                    } catch (e) {
+                        console.log(`   ⚠️ Could not read post-install status: ${e.message}`);
+                    }
+                    console.log(`   ${'─'.repeat(50)}\n`);
 
                     console.log(`   ✅ Dependencies installed successfully`);
                 } catch (installError) {

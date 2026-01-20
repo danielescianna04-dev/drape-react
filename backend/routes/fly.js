@@ -303,7 +303,9 @@ router.post('/clone', asyncHandler(async (req, res) => {
 
     } catch (error) {
         console.error(`❌ [Fly] Clone warmup failed:`, error.message);
-        res.status(500).json({ success: false, error: error.message });
+        // Use error's statusCode if available (e.g., 503 for POOL_EXHAUSTED)
+        const statusCode = error.statusCode || 500;
+        res.status(statusCode).json({ success: false, error: error.message });
     }
 }));
 

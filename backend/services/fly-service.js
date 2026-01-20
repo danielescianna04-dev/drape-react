@@ -66,8 +66,9 @@ class FlyService {
         // Node.js 20 full image with 100% npm compatibility (~450MB)
         // Includes Python3, build tools (gcc, g++, make) for native modules
         // Supports: sharp, bcrypt, canvas, node-sass, and all npm packages
-        // UPDATED: Now includes /download endpoint with PNPM cache support!
-        return 'registry.fly.io/drape-workspaces:deployment-01KFDJCH91CE891901B4MH7JW0';
+        // UPDATED: v2.10 - Support pnpm 10.x store layout (files/, index/, projects/)
+        // Using latest deployment with drape-agent v2.10
+        return 'registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6';
     }
 
     get DRAPE_IMAGE_FULL() {
@@ -237,9 +238,13 @@ class FlyService {
                                 { port: 80, handlers: ['http'] }
                             ],
                             protocol: 'tcp',
-                            internal_port: 13338
+                            internal_port: 13338,
+                            // Disable auto-stop for cache masters (keeps them running)
+                            ...(options.disableAutoStop ? { autostop: 'off', autostart: true } : {})
                         }
-                    ]
+                    ],
+                    // Prevent auto-destroy for persistent VMs (cache masters)
+                    auto_destroy: options.disableAutoStop ? false : true
                 }
             };
 

@@ -67,16 +67,27 @@ class MetricsService {
 
     /**
      * Track VM pool metrics
-     * @param {object} stats - VM pool statistics
+     * @param {object} stats - VM pool statistics (supports both legacy and new nested format)
      */
     async trackVMPool(stats) {
+        // Support new nested structure from getStats()
+        const workers = stats.workers || {};
+        const cacheMasters = stats.cacheMasters || {};
+
         const metric = {
             type: 'vm_pool_stats',
             timestamp: Date.now(),
-            total: stats.total,
-            available: stats.available,
-            allocated: stats.allocated,
-            targetSize: stats.targetSize
+            total: stats.total || 0,
+            // Workers
+            workersTotal: workers.total || 0,
+            available: workers.available || 0,
+            allocated: workers.allocated || 0,
+            targetSize: workers.targetSize || stats.targetSize || 0,
+            // Cache Masters
+            cacheMastersTotal: cacheMasters.total || 0,
+            cacheMastersPrewarmed: cacheMasters.prewarmed || 0,
+            // Users
+            activeUsers: stats.activeUsers || 0
         };
 
         this.metricsCache.push(metric);

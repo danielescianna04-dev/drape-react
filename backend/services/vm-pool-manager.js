@@ -21,9 +21,47 @@ class VMPoolManager {
         this.CACHE_MASTERS_COUNT = 1; // Dedicated cache master VMs
         this.activeUsers = 0; // Tracked from sessions
 
-        this.MAX_VM_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours max age
+        // Persistent volume for Cache Master (survives restarts!)
+        this.CACHE_VOLUME_ID = 'vol_45lp07o8k6oq38qr'; // 5GB in fra region
+
+        // HARDCODED Cache Master protection - NEVER delete these!
+        this.PROTECTED_CACHE_MASTERS = new Set([
+            '3287d475fe1698', // ws-cache-master-v28 (CURRENT - v2.7 fixed extract path)
+        ]);
+        this.CACHE_MASTER_NAME_PATTERN = /^ws-cache-/; // Match all cache master names
+
+        this.MAX_VM_AGE_MS = 30 * 60 * 1000; // 30 min max age (cost optimization)
         this.VM_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 min idle timeout (for session pooling)
         this.isInitialized = false;
+    }
+
+    /**
+     * Check if a machine should NEVER be destroyed (hardened protection)
+     * @param {string} machineId - Machine ID to check
+     * @param {string} machineName - Machine name (optional, for pattern matching)
+     * @returns {boolean} - true if protected
+     */
+    isProtectedCacheMaster(machineId, machineName = null) {
+        // Check hardcoded list
+        if (this.PROTECTED_CACHE_MASTERS.has(machineId)) {
+            console.log(`🛡️ [PROTECTION] Machine ${machineId} is HARDCODED protected!`);
+            return true;
+        }
+
+        // Check name pattern
+        if (machineName && this.CACHE_MASTER_NAME_PATTERN.test(machineName)) {
+            console.log(`🛡️ [PROTECTION] Machine ${machineId} (${machineName}) matches cache master pattern!`);
+            return true;
+        }
+
+        // Check if in pool as cache master
+        const inPool = this.pool.find(vm => vm.machineId === machineId);
+        if (inPool?.isCacheMaster) {
+            console.log(`🛡️ [PROTECTION] Machine ${machineId} is marked as cache master in pool!`);
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -54,14 +92,18 @@ class VMPoolManager {
         // PHASE 2.1 Adoption: Detect existing pool machines on Fly.io (survives restarts)
         try {
             const machines = await flyService.listMachines();
-            const poolMachines = machines.filter(m => m.name.startsWith('ws-pool-') && m.state !== 'destroyed');
+            // Include both worker VMs (ws-pool-*) and cache masters (ws-cache-*)
+            const poolMachines = machines.filter(m =>
+                (m.name.startsWith('ws-pool-') || m.name.startsWith('ws-cache-')) &&
+                m.state !== 'destroyed'
+            );
 
             for (const vm of poolMachines) {
                 if (!this.pool.find(p => p.machineId === vm.id)) {
-                    // Check if this VM is a cache master
-                    const isCacheMaster = vm.config?.env?.CACHE_MASTER === 'true';
+                    // Check if this VM is a cache master (by env var OR by name pattern)
+                    const isCacheMaster = vm.config?.env?.CACHE_MASTER === 'true' || vm.name.startsWith('ws-cache-');
                     const vmType = isCacheMaster ? 'Cache Master' : 'warm VM';
-                    console.log(`🏊 [VM Pool] Adopting existing ${vmType}: ${vm.id}`);
+                    console.log(`🏊 [VM Pool] Adopting existing ${vmType}: ${vm.id} (${vm.name})`);
 
                     this.pool.push({
                         machineId: vm.id,
@@ -79,11 +121,22 @@ class VMPoolManager {
             console.warn(`⚠️ [VM Pool] Failed to adopt orphans: ${e.message}`);
         }
 
+        // LOG: Show adoption results BEFORE replenishing
+        const adoptedWorkers = this.pool.filter(vm => !vm.isCacheMaster);
+        const adoptedCacheMasters = this.pool.filter(vm => vm.isCacheMaster);
+        console.log(`📊 [VM Pool] Adoption complete: ${adoptedWorkers.length} workers, ${adoptedCacheMasters.length} cache masters`);
+
+        // PHASE 2.2: Ensure adopted workers have cache (copy from cache master if missing)
+        this.ensureCacheOnAdoptedWorkers().catch(e => {
+            console.warn(`⚠️ [VM Pool] Failed to ensure cache on workers: ${e.message}`);
+        });
+
         // Start the pool replenisher
         this.startPoolReplenisher();
 
-        // Initial pool warmup (async, don't wait)
-        this.replenishPool().catch(e => {
+        // Initial pool warmup - WAIT for it to complete to avoid race conditions
+        // This ensures we don't create duplicates if adoption found VMs
+        await this.replenishPool().catch(e => {
             console.warn(`⚠️ [VM Pool] Initial warmup failed: ${e.message}`);
         });
 
@@ -148,36 +201,10 @@ class VMPoolManager {
             };
         }
 
-        // Pool empty - create new VM (cold start)
-        console.log(`🐢 [VM Pool] Pool empty, creating new VM (cold start)...`);
-        const newVM = await this.createWarmVM();
-
-        // CRITICAL: Wait for pre-warming to complete before allocating
-        // This ensures the VM has the pnpm cache copied from cache master
-        const poolEntry = this.pool.find(v => v.machineId === newVM.machineId);
-        if (poolEntry && !poolEntry.prewarmed) {
-            console.log(`⏳ [VM Pool] Waiting for pre-warming to complete for ${newVM.machineId}...`);
-
-            // Poll until prewarmed is true (max 60 seconds)
-            const startWait = Date.now();
-            while (!poolEntry.prewarmed && (Date.now() - startWait) < 60000) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
-
-            if (poolEntry.prewarmed) {
-                console.log(`✅ [VM Pool] Pre-warming completed in ${Date.now() - startWait}ms`);
-            } else {
-                console.warn(`⚠️ [VM Pool] Pre-warming timeout after ${Date.now() - startWait}ms, allocating anyway`);
-            }
-        }
-
-        // Mark as allocated
-        if (poolEntry) {
-            poolEntry.allocatedTo = projectId;
-            poolEntry.allocatedAt = Date.now();
-        }
-
-        return newVM;
+        // Pool empty - return null to let orchestrator handle with user-friendly error
+        // This prevents cold-start VM creation during high demand
+        console.log(`🐢 [VM Pool] Pool empty, no VMs available for allocation`);
+        return null;
     }
 
     /**
@@ -212,30 +239,137 @@ class VMPoolManager {
     }
 
     /**
+     * Ensure adopted workers have pnpm cache (copy from cache master if missing)
+     * This fixes the case where workers are adopted but don't have the cache
+     */
+    async ensureCacheOnAdoptedWorkers() {
+        const cacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+        if (!cacheMaster) {
+            console.log(`⏳ [Cache] No cache master available yet, will retry later`);
+            return;
+        }
+
+        // Get unallocated workers that might need cache
+        const workers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo);
+        if (workers.length === 0) {
+            return;
+        }
+
+        console.log(`🔍 [Cache] Checking ${workers.length} adopted workers for cache...`);
+
+        const axios = require('axios');
+        const agentUrl = 'https://drape-workspaces.fly.dev';
+
+        for (const worker of workers) {
+            try {
+                // Check if worker has cache
+                const checkResult = await axios.post(`${agentUrl}/exec`, {
+                    command: 'du -s /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1',
+                    cwd: '/home/coder'
+                }, {
+                    timeout: 10000,
+                    headers: { 'Fly-Force-Instance-Id': worker.machineId }
+                });
+
+                const cacheSize = parseInt(checkResult.data?.stdout?.trim() || '0');
+
+                if (cacheSize > 1000) { // > 1KB means cache exists
+                    console.log(`   ✅ Worker ${worker.machineId} has cache (${Math.round(cacheSize/1024)}MB)`);
+                    continue;
+                }
+
+                // Copy cache from cache master via internal Fly.io network (IPv6)
+                console.log(`   📦 Worker ${worker.machineId} missing cache, copying from cache master...`);
+                const startTime = Date.now();
+
+                // Setup cache directory structure first
+                const setupCmd = `
+                    mkdir -p /home/coder/volumes/pnpm-store &&
+                    mkdir -p /home/coder/.local/share/pnpm &&
+                    ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
+                `.replace(/\s+/g, ' ').trim();
+
+                await axios.post(`${agentUrl}/exec`, {
+                    command: setupCmd,
+                    cwd: '/home/coder'
+                }, {
+                    timeout: 10000,
+                    headers: { 'Fly-Force-Instance-Id': worker.machineId }
+                });
+
+                // Download cache from cache master via internal network
+                const cacheUrl = `http://${cacheMaster.machineId}.vm.drape-workspaces.internal:13338`;
+                const downloadCmd = `curl --max-time 600 -sS "${cacheUrl}/download?type=pnpm" -o /tmp/cache.tar.gz 2>&1 && tar -xzf /tmp/cache.tar.gz -C /home/coder/volumes/ 2>&1 && rm /tmp/cache.tar.gz && echo "CACHE_COPY_SUCCESS" || echo "CACHE_COPY_FAILED: curl exit code=$?"`;
+
+                const downloadResult = await axios.post(`${agentUrl}/exec`, {
+                    command: downloadCmd,
+                    cwd: '/home/coder',
+                    timeout: 600000 // 10 min exec timeout for large cache
+                }, {
+                    timeout: 650000, // HTTP timeout slightly longer than exec timeout
+                    headers: { 'Fly-Force-Instance-Id': worker.machineId }
+                });
+
+                const elapsed = Date.now() - startTime;
+                // Debug: log full response to understand failures
+                console.log(`   📋 [Cache DEBUG] Response: stdout='${downloadResult.data?.stdout?.slice(0,200)}' stderr='${downloadResult.data?.stderr?.slice(0,200)}' exitCode=${downloadResult.data?.exitCode}`);
+                const result = downloadResult.data?.stdout?.trim() || 'unknown';
+                console.log(`   ${result === 'CACHE_COPY_SUCCESS' ? '✅' : '⚠️'} Cache copy completed in ${elapsed}ms: ${result}`);
+
+            } catch (e) {
+                console.warn(`   ⚠️ Failed to check/copy cache for ${worker.machineId}: ${e.message}`);
+            }
+        }
+    }
+
+    /**
      * Ensure we have the required number of cache masters
+     * CRITICAL: Wait for at least one cache master to be prewarmed before returning
+     * This ensures workers can auto-fetch cache on startup
      */
     async ensureCacheMasters() {
         const cacheMasters = this.pool.filter(vm => vm.isCacheMaster);
         const needed = this.CACHE_MASTERS_COUNT - cacheMasters.length;
 
-        if (needed <= 0) {
-            return; // We have enough cache masters
+        // Check if we already have a prewarmed cache master
+        const prewarmedCacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+        if (prewarmedCacheMaster && needed <= 0) {
+            return; // We have enough cache masters and at least one is ready
         }
 
-        console.log(`💾 [Cache Master] Creating ${needed} cache master(s)...`);
+        if (needed > 0) {
+            console.log(`💾 [Cache Master] Creating ${needed} cache master(s)...`);
 
-        // Create cache masters in parallel
-        const createPromises = [];
-        for (let i = 0; i < needed; i++) {
-            createPromises.push(this.createWarmVM(true)); // true = cache master
+            // Create cache masters in parallel
+            const createPromises = [];
+            for (let i = 0; i < needed; i++) {
+                createPromises.push(this.createWarmVM(true)); // true = cache master
+            }
+
+            const results = await Promise.allSettled(createPromises);
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+
+            if (successful > 0) {
+                console.log(`✅ [Cache Master] Created ${successful} cache master(s)`);
+            }
         }
 
-        const results = await Promise.allSettled(createPromises);
-        const successful = results.filter(r => r.status === 'fulfilled').length;
+        // CRITICAL: Wait for at least one cache master to be prewarmed
+        // This ensures workers can get CACHE_MASTER_ID env var for auto-fetch
+        console.log(`⏳ [Cache Master] Waiting for cache master to be prewarmed...`);
+        const startWait = Date.now();
+        const maxWait = 120000; // 2 minutes max
 
-        if (successful > 0) {
-            console.log(`✅ [Cache Master] Created ${successful} cache master(s)`);
+        while (Date.now() - startWait < maxWait) {
+            const readyCacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+            if (readyCacheMaster) {
+                console.log(`✅ [Cache Master] Cache master ${readyCacheMaster.machineId} is ready (prewarmed)`);
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Check every 2s
         }
+
+        console.warn(`⚠️ [Cache Master] Timeout waiting for cache master prewarming (continuing anyway)`);
     }
 
     /**
@@ -300,13 +434,40 @@ class VMPoolManager {
         // Mark cache masters with special env var
         if (isCacheMaster) {
             envVars.CACHE_MASTER = 'true';
+        } else {
+            // WORKERS: Pass cache master ID for auto-fetch on startup
+            // This bypasses Fly.io proxy issues by using internal IPv6 network
+            const cacheMaster = this.pool.find(v => v.isCacheMaster && v.prewarmed);
+            if (cacheMaster) {
+                envVars.CACHE_MASTER_ID = cacheMaster.machineId;
+                console.log(`   📦 [Worker] Will auto-fetch cache from ${cacheMaster.machineId}`);
+            }
         }
 
-        const vm = await flyService.createMachine(poolId, {
+        // Build machine options
+        const machineOptions = {
             memory_mb: 2048,
             image: flyService.DRAPE_IMAGE,
-            env: envVars
-        });
+            env: envVars,
+            // CRITICAL: Disable auto-stop for cache masters to keep them running
+            disableAutoStop: isCacheMaster
+        };
+
+        // PERSISTENCE: Mount volume on Cache Master for persistent pnpm cache
+        if (isCacheMaster && this.CACHE_VOLUME_ID) {
+            machineOptions.mounts = [{
+                volume: this.CACHE_VOLUME_ID,
+                path: '/home/coder/volumes/pnpm-store'
+            }];
+            console.log(`   💾 [Cache Master] Mounting persistent volume: ${this.CACHE_VOLUME_ID}`);
+        }
+
+        // Log auto-stop configuration
+        if (isCacheMaster) {
+            console.log(`   🛡️ [Cache Master] Auto-stop DISABLED (will stay running)`);
+        }
+
+        const vm = await flyService.createMachine(poolId, machineOptions);
 
         // Wait for VM to be ready
         await flyService.waitForMachine(vm.id, 30000, 120000);
@@ -358,62 +519,107 @@ class VMPoolManager {
 
                 console.log(`🔥 [VM Pool] Pre-warming ${vm.id} with common dependencies...`);
 
-                // CACHE SHARING: Try to copy cache from an existing pre-warmed VM
-                // Prefer cache masters (always available), then unallocated VMs (avoid interrupting active projects)
-                const cacheMaster = this.pool.find(v => v.prewarmed && v.isCacheMaster && v.machineId !== vm.id);
-                const unallocatedVM = this.pool.find(v => v.prewarmed && !v.allocatedTo && v.machineId !== vm.id);
-                const sourceVM = cacheMaster || unallocatedVM;
-
-                if (sourceVM) {
-                    // Fast path: Copy cache from existing VM (30s vs 3min)
-                    console.log(`   💾 [Cache] Copying cache from VM ${sourceVM.machineId} to ${vm.id}...`);
-                    const startTime = Date.now();
-
-                    try {
-                        // Setup cache directory structure
-                        const setupCmd = `
-                            mkdir -p /home/coder/.npm-global &&
-                            mkdir -p /home/coder/volumes/pnpm-store &&
-                            mkdir -p /home/coder/.local/share/pnpm &&
-                            ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
-                        `.replace(/\s+/g, ' ').trim();
-
-                        await axios.post(`${agentUrl}/exec`, {
-                            command: setupCmd,
-                            cwd: '/home/coder'
-                        }, {
-                            timeout: 10000,
-                            headers: { 'Fly-Force-Instance-Id': vm.id }
-                        });
-
-                        // Download and extract cache from source VM
-                        // Using internal Fly.io network for fast transfer
-                        const sourceAgentUrl = `http://${sourceVM.machineId}.vm.drape-workspaces.internal:13338`;
-                        const downloadCmd = `curl -s "${sourceAgentUrl}/download?type=pnpm" | tar -xz -C /home/coder/`;
-
-                        await axios.post(`${agentUrl}/exec`, {
-                            command: downloadCmd,
-                            cwd: '/home/coder'
-                        }, {
-                            timeout: 60000, // 1 min for download + extract
-                            headers: { 'Fly-Force-Instance-Id': vm.id }
-                        });
-
-                        const elapsed = Date.now() - startTime;
-                        console.log(`   ✅ Cache setup complete in ${elapsed}ms`);
-
-                        // Mark VM as prewarmed (cache ready)
-                        poolEntry.prewarmed = true;
-                        console.log(`   ✅ Pre-warm complete for ${vm.id} (cache copied ⚡)`);
-                        return;
-                    } catch (cacheError) {
-                        console.warn(`   ⚠️ Cache copy failed: ${cacheError.message}, falling back to full install`);
-                        // Fall through to full install below
+                // Wait for agent to be ready with retry (longer delay for Fly.io proxy warmup)
+                const waitForAgent = async (maxRetries = 8, delayMs = 3000) => {
+                    for (let i = 0; i < maxRetries; i++) {
+                        try {
+                            const resp = await axios.get(`${agentUrl}/health`, {
+                                timeout: 5000,
+                                headers: { 'Fly-Force-Instance-Id': vm.id }
+                            });
+                            if (resp.data?.status === 'ok') {
+                                console.log(`   ✅ Agent ready for ${vm.id} after ${i + 1} attempts`);
+                                // Extra delay to let Fly.io proxy fully stabilize
+                                await new Promise(r => setTimeout(r, 2000));
+                                return true;
+                            }
+                        } catch (e) {
+                            console.log(`   ⏳ Waiting for agent ${vm.id} (attempt ${i + 1}/${maxRetries}): ${e.message}`);
+                            if (i < maxRetries - 1) {
+                                await new Promise(r => setTimeout(r, delayMs));
+                            }
+                        }
                     }
+                    return false;
+                };
+
+                // Wait for VM agent to be fully ready
+                const agentReady = await waitForAgent();
+                if (!agentReady) {
+                    console.warn(`   ⚠️ [VM Pool] Agent not ready for ${vm.id}, skipping pre-warm`);
+                    return;
                 }
 
-                // Slow path: Full install (first VM or cache copy failed)
-                console.log(`   📦 [Cache] No source VM available, doing full install...`);
+                // Workers with CACHE_MASTER_ID auto-fetch cache on startup (handled by drape-agent.js)
+                // WAIT for cache to be FULLY downloaded and extracted before marking worker as prewarmed
+                const hasCacheMasterEnv = envVars.CACHE_MASTER_ID;
+                if (hasCacheMasterEnv && !isCacheMaster) {
+                    console.log(`   ⏳ [Auto-Cache] Worker ${vm.id} fetching cache from ${hasCacheMasterEnv}...`);
+                    console.log(`      (Via internal IPv6: ${hasCacheMasterEnv}.vm.drape-workspaces.internal)`);
+
+                    // Poll until cache extraction is COMPLETE (size stops growing)
+                    const pollInterval = 5000; // Check every 5 seconds
+                    const maxWaitTime = 360000; // Max 6 minutes (download + extraction)
+                    const startTime = Date.now();
+                    const minCacheSize = 500 * 1024 * 1024; // 500MB minimum (ensures real extraction happened)
+
+                    let lastSize = 0;
+                    let stableCount = 0; // Count consecutive polls with same size
+                    const stableThreshold = 3; // Need 3 consecutive same-size polls (15 seconds stable)
+
+                    while (Date.now() - startTime < maxWaitTime) {
+                        try {
+                            const checkCmd = `du -sb /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1 || echo "0"`;
+                            const result = await flyService.exec(agentUrl, checkCmd, '/tmp', vm.id, 15000, true);
+                            const bytes = parseInt(result.stdout?.trim() || '0', 10);
+                            const mb = (bytes / 1024 / 1024).toFixed(0);
+
+                            // Check if size is stable (extraction complete)
+                            if (bytes > 0 && bytes === lastSize) {
+                                stableCount++;
+                                if (stableCount >= stableThreshold && bytes >= minCacheSize) {
+                                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                    console.log(`   ✅ [Cache Ready] Worker ${vm.id}: ${mb}MB cache fully extracted in ${elapsed}s`);
+                                    poolEntry.prewarmed = true;
+                                    return;
+                                }
+                            } else {
+                                stableCount = 0; // Reset if size changed
+                            }
+                            lastSize = bytes;
+
+                            // Log progress every 15 seconds
+                            const elapsed = Date.now() - startTime;
+                            if (elapsed > 0 && elapsed % 15000 < pollInterval) {
+                                const status = stableCount > 0 ? `stable ${stableCount}/${stableThreshold}` : 'extracting...';
+                                console.log(`      ⏳ Worker ${vm.id}: cache ${mb}MB (${status})`);
+                            }
+                        } catch (err) {
+                            // Ignore errors during polling - VM might still be starting up
+                            console.log(`      ⚠️ Worker ${vm.id}: poll error (${err.message}), retrying...`);
+                            stableCount = 0; // Reset on error
+                        }
+
+                        await new Promise(resolve => setTimeout(resolve, pollInterval));
+                    }
+
+                    // Timeout - mark as prewarmed anyway to not block forever
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                    const finalMb = (lastSize / 1024 / 1024).toFixed(0);
+                    console.warn(`   ⚠️ [Cache Timeout] Worker ${vm.id}: cache at ${finalMb}MB after ${elapsed}s, marking prewarmed anyway`);
+                    poolEntry.prewarmed = true;
+                    return;
+                }
+
+                // Cache master needs full install to populate the cache
+                if (!isCacheMaster) {
+                    // Worker without CACHE_MASTER_ID - shouldn't happen, but skip prewarming
+                    console.log(`   ⚠️ [Worker] No cache master configured, skipping prewarm`);
+                    return;
+                }
+
+                // Cache master: Full pnpm install to populate the global store
+                console.log(`   📦 [Cache Master] Doing full pnpm install to populate cache...`);
                 const prewarmCmd = `
                     # Setup pnpm global store location (shared across all projects)
                     mkdir -p /home/coder/volumes/pnpm-store
@@ -423,34 +629,121 @@ class VMPoolManager {
                     # Create temp project for pre-warming
                     cd /home/coder/project &&
 
-                    # MEGA package.json with ALL common deps (Next 14, 15, 16 + UI libs)
-                    echo '{"name":"prewarm","version":"1.0.0","dependencies":{
-                        "react":"^18.0.0",
-                        "react-dom":"^18.0.0",
-                        "next":"14.2.18",
-                        "typescript":"^5.0.0",
-                        "@types/react":"^18.0.0",
-                        "@types/react-dom":"^18.0.0",
-                        "lucide-react":"latest",
-                        "axios":"latest",
-                        "tailwindcss":"latest",
-                        "@tailwindcss/typography":"latest",
-                        "postcss":"latest",
-                        "autoprefixer":"latest",
-                        "clsx":"latest",
-                        "framer-motion":"latest",
-                        "zustand":"latest",
-                        "@supabase/supabase-js":"latest",
-                        "@supabase/auth-helpers-nextjs":"latest",
-                        "sharp":"latest"
-                    }}' > package.json &&
+                    # MEGA package.json - ALL popular packages for React/Next.js ecosystem
+                    cat > package.json << 'PKGJSON'
+{
+  "name": "prewarm-cache",
+  "version": "1.0.0",
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "next": "14.2.18",
+    "typescript": "^5.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/node": "^20.0.0",
+
+    "tailwindcss": "^3.4.0",
+    "@tailwindcss/typography": "latest",
+    "@tailwindcss/forms": "latest",
+    "postcss": "latest",
+    "autoprefixer": "latest",
+    "tailwind-merge": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+
+    "lucide-react": "latest",
+    "@heroicons/react": "latest",
+    "react-icons": "latest",
+
+    "framer-motion": "latest",
+    "@react-spring/web": "latest",
+
+    "zustand": "latest",
+    "jotai": "latest",
+    "@tanstack/react-query": "latest",
+    "swr": "latest",
+
+    "react-hook-form": "latest",
+    "zod": "latest",
+    "@hookform/resolvers": "latest",
+    "yup": "latest",
+
+    "axios": "latest",
+    "ky": "latest",
+
+    "@supabase/supabase-js": "latest",
+    "@supabase/auth-helpers-nextjs": "latest",
+    "next-auth": "latest",
+    "@clerk/nextjs": "latest",
+    "@auth/core": "latest",
+
+    "prisma": "latest",
+    "@prisma/client": "latest",
+    "drizzle-orm": "latest",
+    "drizzle-kit": "latest",
+
+    "@radix-ui/react-dialog": "latest",
+    "@radix-ui/react-dropdown-menu": "latest",
+    "@radix-ui/react-popover": "latest",
+    "@radix-ui/react-tooltip": "latest",
+    "@radix-ui/react-select": "latest",
+    "@radix-ui/react-tabs": "latest",
+    "@radix-ui/react-accordion": "latest",
+    "@radix-ui/react-avatar": "latest",
+    "@radix-ui/react-checkbox": "latest",
+    "@radix-ui/react-label": "latest",
+    "@radix-ui/react-slot": "latest",
+    "@radix-ui/react-switch": "latest",
+    "@radix-ui/react-toast": "latest",
+
+    "@headlessui/react": "latest",
+
+    "date-fns": "latest",
+    "dayjs": "latest",
+    "lodash": "latest",
+    "uuid": "latest",
+    "nanoid": "latest",
+
+    "sharp": "latest",
+    "next-themes": "latest",
+    "sonner": "latest",
+    "react-hot-toast": "latest",
+    "cmdk": "latest",
+    "vaul": "latest",
+    "embla-carousel-react": "latest",
+    "recharts": "latest",
+    "@tremor/react": "latest",
+    "react-markdown": "latest",
+    "highlight.js": "latest",
+    "prismjs": "latest",
+
+    "stripe": "latest",
+    "@stripe/stripe-js": "latest",
+
+    "resend": "latest",
+    "@react-email/components": "latest",
+
+    "openai": "latest",
+    "@anthropic-ai/sdk": "latest",
+    "ai": "latest",
+
+    "socket.io-client": "latest",
+    "pusher-js": "latest",
+
+    "i18next": "latest",
+    "react-i18next": "latest",
+    "next-intl": "latest"
+  }
+}
+PKGJSON
 
                     pnpm config set store-dir /home/coder/volumes/pnpm-store &&
                     pnpm config set package-import-method copy &&
                     CI=true pnpm install --no-frozen-lockfile &&
 
                     # Also pre-install Next 15 and 16 to global store
-                    pnpm store add next@15.1.0 next@16.0.0 2>/dev/null || true &&
+                    pnpm store add next@15.1.0 next@15.3.0 next@16.0.0 next@16.1.0 2>/dev/null || true &&
 
                     # Cleanup
                     rm -rf package.json pnpm-lock.yaml node_modules &&
@@ -481,14 +774,10 @@ class VMPoolManager {
      * Start the pool replenisher (runs every 2 minutes)
      */
     startPoolReplenisher() {
-        // Replenish immediately
-        setImmediate(() => {
-            this.replenishPool().catch(e => {
-                console.warn(`⚠️ [VM Pool] Replenish failed: ${e.message}`);
-            });
-        });
+        // NOTE: Don't call replenishPool() here - it's already called by initialize()
+        // This prevents duplicate cache master creation from race conditions
 
-        // Then every 2 minutes
+        // Replenish every 2 minutes
         setInterval(() => {
             this.replenishPool().catch(e => {
                 console.warn(`⚠️ [VM Pool] Replenish failed: ${e.message}`);
@@ -509,22 +798,82 @@ class VMPoolManager {
 
     /**
      * Clean up old VMs that are too old or stale
+     * Also cleans up ORPHAN VMs on Fly.io that aren't in our pool (prevents duplicates!)
      */
     async cleanupOldVMs() {
         const now = Date.now();
+
+        // DEBUG: Log pool state before cleanup
+        console.log(`🔍 [Cleanup DEBUG] Pool state before cleanup:`);
+        this.pool.forEach(vm => {
+            const ageMinutes = Math.round((now - vm.createdAt) / 60000);
+            console.log(`   - ${vm.machineId}: isCacheMaster=${vm.isCacheMaster}, allocated=${vm.allocatedTo || 'none'}, age=${ageMinutes}min`);
+        });
+
+        // PHASE 1: Clean up ORPHAN VMs on Fly.io that aren't in our pool
+        // This prevents duplicate VMs from being created when adoption fails
+        try {
+            const machines = await flyService.listMachines();
+            const poolMachines = machines.filter(m =>
+                (m.name.startsWith('ws-pool-') || m.name.startsWith('ws-cache-')) &&
+                m.state !== 'destroyed'
+            );
+
+            const poolMachineIds = new Set(this.pool.map(vm => vm.machineId));
+            const orphanVMs = poolMachines.filter(m => !poolMachineIds.has(m.id));
+
+            if (orphanVMs.length > 0) {
+                console.log(`🧹 [Cleanup] Found ${orphanVMs.length} ORPHAN VMs on Fly.io (not in pool):`);
+                for (const orphan of orphanVMs) {
+                    // HARDENED SAFETY: Use multi-layer protection for cache masters
+                    if (this.isProtectedCacheMaster(orphan.id, orphan.name)) {
+                        console.log(`   🛡️ Adopting protected cache master: ${orphan.id} (${orphan.name})`);
+                        // Re-adopt it instead of destroying
+                        this.pool.push({
+                            machineId: orphan.id,
+                            agentUrl: 'https://drape-workspaces.fly.dev',
+                            createdAt: Date.parse(orphan.created_at) || Date.now(),
+                            allocatedTo: null,
+                            allocatedAt: null,
+                            prewarmed: true,
+                            isCacheMaster: true,
+                            image: orphan.config?.image || flyService.DRAPE_IMAGE
+                        });
+                        continue;
+                    }
+
+                    // Destroy orphan worker VMs (only if NOT protected!)
+                    console.log(`   🗑️ Destroying orphan worker: ${orphan.id} (${orphan.name})`);
+                    try {
+                        await flyService.destroyMachine(orphan.id);
+                        console.log(`   ✅ Deleted orphan VM ${orphan.id}`);
+                    } catch (e) {
+                        console.warn(`   ⚠️ Failed to delete orphan ${orphan.id}: ${e.message}`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`   ⚠️ Failed to check for orphan VMs: ${e.message}`);
+        }
+
+        // PHASE 2: Clean up old VMs in our pool
         const oldVMs = this.pool.filter(vm => {
-            // NEVER remove cache masters - they're permanent infrastructure
-            if (vm.isCacheMaster) {
+            // HARDENED: NEVER remove cache masters - use multi-layer protection
+            if (vm.isCacheMaster || this.isProtectedCacheMaster(vm.machineId)) {
+                console.log(`   🛡️ [Cleanup] Protecting cache master: ${vm.machineId}`);
                 return false;
             }
             // Remove if: unallocated worker VM and older than MAX_VM_AGE_MS
             if (!vm.allocatedTo && (now - vm.createdAt) > this.MAX_VM_AGE_MS) {
+                const ageMinutes = Math.round((now - vm.createdAt) / 60000);
+                console.log(`   🗑️ [Cleanup] Marking for deletion: ${vm.machineId} (age: ${ageMinutes}min > ${this.MAX_VM_AGE_MS/60000}min)`);
                 return true;
             }
             return false;
         });
 
         if (oldVMs.length === 0) {
+            console.log(`   ✅ [Cleanup] No old VMs to clean up`);
             return;
         }
 
@@ -540,6 +889,13 @@ class VMPoolManager {
                     continue;
                 }
 
+                // HARDENED SAFETY: Triple-check it's not a cache master before destroying
+                if (currentVM.isCacheMaster || this.isProtectedCacheMaster(vm.machineId)) {
+                    console.error(`   🚨 [CRITICAL BUG] Attempted to destroy cache master ${vm.machineId}! Aborting.`);
+                    continue;
+                }
+
+                console.log(`   🗑️ [Cleanup] Destroying VM ${vm.machineId}...`);
                 await flyService.destroyMachine(vm.machineId);
                 this.pool = this.pool.filter(v => v.machineId !== vm.machineId);
                 console.log(`   ✅ Deleted old VM ${vm.machineId}`);

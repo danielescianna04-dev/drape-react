@@ -246,10 +246,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           });
 
           const data = await response.json();
+
+          // Check for server errors (503 = pool exhausted)
+          if (!response.ok) {
+            const errorMsg = data?.error || data?.message || 'Server non disponibile';
+            console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
+            throw new Error(errorMsg);
+          }
+
           console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
           return data;
         } catch (e: any) {
           console.warn('⚠️ [Home] VM warmup error:', e.message);
+          // Re-throw pool exhausted errors to show to user
+          if (e.message.includes('riprova') || e.message.includes('richieste')) {
+            throw e;
+          }
           return null;
         }
       })();
@@ -339,7 +351,19 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         Promise.all(prefetchPromises),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Prefetch timeout')), 45000))
       ]);
-    } catch (e) {
+    } catch (e: any) {
+      // Check if this is a "pool exhausted" error - show to user and DON'T open project
+      if (e.message?.includes('riprova') || e.message?.includes('richieste')) {
+        console.error('❌ [Home] Server busy:', e.message);
+        setIsLoadingProject(false);
+        setLoadingProjectName('');
+        Alert.alert(
+          'Server Occupato',
+          e.message,
+          [{ text: 'OK', style: 'default' }]
+        );
+        return; // DON'T open project
+      }
       console.warn('⚠️ [Home] Prefetch timeout after 45s, continuing anyway');
     }
 

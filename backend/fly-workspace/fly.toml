@@ -8,10 +8,8 @@ primary_region = "fra"
 [build]
   dockerfile = "Dockerfile.optimized"
 
-# Persistent volume for pnpm cache (only 1 volume supported per machine)
-[[mounts]]
-  source = "pnpm_store"
-  destination = "/pnpm-store"
+# NOTE: Volumes are managed via Machines API in vm-pool-manager.js
+# DO NOT add [[mounts]] here - it creates unwanted volumes on every deploy!
 
 [env]
   DRAPE_AGENT_PORT = "13338"

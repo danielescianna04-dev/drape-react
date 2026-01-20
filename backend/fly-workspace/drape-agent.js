@@ -21,7 +21,16 @@ const os = require('os');
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.3 - With Bulk Extract Support');
+console.log('🚀 Drape Agent v2.10 - Support pnpm 10.x store layout');
+
+// Ensure PROJECT_DIR exists at startup (required for exec default cwd)
+const fsSync = require('fs');
+try {
+    fsSync.mkdirSync(PROJECT_DIR, { recursive: true });
+    console.log(`📁 Project directory ready: ${PROJECT_DIR}`);
+} catch (e) {
+    console.warn(`⚠️ Could not create project dir: ${e.message}`);
+}
 
 // ============ LIVE LOGS STREAMING ============
 // Circular buffer for log lines (keeps last 1000 lines)
@@ -99,12 +108,12 @@ function sendJson(req, res, data, status = 200) {
 }
 
 // Execute command and return result
-function execCommand(command, cwd = PROJECT_DIR) {
+function execCommand(command, cwd = PROJECT_DIR, timeoutMs = 60000) {
     return new Promise((resolve) => {
         exec(command, {
             cwd,
-            timeout: 60000,
-            maxBuffer: 10 * 1024 * 1024, // 10MB
+            timeout: timeoutMs,
+            maxBuffer: 50 * 1024 * 1024, // 50MB for larger outputs
             shell: '/bin/bash'
         }, (error, stdout, stderr) => {
             resolve({
@@ -412,15 +421,19 @@ const server = http.createServer(async (req, res) => {
         }
 
         // Execute command
+        // POST /exec { command, cwd?, timeout? }
+        // timeout in ms (default 60000, max 600000 = 10 min)
         if (pathname === '/exec' && req.method === 'POST') {
             const body = await parseBody(req);
-            const { command, cwd } = body;
+            const { command, cwd, timeout } = body;
 
             if (!command) {
                 return sendJson(req, res, { error: 'command required' }, 400);
             }
 
-            const result = await execCommand(command, cwd || PROJECT_DIR);
+            // Allow custom timeout up to 10 minutes
+            const timeoutMs = Math.min(parseInt(timeout) || 60000, 600000);
+            const result = await execCommand(command, cwd || PROJECT_DIR, timeoutMs);
             return sendJson(req, res, result);
         }
 
@@ -544,100 +557,143 @@ const server = http.createServer(async (req, res) => {
         }
 
         // Download cache archive (for cache sharing between VMs)
-        // GET /download?type=npm - Returns tar.gz of npm global cache
         // GET /download?type=pnpm - Returns tar.gz of pnpm store
+        // Optimized: uses pre-existing tar.gz if available, otherwise compresses only v10 store
         if (pathname === '/download' && req.method === 'GET') {
-            const cacheType = url.searchParams.get('type') || 'pnpm'; // Default to pnpm
-
-            let cacheDir;
-            switch (cacheType) {
-                case 'npm':
-                    cacheDir = '/home/coder/.npm-global';
-                    break;
-                case 'pnpm':
-                    cacheDir = '/home/coder/volumes/pnpm-store';
-                    break;
-                default:
-                    return sendJson(req, res, { error: `Unknown cache type: ${cacheType}` }, 400);
-            }
-
+            const cacheType = url.searchParams.get('type') || 'pnpm';
             const startTime = Date.now();
-            const tempFile = path.join(os.tmpdir(), `cache-${cacheType}-${Date.now()}.tar.gz`);
 
-            try {
-                // Check if cache directory exists (using fs.stat instead of shell command)
+            // For pnpm, we have a smarter strategy
+            if (cacheType === 'pnpm') {
+                const volumeDir = '/home/coder/volumes/pnpm-store';
+                const preCachedTar = path.join(volumeDir, 'pnpm-cache.tar.gz');
+                const v10Store = path.join(volumeDir, 'v10');
+
                 try {
-                    const stat = await fs.stat(cacheDir);
-                    if (!stat.isDirectory()) {
-                        return sendJson(req, res, {
-                            success: false,
-                            error: `${cacheDir} is not a directory`
-                        }, 400);
+                    // Strategy 1: Use pre-existing tar.gz (fastest - just stream existing file)
+                    try {
+                        const tarStat = await fs.stat(preCachedTar);
+                        if (tarStat.isFile() && tarStat.size > 0) {
+                            console.log(`[Agent] Streaming pre-cached tar.gz (${(tarStat.size / 1024 / 1024).toFixed(1)}MB)...`);
+
+                            const origin = req.headers.origin || '*';
+                            res.writeHead(200, {
+                                'Content-Type': 'application/gzip',
+                                'Content-Disposition': 'attachment; filename="pnpm-cache.tar.gz"',
+                                'Content-Length': tarStat.size,
+                                'Access-Control-Allow-Origin': origin,
+                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                                'Access-Control-Allow-Headers': '*'
+                            });
+
+                            const fsStream = require('fs');
+                            const readStream = fsStream.createReadStream(preCachedTar);
+                            readStream.pipe(res);
+                            readStream.on('end', () => {
+                                const elapsed = Date.now() - startTime;
+                                console.log(`[Agent] ✅ Streamed pre-cached tar.gz in ${elapsed}ms`);
+                            });
+                            readStream.on('error', (err) => {
+                                console.error(`[Agent] Stream error: ${err}`);
+                                if (!res.headersSent) res.end();
+                            });
+                            return;
+                        }
+                    } catch (e) {
+                        // Pre-cached file doesn't exist, continue to strategy 2
                     }
-                } catch (err) {
+
+                    // Strategy 2: Compress pnpm store (supports both old v10/ and new files/ layouts)
+                    // pnpm 10.x uses: files/, index/, projects/ (no v10 subdirectory)
+                    // Older pnpm used: v10/files/, v10/index/, etc.
+                    try {
+                        const filesDir = path.join(volumeDir, 'files');
+                        let dirsToTar = [];
+                        let layout = 'unknown';
+
+                        // Check for new pnpm 10.x layout (files/, index/, projects/)
+                        try {
+                            const filesStat = await fs.stat(filesDir);
+                            if (filesStat.isDirectory()) {
+                                layout = 'pnpm10';
+                                // Include all pnpm directories that exist
+                                for (const dir of ['files', 'index', 'projects']) {
+                                    try {
+                                        const stat = await fs.stat(path.join(volumeDir, dir));
+                                        if (stat.isDirectory()) dirsToTar.push(dir);
+                                    } catch (e) { /* dir doesn't exist */ }
+                                }
+                            }
+                        } catch (e) { /* files/ doesn't exist */ }
+
+                        // Check for old v10 layout if new layout not found
+                        if (dirsToTar.length === 0) {
+                            try {
+                                const v10Stat = await fs.stat(v10Store);
+                                // Make sure it's a real directory, not a broken symlink
+                                if (v10Stat.isDirectory()) {
+                                    layout = 'v10';
+                                    dirsToTar = ['v10'];
+                                }
+                            } catch (e) { /* v10 doesn't exist or broken symlink */ }
+                        }
+
+                        if (dirsToTar.length > 0) {
+                            console.log(`[Agent] Compressing pnpm store (${layout} layout): ${dirsToTar.join(', ')}...`);
+
+                            const origin = req.headers.origin || '*';
+                            res.writeHead(200, {
+                                'Content-Type': 'application/gzip',
+                                'Content-Disposition': 'attachment; filename="pnpm-store.tar.gz"',
+                                'X-Pnpm-Layout': layout,  // Tell receiver what layout this is
+                                'Access-Control-Allow-Origin': origin,
+                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                                'Access-Control-Allow-Headers': '*',
+                                'Transfer-Encoding': 'chunked'
+                            });
+
+                            const tarProcess = spawn('tar', [
+                                '-czf', '-',
+                                '-h',  // Dereference symlinks (CRITICAL for cache sharing!)
+                                '-C', volumeDir,
+                                ...dirsToTar
+                            ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+                            let bytesWritten = 0;
+                            tarProcess.stdout.on('data', (chunk) => {
+                                bytesWritten += chunk.length;
+                                res.write(chunk);
+                            });
+                            tarProcess.stderr.on('data', (d) => console.error(`[Agent] tar: ${d}`));
+                            tarProcess.on('close', (code) => {
+                                const elapsed = Date.now() - startTime;
+                                console.log(`[Agent] ${code === 0 ? '✅' : '❌'} pnpm store (${layout}): ${(bytesWritten/1024/1024).toFixed(1)}MB in ${elapsed}ms`);
+                                res.end();
+                            });
+                            tarProcess.on('error', (e) => {
+                                console.error(`[Agent] tar error: ${e}`);
+                                if (!res.headersSent) sendJson(req, res, { error: e.message }, 500);
+                                else res.end();
+                            });
+                            return;
+                        }
+                    } catch (e) {
+                        console.error(`[Agent] Error checking pnpm store: ${e}`);
+                    }
+
+                    // No cache available
                     return sendJson(req, res, {
-                        success: false,
-                        error: `Cache directory not found: ${cacheDir}`
+                        error: 'No pnpm cache available',
+                        checked: [preCachedTar, v10Store]
                     }, 404);
+
+                } catch (error) {
+                    return sendJson(req, res, { error: error.message }, 500);
                 }
-
-                // Create tar.gz of cache directory
-                const tarResult = await execCommand(
-                    `tar -czf "${tempFile}" -C "${path.dirname(cacheDir)}" "${path.basename(cacheDir)}"`,
-                    '/home/coder'
-                );
-
-                if (tarResult.exitCode !== 0) {
-                    await fs.unlink(tempFile).catch(() => {});
-                    return sendJson(req, res, {
-                        success: false,
-                        error: tarResult.stderr || 'Failed to create archive'
-                    }, 500);
-                }
-
-                // Get file size
-                const stats = await fs.stat(tempFile);
-                const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
-
-                console.log(`[Agent] Serving ${cacheType} cache: ${fileSizeMB}MB (took ${Date.now() - startTime}ms)`);
-
-                // Stream the file
-                const origin = req.headers.origin || '*';
-                res.writeHead(200, {
-                    'Content-Type': 'application/gzip',
-                    'Content-Length': stats.size,
-                    'Content-Disposition': `attachment; filename="cache-${cacheType}.tar.gz"`,
-                    'Access-Control-Allow-Origin': origin,
-                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                    'Access-Control-Allow-Headers': '*',
-                    'Access-Control-Allow-Credentials': 'true'
-                });
-
-                const fileStream = require('fs').createReadStream(tempFile);
-                fileStream.pipe(res);
-
-                // Cleanup after streaming completes
-                fileStream.on('end', async () => {
-                    await fs.unlink(tempFile).catch(() => {});
-                });
-
-                fileStream.on('error', async (err) => {
-                    console.error('[Agent] Download stream error:', err);
-                    await fs.unlink(tempFile).catch(() => {});
-                    if (!res.headersSent) {
-                        sendJson(req, res, { error: err.message }, 500);
-                    }
-                });
-
-                return; // Important: return to prevent further processing
-            } catch (error) {
-                await fs.unlink(tempFile).catch(() => {});
-                return sendJson(req, res, {
-                    success: false,
-                    error: error.message,
-                    elapsed: Date.now() - startTime
-                }, 500);
             }
+
+            // Fallback for other cache types
+            return sendJson(req, res, { error: `Unknown cache type: ${cacheType}` }, 400);
         }
 
         // Clone repository
@@ -674,10 +730,81 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Drape Agent (Fly.io) running on port ${PORT}`);
+// Listen on '::' for IPv6 (dual-stack: also accepts IPv4)
+// This is required for Fly.io internal networking which uses IPv6
+server.listen(PORT, '::', () => {
+    console.log(`🚀 Drape Agent (Fly.io) running on port ${PORT} (IPv6 dual-stack)`);
     console.log(`   Project directory: ${PROJECT_DIR}`);
+
+    // AUTO-FETCH CACHE: If CACHE_MASTER_ID is set, download cache from cache master
+    // This bypasses Fly.io public proxy issues by using internal IPv6 network
+    const cacheMasterId = process.env.CACHE_MASTER_ID;
+    if (cacheMasterId) {
+        console.log(`📦 [Auto-Cache] Cache master configured: ${cacheMasterId}`);
+        autoFetchCache(cacheMasterId).catch(e => {
+            console.warn(`⚠️ [Auto-Cache] Failed: ${e.message} (continuing without cache)`);
+        });
+    } else {
+        console.log(`ℹ️ [Auto-Cache] No cache master configured (CACHE_MASTER_ID not set)`);
+    }
 });
+
+/**
+ * Auto-fetch cache from cache master on startup
+ * Uses Fly.io internal IPv6 network (fast & reliable)
+ */
+async function autoFetchCache(cacheMasterId) {
+    const startTime = Date.now();
+    const cacheUrl = `http://${cacheMasterId}.vm.drape-workspaces.internal:13338`;
+    const volumeDir = '/home/coder/volumes/pnpm-store';
+    const pnpmDir = '/home/coder/.local/share/pnpm';
+
+    console.log(`📦 [Auto-Cache] Downloading from ${cacheUrl}...`);
+
+    // Setup directory structure
+    await fs.mkdir(volumeDir, { recursive: true });
+    await fs.mkdir(pnpmDir, { recursive: true });
+
+    // Create symlink for pnpm store
+    try {
+        await fs.unlink(`${pnpmDir}/store`);
+    } catch (e) { /* ignore if doesn't exist */ }
+    await fs.symlink(volumeDir, `${pnpmDir}/store`);
+
+    // Download cache using curl (more reliable than Node http for large files)
+    const downloadCmd = `curl --max-time 120 -sS "${cacheUrl}/download?type=pnpm" -o /tmp/cache.tar.gz 2>&1`;
+    const downloadResult = await execCommand(downloadCmd, '/tmp', 130000);
+
+    if (downloadResult.exitCode !== 0) {
+        throw new Error(`curl failed: ${downloadResult.stderr || downloadResult.stdout}`);
+    }
+
+    // Check if file was downloaded
+    const fileStats = await fs.stat('/tmp/cache.tar.gz').catch(() => null);
+    if (!fileStats || fileStats.size < 1000) {
+        throw new Error(`Cache file too small or missing: ${fileStats?.size || 0} bytes`);
+    }
+
+    console.log(`📦 [Auto-Cache] Downloaded ${(fileStats.size / 1024 / 1024).toFixed(1)}MB, extracting...`);
+
+    // Extract cache (tar contains v10/ folder, extract to pnpm-store/)
+    // Increase timeout to 5 minutes for 1.4GB extraction
+    const extractResult = await execCommand(
+        'tar -xzf /tmp/cache.tar.gz -C /home/coder/volumes/pnpm-store/ 2>&1',
+        '/tmp',
+        300000
+    );
+
+    // Cleanup temp file
+    await fs.unlink('/tmp/cache.tar.gz').catch(() => {});
+
+    if (extractResult.exitCode !== 0) {
+        throw new Error(`tar extract failed: ${extractResult.stderr || extractResult.stdout}`);
+    }
+
+    const elapsed = Date.now() - startTime;
+    console.log(`✅ [Auto-Cache] Cache ready in ${elapsed}ms (${(fileStats.size / 1024 / 1024).toFixed(1)}MB)`);
+}
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
