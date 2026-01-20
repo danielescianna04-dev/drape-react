@@ -13,10 +13,34 @@ const flyService = require('./fly-service');
 
 class VMPoolManager {
     constructor() {
-        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false }
-        this.TARGET_POOL_SIZE = 3; // Keep 5 warm VMs ready
+        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false, isCacheMaster: false }
+
+        // Dynamic pool sizing for scalability
+        this.BASE_POOL_SIZE = 3; // Minimum worker VMs
+        this.MAX_POOL_SIZE = 15; // Maximum worker VMs (safety limit)
+        this.CACHE_MASTERS_COUNT = 1; // Dedicated cache master VMs
+        this.activeUsers = 0; // Tracked from sessions
+
         this.MAX_VM_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours max age
+        this.VM_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 min idle timeout (for session pooling)
         this.isInitialized = false;
+    }
+
+    /**
+     * Calculate dynamic pool size based on active users
+     */
+    calculateTargetPoolSize() {
+        // Scale: 30% of active users (rounded up), clamped to min/max
+        const dynamicSize = Math.ceil(this.activeUsers * 0.3);
+        return Math.max(this.BASE_POOL_SIZE, Math.min(dynamicSize, this.MAX_POOL_SIZE));
+    }
+
+    /**
+     * Update active users count (called by metrics service)
+     */
+    updateActiveUsers(count) {
+        this.activeUsers = count;
+        console.log(`📊 [VM Pool] Active users: ${count}, Target pool: ${this.calculateTargetPoolSize()}`);
     }
 
     /**
@@ -34,7 +58,11 @@ class VMPoolManager {
 
             for (const vm of poolMachines) {
                 if (!this.pool.find(p => p.machineId === vm.id)) {
-                    console.log(`🏊 [VM Pool] Adopting existing warm VM: ${vm.id}`);
+                    // Check if this VM is a cache master
+                    const isCacheMaster = vm.config?.env?.CACHE_MASTER === 'true';
+                    const vmType = isCacheMaster ? 'Cache Master' : 'warm VM';
+                    console.log(`🏊 [VM Pool] Adopting existing ${vmType}: ${vm.id}`);
+
                     this.pool.push({
                         machineId: vm.id,
                         agentUrl: 'https://drape-workspaces.fly.dev',
@@ -42,6 +70,7 @@ class VMPoolManager {
                         allocatedTo: null,
                         allocatedAt: null,
                         prewarmed: true, // Assume pre-warmed if it exists from previous run
+                        isCacheMaster: isCacheMaster, // Dedicated cache master never allocated to projects
                         image: vm.config?.image || flyService.DRAPE_IMAGE
                     });
                 }
@@ -68,12 +97,13 @@ class VMPoolManager {
      * @returns {Promise<object>} VM object with { machineId, agentUrl }
      */
     async allocateVM(projectId) {
-        // Try to get prewarmed VM first (has npm cache ready)
-        let pooledVM = this.pool.find(vm => !vm.allocatedTo && vm.prewarmed);
+        // CRITICAL: Never allocate cache masters to projects - they're reserved for cache copying only
+        // Try to get prewarmed worker VM first (has npm cache ready)
+        let pooledVM = this.pool.find(vm => !vm.allocatedTo && vm.prewarmed && !vm.isCacheMaster);
 
-        // If no prewarmed VM, fallback to any available VM
+        // If no prewarmed worker VM, fallback to any available worker VM
         if (!pooledVM) {
-            pooledVM = this.pool.find(vm => !vm.allocatedTo);
+            pooledVM = this.pool.find(vm => !vm.allocatedTo && !vm.isCacheMaster);
         }
 
         if (pooledVM) {
@@ -122,11 +152,29 @@ class VMPoolManager {
         console.log(`🐢 [VM Pool] Pool empty, creating new VM (cold start)...`);
         const newVM = await this.createWarmVM();
 
+        // CRITICAL: Wait for pre-warming to complete before allocating
+        // This ensures the VM has the pnpm cache copied from cache master
+        const poolEntry = this.pool.find(v => v.machineId === newVM.machineId);
+        if (poolEntry && !poolEntry.prewarmed) {
+            console.log(`⏳ [VM Pool] Waiting for pre-warming to complete for ${newVM.machineId}...`);
+
+            // Poll until prewarmed is true (max 60 seconds)
+            const startWait = Date.now();
+            while (!poolEntry.prewarmed && (Date.now() - startWait) < 60000) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            if (poolEntry.prewarmed) {
+                console.log(`✅ [VM Pool] Pre-warming completed in ${Date.now() - startWait}ms`);
+            } else {
+                console.warn(`⚠️ [VM Pool] Pre-warming timeout after ${Date.now() - startWait}ms, allocating anyway`);
+            }
+        }
+
         // Mark as allocated
-        const vm = this.pool.find(v => v.machineId === newVM.machineId);
-        if (vm) {
-            vm.allocatedTo = projectId;
-            vm.allocatedAt = Date.now();
+        if (poolEntry) {
+            poolEntry.allocatedTo = projectId;
+            poolEntry.allocatedAt = Date.now();
         }
 
         return newVM;
@@ -164,22 +212,56 @@ class VMPoolManager {
     }
 
     /**
-     * Replenish the pool to target size
+     * Ensure we have the required number of cache masters
+     */
+    async ensureCacheMasters() {
+        const cacheMasters = this.pool.filter(vm => vm.isCacheMaster);
+        const needed = this.CACHE_MASTERS_COUNT - cacheMasters.length;
+
+        if (needed <= 0) {
+            return; // We have enough cache masters
+        }
+
+        console.log(`💾 [Cache Master] Creating ${needed} cache master(s)...`);
+
+        // Create cache masters in parallel
+        const createPromises = [];
+        for (let i = 0; i < needed; i++) {
+            createPromises.push(this.createWarmVM(true)); // true = cache master
+        }
+
+        const results = await Promise.allSettled(createPromises);
+        const successful = results.filter(r => r.status === 'fulfilled').length;
+
+        if (successful > 0) {
+            console.log(`✅ [Cache Master] Created ${successful} cache master(s)`);
+        }
+    }
+
+    /**
+     * Replenish the pool to target size (dynamic based on active users)
      */
     async replenishPool() {
-        const availableVMs = this.pool.filter(vm => !vm.allocatedTo);
-        const needed = this.TARGET_POOL_SIZE - availableVMs.length;
+        // PHASE 1: Ensure we have cache masters first (critical for performance)
+        await this.ensureCacheMasters();
+
+        // PHASE 2: Replenish worker VMs
+        // Count only worker VMs (exclude cache masters from pool size calculation)
+        const workerVMs = this.pool.filter(vm => !vm.isCacheMaster);
+        const availableWorkers = workerVMs.filter(vm => !vm.allocatedTo);
+        const targetSize = this.calculateTargetPoolSize();
+        const needed = targetSize - availableWorkers.length;
 
         if (needed <= 0) {
             return; // Pool is full
         }
 
-        console.log(`🏊 [VM Pool] Replenishing pool (need ${needed} more VMs)...`);
+        console.log(`🏊 [VM Pool] Replenishing pool (need ${needed} more worker VMs, target: ${targetSize})...`);
 
         // Create VMs in parallel
         const createPromises = [];
         for (let i = 0; i < needed; i++) {
-            createPromises.push(this.createWarmVM());
+            createPromises.push(this.createWarmVM(false)); // false = not a cache master
         }
 
         const results = await Promise.allSettled(createPromises);
@@ -197,24 +279,33 @@ class VMPoolManager {
 
     /**
      * Create a warm VM and add to pool
+     * @param {boolean} isCacheMaster - Whether this VM is a dedicated cache master
      */
-    async createWarmVM() {
+    async createWarmVM(isCacheMaster = false) {
         // Generate a unique pool VM ID
-        const poolId = `pool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const vmPrefix = isCacheMaster ? 'cache' : 'pool';
+        const poolId = `${vmPrefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        const envVars = {
+            PROJECT_ID: poolId,
+            POOL_VM: 'true',
+            // HOLY GRAIL: Same optimizations as project VMs
+            NODE_OPTIONS: '--max-old-space-size=3072',
+            NEXT_TELEMETRY_DISABLED: '1',
+            NEXT_WEBPACK_WORKERS: '2',
+            UV_THREADPOOL_SIZE: '4',
+            PNPM_HOME: '/home/coder/.local/share/pnpm'
+        };
+
+        // Mark cache masters with special env var
+        if (isCacheMaster) {
+            envVars.CACHE_MASTER = 'true';
+        }
 
         const vm = await flyService.createMachine(poolId, {
             memory_mb: 2048,
             image: flyService.DRAPE_IMAGE,
-            env: {
-                PROJECT_ID: poolId,
-                POOL_VM: 'true',
-                // HOLY GRAIL: Same optimizations as project VMs
-                NODE_OPTIONS: '--max-old-space-size=3072',
-                NEXT_TELEMETRY_DISABLED: '1',
-                NEXT_WEBPACK_WORKERS: '2',
-                UV_THREADPOOL_SIZE: '4',
-                PNPM_HOME: '/home/coder/.local/share/pnpm'
-            }
+            env: envVars
         });
 
         // Wait for VM to be ready
@@ -246,11 +337,13 @@ class VMPoolManager {
             allocatedTo: null,
             allocatedAt: null,
             prewarmed: false, // Will be set to true when pre-warming completes
+            isCacheMaster: isCacheMaster, // Dedicated cache master never allocated to projects
             image: flyService.DRAPE_IMAGE // Track image version for cache validation
         };
         this.pool.push(poolEntry);
 
-        console.log(`🔥 [VM Pool] Created VM ${vm.id} (pre-warming in background)`);
+        const vmLabel = isCacheMaster ? 'Cache Master' : 'Worker VM';
+        console.log(`🔥 [VM Pool] Created ${vmLabel} ${vm.id} (pre-warming in background)`);
 
         // FIX: Pre-warm in background (don't await)
         // Install common dependencies to populate npm cache
@@ -265,17 +358,71 @@ class VMPoolManager {
 
                 console.log(`🔥 [VM Pool] Pre-warming ${vm.id} with common dependencies...`);
 
-                // HOLY GRAIL: Pre-populate shared pnpm store with ALL common deps
-                // This makes FIRST project installs fast too (not just subsequent)
+                // CACHE SHARING: Try to copy cache from an existing pre-warmed VM
+                // Prefer cache masters (always available), then unallocated VMs (avoid interrupting active projects)
+                const cacheMaster = this.pool.find(v => v.prewarmed && v.isCacheMaster && v.machineId !== vm.id);
+                const unallocatedVM = this.pool.find(v => v.prewarmed && !v.allocatedTo && v.machineId !== vm.id);
+                const sourceVM = cacheMaster || unallocatedVM;
+
+                if (sourceVM) {
+                    // Fast path: Copy cache from existing VM (30s vs 3min)
+                    console.log(`   💾 [Cache] Copying cache from VM ${sourceVM.machineId} to ${vm.id}...`);
+                    const startTime = Date.now();
+
+                    try {
+                        // Setup cache directory structure
+                        const setupCmd = `
+                            mkdir -p /home/coder/.npm-global &&
+                            mkdir -p /home/coder/volumes/pnpm-store &&
+                            mkdir -p /home/coder/.local/share/pnpm &&
+                            ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
+                        `.replace(/\s+/g, ' ').trim();
+
+                        await axios.post(`${agentUrl}/exec`, {
+                            command: setupCmd,
+                            cwd: '/home/coder'
+                        }, {
+                            timeout: 10000,
+                            headers: { 'Fly-Force-Instance-Id': vm.id }
+                        });
+
+                        // Download and extract cache from source VM
+                        // Using internal Fly.io network for fast transfer
+                        const sourceAgentUrl = `http://${sourceVM.machineId}.vm.drape-workspaces.internal:13338`;
+                        const downloadCmd = `curl -s "${sourceAgentUrl}/download?type=pnpm" | tar -xz -C /home/coder/`;
+
+                        await axios.post(`${agentUrl}/exec`, {
+                            command: downloadCmd,
+                            cwd: '/home/coder'
+                        }, {
+                            timeout: 60000, // 1 min for download + extract
+                            headers: { 'Fly-Force-Instance-Id': vm.id }
+                        });
+
+                        const elapsed = Date.now() - startTime;
+                        console.log(`   ✅ Cache setup complete in ${elapsed}ms`);
+
+                        // Mark VM as prewarmed (cache ready)
+                        poolEntry.prewarmed = true;
+                        console.log(`   ✅ Pre-warm complete for ${vm.id} (cache copied ⚡)`);
+                        return;
+                    } catch (cacheError) {
+                        console.warn(`   ⚠️ Cache copy failed: ${cacheError.message}, falling back to full install`);
+                        // Fall through to full install below
+                    }
+                }
+
+                // Slow path: Full install (first VM or cache copy failed)
+                console.log(`   📦 [Cache] No source VM available, doing full install...`);
                 const prewarmCmd = `
                     # Setup pnpm global store location (shared across all projects)
                     mkdir -p /home/coder/volumes/pnpm-store
                     mkdir -p /home/coder/.local/share/pnpm
                     ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
-                    
+
                     # Create temp project for pre-warming
                     cd /home/coder/project &&
-                    
+
                     # MEGA package.json with ALL common deps (Next 14, 15, 16 + UI libs)
                     echo '{"name":"prewarm","version":"1.0.0","dependencies":{
                         "react":"^18.0.0",
@@ -297,13 +444,14 @@ class VMPoolManager {
                         "@supabase/auth-helpers-nextjs":"latest",
                         "sharp":"latest"
                     }}' > package.json &&
-                    
+
+                    pnpm config set store-dir /home/coder/volumes/pnpm-store &&
                     pnpm config set package-import-method copy &&
                     CI=true pnpm install --no-frozen-lockfile &&
-                    
+
                     # Also pre-install Next 15 and 16 to global store
                     pnpm store add next@15.1.0 next@16.0.0 2>/dev/null || true &&
-                    
+
                     # Cleanup
                     rm -rf package.json pnpm-lock.yaml node_modules &&
                     chown -R coder:coder /home/coder
@@ -365,7 +513,11 @@ class VMPoolManager {
     async cleanupOldVMs() {
         const now = Date.now();
         const oldVMs = this.pool.filter(vm => {
-            // Remove if: unallocated and older than MAX_VM_AGE_MS
+            // NEVER remove cache masters - they're permanent infrastructure
+            if (vm.isCacheMaster) {
+                return false;
+            }
+            // Remove if: unallocated worker VM and older than MAX_VM_AGE_MS
             if (!vm.allocatedTo && (now - vm.createdAt) > this.MAX_VM_AGE_MS) {
                 return true;
             }
@@ -401,14 +553,25 @@ class VMPoolManager {
      * Get pool statistics
      */
     getStats() {
-        const available = this.pool.filter(vm => !vm.allocatedTo).length;
-        const allocated = this.pool.filter(vm => vm.allocatedTo).length;
+        const cacheMasters = this.pool.filter(vm => vm.isCacheMaster);
+        const workers = this.pool.filter(vm => !vm.isCacheMaster);
+        const availableWorkers = workers.filter(vm => !vm.allocatedTo).length;
+        const allocatedWorkers = workers.filter(vm => vm.allocatedTo).length;
 
         return {
             total: this.pool.length,
-            available,
-            allocated,
-            targetSize: this.TARGET_POOL_SIZE
+            workers: {
+                total: workers.length,
+                available: availableWorkers,
+                allocated: allocatedWorkers,
+                targetSize: this.calculateTargetPoolSize()
+            },
+            cacheMasters: {
+                total: cacheMasters.length,
+                prewarmed: cacheMasters.filter(vm => vm.prewarmed).length,
+                targetSize: this.CACHE_MASTERS_COUNT
+            },
+            activeUsers: this.activeUsers
         };
     }
 }

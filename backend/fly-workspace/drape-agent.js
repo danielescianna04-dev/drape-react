@@ -1,13 +1,14 @@
 /**
  * Drape Agent - Fly.io Edition
  * Runs inside MicroVM to handle file operations, command execution, and terminal
- * 
+ *
  * Endpoints:
  * - GET  /health       - Health check
  * - POST /exec         - Execute command
  * - GET  /files        - List files
  * - GET  /file         - Read file content
  * - POST /file         - Write file content
+ * - GET  /download     - Download cache archive (for VM-to-VM cache sharing)
  * - POST /terminal     - Interactive terminal (WebSocket upgrade)
  */
 
@@ -210,8 +211,8 @@ const server = http.createServer(async (req, res) => {
     console.log(`[Agent] ${req.method} ${pathname}`);
 
     try {
-        // API routes (start with /health, /exec, /files, /file, /clone, /logs, /extract)
-        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs', '/extract', '/folder', '/delete'].some(route => pathname.startsWith(route));
+        // API routes (start with /health, /exec, /files, /file, /clone, /logs, /extract, /download)
+        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs', '/extract', '/folder', '/delete', '/download'].some(route => pathname.startsWith(route));
 
         // Health check (explicit)
         if (pathname === '/health') {
@@ -534,6 +535,103 @@ const server = http.createServer(async (req, res) => {
             } catch (error) {
                 // Cleanup on error
                 await fs.unlink(tempFile).catch(() => { });
+                return sendJson(req, res, {
+                    success: false,
+                    error: error.message,
+                    elapsed: Date.now() - startTime
+                }, 500);
+            }
+        }
+
+        // Download cache archive (for cache sharing between VMs)
+        // GET /download?type=npm - Returns tar.gz of npm global cache
+        // GET /download?type=pnpm - Returns tar.gz of pnpm store
+        if (pathname === '/download' && req.method === 'GET') {
+            const cacheType = url.searchParams.get('type') || 'pnpm'; // Default to pnpm
+
+            let cacheDir;
+            switch (cacheType) {
+                case 'npm':
+                    cacheDir = '/home/coder/.npm-global';
+                    break;
+                case 'pnpm':
+                    cacheDir = '/home/coder/volumes/pnpm-store';
+                    break;
+                default:
+                    return sendJson(req, res, { error: `Unknown cache type: ${cacheType}` }, 400);
+            }
+
+            const startTime = Date.now();
+            const tempFile = path.join(os.tmpdir(), `cache-${cacheType}-${Date.now()}.tar.gz`);
+
+            try {
+                // Check if cache directory exists (using fs.stat instead of shell command)
+                try {
+                    const stat = await fs.stat(cacheDir);
+                    if (!stat.isDirectory()) {
+                        return sendJson(req, res, {
+                            success: false,
+                            error: `${cacheDir} is not a directory`
+                        }, 400);
+                    }
+                } catch (err) {
+                    return sendJson(req, res, {
+                        success: false,
+                        error: `Cache directory not found: ${cacheDir}`
+                    }, 404);
+                }
+
+                // Create tar.gz of cache directory
+                const tarResult = await execCommand(
+                    `tar -czf "${tempFile}" -C "${path.dirname(cacheDir)}" "${path.basename(cacheDir)}"`,
+                    '/home/coder'
+                );
+
+                if (tarResult.exitCode !== 0) {
+                    await fs.unlink(tempFile).catch(() => {});
+                    return sendJson(req, res, {
+                        success: false,
+                        error: tarResult.stderr || 'Failed to create archive'
+                    }, 500);
+                }
+
+                // Get file size
+                const stats = await fs.stat(tempFile);
+                const fileSizeMB = (stats.size / (1024 * 1024)).toFixed(2);
+
+                console.log(`[Agent] Serving ${cacheType} cache: ${fileSizeMB}MB (took ${Date.now() - startTime}ms)`);
+
+                // Stream the file
+                const origin = req.headers.origin || '*';
+                res.writeHead(200, {
+                    'Content-Type': 'application/gzip',
+                    'Content-Length': stats.size,
+                    'Content-Disposition': `attachment; filename="cache-${cacheType}.tar.gz"`,
+                    'Access-Control-Allow-Origin': origin,
+                    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                    'Access-Control-Allow-Headers': '*',
+                    'Access-Control-Allow-Credentials': 'true'
+                });
+
+                const fileStream = require('fs').createReadStream(tempFile);
+                fileStream.pipe(res);
+
+                // Cleanup after streaming completes
+                fileStream.on('end', async () => {
+                    await fs.unlink(tempFile).catch(() => {});
+                });
+
+                fileStream.on('error', async (err) => {
+                    console.error('[Agent] Download stream error:', err);
+                    await fs.unlink(tempFile).catch(() => {});
+                    if (!res.headersSent) {
+                        sendJson(req, res, { error: err.message }, 500);
+                    }
+                });
+
+                return; // Important: return to prevent further processing
+            } catch (error) {
+                await fs.unlink(tempFile).catch(() => {});
                 return sendJson(req, res, {
                     success: false,
                     error: error.message,

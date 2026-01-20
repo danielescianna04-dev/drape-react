@@ -2182,7 +2182,8 @@ echo "=== END DEBUG ==="
             let installCmd;
             let pkgManager = 'pnpm'; // HOLY GRAIL: pnpm is now MANDATORY for all projects (faster + global store)
             // CI=true prevents pnpm from asking for TTY confirmation when removing/replacing node_modules
-            installCmd = 'CI=true pnpm config set package-import-method copy && CI=true pnpm install --prefer-offline';
+            // CRITICAL: Setup pnpm global store (survives across project switches)
+            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm config set store-dir /home/coder/volumes/pnpm-store && CI=true pnpm config set package-import-method copy && CI=true pnpm install --prefer-offline';
 
             if (fileNames.includes('pnpm-lock.yaml')) {
                 installCmd += ' --frozen-lockfile';
