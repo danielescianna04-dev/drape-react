@@ -823,7 +823,7 @@ PKGJSON
             const orphanVMs = poolMachines.filter(m => !poolMachineIds.has(m.id));
 
             if (orphanVMs.length > 0) {
-                console.log(`🧹 [Cleanup] Found ${orphanVMs.length} ORPHAN VMs on Fly.io (not in pool):`);
+                console.log(`🧹 [Cleanup] Found ${orphanVMs.length} potential ORPHAN VMs on Fly.io (not in pool):`);
                 for (const orphan of orphanVMs) {
                     // HARDENED SAFETY: Use multi-layer protection for cache masters
                     if (this.isProtectedCacheMaster(orphan.id, orphan.name)) {
@@ -842,8 +842,45 @@ PKGJSON
                         continue;
                     }
 
-                    // Destroy orphan worker VMs (only if NOT protected!)
-                    console.log(`   🗑️ Destroying orphan worker: ${orphan.id} (${orphan.name})`);
+                    // CRITICAL FIX: Don't destroy VMs that were just created (grace period: 5 minutes)
+                    const vmAge = Date.now() - Date.parse(orphan.created_at);
+                    const GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
+                    if (vmAge < GRACE_PERIOD_MS) {
+                        const ageMinutes = Math.round(vmAge / 60000);
+                        console.log(`   ⏰ Skipping recent VM: ${orphan.id} (age: ${ageMinutes}min < 5min grace period)`);
+                        // ADOPT instead of destroying - it might be a valid VM that just wasn't added to pool yet
+                        console.log(`   🔄 Adopting recent VM: ${orphan.id} (${orphan.name})`);
+                        this.pool.push({
+                            machineId: orphan.id,
+                            agentUrl: 'https://drape-workspaces.fly.dev',
+                            createdAt: Date.parse(orphan.created_at) || Date.now(),
+                            allocatedTo: null, // We don't know if it's allocated, mark as available for now
+                            allocatedAt: null,
+                            prewarmed: false, // Might still be pre-warming
+                            isCacheMaster: false,
+                            image: orphan.config?.image || flyService.DRAPE_IMAGE
+                        });
+                        continue;
+                    }
+
+                    // CRITICAL FIX: Only destroy if VM is actually stopped (not running)
+                    if (orphan.state === 'started') {
+                        console.log(`   ⚠️ VM ${orphan.id} is STARTED but not in pool - adopting instead of destroying`);
+                        this.pool.push({
+                            machineId: orphan.id,
+                            agentUrl: 'https://drape-workspaces.fly.dev',
+                            createdAt: Date.parse(orphan.created_at) || Date.now(),
+                            allocatedTo: null,
+                            allocatedAt: null,
+                            prewarmed: false,
+                            isCacheMaster: false,
+                            image: orphan.config?.image || flyService.DRAPE_IMAGE
+                        });
+                        continue;
+                    }
+
+                    // Only destroy if: old enough AND stopped
+                    console.log(`   🗑️ Destroying orphan worker: ${orphan.id} (${orphan.name}) - age: ${Math.round(vmAge/60000)}min, state: ${orphan.state}`);
                     try {
                         await flyService.destroyMachine(orphan.id);
                         console.log(`   ✅ Deleted orphan VM ${orphan.id}`);
@@ -857,12 +894,28 @@ PKGJSON
         }
 
         // PHASE 2: Clean up old VMs in our pool
+        // Count available workers BEFORE cleanup to ensure we keep minimum pool size
+        const availableWorkers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo);
+
         const oldVMs = this.pool.filter(vm => {
             // HARDENED: NEVER remove cache masters - use multi-layer protection
             if (vm.isCacheMaster || this.isProtectedCacheMaster(vm.machineId)) {
                 console.log(`   🛡️ [Cleanup] Protecting cache master: ${vm.machineId}`);
                 return false;
             }
+
+            // CRITICAL: Protect prewarmed workers (they have valuable cache!)
+            if (vm.prewarmed) {
+                console.log(`   💎 [Cleanup] Protecting prewarmed worker: ${vm.machineId} (has cache)`);
+                return false;
+            }
+
+            // CRITICAL: Keep minimum pool size - never delete if we're at or below BASE_POOL_SIZE
+            if (availableWorkers.length <= this.BASE_POOL_SIZE) {
+                console.log(`   🛡️ [Cleanup] Protecting worker ${vm.machineId} to maintain minimum pool size (${availableWorkers.length}/${this.BASE_POOL_SIZE})`);
+                return false;
+            }
+
             // Remove if: unallocated worker VM and older than MAX_VM_AGE_MS
             if (!vm.allocatedTo && (now - vm.createdAt) > this.MAX_VM_AGE_MS) {
                 const ageMinutes = Math.round((now - vm.createdAt) / 60000);

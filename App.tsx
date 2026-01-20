@@ -952,60 +952,81 @@ export default function App() {
                           const { activeTabId, tabs } = useTabStore.getState();
                           const currentTab = tabs.find(t => t.id === activeTabId);
 
-                          if (currentTab && githubUrl) {
-                            // Get auth token in background (non-blocking for UI)
-                            let authToken: string | null = null;
-                            try {
-                              authToken = await checkAuthBeforeOpen(
-                                githubUrl,
-                                workstation.name,
-                                workstation.githubAccountUsername
-                              );
-                              // If user cancelled auth popup, authToken will be null
-                              // We still continue - clone might work for public repos
-                            } catch (e) {
-                              console.warn('Auth check failed, continuing without token:', e);
-                            }
-
-                            // Start clone status tracking
-                            const repoName = githubUrl.split('/').pop()?.replace('.git', '') || 'repository';
-                            useCloneStatusStore.getState().startClone(workstation.id, repoName);
-
-                            // Trigger clone to ensure files are in Coder workspace
-                            console.log('📂 [onOpenProject-Home] Triggering clone to sync files...');
-                            fetch(`${config.apiUrl}/preview/clone`, {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({
-                                workstationId: workstation.id,
-                                repositoryUrl: githubUrl,
-                                githubToken: authToken || null,
-                              }),
-                            }).then(r => r.json()).then(result => {
-                              if (result.success) {
-                                console.log('✅ [Clone] Files synced to workspace');
-                                useCloneStatusStore.getState().completeClone(workstation.id);
-                                // Clear file cache so it refreshes with new files
-                                useFileCacheStore.getState().clearCache(workstation.id);
-                              } else {
-                                console.warn('⚠️ [Clone] Sync issue:', result.error || result.message);
-                                useCloneStatusStore.getState().failClone(workstation.id, result.error || result.message);
+                          if (currentTab) {
+                            if (githubUrl) {
+                              // Get auth token in background (non-blocking for UI)
+                              let authToken: string | null = null;
+                              try {
+                                authToken = await checkAuthBeforeOpen(
+                                  githubUrl,
+                                  workstation.name,
+                                  workstation.githubAccountUsername
+                                );
+                                // If user cancelled auth popup, authToken will be null
+                                // We still continue - clone might work for public repos
+                              } catch (e) {
+                                console.warn('Auth check failed, continuing without token:', e);
                               }
-                            }).catch(e => {
-                              console.warn('Clone sync error:', e.message);
-                              useCloneStatusStore.getState().failClone(workstation.id, e.message);
-                            });
 
-                            // If not marked as cloned, do the full clone with auth
-                            if (!workstation.cloned) {
-                              await cloneRepositoryWithAuth(
-                                workstation.projectId || workstation.id,
-                                githubUrl,
-                                currentTab.id,
-                                workstation.name,
-                                workstation.githubAccountUsername,
-                                authToken // Pass the pre-authenticated token
-                              );
+                              // Start clone status tracking
+                              const repoName = githubUrl.split('/').pop()?.replace('.git', '') || 'repository';
+                              useCloneStatusStore.getState().startClone(workstation.id, repoName);
+
+                              // Trigger clone to ensure files are in Coder workspace
+                              console.log('📂 [onOpenProject-Home] Triggering clone to sync files...');
+                              fetch(`${config.apiUrl}/preview/clone`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  workstationId: workstation.id,
+                                  repositoryUrl: githubUrl,
+                                  githubToken: authToken || null,
+                                }),
+                              }).then(r => r.json()).then(result => {
+                                if (result.success) {
+                                  console.log('✅ [Clone] Files synced to workspace');
+                                  useCloneStatusStore.getState().completeClone(workstation.id);
+                                  // Clear file cache so it refreshes with new files
+                                  useFileCacheStore.getState().clearCache(workstation.id);
+                                } else {
+                                  console.warn('⚠️ [Clone] Sync issue:', result.error || result.message);
+                                  useCloneStatusStore.getState().failClone(workstation.id, result.error || result.message);
+                                }
+                              }).catch(e => {
+                                console.warn('Clone sync error:', e.message);
+                                useCloneStatusStore.getState().failClone(workstation.id, e.message);
+                              });
+
+                              // If not marked as cloned, do the full clone with auth
+                              if (!workstation.cloned) {
+                                await cloneRepositoryWithAuth(
+                                  workstation.projectId || workstation.id,
+                                  githubUrl,
+                                  currentTab.id,
+                                  workstation.name,
+                                  workstation.githubAccountUsername,
+                                  authToken // Pass the pre-authenticated token
+                                );
+                              }
+                            } else {
+                              // No githubUrl - project might be already on VM or a local project
+                              // Ensure VM is ready by calling /preview/start
+                              console.log('📂 [onOpenProject-Home] No repo URL - ensuring VM is ready...');
+                              fetch(`${config.apiUrl}/preview/start`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  projectId: workstation.id,
+                                }),
+                              }).then(r => r.json()).then(result => {
+                                if (result.success || result.previewUrl) {
+                                  console.log('✅ [VM] Server ready at:', result.previewUrl);
+                                } else {
+                                  console.warn('⚠️ [VM] Start issue:', result.error || result.message);
+                                }
+                              }).catch(e => {
+                                console.warn('VM start error:', e.message);
+                              });
                             }
                           }
                         }, 50); // Reduced delay for faster background start

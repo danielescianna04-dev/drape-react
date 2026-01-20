@@ -2565,6 +2565,10 @@ pkill -9 -f "node.*dev" || true
 fuser -k 3000/tcp 2>/dev/null || true
 sleep 1
 
+# CRITICAL: Clean build caches to avoid "Cannot find module" errors
+# Next.js .next cache and Vite cache can get corrupted when files are synced from storage
+rm -rf .next .vite 2>/dev/null || true
+
 # Start dev server in background and DETACH from parent process
 # nohup + disown ensures the process survives even if parent exits
 nohup ${finalStart} > /home/coder/server.log 2>&1 &
@@ -2648,7 +2652,9 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     validateStatus: () => true // Catch all statuses
                 });
 
-                if (response.status >= 200 && response.status < 400) {
+                // Accept 2xx, 3xx (success/redirect) OR 404 (server responding, but no content on root)
+                // 404 is common for SPA frameworks (Vite, Vue, React) that don't serve content on root
+                if ((response.status >= 200 && response.status < 400) || response.status === 404) {
                     console.log(`✅ [Health Check] App ready! (${response.status}) after ${Date.now() - startTime}ms`);
                     return true;
                 } else {

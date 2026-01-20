@@ -506,18 +506,16 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   }, [projectInfo, apiUrl, serverStatus]);
   */
 
-  // Fallback: Force WebView ready logic DISABLED to prevent showing errors
-  /*
+  // Fallback: Force WebView ready after timeout if messages don't arrive
   useEffect(() => {
     if (serverStatus === 'running' && !webViewReady) {
       const timer = setTimeout(() => {
-        console.log('⚠️ Forcing WebView ready due to timeout');
+        console.log('⚠️ [WebView] Forcing ready due to 10s timeout - messages may not have arrived');
         setWebViewReady(true);
-      }, 15000); // 15 seconds
+      }, 10000); // 10 seconds - shorter timeout for better UX
       return () => clearTimeout(timer);
     }
   }, [serverStatus, webViewReady]);
-  */
 
   // ============ AUTO-RECOVERY: Request machineId if missing ============
   // 🔑 FIX 3: If server is running but machineId is lost, request a new session
@@ -1990,30 +1988,34 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                               document.head.appendChild(style);
                             }
                             
-                            // Check for React mount
+                            // Check for React/Next.js mount
                             var checkCount = 0;
                             var checkInterval = setInterval(function() {
                               checkCount++;
                               if (document.body) {
-                                var root = document.getElementById('root');
+                                // Support multiple root element IDs
+                                var root = document.getElementById('root') ||
+                                           document.getElementById('__next') ||
+                                           document.querySelector('[data-reactroot]') ||
+                                           document.querySelector('[id^="app"]');
                                 var rootChildren = root ? root.children.length : 0;
                                 var text = document.body.innerText || '';
-                                
+
                                 // Check for blockers
                                 if (text.indexOf("Blocked request") !== -1 || text.indexOf("404 (Gateway)") !== -1) {
                                   clearInterval(checkInterval);
                                   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'TRIGGER_REFRESH' }));
                                   return;
                                 }
-                                
-                                // React mounted
-                                if (root && rootChildren > 0) {
+
+                                // React/Next.js mounted - or any content in body
+                                if ((root && rootChildren > 0) || document.body.children.length > 2) {
                                   clearInterval(checkInterval);
                                   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
                                 }
-                                
-                                // Timeout after 30 seconds
-                                if (checkCount >= 60) {
+
+                                // Shorter timeout - 10 seconds (20 checks * 500ms)
+                                if (checkCount >= 20) {
                                   clearInterval(checkInterval);
                                   window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
                                 }
@@ -2043,27 +2045,44 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                                }));
                              });
 
-                             const root = document.getElementById('root');
+                             // Support multiple root element IDs
+                             const root = document.getElementById('root') ||
+                                          document.getElementById('__next') ||
+                                          document.querySelector('[data-reactroot]') ||
+                                          document.querySelector('[id^="app"]');
                              const rootChildren = root ? root.children.length : 0;
-                             
+
                              let attempts = 0;
-                             const maxAttempts = 40; 
-                             
+                             const maxAttempts = 20; // Reduced from 40 to 20 (10 seconds max)
+
                              function checkContent() {
                                attempts++;
                                try {
-                                 const root = document.getElementById('root');
-                                 // STRICT CHECK: We only consider it "content" if the React root exists.
-                                 // This prevents error pages (like 404/Blocked) from being counted as valid content.
+                                 const root = document.getElementById('root') ||
+                                              document.getElementById('__next') ||
+                                              document.querySelector('[data-reactroot]') ||
+                                              document.querySelector('[id^="app"]');
+                                 // Check root children OR any substantial body content
                                  const rootChildren = root ? root.children.length : 0;
-                                 const hasContent = (rootChildren > 0); 
-                                 
+                                 const hasContent = (rootChildren > 0) || (document.body.children.length > 2);
+
                                  if (hasContent) {
                                    window.ReactNativeWebView?.postMessage(JSON.stringify({
                                      type: 'PAGE_INFO',
                                      hasContent: hasContent,
                                      rootChildren: rootChildren,
                                      forceReady: false
+                                   }));
+                                   return true;
+                                 }
+
+                                 // Force ready after max attempts
+                                 if (attempts >= maxAttempts) {
+                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
+                                     type: 'PAGE_INFO',
+                                     hasContent: true,
+                                     rootChildren: 0,
+                                     forceReady: true
                                    }));
                                    return true;
                                  }
