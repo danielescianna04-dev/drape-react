@@ -269,6 +269,36 @@ class VMPoolManager {
                 return await this.allocateVM(projectId);
             }
 
+            // 🔑 NEW: Verify agent is responsive before allocating (avoid slow/busy VMs)
+            try {
+                const axios = require('axios');
+                const startHealth = Date.now();
+                const healthCheck = await axios.get(`${pooledVM.agentUrl}/health`, {
+                    timeout: 5000,
+                    headers: { 'Fly-Force-Instance-Id': pooledVM.machineId }
+                });
+                if (healthCheck.status !== 200) {
+                    throw new Error(`Health check returned ${healthCheck.status}`);
+                }
+                console.log(`   ✅ Agent health check passed for ${pooledVM.machineId} (${Date.now() - startHealth}ms)`);
+            } catch (healthErr) {
+                console.warn(`⚠️ [VM Pool] VM ${pooledVM.machineId} agent not responding (${healthErr.message}), skipping...`);
+                // Don't remove - might be temporarily busy
+                // Try next available VM
+                const nextVM = this.pool.find(vm =>
+                    !vm.allocatedTo &&
+                    vm.machineId !== pooledVM.machineId &&
+                    vm.cacheReady !== false &&
+                    !vm.isCacheMaster
+                );
+                if (nextVM) {
+                    console.log(`🔄 [VM Pool] Trying next VM: ${nextVM.machineId}`);
+                    pooledVM = nextVM;
+                } else {
+                    console.log(`⚠️ [VM Pool] No other VMs available, using busy VM ${pooledVM.machineId} anyway`);
+                }
+            }
+
             // VM is alive, allocate it!
             pooledVM.allocatedTo = projectId;
 

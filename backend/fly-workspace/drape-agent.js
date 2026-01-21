@@ -21,7 +21,7 @@ const os = require('os');
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.12 - Fix cache: exclude projects/, ignore failed reads');
+console.log('🚀 Drape Agent v2.13 - Auto-detect zstd/gzip compression for cache');
 
 // Ensure PROJECT_DIR exists at startup (required for exec default cwd)
 const fsSync = require('fs');
@@ -798,16 +798,49 @@ async function autoFetchCache(cacheMasterId) {
 
     console.log(`📦 [Auto-Cache] Downloaded ${(fileStats.size / 1024 / 1024).toFixed(1)}MB, extracting...`);
 
+    // Detect compression format by reading magic bytes
+    // gzip: 0x1f 0x8b, zstd: 0x28 0xb5 0x2f 0xfd
+    const fsSync = require('fs');
+    const fd = fsSync.openSync('/tmp/cache.tar.gz', 'r');
+    const magicBuffer = Buffer.alloc(4);
+    fsSync.readSync(fd, magicBuffer, 0, 4, 0);
+    fsSync.closeSync(fd);
+
+    let extractCmd;
+    let isZstd = false;
+    if (magicBuffer[0] === 0x28 && magicBuffer[1] === 0xb5 && magicBuffer[2] === 0x2f && magicBuffer[3] === 0xfd) {
+        // zstd format - check if zstd is available, otherwise fail with clear error
+        isZstd = true;
+        console.log(`📦 [Auto-Cache] Detected zstd compression`);
+        // Check if zstd is installed
+        const zstdCheck = await execCommand('which zstd', '/tmp', 5000);
+        if (zstdCheck.exitCode === 0) {
+            extractCmd = 'zstd -d /tmp/cache.tar.gz -o /tmp/cache.tar --force && tar -xf /tmp/cache.tar -C /home/coder/volumes/pnpm-store/ 2>&1';
+        } else {
+            // zstd not installed - this is a fatal error, cache needs to be regenerated with gzip
+            throw new Error('Cache is zstd-compressed but zstd is not installed! Regenerate cache with: tar -czf pnpm-cache.tar.gz v10/files v10/index');
+        }
+    } else if (magicBuffer[0] === 0x1f && magicBuffer[1] === 0x8b) {
+        // gzip format
+        console.log(`📦 [Auto-Cache] Detected gzip compression`);
+        extractCmd = 'tar -xzf /tmp/cache.tar.gz -C /home/coder/volumes/pnpm-store/ 2>&1';
+    } else {
+        // Try plain tar (uncompressed or unknown)
+        console.log(`📦 [Auto-Cache] Unknown compression (${magicBuffer.toString('hex')}), trying plain tar`);
+        extractCmd = 'tar -xf /tmp/cache.tar.gz -C /home/coder/volumes/pnpm-store/ 2>&1';
+    }
+
     // Extract cache (tar contains v10/ folder, extract to pnpm-store/)
-    // Increase timeout to 5 minutes for 1.4GB extraction
+    // Increase timeout to 5 minutes for extraction
     const extractResult = await execCommand(
-        'tar -xzf /tmp/cache.tar.gz -C /home/coder/volumes/pnpm-store/ 2>&1',
+        extractCmd,
         '/tmp',
         300000
     );
 
-    // Cleanup temp file
+    // Cleanup temp files (both .tar.gz and .tar for zstd case)
     await fs.unlink('/tmp/cache.tar.gz').catch(() => {});
+    await fs.unlink('/tmp/cache.tar').catch(() => {});
 
     if (extractResult.exitCode !== 0) {
         throw new Error(`tar extract failed: ${extractResult.stderr || extractResult.stdout}`);

@@ -196,9 +196,9 @@ class WorkspaceOrchestrator {
                                     recommendation: 'Consider downgrading to Next.js 15.3.0',
                                     link: 'https://github.com/vercel/next.js/discussions/77102'
                                 };
-                                // Disable Turbopack for Next.js 16.x (Turbopack has crash bugs in these versions)
-                                // Next.js 16+ defaults to Turbopack, so we need --no-turbo to force Webpack
-                                projectInfo.startCommand = 'npx next dev --no-turbo -H 0.0.0.0 --port 3000';
+                                // Next.js 16.x still uses Webpack by default (Turbopack is opt-in with --turbo)
+                                // No need for --no-turbo flag, just use default Webpack mode
+                                projectInfo.startCommand = 'npx next dev -H 0.0.0.0 --port 3000';
                                 projectInfo.disableTurbopack = true;
                             }
                         }
@@ -2305,7 +2305,21 @@ echo "=== END DEBUG ==="
             let defaultStart = `${pkgManager} run dev -- --host 0.0.0.0 --port 3000`;
 
             // Check if this is a Next.js project by reading package.json
-            const pkgJsonResult = await flyService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', machineId, 5000, true);
+            // Use longer timeout (60s) and retry - VM might be busy with cache extraction
+            let pkgJsonResult = null;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    pkgJsonResult = await flyService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', machineId, 60000, true);
+                    break;
+                } catch (readErr) {
+                    if (attempt < 3 && (readErr.code === 'ECONNABORTED' || readErr.message?.includes('timeout'))) {
+                        console.log(`   ⏱️ package.json read attempt ${attempt}/3 timed out, retrying...`);
+                        await new Promise(r => setTimeout(r, 2000));
+                    } else {
+                        throw readErr;
+                    }
+                }
+            }
             if (pkgJsonResult && pkgJsonResult.stdout) {
                 try {
                     const pkg = JSON.parse(pkgJsonResult.stdout);
@@ -2323,12 +2337,12 @@ echo "=== END DEBUG ==="
                         const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
 
                         if (major === 16 && minor <= 1) {
-                            // Next.js 16.0-16.1 has Turbopack crash bugs - use Webpack
-                            // Next.js 16+ defaults to Turbopack, so we need --no-turbo to force Webpack
-                            defaultStart = `npx next dev --no-turbo -H 0.0.0.0 --port 3000`;
+                            // Next.js 16.0-16.1 - use Webpack (default, Turbopack is opt-in with --turbo)
+                            // No --no-turbo flag needed, Webpack is already the default
+                            defaultStart = `npx next dev -H 0.0.0.0 --port 3000`;
                             // CRITICAL: Override startCommand to ensure runtime detection takes precedence
                             projectInfo.startCommand = defaultStart;
-                            console.log(`   🎯 Detected Next.js ${major}.${minor} - using Webpack (--no-turbo to disable Turbopack)`);
+                            console.log(`   🎯 Detected Next.js ${major}.${minor} - using Webpack (default mode)`);
                         } else {
                             // HOLY GRAIL: Enable Turbopack for stable versions
                             defaultStart = `npx next dev --turbo -H 0.0.0.0 --port 3000`;
@@ -2554,29 +2568,15 @@ echo "=== END DEBUG ==="
                     // Launch install in background
                     // 🔑 Robustness: Kill any existing dev servers or stalled installs
                     // DO NOT use killall node as it kills the agent!
-                    // FIX: Check if an install is already in progress (background warming)
-                    const checkInstallInProgress = await flyService.exec(agentUrl,
-                        `if [ ! -f ${installMarker} ] && pgrep -f "install.sh|pnpm install" > /dev/null; then echo "IN_PROGRESS"; else echo "IDLE"; fi`,
-                        '/home/coder', machineId, 10000, true);
+                    // NOTE: Removed "wait for background install" check - it was detecting the MEGA pnpm install
+                    // from cache warming and blocking forever. pnpm has its own locking mechanism.
 
-                    if (checkInstallInProgress.stdout?.trim() === 'IN_PROGRESS') {
-                        console.log(`   ⏳ [INSTALL] Background install in progress, waiting for it to complete...`);
-                        // Wait for existing install to finish (max 5 minutes)
-                        const waitStart = Date.now();
-                        const maxWaitMs = 5 * 60 * 1000;
-                        while (Date.now() - waitStart < maxWaitMs) {
-                            const checkDone = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 30000, true);
-                            const status = checkDone.stdout?.trim();
-                            if (status && status !== 'PENDING') {
-                                console.log(`   ✅ [INSTALL] Background install finished (exit: ${status})`);
-                                break;
-                            }
-                            await new Promise(r => setTimeout(r, 3000));
-                        }
+                    // Cleanup old markers (don't wait too long - VM might be busy)
+                    try {
+                        await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 10000, true);
+                    } catch (cleanupErr) {
+                        console.log(`   ⚠️ Marker cleanup timed out (VM busy) - continuing anyway`);
                     }
-
-                    // Cleanup markers (moved AFTER checking for in-progress install)
-                    await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 15000, true);
 
                     // Kill dev servers (but NOT package managers if install might be running)
                     const killCmd = 'fuser -k 3000/tcp || true; pkill -9 -f next-server || true; pkill -9 -f vite || true';
@@ -2614,7 +2614,19 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
 
                     console.log(`   🛠️ BG Install Script: ${installScript}`);
                     // Run in background (detached from parent)
-                    await flyService.exec(agentUrl, `${installScript} > /dev/null 2>&1 & disown`, '/home/coder', machineId, 3000, true);
+                    // Use nohup for proper detachment, increased timeout, and catch timeout errors gracefully
+                    try {
+                        await flyService.exec(agentUrl, `nohup ${installScript} > /dev/null 2>&1 &`, '/home/coder', machineId, 15000, true);
+                        console.log(`   ✅ Install script triggered successfully`);
+                    } catch (triggerErr) {
+                        // Ignore timeout errors - the script is likely running in background
+                        if (triggerErr.code === 'ECONNABORTED' || triggerErr.message?.includes('timeout') || triggerErr.message?.includes('socket hang up')) {
+                            console.log(`   ⏱️ Install trigger timeout/hangup (expected) - script running in background...`);
+                        } else {
+                            console.error(`   ❌ Install trigger failed: ${triggerErr.message}`);
+                            throw triggerErr;
+                        }
+                    }
 
                     // Poll for completion
                     let pollCount = 0;
@@ -2711,7 +2723,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
             }
 
             console.log(`   🔪 Killing any process on port 3000...`);
-            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 5000, true);
+            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 15000, true);
 
             if (staySilent) {
                 console.log(`   ⏭️[Orchestrator] staySilent = true: Skipping dev server start`);
@@ -2758,10 +2770,11 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
             // If exec times out, the server is still starting - health check will verify
             try {
                 await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+                console.log(`   ✅ Startup script triggered successfully`);
             } catch (execErr) {
-                // Ignore timeout errors - the script is running, health check will verify
-                if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout')) {
-                    console.log(`   ⏱️ Exec timeout (expected) - server starting in background...`);
+                // Ignore timeout/hangup errors - the script is running, health check will verify
+                if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
+                    console.log(`   ⏱️ Exec timeout/hangup (expected) - server starting in background...`);
                 } else {
                     // Re-throw non-timeout errors
                     throw execErr;

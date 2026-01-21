@@ -6455,14 +6455,14 @@
     "prewarmed": true,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6"
   },
-  "aYVV4jrd4KTf5iKjxm5b": {
-    "id": "d8d924ef6ed2e8",
-    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
+  "hFy5l3kyhnVvXC5Myo50": {
+    "id": "e829e40c05e598",
+    "name": "ws-hFy5l3kyhnVvXC5Myo50",
     "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "d8d924ef6ed2e8",
-    "projectId": "aYVV4jrd4KTf5iKjxm5b",
-    "createdAt": 1768971414655,
-    "lastUsed": 1768972036314,
+    "machineId": "e829e40c05e598",
+    "projectId": "hFy5l3kyhnVvXC5Myo50",
+    "createdAt": 1768993054157,
+    "lastUsed": 1768993087144,
     "fromPool": true,
     "prewarmed": true,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J",
@@ -6470,6 +6470,37 @@
       "type": "nextjs",
       "description": "Next.js application",
       "startCommand": "npx next dev --no-turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
+        "recommendation": "Consider downgrading to Next.js 15.3.0",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "disableTurbopack": true,
+      "language": "typescript",
+      "packageManager": "npm",
+      "installCommand": "npm install",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    }
+  },
+  "aYVV4jrd4KTf5iKjxm5b": {
+    "id": "56834d10c207e8",
+    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "56834d10c207e8",
+    "projectId": "aYVV4jrd4KTf5iKjxm5b",
+    "createdAt": 1768995519776,
+    "lastUsed": 1768995552050,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js application",
+      "startCommand": "npx next dev -H 0.0.0.0 --port 3000",
       "port": 3000,
       "nextJsVersionWarning": {
         "version": "16.1.1",
