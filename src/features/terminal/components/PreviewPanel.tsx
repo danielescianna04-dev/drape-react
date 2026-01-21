@@ -171,6 +171,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
   const [reportSent, setReportSent] = useState(false);
   const recentLogsRef = useRef<string[]>([]); // Store recent logs for error reporting
 
+  // Session expiration state (when VM is released due to idle timeout)
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
   // Rich Loading Messages
   const LOADING_MESSAGES: Record<string, string[]> = {
     analyzing: [
@@ -603,6 +607,21 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                 continue;
               }
 
+              // Handle session expired event - VM was released due to idle timeout
+              if (data.type === 'session_expired') {
+                console.log('⏰ Session expired:', data);
+                setSessionExpired(true);
+                setSessionExpiredMessage(data.message || 'Sessione terminata per inattività');
+                setServerStatus('stopped');
+                setIsStarting(false);
+                // Stop polling interval
+                if (checkInterval.current) {
+                  clearInterval(checkInterval.current);
+                  checkInterval.current = null;
+                }
+                continue;
+              }
+
               // Add log line to terminal output
               if (data.text) {
                 // Also update the status message in the loading screen in real-time
@@ -819,6 +838,10 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       logError('No workstation selected', 'preview');
       return;
     }
+
+    // Reset session expired state when starting a new preview
+    setSessionExpired(false);
+    setSessionExpiredMessage('');
 
     setIsStarting(true);
     setServerStatus('checking'); // Enter checking screen
@@ -1831,6 +1854,76 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
                     </TouchableOpacity>
                   </View>
                 </View>
+              ) : sessionExpired ? (
+                // Session expired - show message with restart option
+                <Reanimated.View style={styles.startScreen} entering={FadeIn.duration(300)}>
+                  <LinearGradient
+                    colors={['#050505', '#0a0a0b', '#0f0f12']}
+                    style={StyleSheet.absoluteFill}
+                  >
+                    <View style={styles.ambientBlob1} />
+                    <View style={styles.ambientBlob2} />
+                  </LinearGradient>
+
+                  <View style={styles.iphoneMockup}>
+                    <View style={styles.statusBarArea}>
+                      <Text style={styles.fakeTime}>9:41</Text>
+                      <View style={styles.dynamicIsland} />
+                      <View style={styles.fakeStatusIcons}>
+                        <Ionicons name="wifi" size={10} color="#fff" />
+                        <Ionicons name="battery-full" size={10} color="#fff" />
+                      </View>
+                    </View>
+
+                    <View style={styles.iphoneScreenCentered}>
+                      {/* Session Expired Icon */}
+                      <View style={[styles.cosmicOrbContainer, { opacity: 0.6 }]}>
+                        <View style={[styles.cosmicGlowRing1, { backgroundColor: 'rgba(255, 171, 0, 0.15)' }]} />
+                        <View style={[styles.cosmicGlowRing2, { backgroundColor: 'rgba(255, 171, 0, 0.08)' }]} />
+                        <LinearGradient
+                          colors={['#FFAB00', '#FF6D00']}
+                          style={styles.cosmicOrb}
+                        >
+                          <Ionicons name="time-outline" size={32} color="#FFFFFF" />
+                        </LinearGradient>
+                      </View>
+
+                      <View style={styles.cosmicTextContainer}>
+                        <Text style={[styles.cosmicTitle, { fontSize: 16 }]}>
+                          SESSIONE SCADUTA
+                        </Text>
+                        <View style={[styles.cosmicTitleUnderline, { backgroundColor: '#FFAB00' }]} />
+                        <Text style={styles.cosmicSubtitle}>
+                          {sessionExpiredMessage || 'Sessione terminata per inattività'}
+                        </Text>
+                      </View>
+
+                      {/* Restart Button */}
+                      <TouchableOpacity
+                        style={[styles.cosmicOrbContainer, { marginTop: 24 }]}
+                        onPress={handleStartServer}
+                        activeOpacity={0.9}
+                      >
+                        <View style={styles.cosmicGlowRing1} />
+                        <View style={styles.cosmicGlowRing2} />
+                        <LinearGradient
+                          colors={[AppColors.primary, '#6C5CE7']}
+                          style={[styles.cosmicOrb, { width: 56, height: 56, borderRadius: 28 }]}
+                        >
+                          <Ionicons name="refresh" size={24} color="#FFFFFF" />
+                        </LinearGradient>
+                      </TouchableOpacity>
+
+                      <Text style={[styles.cosmicSubtitle, { marginTop: 8 }]}>
+                        Tocca per riavviare
+                      </Text>
+                    </View>
+
+                    <View style={styles.iphoneSideButton} />
+                    <View style={styles.iphoneVolumeUp} />
+                    <View style={styles.iphoneVolumeDown} />
+                  </View>
+                </Reanimated.View>
               ) : serverStatus === 'stopped' ? (
                 // Server not running - Device mockup style with ChatPage background
                 <Reanimated.View style={styles.startScreen} exiting={FadeOut.duration(300)}>

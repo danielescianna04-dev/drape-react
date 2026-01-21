@@ -88,15 +88,25 @@ function fastDetect(files, configFiles) {
 
             // Next.js
             if (deps.next) {
+                // Check Next.js version - disable Turbopack for 16.0-16.1 (crash bugs)
+                const nextVersion = deps.next;
+                const versionMatch = nextVersion.match(/(\d+)\.(\d+)/);
+                const major = versionMatch ? parseInt(versionMatch[1]) : 0;
+                const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
+                const useTurbo = !(major === 16 && minor <= 1);
+
                 return {
                     type: 'nextjs',
                     description: 'Next.js application',
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: `npx next dev --turbo -H 0.0.0.0 --port 3000`,
+                    startCommand: useTurbo
+                        ? `npx next dev --turbo -H 0.0.0.0 --port 3000`
+                        : `npx next dev --no-turbo -H 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
-                    requiresDocker: false
+                    requiresDocker: false,
+                    disableTurbopack: !useTurbo
                 };
             }
 

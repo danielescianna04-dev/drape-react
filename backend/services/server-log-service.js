@@ -83,6 +83,35 @@ class ServerLogService {
             this.serverLogsMap.get(workstationId).logs = [];
         }
     }
+
+    /**
+     * Broadcast an event to all listeners for a workstation
+     * Used for session lifecycle events (session_expired, etc.)
+     */
+    broadcastEvent(workstationId, eventType, data = {}) {
+        if (!this.serverLogsMap.has(workstationId)) {
+            console.log(`📢 [ServerLogService] No listeners for ${workstationId}, skipping ${eventType} event`);
+            return;
+        }
+
+        const entry = this.serverLogsMap.get(workstationId);
+        const event = {
+            type: eventType,
+            timestamp: new Date().toISOString(),
+            ...data
+        };
+
+        console.log(`📢 [ServerLogService] Broadcasting ${eventType} to ${entry.listeners.size} listeners for ${workstationId}`);
+
+        entry.listeners.forEach(res => {
+            try {
+                res.write(`data: ${JSON.stringify(event)}\n\n`);
+                if (res.flush) res.flush();
+            } catch (e) {
+                console.error(`❌ Error broadcasting ${eventType} to listener for ${workstationId}:`, e.message);
+            }
+        });
+    }
 }
 
 module.exports = new ServerLogService();

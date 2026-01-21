@@ -26,13 +26,43 @@ class VMPoolManager {
 
         // HARDCODED Cache Master protection - NEVER delete these!
         this.PROTECTED_CACHE_MASTERS = new Set([
-            '3287d475fe1698', // ws-cache-master-v28 (CURRENT - v2.7 fixed extract path)
+            '90804e96fdde98', // ws-cache-* with vol_45lp07o8k6oq38qr (3GB pnpm cache)
+            '3287d475fe1698', // ws-cache-master-v28 (legacy, keep for safety)
         ]);
         this.CACHE_MASTER_NAME_PATTERN = /^ws-cache-/; // Match all cache master names
 
         this.MAX_VM_AGE_MS = 30 * 60 * 1000; // 30 min max age (cost optimization)
         this.VM_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 min idle timeout (for session pooling)
         this.isInitialized = false;
+    }
+
+    /**
+     * Check if a VM has pnpm cache (>500MB in store)
+     * @param {string} machineId - Machine ID to check
+     * @returns {Promise<{hasCache: boolean, sizeMB: number}>}
+     */
+    async checkVMHasCache(machineId) {
+        try {
+            const axios = require('axios');
+            const agentUrl = 'https://drape-workspaces.fly.dev';
+
+            const checkResult = await axios.post(`${agentUrl}/exec`, {
+                command: 'du -sb /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1 || echo "0"',
+                cwd: '/home/coder'
+            }, {
+                timeout: 15000,
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+
+            const bytes = parseInt(checkResult.data?.stdout?.trim() || '0', 10);
+            const sizeMB = Math.round(bytes / 1024 / 1024);
+            const hasCache = bytes > 500 * 1024 * 1024; // >500MB
+
+            return { hasCache, sizeMB };
+        } catch (e) {
+            console.warn(`   ⚠️ [Cache Check] Failed for ${machineId}: ${e.message}`);
+            return { hasCache: false, sizeMB: 0 };
+        }
     }
 
     /**
@@ -98,25 +128,48 @@ class VMPoolManager {
                 m.state !== 'destroyed'
             );
 
-            for (const vm of poolMachines) {
-                if (!this.pool.find(p => p.machineId === vm.id)) {
-                    // Check if this VM is a cache master (by env var OR by name pattern)
-                    const isCacheMaster = vm.config?.env?.CACHE_MASTER === 'true' || vm.name.startsWith('ws-cache-');
-                    const vmType = isCacheMaster ? 'Cache Master' : 'warm VM';
-                    console.log(`🏊 [VM Pool] Adopting existing ${vmType}: ${vm.id} (${vm.name})`);
+            // Adopt VMs in parallel with cache check
+            // PRIORITY: Process protected cache masters first to ensure they're in pool before workers
+            const protectedFirst = poolMachines.sort((a, b) => {
+                const aProtected = this.PROTECTED_CACHE_MASTERS.has(a.id) ? 0 : 1;
+                const bProtected = this.PROTECTED_CACHE_MASTERS.has(b.id) ? 0 : 1;
+                return aProtected - bProtected;
+            });
 
-                    this.pool.push({
+            const adoptPromises = protectedFirst
+                .filter(vm => !this.pool.find(p => p.machineId === vm.id))
+                .map(async (vm) => {
+                    // Check if this VM is a cache master (by env var OR by name pattern OR protected list)
+                    const isProtected = this.PROTECTED_CACHE_MASTERS.has(vm.id);
+                    const isCacheMaster = isProtected || vm.config?.env?.CACHE_MASTER === 'true' || vm.name.startsWith('ws-cache-');
+                    const vmType = isCacheMaster ? (isProtected ? 'Cache Master (PROTECTED)' : 'Cache Master') : 'warm VM';
+
+                    // FIX: Check if VM actually has cache before marking as prewarmed
+                    // Protected cache masters are ALWAYS prewarmed (they have the volume)
+                    let prewarmed = isProtected || isCacheMaster;
+                    if (!isCacheMaster && vm.state === 'started') {
+                        const { hasCache, sizeMB } = await this.checkVMHasCache(vm.id);
+                        prewarmed = hasCache;
+                        console.log(`🏊 [VM Pool] Adopting ${vmType}: ${vm.id} (${vm.name}) - cache: ${sizeMB}MB, prewarmed: ${prewarmed}`);
+                    } else {
+                        console.log(`🏊 [VM Pool] Adopting ${vmType}: ${vm.id} (${vm.name}) - state: ${vm.state}`);
+                    }
+
+                    return {
                         machineId: vm.id,
                         agentUrl: 'https://drape-workspaces.fly.dev',
                         createdAt: Date.parse(vm.created_at) || Date.now(),
                         allocatedTo: null,
                         allocatedAt: null,
-                        prewarmed: true, // Assume pre-warmed if it exists from previous run
-                        isCacheMaster: isCacheMaster, // Dedicated cache master never allocated to projects
+                        prewarmed: prewarmed,
+                        cacheReady: prewarmed, // If has cache, it's ready for allocation
+                        isCacheMaster: isCacheMaster,
                         image: vm.config?.image || flyService.DRAPE_IMAGE
-                    });
-                }
-            }
+                    };
+                });
+
+            const adoptedVMs = await Promise.all(adoptPromises);
+            this.pool.push(...adoptedVMs);
         } catch (e) {
             console.warn(`⚠️ [VM Pool] Failed to adopt orphans: ${e.message}`);
         }
@@ -151,12 +204,30 @@ class VMPoolManager {
      */
     async allocateVM(projectId) {
         // CRITICAL: Never allocate cache masters to projects - they're reserved for cache copying only
+        // CRITICAL: Never allocate VMs that are still downloading cache (cacheReady must be true)
         // Try to get prewarmed worker VM first (has npm cache ready)
-        let pooledVM = this.pool.find(vm => !vm.allocatedTo && vm.prewarmed && !vm.isCacheMaster);
+        let pooledVM = this.pool.find(vm =>
+            !vm.allocatedTo &&
+            vm.prewarmed &&
+            vm.cacheReady !== false && // Must have cache ready (true or undefined for backwards compat)
+            !vm.isCacheMaster
+        );
 
-        // If no prewarmed worker VM, fallback to any available worker VM
+        // If no prewarmed worker VM, fallback to any available worker VM WITH cache ready
         if (!pooledVM) {
-            pooledVM = this.pool.find(vm => !vm.allocatedTo && !vm.isCacheMaster);
+            pooledVM = this.pool.find(vm =>
+                !vm.allocatedTo &&
+                vm.cacheReady !== false && // Must have cache ready
+                !vm.isCacheMaster
+            );
+        }
+
+        // Log if VMs exist but aren't ready (helps debugging)
+        if (!pooledVM) {
+            const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster);
+            if (downloadingVMs.length > 0) {
+                console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, not available yet`);
+            }
         }
 
         if (pooledVM) {
@@ -170,11 +241,26 @@ class VMPoolManager {
                 const flyService = require('./fly-service');
                 const machine = await flyService.getMachine(pooledVM.machineId);
 
-                if (!machine || machine.state !== 'started') {
-                    console.warn(`⚠️ [VM Pool] VM ${pooledVM.machineId} is dead/stopped, removing from pool`);
+                if (!machine) {
+                    // VM was destroyed - remove from pool
+                    console.warn(`⚠️ [VM Pool] VM ${pooledVM.machineId} is destroyed, removing from pool`);
                     this.pool = this.pool.filter(v => v.machineId !== pooledVM.machineId);
                     // Try again with next available VM
                     return await this.allocateVM(projectId);
+                }
+
+                if (machine.state !== 'started') {
+                    // VM is stopped - try to restart it
+                    console.log(`🔄 [VM Pool] VM ${pooledVM.machineId} is ${machine.state}, restarting...`);
+                    try {
+                        await flyService.startMachine(pooledVM.machineId);
+                        await flyService.waitForMachine(pooledVM.machineId, 15000, 30000);
+                        console.log(`✅ [VM Pool] VM ${pooledVM.machineId} restarted successfully`);
+                    } catch (startErr) {
+                        console.warn(`⚠️ [VM Pool] Failed to restart ${pooledVM.machineId}: ${startErr.message}, removing from pool`);
+                        this.pool = this.pool.filter(v => v.machineId !== pooledVM.machineId);
+                        return await this.allocateVM(projectId);
+                    }
                 }
             } catch (e) {
                 console.warn(`⚠️ [VM Pool] VM ${pooledVM.machineId} check failed: ${e.message}, removing from pool`);
@@ -236,6 +322,41 @@ class VMPoolManager {
         } else {
             console.log(`♻️ [VM Pool] Released VM ${machineId} (will be cleaned on next use)`);
         }
+    }
+
+    /**
+     * Mark a VM as allocated to a project (for recovered sessions from Redis)
+     * This prevents the cleanup task from destroying VMs that are in use
+     * @param {string} machineId - Machine ID to mark
+     * @param {string} projectId - Project ID to allocate to
+     * @returns {boolean} - true if VM was found and marked
+     */
+    markVMAllocated(machineId, projectId) {
+        const vm = this.pool.find(v => v.machineId === machineId);
+
+        if (!vm) {
+            // VM not in pool - might have been created before pool manager started
+            // Add it to the pool as allocated
+            console.log(`📌 [VM Pool] Adding recovered VM ${machineId} to pool (allocated to ${projectId})`);
+            this.pool.push({
+                machineId,
+                agentUrl: 'https://drape-workspaces.fly.dev',
+                createdAt: Date.now(),
+                allocatedTo: projectId,
+                allocatedAt: Date.now(),
+                prewarmed: true, // Assume prewarmed since it was being used
+                cacheReady: true,
+                isCacheMaster: false,
+                image: flyService.DRAPE_IMAGE
+            });
+            return true;
+        }
+
+        // Mark as allocated
+        vm.allocatedTo = projectId;
+        vm.allocatedAt = Date.now();
+        console.log(`📌 [VM Pool] Marked VM ${machineId} as allocated to ${projectId}`);
+        return true;
     }
 
     /**
@@ -437,10 +558,18 @@ class VMPoolManager {
         } else {
             // WORKERS: Pass cache master ID for auto-fetch on startup
             // This bypasses Fly.io proxy issues by using internal IPv6 network
-            const cacheMaster = this.pool.find(v => v.isCacheMaster && v.prewarmed);
+            // PRIORITY: Prefer protected cache masters (have volume with cache) over any other
+            let cacheMaster = this.pool.find(v =>
+                v.isCacheMaster && v.prewarmed && this.PROTECTED_CACHE_MASTERS.has(v.machineId)
+            );
+            // Fallback to any prewarmed cache master
+            if (!cacheMaster) {
+                cacheMaster = this.pool.find(v => v.isCacheMaster && v.prewarmed);
+            }
             if (cacheMaster) {
                 envVars.CACHE_MASTER_ID = cacheMaster.machineId;
-                console.log(`   📦 [Worker] Will auto-fetch cache from ${cacheMaster.machineId}`);
+                const isProtected = this.PROTECTED_CACHE_MASTERS.has(cacheMaster.machineId);
+                console.log(`   📦 [Worker] Will auto-fetch cache from ${cacheMaster.machineId}${isProtected ? ' (with volume)' : ''}`);
             }
         }
 
@@ -489,8 +618,7 @@ class VMPoolManager {
             }
         }
 
-        // FIX: Add VM to pool IMMEDIATELY (before pre-warming)
-        // This makes the VM available instantly while pre-warming continues in background
+        // FIX: Add VM to pool but NOT available for allocation until cache is ready
         const poolEntry = {
             machineId: vm.id,
             agentUrl,
@@ -498,6 +626,7 @@ class VMPoolManager {
             allocatedTo: null,
             allocatedAt: null,
             prewarmed: false, // Will be set to true when pre-warming completes
+            cacheReady: false, // CRITICAL: VM not available until cache download completes!
             isCacheMaster: isCacheMaster, // Dedicated cache master never allocated to projects
             image: flyService.DRAPE_IMAGE // Track image version for cache validation
         };
@@ -581,6 +710,7 @@ class VMPoolManager {
                                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                                     console.log(`   ✅ [Cache Ready] Worker ${vm.id}: ${mb}MB cache fully extracted in ${elapsed}s`);
                                     poolEntry.prewarmed = true;
+                                    poolEntry.cacheReady = true; // NOW available for allocation!
                                     return;
                                 }
                             } else {
@@ -603,11 +733,12 @@ class VMPoolManager {
                         await new Promise(resolve => setTimeout(resolve, pollInterval));
                     }
 
-                    // Timeout - mark as prewarmed anyway to not block forever
+                    // Timeout - mark as ready anyway to not block forever
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                     const finalMb = (lastSize / 1024 / 1024).toFixed(0);
-                    console.warn(`   ⚠️ [Cache Timeout] Worker ${vm.id}: cache at ${finalMb}MB after ${elapsed}s, marking prewarmed anyway`);
+                    console.warn(`   ⚠️ [Cache Timeout] Worker ${vm.id}: cache at ${finalMb}MB after ${elapsed}s, marking ready anyway`);
                     poolEntry.prewarmed = true;
+                    poolEntry.cacheReady = true; // Make available even on timeout
                     return;
                 }
 
@@ -760,6 +891,7 @@ PKGJSON
 
                 // Mark VM as prewarmed (global store populated)
                 poolEntry.prewarmed = true;
+                poolEntry.cacheReady = true; // Cache master is now ready
                 console.log(`   ✅ Pre-warm complete for ${vm.id} (global store ready ⚡)`);
             } catch (e) {
                 console.warn(`   ⚠️ Pre-warm failed for ${vm.id}: ${e.message} (continuing anyway)`);
@@ -836,6 +968,7 @@ PKGJSON
                             allocatedTo: null,
                             allocatedAt: null,
                             prewarmed: true,
+                            cacheReady: true, // Cache masters are always ready
                             isCacheMaster: true,
                             image: orphan.config?.image || flyService.DRAPE_IMAGE
                         });
@@ -857,30 +990,57 @@ PKGJSON
                             allocatedTo: null, // We don't know if it's allocated, mark as available for now
                             allocatedAt: null,
                             prewarmed: false, // Might still be pre-warming
+                            cacheReady: false, // NOT available - might still be downloading cache
                             isCacheMaster: false,
                             image: orphan.config?.image || flyService.DRAPE_IMAGE
                         });
                         continue;
                     }
 
-                    // CRITICAL FIX: Only destroy if VM is actually stopped (not running)
+                    // Adopt orphan VMs based on state
                     if (orphan.state === 'started') {
-                        console.log(`   ⚠️ VM ${orphan.id} is STARTED but not in pool - adopting instead of destroying`);
+                        // Running VM - check cache and adopt
+                        const { hasCache, sizeMB } = await this.checkVMHasCache(orphan.id);
+                        console.log(`   🔄 VM ${orphan.id} is STARTED but not in pool - adopting (cache: ${sizeMB}MB, cacheReady: ${hasCache})`);
                         this.pool.push({
                             machineId: orphan.id,
                             agentUrl: 'https://drape-workspaces.fly.dev',
                             createdAt: Date.parse(orphan.created_at) || Date.now(),
                             allocatedTo: null,
                             allocatedAt: null,
-                            prewarmed: false,
+                            prewarmed: hasCache,
+                            cacheReady: hasCache, // Only available if has cache
                             isCacheMaster: false,
                             image: orphan.config?.image || flyService.DRAPE_IMAGE
                         });
                         continue;
                     }
 
-                    // Only destroy if: old enough AND stopped
-                    console.log(`   🗑️ Destroying orphan worker: ${orphan.id} (${orphan.name}) - age: ${Math.round(vmAge/60000)}min, state: ${orphan.state}`);
+                    // Stopped VM - adopt it instead of destroying (allocateVM can restart it)
+                    // With auto_destroy: false, stopped VMs are kept by Fly.io
+                    // We adopt them so they can be restarted on demand
+                    const ageMinutesOrphan = Math.round(vmAge / 60000);
+                    if (ageMinutesOrphan < 30) {
+                        // VM is stopped but not too old - adopt it
+                        // Set cacheReady: true so allocateVM will consider it (as fallback)
+                        // allocateVM will check actual state and restart if needed
+                        console.log(`   🔄 VM ${orphan.id} is ${orphan.state} (age: ${ageMinutesOrphan}min) - adopting for restart on demand`);
+                        this.pool.push({
+                            machineId: orphan.id,
+                            agentUrl: 'https://drape-workspaces.fly.dev',
+                            createdAt: Date.parse(orphan.created_at) || Date.now(),
+                            allocatedTo: null,
+                            allocatedAt: null,
+                            prewarmed: false, // Not prewarmed - will be fallback choice
+                            cacheReady: true, // Allow selection - allocateVM will restart if stopped
+                            isCacheMaster: false,
+                            image: orphan.config?.image || flyService.DRAPE_IMAGE
+                        });
+                        continue;
+                    }
+
+                    // Only destroy if: very old (>30 min) AND stopped
+                    console.log(`   🗑️ Destroying old orphan worker: ${orphan.id} (${orphan.name}) - age: ${ageMinutesOrphan}min, state: ${orphan.state}`);
                     try {
                         await flyService.destroyMachine(orphan.id);
                         console.log(`   ✅ Deleted orphan VM ${orphan.id}`);
@@ -894,36 +1054,51 @@ PKGJSON
         }
 
         // PHASE 2: Clean up old VMs in our pool
-        // Count available workers BEFORE cleanup to ensure we keep minimum pool size
+        // Count available workers BEFORE cleanup
         const availableWorkers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo);
+        const targetSize = this.calculateTargetPoolSize();
 
-        const oldVMs = this.pool.filter(vm => {
-            // HARDENED: NEVER remove cache masters - use multi-layer protection
+        // Sort workers by age (oldest first) for cleanup
+        const sortedWorkers = availableWorkers
+            .filter(vm => !vm.isCacheMaster)
+            .sort((a, b) => a.createdAt - b.createdAt);
+
+        // Calculate how many EXCESS VMs we have beyond target
+        const excessCount = Math.max(0, availableWorkers.length - targetSize);
+
+        const oldVMs = [];
+        let deletedCount = 0;
+
+        for (const vm of sortedWorkers) {
+            // HARDENED: NEVER remove cache masters
             if (vm.isCacheMaster || this.isProtectedCacheMaster(vm.machineId)) {
                 console.log(`   🛡️ [Cleanup] Protecting cache master: ${vm.machineId}`);
-                return false;
+                continue;
             }
 
-            // CRITICAL: Protect prewarmed workers (they have valuable cache!)
-            if (vm.prewarmed) {
-                console.log(`   💎 [Cleanup] Protecting prewarmed worker: ${vm.machineId} (has cache)`);
-                return false;
+            // Skip allocated VMs
+            if (vm.allocatedTo) {
+                continue;
             }
 
-            // CRITICAL: Keep minimum pool size - never delete if we're at or below BASE_POOL_SIZE
-            if (availableWorkers.length <= this.BASE_POOL_SIZE) {
-                console.log(`   🛡️ [Cleanup] Protecting worker ${vm.machineId} to maintain minimum pool size (${availableWorkers.length}/${this.BASE_POOL_SIZE})`);
-                return false;
-            }
+            const ageMinutes = Math.round((now - vm.createdAt) / 60000);
 
-            // Remove if: unallocated worker VM and older than MAX_VM_AGE_MS
-            if (!vm.allocatedTo && (now - vm.createdAt) > this.MAX_VM_AGE_MS) {
-                const ageMinutes = Math.round((now - vm.createdAt) / 60000);
-                console.log(`   🗑️ [Cleanup] Marking for deletion: ${vm.machineId} (age: ${ageMinutes}min > ${this.MAX_VM_AGE_MS/60000}min)`);
-                return true;
+            // Delete VM if:
+            // 1. Pool exceeds target AND this is one of the oldest excess VMs
+            // 2. OR VM is older than MAX_VM_AGE_MS (30 min) AND pool is above BASE_POOL_SIZE
+            const isExcess = deletedCount < excessCount;
+            const isOld = (now - vm.createdAt) > this.MAX_VM_AGE_MS;
+            const aboveMinimum = (availableWorkers.length - deletedCount) > this.BASE_POOL_SIZE;
+
+            if (isExcess || (isOld && aboveMinimum)) {
+                const reason = isExcess ? `excess (pool: ${availableWorkers.length} > target: ${targetSize})` : `age: ${ageMinutes}min > 30min`;
+                console.log(`   🗑️ [Cleanup] Marking for deletion: ${vm.machineId} (${reason})`);
+                oldVMs.push(vm);
+                deletedCount++;
+            } else {
+                console.log(`   💎 [Cleanup] Keeping worker: ${vm.machineId} (age: ${ageMinutes}min, prewarmed: ${vm.prewarmed})`);
             }
-            return false;
-        });
+        }
 
         if (oldVMs.length === 0) {
             console.log(`   ✅ [Cleanup] No old VMs to clean up`);

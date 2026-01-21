@@ -6353,36 +6353,6 @@
     "lastUsed": 1768548087741,
     "image": "registry.fly.io/drape-workspaces:node20-production"
   },
-  "hFy5l3kyhnVvXC5Myo50": {
-    "id": "2860324b711568",
-    "name": "ws-hFy5l3kyhnVvXC5Myo50",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "2860324b711568",
-    "projectId": "hFy5l3kyhnVvXC5Myo50",
-    "createdAt": 1768823610985,
-    "lastUsed": 1768823850018,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:node20-production",
-    "projectInfo": {
-      "type": "nextjs",
-      "description": "Next.js application",
-      "startCommand": "npx next dev --turbo -H 0.0.0.0 --port 3000",
-      "port": 3000,
-      "nextJsVersionWarning": {
-        "version": "16.1.1",
-        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
-        "recommendation": "Consider downgrading to Next.js 15.3.0",
-        "link": "https://github.com/vercel/next.js/discussions/77102"
-      },
-      "language": "typescript",
-      "packageManager": "npm",
-      "installCommand": "npm install",
-      "defaultPort": 3000,
-      "requiresDocker": false,
-      "hasWebUI": true
-    }
-  },
   "test-download": {
     "id": "4d8921e0c744d8",
     "machineId": "4d8921e0c744d8",
@@ -6461,36 +6431,6 @@
     "lastUsed": 1768908605676,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFDJCH91CE891901B4MH7JW0"
   },
-  "aYVV4jrd4KTf5iKjxm5b": {
-    "id": "6e823d1df4e708",
-    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "6e823d1df4e708",
-    "projectId": "aYVV4jrd4KTf5iKjxm5b",
-    "createdAt": 1768947484111,
-    "lastUsed": 1768951932993,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6",
-    "projectInfo": {
-      "type": "nextjs",
-      "description": "Next.js application",
-      "startCommand": "npx next dev --turbo -H 0.0.0.0 --port 3000",
-      "port": 3000,
-      "nextJsVersionWarning": {
-        "version": "16.1.1",
-        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
-        "recommendation": "Consider downgrading to Next.js 15.3.0",
-        "link": "https://github.com/vercel/next.js/discussions/77102"
-      },
-      "language": "typescript",
-      "packageManager": "npm",
-      "installCommand": "npm install",
-      "defaultPort": 3000,
-      "requiresDocker": false,
-      "hasWebUI": true
-    }
-  },
   "ws-1767983915314-hu078lh4k": {
     "id": "7811e40c3734d8",
     "name": "ws-ws-1767983915314-hu078lh4k",
@@ -6510,9 +6450,40 @@
     "machineId": "6e823d1df4e708",
     "projectId": "ws-1767975714833-t876jh9or",
     "createdAt": 1768951855287,
-    "lastUsed": 1768951874031,
+    "lastUsed": 1768954823205,
     "fromPool": true,
     "prewarmed": true,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6"
+  },
+  "aYVV4jrd4KTf5iKjxm5b": {
+    "id": "d8d924ef6ed2e8",
+    "name": "ws-aYVV4jrd4KTf5iKjxm5b",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d8d924ef6ed2e8",
+    "projectId": "aYVV4jrd4KTf5iKjxm5b",
+    "createdAt": 1768971414655,
+    "lastUsed": 1768972036314,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js application",
+      "startCommand": "npx next dev --no-turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues",
+        "recommendation": "Consider downgrading to Next.js 15.3.0",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "disableTurbopack": true,
+      "language": "typescript",
+      "packageManager": "npm",
+      "installCommand": "npm install",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    }
   }
 }

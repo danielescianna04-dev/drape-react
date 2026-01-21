@@ -66,9 +66,8 @@ class FlyService {
         // Node.js 20 full image with 100% npm compatibility (~450MB)
         // Includes Python3, build tools (gcc, g++, make) for native modules
         // Supports: sharp, bcrypt, canvas, node-sass, and all npm packages
-        // UPDATED: v2.10 - Support pnpm 10.x store layout (files/, index/, projects/)
-        // Using latest deployment with drape-agent v2.10
-        return 'registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6';
+        // UPDATED: v2.12 - Fix cache: exclude projects/, ignore failed reads
+        return 'registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J';
     }
 
     get DRAPE_IMAGE_FULL() {
@@ -243,8 +242,10 @@ class FlyService {
                             ...(options.disableAutoStop ? { autostop: 'off', autostart: true } : {})
                         }
                     ],
-                    // Prevent auto-destroy for persistent VMs (cache masters)
-                    auto_destroy: options.disableAutoStop ? false : true
+                    // CRITICAL: Disable auto-destroy for ALL VMs
+                    // Fly.io was destroying worker VMs after auto-stop, causing timeout errors
+                    // We handle cleanup manually in vm-pool-manager.js
+                    auto_destroy: false
                 }
             };
 

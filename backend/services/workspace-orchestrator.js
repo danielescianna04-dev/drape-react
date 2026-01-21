@@ -93,11 +93,27 @@ class WorkspaceOrchestrator {
     /**
      * Detect project metadata (type, start command, etc.)
      * This logic is shared between background warming and actual preview start.
+     * Uses session caching to avoid re-detection when possible.
      * @param {string} projectId - Project ID
+     * @param {boolean} forceRefresh - Force re-detection even if cached
      * @returns {object} projectInfo
      */
-    async detectProjectMetadata(projectId) {
+    async detectProjectMetadata(projectId, forceRefresh = false) {
         console.log(`\n🔍 [Orchestrator] Detecting project metadata for: ${projectId}`);
+
+        // SESSION CACHING: Check if we already have detected project info
+        if (!forceRefresh) {
+            try {
+                const cachedSession = await redisService.getVMSession(projectId);
+                if (cachedSession?.projectInfo?.type && cachedSession.projectInfo.type !== 'static') {
+                    console.log(`   💾 [Cache Hit] Using cached detection: ${cachedSession.projectInfo.type}`);
+                    console.log(`      startCommand: ${cachedSession.projectInfo.startCommand}`);
+                    return cachedSession.projectInfo;
+                }
+            } catch (e) {
+                // Ignore cache errors - fall through to detection
+            }
+        }
 
         // Helper for robust timeouts
         const withTimeout = async (promise, timeoutMs, label) => {
@@ -114,14 +130,28 @@ class WorkspaceOrchestrator {
             const listResult = await withTimeout(this.listFiles(projectId), 15000, 'listFiles (detecting)');
             fileNames = (listResult.files || []).map(f => f.path);
 
-            // Read config files for detection
+            // Read config files for detection (increased timeout from 3s to 5s for reliability)
+            const configReadResults = { success: [], failed: [] };
             for (const configName of ['package.json', 'requirements.txt', 'go.mod', 'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs', 'next.config.ts']) {
                 try {
-                    const result = await withTimeout(this.readFile(projectId, configName), 3000, `readFile(${configName})`);
+                    const result = await withTimeout(this.readFile(projectId, configName), 5000, `readFile(${configName})`);
                     if (result.success) {
                         configFiles[configName] = { content: result.content };
+                        configReadResults.success.push(configName);
                     }
-                } catch { }
+                } catch (e) {
+                    // Log failed reads for debugging (helps identify timeout issues)
+                    if (configName === 'package.json') {
+                        configReadResults.failed.push(`${configName}: ${e.message}`);
+                    }
+                }
+            }
+            // Log detection results for debugging
+            if (configReadResults.success.length > 0) {
+                console.log(`   📦 [Detection] Read ${configReadResults.success.length} config files: ${configReadResults.success.join(', ')}`);
+            }
+            if (configReadResults.failed.length > 0) {
+                console.warn(`   ⚠️ [Detection] Failed to read: ${configReadResults.failed.join(', ')}`);
             }
         } catch (e) {
             console.warn(`   ⚠️ Detection data gathering failed: ${e.message}`);
@@ -166,6 +196,10 @@ class WorkspaceOrchestrator {
                                     recommendation: 'Consider downgrading to Next.js 15.3.0',
                                     link: 'https://github.com/vercel/next.js/discussions/77102'
                                 };
+                                // Disable Turbopack for Next.js 16.x (Turbopack has crash bugs in these versions)
+                                // Next.js 16+ defaults to Turbopack, so we need --no-turbo to force Webpack
+                                projectInfo.startCommand = 'npx next dev --no-turbo -H 0.0.0.0 --port 3000';
+                                projectInfo.disableTurbopack = true;
                             }
                         }
                     }
@@ -206,6 +240,24 @@ class WorkspaceOrchestrator {
             }
         } catch (e) {
             console.log(`   ⚠️ AI detection failed, using smart fallback: ${projectInfo.type}`);
+        }
+
+        // SESSION CACHING: Save detected projectInfo to session for future use
+        // Only save if we detected a non-static type (to allow re-detection for static fallback)
+        if (projectInfo.type !== 'static') {
+            try {
+                const existingSession = await redisService.getVMSession(projectId);
+                if (existingSession) {
+                    await redisService.saveVMSession(projectId, {
+                        ...existingSession,
+                        projectInfo,
+                        detectedAt: Date.now()
+                    });
+                    console.log(`   💾 [Cache Save] Saved detection to session: ${projectInfo.type}`);
+                }
+            } catch (e) {
+                // Ignore save errors - detection still works
+            }
         }
 
         return projectInfo;
@@ -474,6 +526,8 @@ class WorkspaceOrchestrator {
                                 cached = persisted;
                                 activeVMs.set(projectId, cached);
                                 await redisService.saveVMSession(projectId, cached);
+                                // CRITICAL: Mark VM as allocated in pool manager to prevent cleanup from destroying it!
+                                vmPoolManager.markVMAllocated(persisted.machineId, projectId);
                             }
                         } catch (e) {
                             console.warn(`   ⚠️ Status check for recovered VM failed: ${e.message}`);
@@ -484,6 +538,8 @@ class WorkspaceOrchestrator {
                         console.log(`✅ [Orchestrator] Recovered VM image matches: ${savedImage}`);
                         cached = persisted;
                         activeVMs.set(projectId, cached);
+                        // CRITICAL: Mark VM as allocated in pool manager to prevent cleanup from destroying it!
+                        vmPoolManager.markVMAllocated(persisted.machineId, projectId);
                     }
                 }
             }
@@ -1913,9 +1969,7 @@ echo "=== END DEBUG ==="
 
     /**
      * Schedule automatic cleanup of idle VMs
-     */
-    /**
-     * Schedule automatic cleanup of idle VMs
+     * Broadcasts session_expired event to notify frontend clients before cleanup
      */
     _scheduleCleanup(projectId) {
         setTimeout(async () => {
@@ -1925,6 +1979,14 @@ echo "=== END DEBUG ==="
             const idleTime = Date.now() - cached.lastUsed;
             if (idleTime > this.vmTimeout) {
                 console.log(`🧹 [Orchestrator] Cleaning up idle VM for ${projectId}`);
+
+                // Notify frontend clients that session is being released due to inactivity
+                serverLogService.broadcastEvent(projectId, 'session_expired', {
+                    reason: 'idle_timeout',
+                    message: 'Sessione terminata per inattività',
+                    machineId: cached.machineId
+                });
+
                 await this.stopVM(projectId);
             } else {
                 // Reschedule
@@ -2221,15 +2283,17 @@ echo "=== END DEBUG ==="
             // CI=true prevents pnpm from asking for TTY confirmation when removing/replacing node_modules
             // CRITICAL: Pass --store-dir directly to pnpm install (more reliable than pnpm config set)
             // This ensures pnpm uses the prewarmed cache immediately without config persistence issues
-            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store --prefer-offline';
+            // HOLY GRAIL: Use --offline first to force using ONLY cached packages (no network = fast)
+            // If cache is missing something, the install script has automatic fallback to --prefer-offline
+            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store --offline';
 
             if (fileNames.includes('pnpm-lock.yaml')) {
                 installCmd += ' --frozen-lockfile';
-                console.log('   ⚡ Using pnpm --offline (detected pnpm-lock.yaml)');
+                console.log('   ⚡ Using pnpm --offline with fallback (detected pnpm-lock.yaml)');
             } else if (fileNames.includes('yarn.lock') || fileNames.includes('package-lock.json')) {
-                console.log(`   ⚡ Using pnpm --offline (converted from ${fileNames.includes('yarn.lock') ? 'yarn' : 'npm'})`);
+                console.log(`   ⚡ Using pnpm --offline with fallback (converted from ${fileNames.includes('yarn.lock') ? 'yarn' : 'npm'})`);
             } else {
-                console.log('   ⚡ Using pnpm (default - leverages global store)');
+                console.log('   ⚡ Using pnpm --offline with fallback (default - leverages global store)');
             }
 
             // Note: build cache disabled (Fly.io supports only 1 volume per machine)
@@ -2250,10 +2314,28 @@ echo "=== END DEBUG ==="
                         // Use npx for Next.js - works even with temporary symlinks from failed npm install
                         // npm install can fail with exit code 1 and create .next-XXXXX instead of next
                         // Use -H 0.0.0.0 for binding (Next.js specific)
-                        // HOLY GRAIL: Enable Turbopack
-                        defaultStart = `npx next dev --turbo -H 0.0.0.0 --port 3000`;
                         projectInfo.type = 'nextjs'; // Tag it for later logic
-                        console.log(`   🎯 Detected Next.js - using Turbopack ⚡`);
+
+                        // Check Next.js version - disable Turbopack for 16.0-16.1 (crash bugs)
+                        const nextVersion = deps.next;
+                        const versionMatch = nextVersion.match(/(\d+)\.(\d+)/);
+                        const major = versionMatch ? parseInt(versionMatch[1]) : 0;
+                        const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
+
+                        if (major === 16 && minor <= 1) {
+                            // Next.js 16.0-16.1 has Turbopack crash bugs - use Webpack
+                            // Next.js 16+ defaults to Turbopack, so we need --no-turbo to force Webpack
+                            defaultStart = `npx next dev --no-turbo -H 0.0.0.0 --port 3000`;
+                            // CRITICAL: Override startCommand to ensure runtime detection takes precedence
+                            projectInfo.startCommand = defaultStart;
+                            console.log(`   🎯 Detected Next.js ${major}.${minor} - using Webpack (--no-turbo to disable Turbopack)`);
+                        } else {
+                            // HOLY GRAIL: Enable Turbopack for stable versions
+                            defaultStart = `npx next dev --turbo -H 0.0.0.0 --port 3000`;
+                            // CRITICAL: Override startCommand to ensure runtime detection takes precedence
+                            projectInfo.startCommand = defaultStart;
+                            console.log(`   🎯 Detected Next.js - using Turbopack ⚡`);
+                        }
                     }
                 } catch (e) {
                     console.log(`   ⚠️ Could not parse package.json, using default start command`);
@@ -2365,18 +2447,49 @@ echo "=== END DEBUG ==="
                     console.log(`\n   ${'═'.repeat(50)}`);
                     console.log(`   🔍 [DEBUG] PNPM CACHE STATUS (BEFORE INSTALL)`);
                     console.log(`   ${'═'.repeat(50)}`);
+                    let detectedLayout = 'unknown';  // Will be set during cache detection
                     try {
                         // Check cache store size
                         const cacheSize = await flyService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
                         console.log(`   📦 Cache Store Size: ${cacheSize.stdout?.trim() || 'N/A'}`);
 
-                        // Detect pnpm store layout (pnpm 10.x uses files/, older uses v10/files/)
-                        const layoutCheck = await flyService.exec(agentUrl, 'ls -d /home/coder/volumes/pnpm-store/files 2>/dev/null && echo "pnpm10" || (ls -d /home/coder/volumes/pnpm-store/v10 2>/dev/null && echo "v10" || echo "unknown")', '/home/coder', machineId, 5000, true);
-                        const layout = layoutCheck.stdout?.trim().split('\n').pop() || 'unknown';
-                        console.log(`   🏗️ Store Layout: ${layout}`);
+                        // Detect pnpm store layout with debug output:
+                        // - pnpm 10.x: files/, index/, projects/ (layout "pnpm10")
+                        // - pnpm 9.x: v3/ (layout "v3") or v10/ (layout "v10")
+                        // Note: Workers may have nested structure (pnpm-store/pnpm-store/v10/) due to rsync copy
+                        const layoutCheck = await flyService.exec(agentUrl, `
+                            BASE="/home/coder/volumes/pnpm-store" &&
+                            echo "DIRS:" && ls -1 $BASE/ 2>/dev/null | head -10 &&
+                            if [ -d $BASE/files ]; then echo "LAYOUT:pnpm10";
+                            elif [ -d $BASE/v3 ]; then echo "LAYOUT:v3";
+                            elif [ -d $BASE/v10 ]; then echo "LAYOUT:v10";
+                            elif [ -d $BASE/pnpm-store/files ]; then echo "LAYOUT:nested-pnpm10";
+                            elif [ -d $BASE/pnpm-store/v3 ]; then echo "LAYOUT:nested-v3";
+                            elif [ -d $BASE/pnpm-store/v10 ]; then echo "LAYOUT:nested-v10";
+                            else echo "LAYOUT:unknown"; fi
+                        `.replace(/\n\s+/g, ' '), '/home/coder', machineId, 10000, true);
+                        const layoutOutput = layoutCheck.stdout?.trim() || '';
+                        const dirsMatch = layoutOutput.match(/DIRS:\n?([\s\S]*?)LAYOUT:/);
+                        const dirs = dirsMatch ? dirsMatch[1].trim() : 'N/A';
+                        console.log(`   📂 Store directories: ${dirs.replace(/\n/g, ', ')}`);
+                        const layoutMatch = layoutOutput.match(/LAYOUT:([\w-]+)/);
+                        detectedLayout = layoutMatch ? layoutMatch[1] : 'unknown';
+                        console.log(`   🏗️ Store Layout: ${detectedLayout}`);
 
                         // Count files in cache based on detected layout
-                        const filesDir = layout === 'pnpm10' ? 'files' : (layout === 'v10' ? 'v10/files' : 'files');
+                        // pnpm10: files are in /pnpm-store/files/
+                        // v10: files are in /pnpm-store/v10/files/
+                        // nested-*: files are in /pnpm-store/pnpm-store/*/files/
+                        let filesDir;
+                        switch (detectedLayout) {
+                            case 'pnpm10': filesDir = 'files'; break;
+                            case 'v10': filesDir = 'v10/files'; break;
+                            case 'v3': filesDir = 'v3/files'; break;
+                            case 'nested-pnpm10': filesDir = 'pnpm-store/files'; break;
+                            case 'nested-v10': filesDir = 'pnpm-store/v10/files'; break;
+                            case 'nested-v3': filesDir = 'pnpm-store/v3/files'; break;
+                            default: filesDir = 'files';
+                        }
                         const fileCount = await flyService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | wc -l || echo "0"`, '/home/coder', machineId, 10000, true);
                         console.log(`   📁 Cached File Hashes: ${fileCount.stdout?.trim() || '0'}`);
 
@@ -2387,6 +2500,23 @@ echo "=== END DEBUG ==="
                         console.log(`   ⚠️ Could not read cache status: ${e.message}`);
                     }
                     console.log(`   ${'─'.repeat(50)}\n`);
+
+                    // FIX: Adjust store path for nested layouts
+                    // Workers may have pnpm-store/pnpm-store/v10/ due to how the cache was created
+                    if (detectedLayout.startsWith('nested-')) {
+                        console.log(`   🔧 Detected nested cache layout, adjusting --store-dir and symlink paths...`);
+                        // Fix --store-dir argument
+                        installCmd = installCmd.replace(
+                            /--store-dir \/home\/coder\/volumes\/pnpm-store(?!\/pnpm-store)/g,
+                            '--store-dir /home/coder/volumes/pnpm-store/pnpm-store'
+                        );
+                        // Fix symlink target (ln -snf TARGET LINK)
+                        installCmd = installCmd.replace(
+                            /ln -snf \/home\/coder\/volumes\/pnpm-store \/home\/coder\/.local\/share\/pnpm\/store/g,
+                            'ln -snf /home/coder/volumes/pnpm-store/pnpm-store /home/coder/.local/share/pnpm/store'
+                        );
+                        console.log(`   ✅ Store paths updated for nested layout`);
+                    }
 
                     console.log(`   📦 Installing dependencies with ${pkgManager}...`);
                     const installTimeout = 600000; // 10 minutes (Holy Grail: handle large projects)
@@ -2408,8 +2538,11 @@ echo "=== END DEBUG ==="
 
                     if (hasTsConfig && !fullInstallCmd.includes('typescript')) {
                         console.log(`   💡 Next.js 16 TypeScript config detected - ensuring typescript dependency`);
+                        const tsStoreDir = detectedLayout.startsWith('nested-')
+                            ? '/home/coder/volumes/pnpm-store/pnpm-store'
+                            : '/home/coder/volumes/pnpm-store';
                         fullInstallCmd = pkgManager === 'pnpm'
-                            ? `${fullInstallCmd} && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store typescript`
+                            ? `${fullInstallCmd} && CI=true pnpm install --store-dir ${tsStoreDir} --offline typescript`
                             : `${fullInstallCmd} && ${pkgManager} install typescript`;
                     }
 
@@ -2418,23 +2551,59 @@ echo "=== END DEBUG ==="
                     const installLog = '/home/coder/install.log';
                     const installMarker = '/home/coder/install.done';
 
-                    // Cleanup old markers
-                    await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 5000, true);
-
                     // Launch install in background
                     // 🔑 Robustness: Kill any existing dev servers or stalled installs
                     // DO NOT use killall node as it kills the agent!
-                    const killCmd = 'fuser -k 3000/tcp || true; pkill -9 -f pnpm || true; pkill -9 -f npm || true; pkill -9 -f yarn || true; pkill -9 -f next-server || true; pkill -9 -f vite || true';
+                    // FIX: Check if an install is already in progress (background warming)
+                    const checkInstallInProgress = await flyService.exec(agentUrl,
+                        `if [ ! -f ${installMarker} ] && pgrep -f "install.sh|pnpm install" > /dev/null; then echo "IN_PROGRESS"; else echo "IDLE"; fi`,
+                        '/home/coder', machineId, 10000, true);
+
+                    if (checkInstallInProgress.stdout?.trim() === 'IN_PROGRESS') {
+                        console.log(`   ⏳ [INSTALL] Background install in progress, waiting for it to complete...`);
+                        // Wait for existing install to finish (max 5 minutes)
+                        const waitStart = Date.now();
+                        const maxWaitMs = 5 * 60 * 1000;
+                        while (Date.now() - waitStart < maxWaitMs) {
+                            const checkDone = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 30000, true);
+                            const status = checkDone.stdout?.trim();
+                            if (status && status !== 'PENDING') {
+                                console.log(`   ✅ [INSTALL] Background install finished (exit: ${status})`);
+                                break;
+                            }
+                            await new Promise(r => setTimeout(r, 3000));
+                        }
+                    }
+
+                    // Cleanup markers (moved AFTER checking for in-progress install)
+                    await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 15000, true);
+
+                    // Kill dev servers (but NOT package managers if install might be running)
+                    const killCmd = 'fuser -k 3000/tcp || true; pkill -9 -f next-server || true; pkill -9 -f vite || true';
                     console.log(`\n   🔪 [DEBUG] EXECUTING KILL CMD:\n   ${killCmd}`);
                     await flyService.exec(agentUrl, killCmd, '/home/coder', machineId, 20000, true);
 
                     // Create install script on VM (avoids complex shell escaping)
                     const installScript = `/home/coder/install.sh`;
                     // FIXED: Wrap in subshell () to capture ALL output, not just last command
+                    // HOLY GRAIL: Fallback strategy - try --offline first (fast), fallback to --prefer-offline if cache misses
+                    const offlineInstallCmd = fullInstallCmd;
+                    const onlineInstallCmd = fullInstallCmd.replace(/--offline/g, '--prefer-offline');
                     const scriptContent = `#!/bin/bash
 cd /home/coder/project
-(${fullInstallCmd}) > ${installLog} 2>&1
-echo $? > ${installMarker}`;
+echo "🚀 Attempting --offline install (using cache only)..."
+(${offlineInstallCmd}) > ${installLog} 2>&1
+OFFLINE_EXIT=$?
+if [ $OFFLINE_EXIT -ne 0 ]; then
+    echo "" >> ${installLog}
+    echo "⚠️ --offline failed (exit $OFFLINE_EXIT), retrying with --prefer-offline to fetch missing packages..." >> ${installLog}
+    echo "🌐 Fallback: running --prefer-offline install..."
+    (${onlineInstallCmd}) >> ${installLog} 2>&1
+    echo $? > ${installMarker}
+else
+    echo "✅ --offline install succeeded!" >> ${installLog}
+    echo 0 > ${installMarker}
+fi`;
 
                     console.log(`\n   📝 [DEBUG] INSTALL SCRIPT CONTENT:\n${'─'.repeat(40)}\n${scriptContent}\n${'─'.repeat(40)}`);
 
@@ -2453,7 +2622,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     let installSuccess = false;
 
                     while (pollCount < maxPolls) {
-                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 5000, true);
+                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 30000, true);
                         const status = checkMarker.stdout?.trim();
 
                         if (status && status !== 'PENDING') {

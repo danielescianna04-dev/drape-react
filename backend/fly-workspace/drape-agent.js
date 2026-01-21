@@ -21,7 +21,7 @@ const os = require('os');
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.10 - Support pnpm 10.x store layout');
+console.log('🚀 Drape Agent v2.12 - Fix cache: exclude projects/, ignore failed reads');
 
 // Ensure PROJECT_DIR exists at startup (required for exec default cwd)
 const fsSync = require('fs');
@@ -633,7 +633,15 @@ const server = http.createServer(async (req, res) => {
                                 // Make sure it's a real directory, not a broken symlink
                                 if (v10Stat.isDirectory()) {
                                     layout = 'v10';
-                                    dirsToTar = ['v10'];
+                                    // Only include files/ and index/ - NOT projects/
+                                    // projects/ contains per-project virtual stores with symlinks
+                                    // that are NOT shareable between VMs
+                                    for (const subdir of ['files', 'index']) {
+                                        try {
+                                            const stat = await fs.stat(path.join(v10Store, subdir));
+                                            if (stat.isDirectory()) dirsToTar.push(`v10/${subdir}`);
+                                        } catch (e) { /* subdir doesn't exist */ }
+                                    }
                                 }
                             } catch (e) { /* v10 doesn't exist or broken symlink */ }
                         }
@@ -655,6 +663,8 @@ const server = http.createServer(async (req, res) => {
                             const tarProcess = spawn('tar', [
                                 '-czf', '-',
                                 '-h',  // Dereference symlinks (CRITICAL for cache sharing!)
+                                '--ignore-failed-read',  // Ignore files that disappear during read
+                                '--warning=no-file-changed',  // Suppress "file changed" warnings
                                 '-C', volumeDir,
                                 ...dirsToTar
                             ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -772,8 +782,9 @@ async function autoFetchCache(cacheMasterId) {
     await fs.symlink(volumeDir, `${pnpmDir}/store`);
 
     // Download cache using curl (more reliable than Node http for large files)
-    const downloadCmd = `curl --max-time 120 -sS "${cacheUrl}/download?type=pnpm" -o /tmp/cache.tar.gz 2>&1`;
-    const downloadResult = await execCommand(downloadCmd, '/tmp', 130000);
+    // 300 seconds (5 min) for ~1.5GB cache download via internal IPv6 network
+    const downloadCmd = `curl --max-time 300 -sS "${cacheUrl}/download?type=pnpm" -o /tmp/cache.tar.gz 2>&1`;
+    const downloadResult = await execCommand(downloadCmd, '/tmp', 310000);
 
     if (downloadResult.exitCode !== 0) {
         throw new Error(`curl failed: ${downloadResult.stderr || downloadResult.stdout}`);
