@@ -106,9 +106,24 @@ class WorkspaceOrchestrator {
             try {
                 const cachedSession = await redisService.getVMSession(projectId);
                 if (cachedSession?.projectInfo?.type && cachedSession.projectInfo.type !== 'static') {
-                    console.log(`   💾 [Cache Hit] Using cached detection: ${cachedSession.projectInfo.type}`);
-                    console.log(`      startCommand: ${cachedSession.projectInfo.startCommand}`);
-                    return cachedSession.projectInfo;
+                    // CRITICAL: Validate cache - if cached type requires package.json but it doesn't exist in storage,
+                    // invalidate cache and re-detect (fixes issue where VM reuse caused wrong detection)
+                    const needsPackageJson = ['nextjs', 'vite', 'nodejs', 'react'].includes(cachedSession.projectInfo.type);
+                    if (needsPackageJson) {
+                        const pkgCheck = await storageService.readFile(projectId, 'package.json');
+                        if (!pkgCheck.success) {
+                            console.log(`   ❌ [Cache Invalid] Cached type "${cachedSession.projectInfo.type}" requires package.json but none found in storage - re-detecting`);
+                            // Fall through to re-detection
+                        } else {
+                            console.log(`   💾 [Cache Hit] Using cached detection: ${cachedSession.projectInfo.type}`);
+                            console.log(`      startCommand: ${cachedSession.projectInfo.startCommand}`);
+                            return cachedSession.projectInfo;
+                        }
+                    } else {
+                        console.log(`   💾 [Cache Hit] Using cached detection: ${cachedSession.projectInfo.type}`);
+                        console.log(`      startCommand: ${cachedSession.projectInfo.startCommand}`);
+                        return cachedSession.projectInfo;
+                    }
                 }
             } catch (e) {
                 // Ignore cache errors - fall through to detection
@@ -275,18 +290,30 @@ class WorkspaceOrchestrator {
             // 1. Get/Create VM
             const vm = await this.getOrCreateVM(projectId);
 
-            // 2. Sync files to VM (CRITICAL - needed before install)
+            // 2. CRITICAL: Clean project folder before sync to prevent stale file detection
+            // When reusing a VM from a different project, old files (especially package.json)
+            // can cause incorrect project type detection
+            console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
+            try {
+                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
+                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
+            } catch (e) {
+                console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+            }
+
+            // 3. Sync files to VM (CRITICAL - needed before install)
             console.log(`📂 [Orchestrator] Syncing files to VM for warming...`);
             const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
             console.log(`   ✅ Synced ${syncResult.syncedCount} files`);
 
-            // 3. Detect project type
+            // 4. Detect project type (now reads clean files from VM)
             const projectInfo = await this.detectProjectMetadata(projectId);
 
-            // 4. Store project metadata in Redis for startPreview to pick up
+            // 5. Store project metadata in Redis for startPreview to pick up
             await redisService.saveVMSession(projectId, { ...vm, projectInfo, lastUsed: Date.now() });
 
-            // 5. Background: Install dependencies + Patch configs
+            // 6. Background: Install dependencies + Patch configs
             // We DON'T await this so the /clone response returns immediately
             setImmediate(async () => {
                 try {
@@ -731,15 +758,40 @@ class WorkspaceOrchestrator {
                         // Skip creation, go directly to agent wait
                     }
                 } catch (e) {
-                    console.log(`   Pool allocation failed: ${e.message}, creating new VM...`);
+                    console.log(`   Pool allocation failed: ${e.message}, creating new VM with persistent volume...`);
                 }
 
-                // If pool didn't work, throw user-friendly error (no cold-start VM creation)
+                // If pool didn't work, create VM with persistent volume
                 if (!vm) {
-                    const error = new Error('Stiamo ricevendo tante richieste. Riprova tra qualche minuto!');
-                    error.code = 'POOL_EXHAUSTED';
-                    error.statusCode = 503;
-                    throw error;
+                    console.log(`💾 [Orchestrator] Pool exhausted, creating VM with persistent volume...`);
+
+                    try {
+                        // Detect memory requirements
+                        const memoryMb = await this._detectMemoryRequirements(projectId);
+
+                        // Detect project type for image
+                        const projectType = await this._detectProjectType(projectId);
+                        const dockerImage = flyService.getImageForProject(projectType);
+
+                        // Create VM with persistent volume
+                        const result = await flyService.createVMWithVolume(projectId, {
+                            image: dockerImage,
+                            memory_mb: memoryMb,
+                            cpus: 2
+                        });
+
+                        vm = result.machine;
+                        isFromPool = false;
+
+                        console.log(`   ✅ VM created with persistent volume: ${vm.id}`);
+
+                    } catch (createError) {
+                        console.error(`   ❌ VM creation failed: ${createError.message}`);
+                        const error = new Error('Impossibile creare workspace. Riprova tra qualche minuto.');
+                        error.code = 'VM_CREATION_FAILED';
+                        error.statusCode = 503;
+                        throw error;
+                    }
                 }
 
                 // DISABLED: Cold-start VM creation (keeping code for reference)
@@ -1559,9 +1611,22 @@ echo "=== END DEBUG ==="
 
         // Setup (Install + Start) via Optimized pnpm (Async)
         if (projectInfo.installCommand || projectInfo.startCommand) {
-            // Use optimized setup with pnpm (pass progress callback)
-            // Don't catch errors - let them propagate to the caller
-            await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress);
+            // Check if workspace was already prepared in background
+            const vmSession = await redisService.getVMSession(projectId);
+            const isPrepared = vmSession?.preparedAt && (Date.now() - vmSession.preparedAt) < 300000; // 5 min validity
+
+            if (isPrepared && !hadBackgroundWarming) {
+                console.log(`⚡ [Orchestrator] Workspace already prepared! Skipping install, starting server directly...`);
+
+                // Just start the dev server (staySilent=false, but we'll call only the start portion)
+                // We need to call optimizedSetup but tell it to skip install
+                // For now, let's call it normally - optimizedSetup will detect existing node_modules and skip
+                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress, false);
+            } else {
+                // Use optimized setup with pnpm (pass progress callback)
+                // Don't catch errors - let them propagate to the caller
+                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress);
+            }
 
             // Start log streaming
             this.startLogStreaming(projectId, vm);
@@ -1580,6 +1645,120 @@ echo "=== END DEBUG ==="
             port: projectInfo.port,
             isHolyGrail: true // Metadata for UI
         };
+    }
+
+    /**
+     * Prepare workspace in background (install deps but don't start server)
+     * Called when user selects/opens a project to give installation a head start
+     * @param {string} projectId - Project ID
+     * @param {object} projectInfo - Project metadata
+     * @param {function} onProgress - Optional progress callback (step, message)
+     * @returns {object} Result with preparation status
+     */
+    async prepareWorkspace(projectId, projectInfo, onProgress = null) {
+        console.log(`\n${'='.repeat(60)}`);
+        console.log(`🚀 [DEBUG] PREPARE WORKSPACE (Background) for ${projectId}`);
+        console.log(`${'='.repeat(60)}`);
+
+        try {
+            // CRITICAL: Get/Create VM FIRST
+            const vm = await this.getOrCreateVM(projectId);
+
+            // Update lastUsed to prevent idle cleanup
+            const vmSession = await redisService.getVMSession(projectId);
+            if (vmSession) {
+                vmSession.lastUsed = Date.now();
+                vmSession.preparingInBackground = true; // Mark as preparing
+                await redisService.saveVMSession(projectId, vmSession);
+            }
+
+            // Stop other VMs to ensure correct routing
+            await this.stopOtherMachines(projectId, vm.machineId);
+
+            // Check if already preparing/prepared
+            if (setupLocks.has(projectId)) {
+                console.log(`⚡ [Orchestrator] Workspace already being prepared, skipping...`);
+                return { success: true, status: 'already_preparing', machineId: vm.machineId };
+            }
+
+            // Clean project folder (preserve node_modules and .git)
+            console.log(`🧹 [Orchestrator] Cleaning project folder on VM...`);
+            try {
+                const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
+                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                console.log(`   ✅ Project folder cleaned`);
+            } catch (e) {
+                console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
+            }
+
+            // Harden VM
+            await this.hardenVM(projectId, vm.agentUrl, vm.machineId);
+
+            // Sync files from storage to VM
+            console.log(`📂 [Orchestrator] Syncing files to VM...`);
+            const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
+            console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
+
+            // Link Next.js cache to volume
+            try {
+                const linkCacheCmd = `mkdir -p /home/coder/project/.next && ln -snf /home/coder/volumes/next-cache /home/coder/project/.next/cache && chown -R coder:coder /home/coder/project/.next`.replace(/\s+/g, ' ').trim();
+                await flyService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
+            } catch (e) { }
+
+            // Force-restore package.json
+            try {
+                console.log('🔨 [Orchestrator] Force-restoring package.json...');
+                const mkPkg = await storageService.readFile(projectId, 'package.json');
+                if (mkPkg.success) {
+                    await axios.post(`${vm.agentUrl}/file`, {
+                        path: 'package.json',
+                        content: mkPkg.content
+                    }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
+                    console.log('   ✅ Restored package.json');
+                }
+            } catch (e) {
+                console.warn('   ⚠️ Failed to restore package.json:', e.message);
+            }
+
+            // Install dependencies (staySilent=true means NO dev server start)
+            if (projectInfo.installCommand || projectInfo.startCommand) {
+                console.log(`📦 [Orchestrator] Installing dependencies in background...`);
+                await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, onProgress, true);
+                console.log(`✅ [Orchestrator] Background installation complete!`);
+            }
+
+            // Mark workspace as prepared
+            if (vmSession) {
+                vmSession.preparingInBackground = false;
+                vmSession.preparedAt = Date.now();
+                await redisService.saveVMSession(projectId, vmSession);
+            }
+
+            console.log(`${'='.repeat(60)}\n`);
+
+            return {
+                success: true,
+                status: 'prepared',
+                machineId: vm.machineId,
+                agentUrl: vm.agentUrl
+            };
+
+        } catch (error) {
+            console.error('❌ Prepare workspace failed:', error);
+
+            // Clear preparing flag on error
+            const vmSession = await redisService.getVMSession(projectId);
+            if (vmSession) {
+                vmSession.preparingInBackground = false;
+                await redisService.saveVMSession(projectId, vmSession);
+            }
+
+            return {
+                success: false,
+                status: 'error',
+                error: error.message
+            };
+        }
     }
 
     /**
@@ -2259,6 +2438,91 @@ echo "=== END DEBUG ==="
         console.log(`   📋 staySilent: ${staySilent}`);
         console.log(`   📋 projectInfo:`, JSON.stringify(projectInfo, null, 2));
 
+        // CRITICAL: Skip installation for static HTML projects (no package.json)
+        if (projectInfo.type === 'static') {
+            console.log(`   ⚡ Static HTML project - SKIP INSTALLATION!`);
+            console.log(`   📂 Files already synced, starting server directly...`);
+
+            if (onProgress) onProgress('install', '✅ Sito HTML statico - nessuna installazione necessaria');
+
+            // For static projects, start the http server directly
+            if (staySilent) {
+                console.log(`   ⏭️ staySilent = true: Skipping http-server start`);
+                return {
+                    success: true,
+                    skipInstall: true,
+                    static: true,
+                    serverReady: false,
+                    message: 'Static HTML project - no installation needed'
+                };
+            }
+
+            // Start http-server for static files
+            console.log(`   🚀 Starting static file server...`);
+            if (onProgress) onProgress('starting', 'Avvio del server HTTP...');
+
+            const finalStart = projectInfo.startCommand || 'npx http-server . -p 3000 -a 0.0.0.0';
+
+            // Kill any existing process on port 3000
+            console.log(`   🔪 Killing any process on port 3000...`);
+            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 15000, true);
+
+            // Create startup script for http-server
+            const startupScript = `/home/coder/start-server.sh`;
+            const startupScriptContent = `#!/bin/bash
+cd /home/coder/project || exit 1
+
+# Kill any existing http-server processes
+pkill -9 -f "http-server" || true
+fuser -k 3000/tcp 2>/dev/null || true
+sleep 1
+
+# Start http-server in background and DETACH from parent process
+nohup ${finalStart} > /home/coder/server.log 2>&1 &
+disown
+echo "HTTP server started in background"`;
+
+            console.log(`\n   📝 [DEBUG] HTTP-SERVER STARTUP SCRIPT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
+
+            await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
+${startupScriptContent}
+EOFSCRIPT
+chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
+
+            // Execute startup script
+            try {
+                await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+                console.log(`   ✅ HTTP server script triggered successfully`);
+            } catch (execErr) {
+                if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
+                    console.log(`   ⏱️ Exec timeout/hangup (expected) - server starting in background...`);
+                } else {
+                    throw execErr;
+                }
+            }
+
+            // Wait for server to initialize
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Health check for http-server (shorter timeout for static content)
+            const isReady = await this.waitForDevServer(agentUrl, machineId, 30000);
+
+            if (!isReady) {
+                const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+                console.error(`❌[Health Check] HTTP server failed! Last logs: \n${logs.stdout}`);
+                throw new Error(`HTTP server failed to start. Check project logs.`);
+            }
+
+            console.log(`   ✅ HTTP server is ready and responding`);
+            return {
+                success: true,
+                skipInstall: true,
+                static: true,
+                serverReady: true,
+                message: 'Static HTML project - http-server started'
+            };
+        }
+
         // === LOCK: Prevent parallel setup for same project ===
         while (setupLocks.has(projectId)) {
             console.log(`🔒 [Orchestrator] Waiting for setup lock on ${projectId}...`);
@@ -2271,6 +2535,88 @@ echo "=== END DEBUG ==="
         try {
             const axios = require('axios');
             const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+            const cacheService = require('./node-modules-cache-service');
+
+            // === STEP 1: LIVELLO 1 - Controlla node_modules esistente (Persistent Workspace) ===
+            console.log(`\n🔍 [Setup] Step 1: Checking for existing node_modules (LIVELLO 1)...`);
+
+            const checkNodeModulesCmd = 'test -d /home/coder/project/node_modules && ls /home/coder/project/node_modules 2>/dev/null | wc -l';
+            const checkResult = await flyService.exec(agentUrl, checkNodeModulesCmd, '/home/coder/project', machineId, 10000, true);
+
+            const packageCount = parseInt(checkResult.stdout?.trim() || '0');
+
+            if (packageCount > 50) {
+                // node_modules esiste e sembra valido!
+                console.log(`   ✅ [Setup] node_modules already exists (${packageCount} packages)`);
+                console.log(`   ⚡ LIVELLO 1: Persistent Workspace - SKIP INSTALL!`);
+
+                if (onProgress) onProgress('install', '✅ Dipendenze già installate (persistent workspace)');
+
+                // Vai direttamente a start server
+                if (!staySilent && projectInfo.startCommand) {
+                    console.log(`   🚀 Starting dev server...`);
+                    // Start server code viene dopo
+                    // Per ora ritorna success
+                }
+
+                return {
+                    success: true,
+                    skipInstall: true,
+                    level: 1,
+                    persistent: true,
+                    message: 'Using persistent node_modules'
+                };
+            }
+
+            console.log(`   ❌ [Setup] node_modules not found or incomplete (${packageCount} packages)`);
+
+            // === STEP 2: LIVELLO 2 - Prova cache node_modules tarball ===
+            console.log(`\n♻️ [Setup] Step 2: Trying node_modules cache (LIVELLO 2)...`);
+
+            try {
+                const hash = await cacheService.calculateHash(projectId);
+                const cacheExists = await cacheService.exists(hash);
+
+                if (cacheExists) {
+                    console.log(`   ✨ [Setup] Cache found! (hash: ${hash})`);
+                    console.log(`   ⚡ LIVELLO 2: Restoring from tarball cache...`);
+
+                    if (onProgress) onProgress('install', '♻️ Ripristino dipendenze dalla cache...');
+
+                    const restoreResult = await cacheService.restore(hash, agentUrl, machineId);
+
+                    if (restoreResult.success) {
+                        console.log(`   ✅ [Setup] Cache restored in ${restoreResult.elapsed}ms`);
+
+                        // Vai a start server
+                        if (!staySilent && projectInfo.startCommand) {
+                            console.log(`   🚀 Starting dev server...`);
+                            // Start server code viene dopo
+                        }
+
+                        return {
+                            success: true,
+                            fromCache: true,
+                            level: 2,
+                            elapsed: restoreResult.elapsed,
+                            hash,
+                            message: 'Restored from cache'
+                        };
+                    } else {
+                        console.log(`   ⚠️ [Setup] Cache restore failed, falling back to install`);
+                    }
+                } else {
+                    console.log(`   ❌ [Setup] Cache not found for hash ${hash}`);
+                }
+
+            } catch (cacheError) {
+                console.log(`   ⚠️ [Setup] Cache check failed: ${cacheError.message}`);
+            }
+
+            // === STEP 3: LIVELLO 3 - Install da zero con mega-cache ===
+            console.log(`\n📦 [Setup] Step 3: Installing with mega-cache (LIVELLO 3)...`);
+
+            if (onProgress) onProgress('install', '📦 Installazione dipendenze (prima volta)...');
 
             // Auto-detect package manager from lock files
             const filesResult = await this.listFiles(projectId);
@@ -2720,6 +3066,29 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                 }
             } else {
                 console.log(`   ⚡ Skipping install (node_modules up-to-date)`);
+            }
+
+            // === SAVE CACHE: After successful install, save node_modules to cache ===
+            // IMPORTANTE: Salvare PRIMA dell'avvio server, così funziona anche se il server non si avvia
+            // (es. Next.js 16.1.1 hanging bug)
+            // Se shouldInstall=true e siamo qui, l'install è riuscito → node_modules esiste
+            if (shouldInstall) {
+                try {
+                    console.log(`\n💾 [Setup] Saving node_modules to cache for future use...`);
+
+                    const hash = await cacheService.calculateHash(projectId);
+                    const saveResult = await cacheService.save(projectId, agentUrl, machineId);
+
+                    if (saveResult.success && !saveResult.skipped) {
+                        console.log(`   ✅ [Setup] Cache saved (hash: ${hash})! Next time will be faster ⚡`);
+                    } else if (saveResult.skipped) {
+                        console.log(`   ⏭️ [Setup] Cache already exists, skipped upload`);
+                    }
+
+                } catch (saveError) {
+                    console.log(`   ⚠️ [Setup] Failed to save cache: ${saveError.message}`);
+                    // Non bloccare se salvataggio fallisce
+                }
             }
 
             console.log(`   🔪 Killing any process on port 3000...`);

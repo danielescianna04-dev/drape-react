@@ -56,7 +56,8 @@ class VMPoolManager {
 
             const bytes = parseInt(checkResult.data?.stdout?.trim() || '0', 10);
             const sizeMB = Math.round(bytes / 1024 / 1024);
-            const hasCache = bytes > 500 * 1024 * 1024; // >500MB
+            // Mega-cache è 1.2GB - richiediamo almeno 1GB per considerare il cache completo
+            const hasCache = bytes > 1000 * 1024 * 1024; // >1GB
 
             return { hasCache, sizeMB };
         } catch (e) {
@@ -209,7 +210,7 @@ class VMPoolManager {
         let pooledVM = this.pool.find(vm =>
             !vm.allocatedTo &&
             vm.prewarmed &&
-            vm.cacheReady !== false && // Must have cache ready (true or undefined for backwards compat)
+            vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
             !vm.isCacheMaster
         );
 
@@ -217,7 +218,7 @@ class VMPoolManager {
         if (!pooledVM) {
             pooledVM = this.pool.find(vm =>
                 !vm.allocatedTo &&
-                vm.cacheReady !== false && // Must have cache ready
+                vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
                 !vm.isCacheMaster
             );
         }
@@ -227,6 +228,11 @@ class VMPoolManager {
             const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster);
             if (downloadingVMs.length > 0) {
                 console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, not available yet`);
+            }
+            // DEBUG: Show all VMs in pool
+            console.log(`🔍 [DEBUG] Pool has ${this.pool.length} VMs total:`);
+            for (const vm of this.pool) {
+                console.log(`   - ${vm.machineId}: allocated=${vm.allocatedTo}, prewarmed=${vm.prewarmed}, cacheReady=${vm.cacheReady}, isCacheMaster=${vm.isCacheMaster}`);
             }
         }
 
@@ -720,7 +726,7 @@ class VMPoolManager {
                     const pollInterval = 5000; // Check every 5 seconds
                     const maxWaitTime = 360000; // Max 6 minutes (download + extraction)
                     const startTime = Date.now();
-                    const minCacheSize = 500 * 1024 * 1024; // 500MB minimum (ensures real extraction happened)
+                    const minCacheSize = 1000 * 1024 * 1024; // 1GB minimum (mega-cache è 1.2GB)
 
                     let lastSize = 0;
                     let stableCount = 0; // Count consecutive polls with same size
@@ -763,12 +769,19 @@ class VMPoolManager {
                         await new Promise(resolve => setTimeout(resolve, pollInterval));
                     }
 
-                    // Timeout - mark as ready anyway to not block forever
+                    // Timeout - mark as ready ONLY if has at least 1GB cache
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
                     const finalMb = (lastSize / 1024 / 1024).toFixed(0);
-                    console.warn(`   ⚠️ [Cache Timeout] Worker ${vm.id}: cache at ${finalMb}MB after ${elapsed}s, marking ready anyway`);
-                    poolEntry.prewarmed = true;
-                    poolEntry.cacheReady = true; // Make available even on timeout
+
+                    if (lastSize >= minCacheSize) {
+                        console.log(`   ✅ [Cache Ready] Worker ${vm.id}: ${finalMb}MB cache (timeout but sufficient)`);
+                        poolEntry.prewarmed = true;
+                        poolEntry.cacheReady = true;
+                    } else {
+                        console.warn(`   ❌ [Cache Failed] Worker ${vm.id}: only ${finalMb}MB after ${elapsed}s (< 1GB required), NOT ready`);
+                        poolEntry.prewarmed = false;
+                        poolEntry.cacheReady = false;
+                    }
                     return;
                 }
 

@@ -6,6 +6,7 @@
 // FIRST: Initialize global log service to capture ALL logs
 const globalLogService = require('./services/global-log-service');
 const fileWatcherService = require('./services/file-watcher');
+const cron = require('node-cron');
 
 require('dotenv').config();
 
@@ -47,6 +48,7 @@ if (!admin.apps.length) {
     try {
         admin.initializeApp({
             projectId: 'drape-mobile-ide',
+            // Usa bucket di default per permessi automatici del service account
             storageBucket: 'drape-mobile-ide.appspot.com'
         });
         console.log('🔥 Firebase Admin initialized');
@@ -241,6 +243,23 @@ async function startServer() {
     // Start Resource Monitor (Phase 3.3)
     const resourceMonitor = require('./services/resource-monitor-service');
     resourceMonitor.start();
+
+    // Initialize Workspace Cleanup Cron Job (FASE 4)
+    const cleanupService = require('./services/workspace-cleanup-service');
+    console.log('🧹 Scheduling cleanup cron job (daily at 3 AM)...');
+    cron.schedule('0 3 * * *', async () => {
+        console.log('\n⏰ [Cron] Running scheduled workspace cleanup...');
+        try {
+            const results = await cleanupService.runFullCleanup();
+            console.log(`✅ [Cron] Cleanup completed:`, results);
+        } catch (error) {
+            console.error('❌ [Cron] Cleanup failed:', error);
+        }
+    }, {
+        scheduled: true,
+        timezone: 'Europe/Rome'
+    });
+    console.log('   ✅ Cleanup cron job scheduled');
 
     const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
 
