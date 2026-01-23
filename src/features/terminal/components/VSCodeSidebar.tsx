@@ -19,6 +19,7 @@ import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { IntegrationsFAB } from './IntegrationsFAB';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
+import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 
@@ -41,6 +42,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
+  const previewServerUrl = useTerminalStore((state) => state.previewServerUrl);
+  const apiUrl = useTabStore((state) => state.apiUrl);
 
   // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
@@ -386,7 +389,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               setShowPreviewPanel(false);
               if (activePanel === 'preview') setActivePanel(null);
             }}
-            previewUrl={useTabStore.getState().apiUrl || "http://localhost:3000"}
+            previewUrl={previewServerUrl || apiUrl || ""}
             projectName="Project Preview"
           />
         )}

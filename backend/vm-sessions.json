@@ -6516,5 +6516,29 @@
       "requiresDocker": false,
       "hasWebUI": true
     }
+  },
+  "HUilWt3sufl94iKgJemp": {
+    "id": "5683437eb3278e",
+    "name": "ws-HUilWt3sufl94iKgJemp",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "5683437eb3278e",
+    "projectId": "HUilWt3sufl94iKgJemp",
+    "createdAt": 1769132229739,
+    "lastUsed": 1769134506925,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J",
+    "projectInfo": {
+      "type": "static",
+      "startCommand": "npx -y http-server -p 3000 -c-1",
+      "port": 3000,
+      "description": "Static HTML website",
+      "language": "html",
+      "packageManager": "npm",
+      "installCommand": "echo \"No install needed\"",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    }
   }
 }

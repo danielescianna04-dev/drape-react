@@ -983,17 +983,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     const result = parsed;
                     console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
 
+                    // Show UI immediately - don't wait for cookie sync
+                    setServerStatus('running');
+                    setIsStarting(false);
+
                     // Handle final success state
                     const completeSetup = () => {
-                      if (result.serverReady) {
-                        setServerStatus('running');
-                        setIsStarting(false);
-                        resolve();
-                      } else {
-                        logSystem(`Server starting at ${result.previewUrl}...`, 'preview');
-                        checkServerStatus(result.previewUrl);
-                        resolve();
-                      }
+                      // Just resolve - UI is already shown
+                      resolve();
                     };
 
                     if (result.previewUrl) {
@@ -1780,7 +1777,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={insets.top}
           >
-            {/* Header - Only show when server is running AND WebView is ready */}
+            {/* Header - Only show when server is running and WebView is ready */}
             {serverStatus === 'running' && webViewReady && (
               <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
                 <View style={styles.headerRow}>
@@ -2074,11 +2071,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   <View style={StyleSheet.absoluteFill}>
 
                     {hasWebUI ? (
+                      currentPreviewUrl && (currentPreviewUrl.startsWith('http://') || currentPreviewUrl.startsWith('https://')) ? (
                       <WebView
                         key={coderToken || 'init'}
                         ref={webViewRef}
                         source={{
-                          uri: currentPreviewUrl || 'about:blank',
+                          uri: currentPreviewUrl,
                           headers: {
                             'Coder-Session-Token': coderToken || '',
                             'session_token': coderToken || '',
@@ -2283,6 +2281,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         shouldRasterizeIOS={true}
                         cacheEnabled={true}
                       />
+                    ) : (
+                      <View style={{ flex: 1, backgroundColor: '#0a0a0c' }} />
+                    )
                     ) : (
                       /* Terminal Output View for CLI projects */
                       <ScrollView
@@ -2648,7 +2649,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           )}
 
 
-          {/* Animated FAB / Input Box - Only show when server is running AND WebView is ready */}
+          {/* Animated FAB / Input Box - Only show when server is running and WebView is ready */}
           {serverStatus === 'running' && webViewReady && (
             <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: 12 }]}>
               {/* Selected Element Chip - only when expanded */}

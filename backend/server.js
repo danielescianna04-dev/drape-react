@@ -245,6 +245,8 @@ async function startServer() {
     resourceMonitor.start();
 
     // Initialize Workspace Cleanup Cron Job (FASE 4)
+    // TODO: Riattivare quando workspace-cleanup-service.js sarà implementato
+    /*
     const cleanupService = require('./services/workspace-cleanup-service');
     console.log('🧹 Scheduling cleanup cron job (daily at 3 AM)...');
     cron.schedule('0 3 * * *', async () => {
@@ -260,6 +262,7 @@ async function startServer() {
         timezone: 'Europe/Rome'
     });
     console.log('   ✅ Cleanup cron job scheduled');
+    */
 
     const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
 
