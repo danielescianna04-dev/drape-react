@@ -102,7 +102,8 @@ class WorkspaceOrchestrator {
         console.log(`\n🔍 [Orchestrator] Detecting project metadata for: ${projectId}`);
 
         // SESSION CACHING: Check if we already have detected project info
-        if (!forceRefresh) {
+        // DISABLED: Cache causing issues with VM reuse - always re-detect for now
+        if (false && !forceRefresh) {
             try {
                 const cachedSession = await redisService.getVMSession(projectId);
                 if (cachedSession?.projectInfo?.type && cachedSession.projectInfo.type !== 'static') {
@@ -138,19 +139,31 @@ class WorkspaceOrchestrator {
             return Promise.race([promise, timeout]);
         };
 
-        // Get file list for project detection
+        // Get file list for project detection FROM STORAGE (not VM!)
+        // This prevents detecting files from previous projects on reused VMs
         let fileNames = [];
         let configFiles = {};
         try {
-            const listResult = await withTimeout(this.listFiles(projectId), 15000, 'listFiles (detecting)');
-            fileNames = (listResult.files || []).map(f => f.path);
+            // Use storageService to list files from Firebase Storage, not from VM
+            const storageFiles = await storageService.listFiles(projectId);
+            fileNames = storageFiles.success ? storageFiles.files.map(f => f.path) : [];
+            console.log(`   📂 [Detection] Found ${fileNames.length} files in storage`);
 
-            // Read config files for detection (increased timeout from 3s to 5s for reliability)
+            // Fallback to VM listing if storage returns empty (shouldn't happen but safety first)
+            if (fileNames.length === 0) {
+                console.warn(`   ⚠️ [Detection] No files in storage, falling back to VM listing`);
+                const listResult = await withTimeout(this.listFiles(projectId), 15000, 'listFiles (detecting)');
+                fileNames = (listResult.files || []).map(f => f.path);
+            }
+
+            // Read config files for detection FROM STORAGE (not VM!)
+            // This ensures we detect based on actual project files, not leftovers from previous projects
             const configReadResults = { success: [], failed: [] };
             for (const configName of ['package.json', 'requirements.txt', 'go.mod', 'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs', 'next.config.ts']) {
                 try {
-                    const result = await withTimeout(this.readFile(projectId, configName), 5000, `readFile(${configName})`);
-                    if (result.success) {
+                    // Use storageService instead of this.readFile (VM)
+                    const result = await storageService.readFile(projectId, configName);
+                    if (result.success && result.content) {
                         configFiles[configName] = { content: result.content };
                         configReadResults.success.push(configName);
                     }

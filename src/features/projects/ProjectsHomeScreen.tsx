@@ -210,12 +210,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     setLoadingProjectName(project.name);
     setIsLoadingProject(true);
 
-    // Reset preview state when opening a different project
-    const { setFlyMachineId, setPreviewServerUrl, currentWorkstation } = useTerminalStore.getState();
+    // DON'T reset preview state when opening project
+    // The PreviewPanel will auto-recover the machineId and determine if server is running
+    // This prevents unnecessary server restarts
+    const { currentWorkstation } = useTerminalStore.getState();
     if (!currentWorkstation || currentWorkstation.id !== project.id) {
-      console.log('🔄 [Home] Switching project - resetting preview state');
-      setFlyMachineId(null);
-      setPreviewServerUrl(null);
+      console.log('🔄 [Home] Switching project (NOT resetting preview state - letting PreviewPanel handle recovery)');
     }
 
     const repoUrl = project.repositoryUrl || project.githubUrl;
@@ -228,7 +228,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const prefetchPromises: Promise<any>[] = [];
 
     // 1. VM Warmup - BLOCKING (VM creation is 2s, but full setup with file sync takes 20-40s)
-    if (repoUrl) {
+    // 🔑 SKIP if we already have a machineId for this project (prevents unnecessary restarts)
+    const { projectMachineIds } = useTerminalStore.getState();
+    const existingMachineId = projectMachineIds[project.id];
+
+    if (repoUrl && !existingMachineId) {
       const vmPromise = (async () => {
         try {
           console.log('🔥 [Home] Starting VM warmup (blocking)...');
@@ -266,6 +270,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         }
       })();
       prefetchPromises.push(vmPromise);
+    } else if (existingMachineId) {
+      console.log(`✨ [Home] Skipping VM warmup - project already has active VM: ${existingMachineId}`);
     }
 
     // 2. Git Data Prefetch (commits, branches from GitHub API)

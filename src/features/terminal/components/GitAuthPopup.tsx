@@ -37,12 +37,14 @@ interface DeviceFlowData {
   interval: number;
 }
 
-export const GitAuthPopup = () => {
-  const { showAuthPopup, currentRequest, completeAuth, cancelAuth } = useGitAuthStore();
+export const GitAuthPopup = React.memo(() => {
+  // Usa selettori specifici per evitare re-render non necessari
+  const showAuthPopup = useGitAuthStore((state) => state.showAuthPopup);
+  const currentRequest = useGitAuthStore((state) => state.currentRequest);
+  const completeAuth = useGitAuthStore((state) => state.completeAuth);
+  const cancelAuth = useGitAuthStore((state) => state.cancelAuth);
   const [step, setStep] = useState<AuthStep>('select-account');
 
-  // Debug logging
-  console.log('🔐 [GitAuthPopup] Render - showAuthPopup:', showAuthPopup, 'currentRequest:', currentRequest?.reason);
   const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [pat, setPat] = useState('');
@@ -473,7 +475,7 @@ export const GitAuthPopup = () => {
       </View>
     </Modal>
   );
-};
+});
 
 const styles = StyleSheet.create({
   overlay: {

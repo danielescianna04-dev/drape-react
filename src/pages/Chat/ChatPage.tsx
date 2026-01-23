@@ -645,7 +645,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     pointerEvents: showToolsSheet ? 'auto' : 'none',
   }));
 
-  const { tabs, activeTabId, updateTab, addTerminalItem: addTerminalItemToStore } = useTabStore();
+  // Usa selettori specifici per evitare re-render su ogni cambio di store
+  const tabs = useTabStore((state) => state.tabs);
+  const activeTabId = useTabStore((state) => state.activeTabId);
+  const updateTab = useTabStore((state) => state.updateTab);
+  const addTerminalItemToStore = useTabStore((state) => state.addTerminalItem);
 
   // Model selector dropdown state
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -738,12 +742,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [currentTab?.id]); // ONLY depend on tab ID - NOT on input!
 
-  const {
-    hasInteracted,
-    setGitHubUser,
-    setGitHubRepositories,
-    currentWorkstation,
-  } = useTerminalStore();
+  // Usa selettori specifici per evitare re-render su ogni cambio di store
+  const hasInteracted = useTerminalStore((state) => state.hasInteracted);
+  const setGitHubUser = useTerminalStore((state) => state.setGitHubUser);
+  const setGitHubRepositories = useTerminalStore((state) => state.setGitHubRepositories);
+  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;

@@ -29,18 +29,17 @@ interface Props {
   projectPath?: string; // Path to the project directory
 }
 
-export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: Props) => {
-  const {
-    currentWorkstation,
-    previewServerStatus: globalServerStatus,
-    previewServerUrl: globalServerUrl,
-    setPreviewServerStatus,
-    setPreviewServerUrl,
-    flyMachineId: globalFlyMachineId,
-    setFlyMachineId: setGlobalFlyMachineId,
-    projectMachineIds,
-    projectPreviewUrls
-  } = useTerminalStore();
+export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, projectPath }: Props) => {
+  // Usa selettori specifici per evitare re-render su ogni log del backend
+  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
+  const globalServerStatus = useTerminalStore((state) => state.previewServerStatus);
+  const globalServerUrl = useTerminalStore((state) => state.previewServerUrl);
+  const setPreviewServerStatus = useTerminalStore((state) => state.setPreviewServerStatus);
+  const setPreviewServerUrl = useTerminalStore((state) => state.setPreviewServerUrl);
+  const globalFlyMachineId = useTerminalStore((state) => state.flyMachineId);
+  const setGlobalFlyMachineId = useTerminalStore((state) => state.setFlyMachineId);
+  const projectMachineIds = useTerminalStore((state) => state.projectMachineIds);
+  const projectPreviewUrls = useTerminalStore((state) => state.projectPreviewUrls);
   const { apiUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
@@ -837,6 +836,44 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
     if (!currentWorkstation?.id) {
       logError('No workstation selected', 'preview');
       return;
+    }
+
+    // 🔑 CHECK: If we already have a machineId, check if server is running first
+    if (globalFlyMachineId && currentPreviewUrl) {
+      console.log(`🔍 [StartServer] machineId exists (${globalFlyMachineId}), checking if server is already running...`);
+      setServerStatus('checking');
+      setIsStarting(true);
+
+      // Do a quick health check
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+        const response = await fetch(currentPreviewUrl, {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'include',
+          headers: {
+            'Fly-Force-Instance-Id': globalFlyMachineId,
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        // If server is responding (200-499), it's running!
+        if (response.status >= 200 && response.status < 500) {
+          console.log(`✅ [StartServer] Server already running! Status: ${response.status}, skipping restart`);
+          setServerStatus('running');
+          setIsStarting(false);
+          setWebViewReady(true);
+          return; // DON'T restart the server!
+        }
+
+        console.log(`⚠️ [StartServer] Server returned ${response.status}, will restart`);
+      } catch (error: any) {
+        console.log(`⚠️ [StartServer] Health check failed: ${error.message}, will restart`);
+      }
     }
 
     // Reset session expired state when starting a new preview
@@ -2748,7 +2785,7 @@ export const PreviewPanel = ({ onClose, previewUrl, projectName, projectPath }: 
       </Reanimated.View >
     </>
   );
-};
+});
 
 const styles = StyleSheet.create({
   backdrop: {
