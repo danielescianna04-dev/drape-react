@@ -125,6 +125,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const inputRef = useRef<TextInput>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const prevWorkstationId = useRef<string | null>(null);
+  const releaseTimerRef = useRef<NodeJS.Timeout | null>(null); // Timer for auto-release after 5 min
   const [message, setMessage] = useState('');
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string } | null>(null);
@@ -1178,6 +1179,45 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       clearInterval(checkInterval.current);
     }
 
+    // ⏱️ NEW LOGIC: Start 5min timer for VM release (instead of immediate stop)
+    if ((serverStatus === 'running' || serverStatus === 'checking') && currentWorkstation?.id) {
+      console.log(`⏱️ [PreviewPanel] Starting 5min release timer for project ${currentWorkstation.id}`);
+
+      // Clear any existing timer
+      if (releaseTimerRef.current) {
+        clearTimeout(releaseTimerRef.current);
+      }
+
+      // Start 5-minute countdown
+      releaseTimerRef.current = setTimeout(async () => {
+        console.log(`⏰ [PreviewPanel] 5min expired, releasing VM for project ${currentWorkstation.id}`);
+
+        try {
+          const response = await fetch(`${apiUrl}/fly/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: currentWorkstation.id }),
+          });
+
+          if (response.ok) {
+            console.log(`✅ [PreviewPanel] VM released for project ${currentWorkstation.id}`);
+            setPreviewServerStatus('stopped');
+            setPreviewServerUrl(null);
+            serverLogService.disconnect();
+          } else {
+            console.warn(`⚠️ [PreviewPanel] Failed to release VM: ${response.status}`);
+          }
+        } catch (error: any) {
+          console.error(`❌ [PreviewPanel] Release error:`, error.message);
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+
+      console.log(`✅ [PreviewPanel] Timer started - VM will be released in 5 minutes if not reopened`);
+    }
+
+    // ❌ OLD LOGIC: Commented out - was stopping server immediately
+    /*
+
     // NOTE: Don't disconnect from server logs here - keep connection alive
     // The global serverLogService will continue streaming logs to the terminal
     // Only disconnect when server is actually stopped or project changes
@@ -1187,7 +1227,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const portMatch = currentPreviewUrl.match(/:(\d+)/);
       if (portMatch && currentWorkstation?.id) {
         const port = parseInt(portMatch[1]);
-        console.log(`🛑 Stopping server on port ${port}`);
+        console.log(`⏱️ [DEPRECATED] Old stop logic - now using 5min timer`);
 
         // Log stop command to global terminal
         logCommand(`kill -9 $(lsof -ti:${port})`, 'preview');
@@ -1218,7 +1258,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       // Disconnect from server logs since server is being stopped
       serverLogService.disconnect();
     }
+    */
 
+    // Close preview UI
     Animated.timing(fadeAnim, {
       toValue: 0,
       duration: 200,

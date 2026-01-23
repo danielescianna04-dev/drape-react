@@ -533,6 +533,25 @@ router.post('/preview/stop', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /fly/release
+ * Release a project's VM back to the pool (for project switching)
+ * Lighter than /preview/stop - releases VM but keeps it in pool for reuse
+ */
+router.post('/release', asyncHandler(async (req, res) => {
+    const { projectId } = req.body;
+
+    if (!projectId) {
+        return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    console.log(`🔄 [Fly] Releasing VM for project: ${projectId}`);
+
+    const result = await orchestrator.releaseProjectVM(projectId);
+
+    res.json(result);
+}));
+
+/**
  * GET /fly/status
  * Get system status and active VMs
  */

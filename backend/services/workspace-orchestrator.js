@@ -1887,6 +1887,70 @@ echo "=== END DEBUG ==="
 
 
     /**
+     * Release a project's VM back to the pool (for project switching)
+     * Lighter than stopVM - stops dev server, cleans files, releases VM to pool
+     * @param {string} projectId - Project ID
+     */
+    async releaseProjectVM(projectId) {
+        const cached = activeVMs.get(projectId);
+        if (!cached) {
+            console.log(`ℹ️ [Orchestrator] No active VM for ${projectId}`);
+            return { success: true, message: 'No active VM' };
+        }
+
+        try {
+            console.log(`🔄 [Orchestrator] Releasing VM for project ${projectId}`);
+
+            // HARDENED SAFETY: Check if this VM is a cache master
+            const isCacheMaster = vmPoolManager.isProtectedCacheMaster
+                ? vmPoolManager.isProtectedCacheMaster(cached.machineId)
+                : vmPoolManager.pool?.some(vm => vm.machineId === cached.machineId && vm.isCacheMaster);
+
+            if (isCacheMaster) {
+                console.log(`🛡️ [Orchestrator] Skipping release for cache master ${cached.machineId}`);
+                activeVMs.delete(projectId);
+                await redisService.removeVMSession(projectId);
+                return { success: true, message: 'Cache master protected' };
+            }
+
+            // 1. Stop dev server
+            console.log(`   🛑 Stopping dev server on port 3000...`);
+            try {
+                await flyService.exec(
+                    cached.agentUrl,
+                    'fuser -k 3000/tcp 2>/dev/null || true; pkill -9 -f "next-server" || true; pkill -9 -f "vite" || true',
+                    '/home/coder',
+                    cached.machineId,
+                    10000,
+                    true
+                );
+            } catch (e) {
+                console.warn(`⚠️ [Orchestrator] Failed to stop dev server: ${e.message}`);
+            }
+
+            // 2. Release VM back to pool (cleans files, preserves cache)
+            const isPoolVM = cached.fromPool === true;
+            if (isPoolVM) {
+                console.log(`♻️ [Orchestrator] Releasing VM ${cached.machineId} back to pool`);
+                await vmPoolManager.releaseVM(cached.machineId, true); // Keep node_modules
+            } else {
+                console.log(`🗑️ [Orchestrator] Non-pool VM ${cached.machineId}, destroying`);
+                await flyService.destroyMachine(cached.id);
+            }
+
+            // 3. Remove from active sessions
+            activeVMs.delete(projectId);
+            await redisService.removeVMSession(projectId);
+
+            console.log(`✅ [Orchestrator] Released VM ${cached.machineId} from project ${projectId}`);
+            return { success: true, released: isPoolVM, machineId: cached.machineId };
+        } catch (error) {
+            console.error(`❌ [Orchestrator] Release failed:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
      * Stop and cleanup a project's VM
      * @param {string} projectId - Project ID
      */

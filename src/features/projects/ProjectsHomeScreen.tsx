@@ -13,6 +13,7 @@ import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import { ProjectLoadingOverlay } from '../../shared/components/molecules/ProjectLoadingOverlay';
 import { filePrefetchService } from '../../core/cache/filePrefetchService';
+import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 import axios from 'axios';
 import { config } from '../../config/config';
 import { gitAccountService } from '../../core/git/gitAccountService';
@@ -210,12 +211,25 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     setLoadingProjectName(project.name);
     setIsLoadingProject(true);
 
-    // DON'T reset preview state when opening project
-    // The PreviewPanel will auto-recover the machineId and determine if server is running
-    // This prevents unnecessary server restarts
+    // Release previous project's VM when switching (instant release)
     const { currentWorkstation } = useTerminalStore.getState();
-    if (!currentWorkstation || currentWorkstation.id !== project.id) {
-      console.log('🔄 [Home] Switching project (NOT resetting preview state - letting PreviewPanel handle recovery)');
+    if (currentWorkstation && currentWorkstation.id !== project.id) {
+      console.log('🔄 [Home] Switching project - releasing VM for previous project:', currentWorkstation.id);
+
+      // Release VM immediately (don't wait)
+      fetch(`${config.apiUrl}/fly/release`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: currentWorkstation.id }),
+      }).then(res => {
+        if (res.ok) {
+          console.log('✅ [Home] Released VM for previous project:', currentWorkstation.id);
+        } else {
+          console.warn('⚠️ [Home] Failed to release VM:', res.status);
+        }
+      }).catch(err => {
+        console.error('❌ [Home] Release error:', err.message);
+      });
     }
 
     const repoUrl = project.repositoryUrl || project.githubUrl;
@@ -224,13 +238,81 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     // Update lastAccessed in background (don't wait)
     workstationService.updateLastAccessed(project.id);
 
-    // === PREFETCH: VM + Git Data + Files (all blocking) ===
+    // === FAST PATH: If we have cache, open immediately ===
+    const { isCacheValid } = useFileCacheStore.getState();
+    const hasCachedFiles = isCacheValid(project.id);
+    const { projectMachineIds } = useTerminalStore.getState();
+    const existingMachineId = projectMachineIds[project.id];
+
+    if (hasCachedFiles && existingMachineId) {
+      console.log('⚡ [Home] Cache hit! Opening project immediately');
+      setIsLoadingProject(false);
+      setLoadingProjectName('');
+      onOpenProject(project);
+
+      // Update cache in background (non-blocking)
+      console.log('🔄 [Home] Refreshing cache in background...');
+      const backgroundUpdate = async () => {
+        const gitPromises: Promise<any>[] = [];
+
+        // Git data refresh
+        if (repoUrl && repoUrl.includes('github.com')) {
+          gitPromises.push(
+            (async () => {
+              try {
+                const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+                if (!match) return;
+                const [, owner, repo] = match;
+                const accounts = await gitAccountService.getAllAccounts(userId);
+                const githubAccount = accounts.find(a => a.provider === 'github');
+                const token = githubAccount ? await gitAccountService.getToken(githubAccount, userId) : null;
+                const [commitsData, branchesData] = await Promise.all([
+                  githubService.getCommits(owner, repo, token || undefined).catch(() => []),
+                  githubService.getBranches(owner, repo, token || undefined).catch(() => [])
+                ]);
+                if (commitsData?.length > 0) {
+                  const currentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
+                  useGitCacheStore.getState().setGitData(project.id, {
+                    commits: commitsData.map((c: any, index: number) => ({
+                      hash: c.sha,
+                      shortHash: c.sha.substring(0, 7),
+                      message: c.message.split('\n')[0],
+                      author: c.author.name,
+                      authorEmail: c.author.email,
+                      authorAvatar: c.author.avatar_url,
+                      authorLogin: c.author.login,
+                      date: new Date(c.author.date).toISOString(),
+                      isHead: index === 0,
+                      branch: index === 0 ? currentBranch : undefined,
+                      url: c.url,
+                    })),
+                    branches: branchesData?.map((b: any) => ({ name: b.name, isCurrent: b.name === currentBranch, isRemote: true })) || [],
+                    status: null,
+                    currentBranch,
+                    isGitRepo: true
+                  });
+                }
+              } catch (e) {}
+            })()
+          );
+        }
+
+        // Files refresh
+        gitPromises.push(filePrefetchService.prefetchFiles(project.id, repoUrl, true));
+
+        // Run both in parallel
+        await Promise.all(gitPromises).catch(() => {});
+        console.log('✅ [Home] Background refresh complete');
+      };
+      backgroundUpdate();
+      return;
+    }
+
+    // === SLOW PATH: No cache, do full prefetch ===
     const prefetchPromises: Promise<any>[] = [];
 
     // 1. VM Warmup - BLOCKING (VM creation is 2s, but full setup with file sync takes 20-40s)
     // 🔑 SKIP if we already have a machineId for this project (prevents unnecessary restarts)
-    const { projectMachineIds } = useTerminalStore.getState();
-    const existingMachineId = projectMachineIds[project.id];
 
     if (repoUrl && !existingMachineId) {
       const vmPromise = (async () => {
@@ -274,80 +356,95 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       console.log(`✨ [Home] Skipping VM warmup - project already has active VM: ${existingMachineId}`);
     }
 
-    // 2. Git Data Prefetch (commits, branches from GitHub API)
-    if (repoUrl && repoUrl.includes('github.com')) {
-      const gitPromise = (async () => {
-        try {
-          const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-          if (!match) return null;
+    // 2 & 3. Git Data + Files Prefetch (in parallel)
+    // Start both immediately to maximize parallelization
+    const dataPromise = (async () => {
+      const parallelFetches: Promise<any>[] = [];
 
-          const [, owner, repo] = match;
-          console.log('🔄 [Home] Prefetching git data for', owner + '/' + repo);
+      // Git Data Prefetch
+      if (repoUrl && repoUrl.includes('github.com')) {
+        parallelFetches.push(
+          (async () => {
+            try {
+              const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+?)(\.git)?$/) || repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+              if (!match) return null;
 
-          // Get token
-          const accounts = await gitAccountService.getAllAccounts(userId);
-          const githubAccount = accounts.find(a => a.provider === 'github');
-          const token = githubAccount ? await gitAccountService.getToken(githubAccount, userId) : null;
+              const [, owner, repo] = match;
+              console.log('🔄 [Home] Prefetching git data for', owner + '/' + repo);
 
-          // Fetch commits and branches in parallel
-          const [commitsData, branchesData] = await Promise.all([
-            githubService.getCommits(owner, repo, token || undefined).catch(() => []),
-            githubService.getBranches(owner, repo, token || undefined).catch(() => [])
-          ]);
+              // Get token
+              const accounts = await gitAccountService.getAllAccounts(userId);
+              const githubAccount = accounts.find(a => a.provider === 'github');
+              const token = githubAccount ? await gitAccountService.getToken(githubAccount, userId) : null;
 
-          if (commitsData && commitsData.length > 0) {
-            const currentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
+              // Fetch commits and branches in parallel
+              const [commitsData, branchesData] = await Promise.all([
+                githubService.getCommits(owner, repo, token || undefined).catch(() => []),
+                githubService.getBranches(owner, repo, token || undefined).catch(() => [])
+              ]);
 
-            // Cache the git data
-            useGitCacheStore.getState().setGitData(project.id, {
-              commits: commitsData.map((c: any, index: number) => ({
-                hash: c.sha,
-                shortHash: c.sha.substring(0, 7),
-                message: c.message.split('\n')[0],
-                author: c.author.name,
-                authorEmail: c.author.email,
-                authorAvatar: c.author.avatar_url,
-                authorLogin: c.author.login,
-                date: new Date(c.author.date).toISOString(),
-                isHead: index === 0,
-                branch: index === 0 ? currentBranch : undefined,
-                url: c.url,
-              })),
-              branches: branchesData?.map((b: any) => ({
-                name: b.name,
-                isCurrent: b.name === currentBranch,
-                isRemote: true,
-              })) || [],
-              status: null,
-              currentBranch,
-              isGitRepo: true
-            });
+              if (commitsData && commitsData.length > 0) {
+                const currentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
 
-            console.log('✅ [Home] Git data cached:', commitsData.length, 'commits in', Date.now() - startTime, 'ms');
-          }
-          return commitsData;
-        } catch (e: any) {
-          console.warn('⚠️ [Home] Git prefetch error:', e.message);
-          return null;
-        }
-      })();
-      prefetchPromises.push(gitPromise);
-    }
+                // Cache the git data
+                useGitCacheStore.getState().setGitData(project.id, {
+                  commits: commitsData.map((c: any, index: number) => ({
+                    hash: c.sha,
+                    shortHash: c.sha.substring(0, 7),
+                    message: c.message.split('\n')[0],
+                    author: c.author.name,
+                    authorEmail: c.author.email,
+                    authorAvatar: c.author.avatar_url,
+                    authorLogin: c.author.login,
+                    date: new Date(c.author.date).toISOString(),
+                    isHead: index === 0,
+                    branch: index === 0 ? currentBranch : undefined,
+                    url: c.url,
+                  })),
+                  branches: branchesData?.map((b: any) => ({
+                    name: b.name,
+                    isCurrent: b.name === currentBranch,
+                    isRemote: true,
+                  })) || [],
+                  status: null,
+                  currentBranch,
+                  isGitRepo: true
+                });
 
-    // 3. File tree prefetch
-    if (filePrefetchService.needsPrefetch(project.id)) {
-      const filePromise = (async () => {
-        try {
-          console.log('📁 [Home] Prefetching files...');
-          const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
-          console.log('✅ [Home] Files cached in', Date.now() - startTime, 'ms');
-          return result;
-        } catch (e: any) {
-          console.warn('⚠️ [Home] File prefetch error:', e.message);
-          return null;
-        }
-      })();
-      prefetchPromises.push(filePromise);
+                console.log('✅ [Home] Git data cached:', commitsData.length, 'commits in', Date.now() - startTime, 'ms');
+              }
+              return commitsData;
+            } catch (e: any) {
+              console.warn('⚠️ [Home] Git prefetch error:', e.message);
+              return null;
+            }
+          })()
+        );
+      }
+
+      // File tree prefetch
+      if (filePrefetchService.needsPrefetch(project.id)) {
+        parallelFetches.push(
+          (async () => {
+            try {
+              console.log('📁 [Home] Prefetching files...');
+              const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
+              console.log('✅ [Home] Files cached in', Date.now() - startTime, 'ms');
+              return result;
+            } catch (e: any) {
+              console.warn('⚠️ [Home] File prefetch error:', e.message);
+              return null;
+            }
+          })()
+        );
+      }
+
+      // Run git and files in parallel
+      await Promise.all(parallelFetches);
+    })();
+
+    if (dataPromise) {
+      prefetchPromises.push(dataPromise);
     }
 
     // Wait for ALL prefetch (VM + git + files) with 45s timeout
