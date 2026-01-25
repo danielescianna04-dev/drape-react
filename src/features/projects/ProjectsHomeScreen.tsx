@@ -38,7 +38,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   useEffect(() => {
     const cached = useTerminalStore.getState().workstations;
     console.log('🏠 [Home] Component MOUNTED - cached workstations:', cached.length);
-    return () => console.log('🏠 [Home] Component UNMOUNTED');
+    return () => {
+      console.log('🏠 [Home] Component UNMOUNTED');
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+    };
   }, []);
 
   const currentHour = new Date().getHours();
@@ -59,8 +64,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [loadingProjectName, setLoadingProjectName] = useState('');
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStep, setLoadingStep] = useState('');
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const currentProgressRef = useRef(0);
 
   // Reload projects when screen comes into focus
   useFocusEffect(
@@ -107,6 +116,42 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       ])
     ).start();
   }, []);
+
+  // Simulated progress animation - smoothly increases progress towards target
+  const animateProgressTo = (targetProgress: number, step: string, duration = 1000): Promise<void> => {
+    return new Promise((resolve) => {
+      setLoadingStep(step);
+
+      // Clear any existing timer
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+      }
+
+      const startProgress = currentProgressRef.current;
+      const startTime = Date.now();
+
+      progressTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // Ease out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const newProgress = startProgress + (targetProgress - startProgress) * eased;
+        const roundedProgress = Math.round(newProgress);
+
+        currentProgressRef.current = roundedProgress;
+        setLoadingProgress(roundedProgress);
+
+        if (progress >= 1) {
+          if (progressTimerRef.current) {
+            clearInterval(progressTimerRef.current);
+            progressTimerRef.current = null;
+          }
+          resolve();
+        }
+      }, 50);
+    });
+  };
 
   const loadRecentProjects = async (silent = false) => {
     const startTime = Date.now();
@@ -209,6 +254,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     // Show loading overlay IMMEDIATELY
     setLoadingProjectName(project.name);
+    currentProgressRef.current = 5;
+    setLoadingProgress(5);
+    setLoadingStep('Preparazione');
     setIsLoadingProject(true);
 
     // Release previous project's VM when switching (instant release)
@@ -246,9 +294,25 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     if (hasCachedFiles && existingMachineId) {
       console.log('⚡ [Home] Cache hit! Opening project immediately');
-      setIsLoadingProject(false);
-      setLoadingProjectName('');
+
+      // Animate to 100% and wait
+      await animateProgressTo(100, 'Apertura...', 400);
+
+      // Brief pause
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Open project
       onOpenProject(project);
+
+      // Clean up
+      setTimeout(() => {
+        if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+        setIsLoadingProject(false);
+        setLoadingProjectName('');
+        currentProgressRef.current = 0;
+        setLoadingProgress(0);
+        setLoadingStep('');
+      }, 200);
 
       // Update cache in background (non-blocking)
       console.log('🔄 [Home] Refreshing cache in background...');
@@ -309,56 +373,66 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
 
     // === SLOW PATH: No cache, do full prefetch ===
-    const prefetchPromises: Promise<any>[] = [];
+    let vmCompleted = false;
 
     // 1. VM Warmup - BLOCKING (VM creation is 2s, but full setup with file sync takes 20-40s)
     // 🔑 SKIP if we already have a machineId for this project (prevents unnecessary restarts)
 
     if (repoUrl && !existingMachineId) {
-      const vmPromise = (async () => {
-        try {
-          console.log('🔥 [Home] Starting VM warmup (blocking)...');
-          const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
-          const token = tokenData?.token || null;
+      try {
+        console.log('🔥 [Home] Starting VM warmup (blocking)...');
+        animateProgressTo(15, 'Allocazione VM', 800);
 
-          const response = await fetch(`${config.apiUrl}/fly/clone`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              workstationId: project.id,
-              repositoryUrl: repoUrl,
-              githubToken: token,
-            }),
-          });
+        const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
+        const token = tokenData?.token || null;
 
-          const data = await response.json();
+        // Animate to 60% over ~20 seconds (duration of clone operation)
+        animateProgressTo(60, 'Sincronizzazione file', 18000);
 
-          // Check for server errors (503 = pool exhausted)
-          if (!response.ok) {
-            const errorMsg = data?.error || data?.message || 'Server non disponibile';
-            console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
-            throw new Error(errorMsg);
-          }
+        const response = await fetch(`${config.apiUrl}/fly/clone`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workstationId: project.id,
+            repositoryUrl: repoUrl,
+            githubToken: token,
+          }),
+        });
 
-          console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
-          return data;
-        } catch (e: any) {
-          console.warn('⚠️ [Home] VM warmup error:', e.message);
-          // Re-throw pool exhausted errors to show to user
-          if (e.message.includes('riprova') || e.message.includes('richieste')) {
-            throw e;
-          }
-          return null;
+        const data = await response.json();
+
+        // Check for server errors (503 = pool exhausted)
+        if (!response.ok) {
+          const errorMsg = data?.error || data?.message || 'Server non disponibile';
+          console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
+          throw new Error(errorMsg);
         }
-      })();
-      prefetchPromises.push(vmPromise);
+
+        // Save project info (for Next.js warnings, etc.)
+        if (data.projectInfo) {
+          console.log('📋 [Home] Project info received from warmup:', JSON.stringify(data.projectInfo));
+          useTerminalStore.getState().setProjectInfo(data.projectInfo);
+        }
+
+        // VM warmup done - animate to 65%
+        animateProgressTo(65, 'Rilevamento progetto', 500);
+
+        console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
+        vmCompleted = true;
+      } catch (e: any) {
+        console.warn('⚠️ [Home] VM warmup error:', e.message);
+        // Re-throw pool exhausted errors to show to user
+        if (e.message.includes('riprova') || e.message.includes('richieste')) {
+          throw e;
+        }
+      }
     } else if (existingMachineId) {
       console.log(`✨ [Home] Skipping VM warmup - project already has active VM: ${existingMachineId}`);
+      vmCompleted = true;
     }
 
-    // 2 & 3. Git Data + Files Prefetch (in parallel)
-    // Start both immediately to maximize parallelization
-    const dataPromise = (async () => {
+    // 2 & 3. Git Data + Files Prefetch (in parallel) - only if VM completed
+    if (vmCompleted) {
       const parallelFetches: Promise<any>[] = [];
 
       // Git Data Prefetch
@@ -371,6 +445,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
               const [, owner, repo] = match;
               console.log('🔄 [Home] Prefetching git data for', owner + '/' + repo);
+              animateProgressTo(75, 'Caricamento git data', 1200);
 
               // Get token
               const accounts = await gitAccountService.getAllAccounts(userId);
@@ -428,6 +503,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           (async () => {
             try {
               console.log('📁 [Home] Prefetching files...');
+              animateProgressTo(85, 'Caricamento file', 1500);
               const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
               console.log('✅ [Home] Files cached in', Date.now() - startTime, 'ms');
               return result;
@@ -439,43 +515,38 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         );
       }
 
-      // Run git and files in parallel
-      await Promise.all(parallelFetches);
-    })();
-
-    if (dataPromise) {
-      prefetchPromises.push(dataPromise);
-    }
-
-    // Wait for ALL prefetch (VM + git + files) with 45s timeout
-    // VM setup takes 20-40s for file sync + git init
-    try {
-      await Promise.race([
-        Promise.all(prefetchPromises),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Prefetch timeout')), 45000))
-      ]);
-    } catch (e: any) {
-      // Check if this is a "pool exhausted" error - show to user and DON'T open project
-      if (e.message?.includes('riprova') || e.message?.includes('richieste')) {
-        console.error('❌ [Home] Server busy:', e.message);
-        setIsLoadingProject(false);
-        setLoadingProjectName('');
-        Alert.alert(
-          'Server Occupato',
-          e.message,
-          [{ text: 'OK', style: 'default' }]
-        );
-        return; // DON'T open project
+      // Wait for git and files in parallel with timeout
+      try {
+        await Promise.race([
+          Promise.all(parallelFetches),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Data prefetch timeout')), 10000))
+        ]);
+        console.log('✅ [Home] Data prefetch complete');
+      } catch (e: any) {
+        console.warn('⚠️ [Home] Data prefetch timeout, continuing anyway');
       }
-      console.warn('⚠️ [Home] Prefetch timeout after 45s, continuing anyway');
     }
 
     console.log('🎉 [Home] All prefetch complete in', Date.now() - startTime, 'ms - opening project');
 
-    setIsLoadingProject(false);
-    setLoadingProjectName('');
+    // Animate to completion and WAIT for it
+    await animateProgressTo(100, 'Apertura...', 800);
 
+    // Brief pause at 100%
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Now open the project
     onOpenProject(project);
+
+    // Clean up after a short delay
+    setTimeout(() => {
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      setIsLoadingProject(false);
+      setLoadingProjectName('');
+      currentProgressRef.current = 0;
+      setLoadingProgress(0);
+      setLoadingStep('');
+    }, 300);
   };
 
   const handleOpenMenu = (project: any) => {
@@ -1040,6 +1111,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         visible={isLoadingProject}
         projectName={loadingProjectName}
         message="Avvio ambiente..."
+        progress={loadingProgress}
+        currentStep={loadingStep}
+        showTips={true}
       />
     </View>
   );

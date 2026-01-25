@@ -25,6 +25,7 @@ const storageService = require('../services/storage-service');
 const flyService = require('../services/fly-service');
 const metricsService = require('../services/metrics-service');
 const errorTracker = require('../services/error-tracking-service');
+const redisService = require('../services/redis-service');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { analyzeProjectWithAI, analyzeEnvVars } = require('../services/project-analyzer');
 
@@ -282,6 +283,22 @@ router.post('/clone', asyncHandler(async (req, res) => {
     }
 
     try {
+        // Check if project was recently warmed (< 30 seconds ago)
+        const existingSession = await redisService.getVMSession(projectId);
+        if (existingSession && existingSession.lastUsed && (Date.now() - existingSession.lastUsed < 30000)) {
+            console.log(`⚡ [Clone] Project already warmed ${Math.round((Date.now() - existingSession.lastUsed) / 1000)}s ago - skipping duplicate warmup`);
+
+            // Just return existing session data
+            const projectInfo = existingSession.projectInfo || await orchestrator.detectProjectMetadata(projectId);
+            console.log(`📋 [Clone] Sending cached projectInfo:`, JSON.stringify(projectInfo, null, 2));
+
+            return res.json({
+                success: true,
+                machineId: existingSession.machineId,
+                projectInfo: projectInfo
+            });
+        }
+
         // Save repo URL so ensureGitRepo can find it (fixes "No repo URL" error)
         if (repositoryUrl) {
             await storageService.saveProjectMetadata(projectId, { repositoryUrl });
@@ -296,9 +313,23 @@ router.post('/clone', asyncHandler(async (req, res) => {
 
         console.log(`   ✅ VM warmed up: ${result.machineId}`);
 
+        // CRITICAL: Ensure Git repository is initialized (fixes "No changes" in UI)
+        try {
+            const agentUrl = `https://${result.machineId}.vm.drape.fly.dev`;
+            await orchestrator.ensureGitRepo(projectId, agentUrl, result.machineId);
+            console.log(`   ✅ Git repo initialized`);
+        } catch (e) {
+            console.warn(`   ⚠️ ensureGitRepo failed: ${e.message}`);
+        }
+
+        // Detect project type to send warnings (e.g., Next.js 16.x)
+        const projectInfo = await orchestrator.detectProjectMetadata(projectId);
+        console.log(`📋 [Clone] Sending projectInfo:`, JSON.stringify(projectInfo, null, 2));
+
         res.json({
             success: true,
-            machineId: result.machineId
+            machineId: result.machineId,
+            projectInfo: projectInfo // Include project metadata (type, warnings, etc.)
         });
 
     } catch (error) {
@@ -357,6 +388,48 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
     let projectInfo = null;
 
     try {
+        // FAST PATH: Check if dev server is already running
+        // This happens when user re-opens a project that was recently used
+        const existingSession = await redisService.getVMSession(projectId);
+        if (existingSession && existingSession.machineId && existingSession.agentUrl) {
+            try {
+                console.log(`🔍 [Fly] Checking if dev server already running for ${projectId}...`);
+                const axios = require('axios');
+                const healthResponse = await axios.get(existingSession.agentUrl, {
+                    timeout: 3000,
+                    headers: { 'Fly-Force-Instance-Id': existingSession.machineId },
+                    validateStatus: () => true
+                });
+
+                // Dev server is already running!
+                if ((healthResponse.status >= 200 && healthResponse.status < 400) || healthResponse.status === 404) {
+                    console.log(`✅ [Fly] Dev server already running (${healthResponse.status}) - FAST PATH`);
+
+                    // Get cached project info
+                    projectInfo = existingSession.projectInfo || await orchestrator.detectProjectMetadata(projectId);
+
+                    // Send quick ready event
+                    sendStep('ready', 'Preview pronta!', {
+                        previewUrl: process.env.FLY_GATEWAY_URL || existingSession.agentUrl,
+                        coderToken: existingSession.coderToken,
+                        agentUrl: existingSession.agentUrl,
+                        machineId: existingSession.machineId,
+                        projectType: projectInfo?.description || projectInfo?.type || 'unknown',
+                        hasWebUI: projectInfo?.hasWebUI !== false,
+                        timing: { totalMs: 50 }, // Almost instant
+                        fastPath: true // Indicate this was a fast reconnect
+                    });
+
+                    console.log(`✅ [Fly] Preview reconnected in <100ms (Fast Path)`);
+                    clearInterval(heartbeat);
+                    res.write(`data: ${JSON.stringify({ type: 'end' })}\n\n`);
+                    return res.end();
+                }
+            } catch (e) {
+                console.log(`   ℹ️ [Fly] Dev server not responding (${e.message}) - using normal path`);
+            }
+        }
+
         console.log(`   [1/3] Analyzing project...`);
         sendStep('analyzing', 'Analisi del progetto...');
 
@@ -649,17 +722,30 @@ router.post('/heartbeat', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'projectId required' });
     }
 
-    // Get active VMs and update lastUsed timestamp
+    // 🔑 FIX: Update BOTH in-memory and Redis to prevent VM cleanup
+    // The cleanup function checks Redis lastUsed, so we must update both!
+
+    // 1. Update in-memory activeVMs
     const activeVMs = await orchestrator.getActiveVMs();
     const vm = activeVMs.find(v => v.projectId === projectId);
 
     if (vm) {
-        // Update lastUsed to keep VM alive
         vm.lastUsed = Date.now();
-        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (${vm.machineId})`);
+    }
+
+    // 2. Update Redis session (CRITICAL - cleanup reads from Redis!)
+    const session = await redisService.getVMSession(projectId);
+    if (session) {
+        session.lastUsed = Date.now();
+        await redisService.saveVMSession(projectId, session);
+        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (Redis + memory updated)`);
+        res.json({ success: true, machineId: session.machineId, status: 'alive' });
+    } else if (vm) {
+        // VM in memory but not in Redis - still respond OK
+        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (memory only)`);
         res.json({ success: true, machineId: vm.machineId, status: 'alive' });
     } else {
-        // VM not active - maybe stopped or never started
+        // No VM found anywhere
         console.log(`💔 [Heartbeat] ${projectId} - No active VM found`);
         res.json({ success: true, status: 'no_vm' });
     }

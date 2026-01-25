@@ -88,12 +88,14 @@ function fastDetect(files, configFiles) {
 
             // Next.js
             if (deps.next) {
-                // Check Next.js version - disable Turbopack for 16.0-16.1 (crash bugs)
+                // Check Next.js version - FORCE Turbopack for 16.0-16.1 (Webpack hangs)
+                // See: https://github.com/vercel/next.js/discussions/77102
                 const nextVersion = deps.next;
                 const versionMatch = nextVersion.match(/(\d+)\.(\d+)/);
                 const major = versionMatch ? parseInt(versionMatch[1]) : 0;
                 const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
-                const useTurbo = !(major === 16 && minor <= 1);
+                // Next.js 16.0-16.1 has Webpack hanging bug - always use Turbopack
+                const forceTurbo = (major === 16 && minor <= 1);
 
                 return {
                     type: 'nextjs',
@@ -101,12 +103,18 @@ function fastDetect(files, configFiles) {
                     language: 'typescript',
                     packageManager: pm,
                     installCommand: install,
-                    startCommand: useTurbo
-                        ? `npx next dev --turbo -H 0.0.0.0 --port 3000`
-                        : `npx next dev --no-turbo -H 0.0.0.0 --port 3000`,
+                    // Always use --turbo for 16.0-16.1 (Webpack hangs), default turbo for others
+                    startCommand: `npm run dev -- --turbo -H 0.0.0.0 --port 3000`,
                     defaultPort: 3000,
                     requiresDocker: false,
-                    disableTurbopack: !useTurbo
+                    disableTurbopack: false,
+                    ...(forceTurbo && {
+                        nextJsVersionWarning: {
+                            version: `${major}.${minor}`,
+                            message: 'Next.js 16.0-16.1 has Webpack hanging bug',
+                            recommendation: 'Using Turbopack to avoid hanging'
+                        }
+                    })
                 };
             }
 

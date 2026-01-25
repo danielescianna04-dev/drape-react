@@ -240,29 +240,11 @@ class GeminiProvider extends BaseAIProvider {
         let thinkingContent = '';
 
         for await (const chunk of result.stream) {
-            // DEBUG: Log entire chunk structure to see what Gemini sends
-            if (process.env.DEBUG_GEMINI_THINKING) {
-                console.log('[Gemini Debug] Full Chunk:', JSON.stringify(chunk, null, 2));
-                console.log('[Gemini Debug] Chunk keys:', Object.keys(chunk));
-            }
-
             // Check for thinking/reasoning metadata
             const candidate = chunk.candidates?.[0];
 
-            // Log candidate keys for debugging
-            if (process.env.DEBUG_GEMINI_THINKING && candidate) {
-                console.log('[Gemini Debug] Candidate keys:', Object.keys(candidate));
-                if (candidate.content) {
-                    console.log('[Gemini Debug] Content keys:', Object.keys(candidate.content));
-                }
-            }
-
             // CRITICAL: Check for modelVersion or thinking indicators
             if (candidate) {
-                // Log candidate structure for debugging
-                if (process.env.DEBUG_GEMINI_THINKING && candidate.content) {
-                    console.log('[Gemini Debug] Candidate content:', JSON.stringify(candidate.content, null, 2));
-                }
 
                 // Check for thoughts in various possible locations
                 const thoughts = candidate.thought ||

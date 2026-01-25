@@ -379,31 +379,58 @@ class FlyService {
      * @param {string} machineId - Fly machine ID for routing
      */
     async exec(agentUrl, command, cwd = '/home/coder/project', machineId = null, timeout = 300000, silent = false) {
-        try {
-            const headers = { 'Content-Type': 'application/json' };
-            if (machineId) {
-                headers['Fly-Force-Instance-Id'] = machineId;
-            }
+        const maxRetries = 3;
+        let lastError = null;
 
-            const response = await axios.post(`${agentUrl}/exec`, {
-                command,
-                cwd
-            }, {
-                timeout, // Dynamic timeout
-                headers
-            });
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (machineId) {
+                    headers['Fly-Force-Instance-Id'] = machineId;
+                }
 
-            return {
-                exitCode: response.data.exitCode || 0,
-                stdout: response.data.stdout || '',
-                stderr: response.data.stderr || ''
-            };
-        } catch (error) {
-            if (!silent) {
-                console.error(`❌ [Fly] Exec failed:`, error.message);
+                const response = await axios.post(`${agentUrl}/exec`, {
+                    command,
+                    cwd
+                }, {
+                    timeout, // Dynamic timeout
+                    headers
+                });
+
+                return {
+                    exitCode: response.data.exitCode || 0,
+                    stdout: response.data.stdout || '',
+                    stderr: response.data.stderr || ''
+                };
+            } catch (error) {
+                lastError = error;
+
+                // Check if it's a retriable error (502, 503, 504 or network errors)
+                const isRetriable = error.response?.status === 502 ||
+                    error.response?.status === 503 ||
+                    error.response?.status === 504 ||
+                    error.code === 'ECONNRESET' ||
+                    error.code === 'ETIMEDOUT' ||
+                    error.message?.includes('socket hang up');
+
+                if (isRetriable && attempt < maxRetries) {
+                    const delay = Math.min(1000 * attempt, 3000); // 1s, 2s, 3s
+                    if (!silent) {
+                        console.log(`⚠️ [Fly] Exec attempt ${attempt}/${maxRetries} failed (${error.response?.status || error.code || error.message}), retrying in ${delay}ms...`);
+                    }
+                    await new Promise(r => setTimeout(r, delay));
+                    continue;
+                }
+
+                if (!silent) {
+                    console.error(`❌ [Fly] Exec failed after ${attempt} attempts:`, error.message);
+                }
+                throw error;
             }
-            throw error;
         }
+
+        // Should never reach here, but just in case
+        throw lastError || new Error('Exec failed after retries');
     }
 
     /**

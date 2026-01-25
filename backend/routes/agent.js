@@ -60,6 +60,16 @@ async function executeTool(toolName, input, agentUrl, machineId, projectId) {
         }
 
         case 'run_command': {
+            // CRITICAL: Ensure Git repo exists if command might modify files
+            const mayModifyFiles = /\b(rm|mv|cp|mkdir|touch|git\s+(rm|add|commit)|npm|pnpm|yarn)\b/i.test(input.command);
+            if (mayModifyFiles) {
+                try {
+                    await workspaceOrchestrator.ensureGitRepo(projectId, agentUrl, machineId);
+                } catch (e) {
+                    console.warn(`⚠️ ensureGitRepo failed: ${e.message}`);
+                }
+            }
+
             const timeout = input.timeout_ms || 60000;
             const result = await flyService.exec(agentUrl, input.command, '/home/coder/project', machineId, timeout);
             return {
@@ -634,6 +644,93 @@ router.post('/detect-industry', (req, res) => {
         industry: detectIndustry(description),
         features: extractFeatures(description)
     });
+});
+
+/**
+ * POST /agent/stream
+ * Unified streaming endpoint - dispatches to fast or plan mode based on mode param
+ * This is the endpoint the frontend CreateProjectScreen uses
+ */
+router.post('/stream', async (req, res) => {
+    const { projectId, mode = 'fast', prompt, model, conversationHistory, images } = req.body;
+
+    if (!projectId || !prompt) {
+        return res.status(400).json({ error: 'projectId and prompt are required' });
+    }
+
+    console.log(`\n🤖 [Agent] /stream called - projectId: ${projectId}, mode: ${mode}`);
+
+    // Parse conversation history if provided
+    let history = [];
+    if (conversationHistory) {
+        try {
+            history = typeof conversationHistory === 'string'
+                ? JSON.parse(conversationHistory)
+                : conversationHistory;
+        } catch (e) {
+            console.warn('[Agent] Failed to parse conversationHistory:', e);
+        }
+    }
+
+    // Parse images if provided
+    let imagesList = [];
+    if (images) {
+        try {
+            imagesList = typeof images === 'string'
+                ? JSON.parse(images)
+                : images;
+            console.log(`[Agent] Received ${imagesList.length} images for multimodal processing`);
+        } catch (e) {
+            console.warn('[Agent] Failed to parse images:', e);
+        }
+    }
+
+    // Set up SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const keepAlive = setInterval(() => {
+        res.write(': keep-alive\n\n');
+    }, 15000);
+
+    try {
+        // Force reload to get latest code changes
+        const { AgentLoop } = getAgentLoop();
+        const agentMode = mode === 'planning' ? 'planning' : 'fast';
+        const agent = new AgentLoop(projectId, agentMode, model, history);
+        await agent.initialize();
+
+        // Run the loop and stream events
+        for await (const event of agent.run(prompt, imagesList)) {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+            // Store plan if created (for planning mode)
+            if (event.type === 'plan_ready' && event.plan) {
+                approvedPlans.set(projectId, {
+                    plan: event.plan,
+                    prompt,
+                    model,
+                    createdAt: new Date().toISOString()
+                });
+            }
+
+            if (res.writableEnded) break;
+        }
+
+    } catch (error) {
+        console.error('[Agent] Stream error:', error);
+        res.write(`data: ${JSON.stringify({
+            type: 'tool_error',
+            error: error.message,
+            timestamp: new Date().toISOString()
+        })}\n\n`);
+    } finally {
+        clearInterval(keepAlive);
+        res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+        res.end();
+    }
 });
 
 module.exports = router;

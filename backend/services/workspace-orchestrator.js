@@ -204,7 +204,7 @@ class WorkspaceOrchestrator {
             projectInfo = {
                 type: 'nextjs',
                 description: 'Next.js Application',
-                startCommand: 'npx next dev --turbo -H 0.0.0.0 --port 3000',
+                startCommand: 'npm run dev -- --turbo -H 0.0.0.0 --port 3000',
                 port: 3000
             };
 
@@ -220,14 +220,13 @@ class WorkspaceOrchestrator {
                             if (parseInt(major) === 16 && parseInt(minor) <= 1) {
                                 projectInfo.nextJsVersionWarning = {
                                     version: `${major}.${minor}.${patch}`,
-                                    message: 'Next.js 16.0-16.1 has known dev server hanging issues',
-                                    recommendation: 'Consider downgrading to Next.js 15.3.0',
+                                    message: 'Next.js 16.0-16.1 has known dev server hanging issues with Webpack',
+                                    recommendation: 'Using Turbopack to avoid hanging',
                                     link: 'https://github.com/vercel/next.js/discussions/77102'
                                 };
-                                // Next.js 16.x still uses Webpack by default (Turbopack is opt-in with --turbo)
-                                // No need for --no-turbo flag, just use default Webpack mode
-                                projectInfo.startCommand = 'npx next dev -H 0.0.0.0 --port 3000';
-                                projectInfo.disableTurbopack = true;
+                                // WORKAROUND: Next.js 16.0-16.1 hangs with Webpack, use Turbopack instead
+                                projectInfo.startCommand = 'npm run dev -- --turbo -H 0.0.0.0 --port 3000';
+                                projectInfo.disableTurbopack = false;
                             }
                         }
                     }
@@ -300,6 +299,37 @@ class WorkspaceOrchestrator {
         console.log(`\n🔥 [Orchestrator] Proactive warming for: ${projectId}`);
 
         try {
+            // CRITICAL FIX: Check if dev server is already running BEFORE any cleaning
+            // This prevents killing an already-running preview when user re-enters project
+            const existingSession = await redisService.getVMSession(projectId);
+            if (existingSession && existingSession.machineId && existingSession.agentUrl) {
+                try {
+                    console.log(`🔍 [Orchestrator] Checking if dev server is already running...`);
+                    const axios = require('axios');
+                    const response = await axios.get(existingSession.agentUrl, {
+                        timeout: 5000,
+                        headers: { 'Fly-Force-Instance-Id': existingSession.machineId },
+                        validateStatus: () => true
+                    });
+
+                    // Dev server is running - skip all warming to preserve it
+                    if ((response.status >= 200 && response.status < 400) || response.status === 404) {
+                        console.log(`✅ [Orchestrator] Dev server already running (status ${response.status}) - SKIPPING WARMING`);
+                        // Update lastUsed timestamp
+                        existingSession.lastUsed = Date.now();
+                        await redisService.saveVMSession(projectId, existingSession);
+                        return {
+                            success: true,
+                            machineId: existingSession.machineId,
+                            skipped: true,
+                            reason: 'Dev server already running'
+                        };
+                    }
+                } catch (e) {
+                    console.log(`   ℹ️ [Orchestrator] Dev server not responding (${e.message}) - proceeding with warming`);
+                }
+            }
+
             // 1. Get/Create VM
             const vm = await this.getOrCreateVM(projectId);
 
@@ -606,19 +636,11 @@ class WorkspaceOrchestrator {
             // 2. Try to get VM from pool first (FALLBACK for new sessions)
             let pooledVM = null;
             try {
-                const poolStats = vmPoolManager.getStats();
-                // Only check pool if there are available VMs
-                if (poolStats.available === 0) {
-                    console.log(`🐢 [Orchestrator] Pool empty (${poolStats.total} total, ${poolStats.allocated} allocated)`);
-                    const error = new Error('Stiamo ricevendo tante richieste. Riprova tra qualche minuto!');
-                    error.code = 'POOL_EXHAUSTED';
-                    error.statusCode = 503;
-                    throw error;
-                }
                 pooledVM = await vmPoolManager.allocateVM(projectId);
                 if (pooledVM) {
                     const prewarmStatus = pooledVM.prewarmed ? '⚡ prewarmed' : '🔄 warming';
-                    console.log(`⚡ [Orchestrator] Using VM from pool (${prewarmStatus}) (${Date.now() - startTime}ms)`);
+                    const cacheStatus = pooledVM.cacheReady === false ? '(cache downloading)' : '';
+                    console.log(`⚡ [Orchestrator] Using VM from pool (${prewarmStatus}) ${cacheStatus} (${Date.now() - startTime}ms)`);
 
                     const vmInfo = {
                         id: pooledVM.machineId,
@@ -644,6 +666,18 @@ class WorkspaceOrchestrator {
                     } catch (e) {
                         console.warn(`⚠️ File watcher start failed: ${e.message}`);
                     }
+
+                    // CRITICAL FIX: Sync files to the new VM from storage
+                    // Without this, VM from pool has no project files!
+                    try {
+                        console.log(`📂 [Orchestrator] Syncing files to pool VM...`);
+                        await this.forceSync(projectId, vmInfo);
+                    } catch (e) {
+                        console.warn(`⚠️ [Orchestrator] forceSync to pool VM failed: ${e.message}`);
+                    }
+
+                    // Initialize Git Repo (Critical for UI "Changes" view)
+                    await this.ensureGitRepo(projectId, pooledVM.agentUrl, pooledVM.machineId);
 
                     return vmInfo;
                 }
@@ -1050,6 +1084,15 @@ class WorkspaceOrchestrator {
 
                         if (cloneResult.exitCode === 0) {
                             console.log(`   ✅ Shallow clone completed`);
+
+                            // CRITICAL: Restore modified files from Firebase Storage
+                            // This ensures uncommitted changes persist across VM restarts
+                            try {
+                                console.log(`   🔄 Restoring modified files from Firebase Storage...`);
+                                await this._restoreModifiedFiles(projectId, agentUrl, machineId);
+                            } catch (e) {
+                                console.warn(`   ⚠️ Failed to restore modified files: ${e.message}`);
+                            }
                         } else {
                             console.warn(`   ⚠️ Clone failed, using git init with remote fetch`);
                             await this._fallbackGitInit(agentUrl, machineId, repoUrl);
@@ -1153,9 +1196,65 @@ class WorkspaceOrchestrator {
     }
 
     /**
+     * Restore modified files from Firebase Storage to VM
+     * Called after git clone to preserve uncommitted changes
+     *
+     * @param {string} projectId - Project ID
+     * @param {string} agentUrl - VM agent URL
+     * @param {string} machineId - VM machine ID
+     */
+    async _restoreModifiedFiles(projectId, agentUrl, machineId) {
+        const storageService = require('./storage-service');
+
+        try {
+            // Get all files from Firebase Storage for this project
+            const files = await storageService.listFiles(projectId);
+
+            if (!files || files.length === 0) {
+                console.log(`   ℹ️  No files in Firebase Storage to restore`);
+                return;
+            }
+
+            console.log(`   📦 Found ${files.length} files in Firebase Storage`);
+            let restoredCount = 0;
+
+            // Restore each file to the VM
+            for (const file of files) {
+                try {
+                    // Read file content from Firebase
+                    const fileData = await storageService.readFile(projectId, file.path);
+
+                    if (!fileData.success || !fileData.content) {
+                        continue;
+                    }
+
+                    // Write file to VM
+                    const headers = { 'Fly-Force-Instance-Id': machineId };
+                    await axios.post(`${agentUrl}/file`, {
+                        path: file.path,
+                        content: fileData.content,
+                        isBinary: fileData.isBinary || false
+                    }, {
+                        timeout: 30000,
+                        headers
+                    });
+
+                    restoredCount++;
+                } catch (e) {
+                    console.warn(`   ⚠️ Failed to restore ${file.path}: ${e.message}`);
+                }
+            }
+
+            console.log(`   ✅ Restored ${restoredCount}/${files.length} files from Firebase Storage`);
+        } catch (e) {
+            console.warn(`   ⚠️ Error restoring files: ${e.message}`);
+        }
+    }
+
+    /**
      * Read a file from a project
      * Prefers storage, falls back to VM if file was modified there
-     * 
+     *
      * @param {string} projectId - Project ID
      * @param {string} filePath - File path
      */
@@ -1260,6 +1359,15 @@ class WorkspaceOrchestrator {
 
         if (vm) {
             console.log(`   🚀 VM found, syncing to VM: ${vm.machineId}`);
+
+            // CRITICAL: Ensure Git repo exists (fixes "No changes" in UI)
+            try {
+                const agentUrl = vm.agentUrl || `https://${vm.machineId}.vm.drape.fly.dev`;
+                await this.ensureGitRepo(projectId, agentUrl, vm.machineId);
+            } catch (e) {
+                console.warn(`   ⚠️ ensureGitRepo failed: ${e.message}`);
+            }
+
             try {
                 // Ensure we send the Instance ID header for proper routing if using shared domain
                 const headers = { 'Fly-Force-Instance-Id': vm.machineId };
@@ -2515,6 +2623,26 @@ echo "=== END DEBUG ==="
         console.log(`   📋 staySilent: ${staySilent}`);
         console.log(`   📋 projectInfo:`, JSON.stringify(projectInfo, null, 2));
 
+        // === STEP 0: Update .gitignore to exclude our internal files ===
+        try {
+            // Add our internal tracking files + pnpm-lock.yaml if project uses npm/yarn
+            // Also add .gitignore itself so our modifications don't show as changes
+            const gitignoreCmd = `
+                cd /home/coder/project && \
+                touch .gitignore && \
+                grep -qxF ".gitignore" .gitignore || echo ".gitignore" >> .gitignore && \
+                grep -qxF ".package-json-hash" .gitignore || echo ".package-json-hash" >> .gitignore && \
+                grep -qxF "node_modules_cache_*.tar.gz" .gitignore || echo "node_modules_cache_*.tar.gz" >> .gitignore && \
+                if [ -f package-lock.json ] || [ -f yarn.lock ]; then \
+                    grep -qxF "pnpm-lock.yaml" .gitignore || echo "pnpm-lock.yaml" >> .gitignore; \
+                fi
+            `.trim();
+            await flyService.exec(agentUrl, gitignoreCmd, '/home/coder', machineId, 10000, true);
+            console.log(`   📝 [Setup] Updated .gitignore with internal files`);
+        } catch (e) {
+            console.warn(`   ⚠️ [Setup] Could not update .gitignore: ${e.message}`);
+        }
+
         // CRITICAL: Skip installation for static HTML projects (no package.json)
         if (projectInfo.type === 'static') {
             console.log(`   ⚡ Static HTML project - SKIP INSTALLATION!`);
@@ -2632,8 +2760,16 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                 // Vai direttamente a start server
                 if (!staySilent && projectInfo.startCommand) {
                     console.log(`   🚀 Starting dev server...`);
-                    // Start server code viene dopo
-                    // Per ora ritorna success
+                    // CRITICAL FIX: Actually start the dev server instead of just logging
+                    const serverResult = await this._startDevServerInternal(projectId, agentUrl, machineId, projectInfo, onProgress);
+                    return {
+                        success: true,
+                        skipInstall: true,
+                        level: 1,
+                        persistent: true,
+                        serverReady: serverResult.serverReady,
+                        message: 'Using persistent node_modules'
+                    };
                 }
 
                 return {
@@ -2641,7 +2777,8 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     skipInstall: true,
                     level: 1,
                     persistent: true,
-                    message: 'Using persistent node_modules'
+                    serverReady: false,
+                    message: 'Using persistent node_modules (no server start needed)'
                 };
             }
 
@@ -2668,7 +2805,17 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                         // Vai a start server
                         if (!staySilent && projectInfo.startCommand) {
                             console.log(`   🚀 Starting dev server...`);
-                            // Start server code viene dopo
+                            // CRITICAL FIX: Actually start the dev server instead of just logging
+                            const serverResult = await this._startDevServerInternal(projectId, agentUrl, machineId, projectInfo, onProgress);
+                            return {
+                                success: true,
+                                fromCache: true,
+                                level: 2,
+                                elapsed: restoreResult.elapsed,
+                                hash,
+                                serverReady: serverResult.serverReady,
+                                message: 'Restored from cache'
+                            };
                         }
 
                         return {
@@ -2677,7 +2824,8 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                             level: 2,
                             elapsed: restoreResult.elapsed,
                             hash,
-                            message: 'Restored from cache'
+                            serverReady: false,
+                            message: 'Restored from cache (no server start needed)'
                         };
                     } else {
                         console.log(`   ⚠️ [Setup] Cache restore failed, falling back to install`);
@@ -2760,15 +2908,14 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                         const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
 
                         if (major === 16 && minor <= 1) {
-                            // Next.js 16.0-16.1 - use Webpack (default, Turbopack is opt-in with --turbo)
-                            // No --no-turbo flag needed, Webpack is already the default
-                            defaultStart = `npx next dev -H 0.0.0.0 --port 3000`;
+                            // WORKAROUND: Next.js 16.0-16.1 hangs with Webpack, use Turbopack instead
+                            defaultStart = `npm run dev -- --turbo -H 0.0.0.0 --port 3000`;
                             // CRITICAL: Override startCommand to ensure runtime detection takes precedence
                             projectInfo.startCommand = defaultStart;
-                            console.log(`   🎯 Detected Next.js ${major}.${minor} - using Webpack (default mode)`);
+                            console.log(`   🎯 Detected Next.js ${major}.${minor} - using Turbopack (Webpack hangs) ⚡`);
                         } else {
                             // HOLY GRAIL: Enable Turbopack for stable versions
-                            defaultStart = `npx next dev --turbo -H 0.0.0.0 --port 3000`;
+                            defaultStart = `npm run dev -- --turbo -H 0.0.0.0 --port 3000`;
                             // CRITICAL: Override startCommand to ensure runtime detection takes precedence
                             projectInfo.startCommand = defaultStart;
                             console.log(`   🎯 Detected Next.js - using Turbopack ⚡`);
@@ -3057,7 +3204,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     let installSuccess = false;
 
                     while (pollCount < maxPolls) {
-                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 30000, true);
+                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 90000, true); // 90s timeout for heavy load
                         const status = checkMarker.stdout?.trim();
 
                         if (status && status !== 'PENDING') {
@@ -3168,89 +3315,14 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                 }
             }
 
-            console.log(`   🔪 Killing any process on port 3000...`);
-            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 15000, true);
-
             if (staySilent) {
                 console.log(`   ⏭️[Orchestrator] staySilent = true: Skipping dev server start`);
                 return { success: true, serverReady: false };
             }
 
-            console.log(`   🚀 Starting dev server in background...`);
-            if (onProgress) onProgress('starting', 'Avvio del dev server...');
-
-            // Create startup script on VM (same pattern as install.sh - avoids complex shell escaping)
-            const startupScript = `/home/coder/start-server.sh`;
-            const startupScriptContent = `#!/bin/bash
-cd /home/coder/project || exit 1
-export PATH="/home/coder/project/node_modules/.bin:$PATH"
-
-# Kill ANY existing vite/dev server processes (not just port 3000)
-pkill -9 -f "vite" || true
-pkill -9 -f "npm.*dev" || true
-pkill -9 -f "node.*dev" || true
-fuser -k 3000/tcp 2>/dev/null || true
-sleep 1
-
-# CRITICAL: Clean build caches to avoid "Cannot find module" errors
-# Next.js .next cache and Vite cache can get corrupted when files are synced from storage
-rm -rf .next .vite 2>/dev/null || true
-
-# Start dev server in background and DETACH from parent process
-# nohup + disown ensures the process survives even if parent exits
-nohup ${finalStart} > /home/coder/server.log 2>&1 &
-disown
-echo "Dev server started in background"`;
-
-            console.log(`\n   📝 [DEBUG] STARTUP SCRIPT CONTENT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
-
-            await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
-${startupScriptContent}
-EOFSCRIPT
-chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
-
-            console.log(`   🛠️ Startup Script: ${startupScript}`);
-
-            // 🔑 FIX: Fire-and-forget execution - don't wait for response
-            // The script runs the server in background with nohup, so we don't need to wait
-            // If exec times out, the server is still starting - health check will verify
-            try {
-                await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
-                console.log(`   ✅ Startup script triggered successfully`);
-            } catch (execErr) {
-                // Ignore timeout/hangup errors - the script is running, health check will verify
-                if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
-                    console.log(`   ⏱️ Exec timeout/hangup (expected) - server starting in background...`);
-                } else {
-                    // Re-throw non-timeout errors
-                    throw execErr;
-                }
-            }
-
-            // Wait a bit for the server to initialize
-            await new Promise(r => setTimeout(r, 2000));
-
-            const healthCheckTimeout = projectInfo.type === 'nextjs' ? 180000 : 90000;
-            const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);
-
-            if (!isReady) {
-                const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
-                console.error(`❌[Health Check] Dev server failed! Last logs: \n${logs.stdout} `);
-                throw new Error(`Dev server failed to start.Check project logs.`);
-            }
-
-            // === DEBUG: Show server.log output ===
-            console.log(`\n   📋 [DEBUG] SERVER.LOG (last 20 lines):`);
-            try {
-                const serverLogs = await flyService.exec(agentUrl, 'tail -n 20 /home/coder/server.log', '/home/coder', machineId, 5000, true);
-                console.log(`${'─'.repeat(40)}\n${serverLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
-            } catch (e) {
-                console.log(`   (could not read server.log: ${e.message})`);
-            }
-
-            console.log(`   ✅ Dev server is ready and responding`);
+            // Use the extracted helper function to start dev server
             console.log(`${'='.repeat(60)}\n`);
-            return { success: true, serverReady: true };
+            return await this._startDevServerInternal(projectId, agentUrl, machineId, projectInfo, onProgress);
         } catch (error) {
             console.error(`❌[Orchestrator] Optimized setup failed: ${error.message} `);
             throw error;
@@ -3275,7 +3347,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
             try {
                 const checkStart = Date.now();
                 const response = await axios.get(agentUrl, {
-                    timeout: 4000,
+                    timeout: 30000, // Increased from 4s to 30s for slow first-compile (Next.js 16 Turbopack)
                     headers,
                     validateStatus: () => true // Catch all statuses
                 });
@@ -3286,8 +3358,14 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     console.log(`✅ [Health Check] App ready! (${response.status}) after ${Date.now() - startTime}ms`);
                     return true;
                 } else {
-                    if (Date.now() - startTime > 30000 && (Date.now() - startTime) % 10000 < 2000) {
-                        console.log(`⏳ [Health Check] App not ready (Status: ${response.status}) at ${Math.round((Date.now() - startTime) / 1000)}s`);
+                    // Log 502/503 errors more frequently as they indicate proxy issues
+                    const is5xx = response.status >= 500;
+                    const shouldLog = is5xx ||
+                        (Date.now() - startTime > 30000 && (Date.now() - startTime) % 10000 < 2000);
+
+                    if (shouldLog) {
+                        const statusMsg = is5xx ? `⚠️ Proxy error ${response.status}` : `Status: ${response.status}`;
+                        console.log(`⏳ [Health Check] App not ready (${statusMsg}) at ${Math.round((Date.now() - startTime) / 1000)}s`);
                     }
                 }
             } catch (error) {
@@ -3300,7 +3378,247 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
         return false;
     }
 
+    /**
+     * Internal helper to start dev server
+     * Extracted from optimizedSetup to avoid code duplication
+     * Called by LIVELLO 1, 2, and 3 when staySilent=false
+     */
+    async _startDevServerInternal(projectId, agentUrl, machineId, projectInfo, onProgress = null) {
+        // Step 1: Determine start command
+        let defaultStart = 'npm run dev';
 
+        // Read package.json to detect project type and set appropriate start command
+        try {
+            const pkgJsonResult = await flyService.exec(agentUrl, 'cat package.json', '/home/coder/project', machineId, 5000, true);
+            if (pkgJsonResult && pkgJsonResult.stdout) {
+                const pkg = JSON.parse(pkgJsonResult.stdout);
+                const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+                if (deps.next) {
+                    projectInfo.type = 'nextjs';
+
+                    // Check Next.js version - disable Turbopack for 16.0-16.1 (crash bugs)
+                    const nextVersion = deps.next;
+                    const versionMatch = nextVersion.match(/(\d+)\.(\d+)/);
+                    const major = versionMatch ? parseInt(versionMatch[1]) : 0;
+                    const minor = versionMatch ? parseInt(versionMatch[2]) : 0;
+
+                    if (major === 16 && minor <= 1) {
+                        // WORKAROUND: Next.js 16.0-16.1 hangs with Webpack, MUST use Turbopack
+                        defaultStart = `npm run dev -- --turbo -H 0.0.0.0 --port 3000`;
+                        projectInfo.startCommand = defaultStart;
+                        console.log(`   🎯 Detected Next.js ${major}.${minor} - using Turbopack (Webpack hangs) ⚡`);
+                    } else {
+                        defaultStart = `npm run dev -- --turbo -H 0.0.0.0 --port 3000`;
+                        projectInfo.startCommand = defaultStart;
+                        console.log(`   🎯 Detected Next.js - using Turbopack ⚡`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.log(`   ⚠️ Could not parse package.json, using default start command`);
+        }
+
+        let start = projectInfo.startCommand || defaultStart;
+
+        // Strip any legacy fuser/kill prefixes
+        start = start.replace(/^\(fuser -k 3000\/tcp[^)]*\)\s*&&\s*/i, '');
+        start = start.replace(/^fuser -k 3000\/tcp[^&]*&&\s*/i, '');
+
+        // Ensure proper binding for common frameworks
+        let finalStart = start;
+        if ((start.includes('npm start') || start.includes('react-scripts start') || start.includes('vite')) && !start.includes('--host')) {
+            finalStart = `${start} -- --host 0.0.0.0`;
+        }
+
+        // Step 1.5: Try to restore .next cache for Next.js projects
+        if (projectInfo.type === 'nextjs') {
+            try {
+                const nextCacheService = require('./next-cache-service');
+
+                // Check if .next exists on VM
+                const checkNext = await flyService.exec(agentUrl, 'test -d /home/coder/project/.next && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
+
+                if (checkNext.stdout.includes('missing')) {
+                    console.log(`   📦 [NextCache] .next missing - checking cloud cache...`);
+                    const cacheInfo = await nextCacheService.exists(projectId);
+
+                    if (cacheInfo.exists) {
+                        console.log(`   ⬇️ [NextCache] Restoring from cloud (~${(cacheInfo.size / 1024 / 1024).toFixed(0)}MB)...`);
+                        if (onProgress) onProgress('install', 'Ripristino cache compilazione...');
+
+                        const restoreResult = await nextCacheService.restore(projectId, agentUrl, machineId);
+                        if (restoreResult.success) {
+                            console.log(`   ✅ [NextCache] Restored in ${restoreResult.elapsed}ms - skipping recompilation!`);
+                        } else {
+                            console.log(`   ⚠️ [NextCache] Restore failed: ${restoreResult.error}`);
+                        }
+                    } else {
+                        console.log(`   ℹ️ [NextCache] No cloud cache found - will compile from scratch`);
+                    }
+                } else {
+                    console.log(`   ✅ [NextCache] .next exists on VM - using local cache`);
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ [NextCache] Cache check failed: ${e.message}`);
+            }
+        }
+
+        // Step 1.6: Try to restore .angular cache for Angular projects
+        if (projectInfo.type === 'angular') {
+            try {
+                const angularCacheService = require('./angular-cache-service');
+
+                // Check if .angular exists on VM
+                const checkAngular = await flyService.exec(agentUrl, 'test -d /home/coder/project/.angular && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
+
+                if (checkAngular.stdout.includes('missing')) {
+                    console.log(`   📦 [AngularCache] .angular missing - checking cloud cache...`);
+                    const cacheInfo = await angularCacheService.exists(projectId);
+
+                    if (cacheInfo.exists) {
+                        console.log(`   ⬇️ [AngularCache] Restoring from cloud (~${(cacheInfo.size / 1024 / 1024).toFixed(0)}MB)...`);
+                        if (onProgress) onProgress('install', 'Ripristino cache compilazione Angular...');
+
+                        const restoreResult = await angularCacheService.restore(projectId, agentUrl, machineId);
+                        if (restoreResult.success) {
+                            console.log(`   ✅ [AngularCache] Restored in ${restoreResult.elapsed}ms - skipping recompilation!`);
+                        } else {
+                            console.log(`   ⚠️ [AngularCache] Restore failed: ${restoreResult.error}`);
+                        }
+                    } else {
+                        console.log(`   ℹ️ [AngularCache] No cloud cache found - will compile from scratch`);
+                    }
+                } else {
+                    console.log(`   ✅ [AngularCache] .angular exists on VM - using local cache`);
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ [AngularCache] Cache check failed: ${e.message}`);
+            }
+        }
+
+        // Step 2: Kill any existing processes on port 3000
+        // Use 30s timeout - VM might be slow after heavy pnpm install
+        console.log(`   🔪 Killing any process on port 3000...`);
+        await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 30000, true);
+
+        // Step 3: Create and execute startup script
+        console.log(`   🚀 Starting dev server in background...`);
+        if (onProgress) onProgress('starting', 'Avvio del dev server...');
+
+        const startupScript = `/home/coder/start-server.sh`;
+        const startupScriptContent = `#!/bin/bash
+cd /home/coder/project || exit 1
+export PATH="/home/coder/project/node_modules/.bin:$PATH"
+
+# Kill ANY existing dev server processes (not just port 3000)
+pkill -9 -f "vite" || true
+pkill -9 -f "npm.*dev" || true
+pkill -9 -f "node.*dev" || true
+pkill -9 -f "ng serve" || true
+pkill -9 -f "@angular" || true
+fuser -k 3000/tcp 2>/dev/null || true
+sleep 1
+
+# SMART CACHE: Only delete .next if cache looks stale/corrupted
+# Keep cache if .next/build-manifest.json exists and is less than 2 hours old (faster startup)
+# Use find -mmin which is portable across Linux/Alpine
+RECENT_CACHE=$(find .next -name "build-manifest.json" -mmin -120 2>/dev/null | head -1)
+if [ -n "$RECENT_CACHE" ]; then
+  echo "Keeping .next cache (recent build-manifest found)"
+else
+  rm -rf .next .vite 2>/dev/null || true
+  echo "Cleaned stale/missing .next cache"
+fi
+
+# Start dev server in background and DETACH from parent process
+# nohup + disown ensures the process survives even if parent exits
+nohup ${finalStart} > /home/coder/server.log 2>&1 &
+disown
+echo "Dev server started in background"`;
+
+        console.log(`\n   📝 [DEBUG] STARTUP SCRIPT CONTENT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
+
+        await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
+${startupScriptContent}
+EOFSCRIPT
+chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
+
+        console.log(`   🛠️ Startup Script: ${startupScript}`);
+
+        // Fire-and-forget execution
+        try {
+            await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+            console.log(`   ✅ Startup script triggered successfully`);
+        } catch (execErr) {
+            if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
+                console.log(`   ⏱️ Exec timeout/hangup (expected) - server starting in background...`);
+            } else {
+                throw execErr;
+            }
+        }
+
+        // Step 4: Wait for server to initialize
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Step 5: Health check
+        // Next.js 16 with Turbopack can take 5-8 minutes for first compilation on cold start
+        // Angular CLI (ng serve) also needs ~2-3 minutes for initial compilation
+        const slowFrameworks = ['nextjs', 'angular'];
+        const healthCheckTimeout = slowFrameworks.includes(projectInfo.type) ? 300000 : 90000;
+        const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);
+
+        if (!isReady) {
+            const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+            console.error(`❌[Health Check] Dev server failed! Last logs: \n${logs.stdout}`);
+            throw new Error(`Dev server failed to start. Check project logs.`);
+        }
+
+        // Step 6: Show server logs
+        console.log(`\n   📋 [DEBUG] SERVER.LOG (last 20 lines):`);
+        try {
+            const serverLogs = await flyService.exec(agentUrl, 'tail -n 20 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+            console.log(`${'─'.repeat(40)}\n${serverLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
+        } catch (e) {
+            console.log(`   (could not read server.log: ${e.message})`);
+        }
+
+        console.log(`   ✅ Dev server is ready and responding`);
+
+        // Step 7: Save .next cache for Next.js projects (background, non-blocking)
+        if (projectInfo.type === 'nextjs') {
+            setImmediate(async () => {
+                try {
+                    const nextCacheService = require('./next-cache-service');
+                    console.log(`\n💾 [NextCache] Saving .next to cloud (background)...`);
+                    const saveResult = await nextCacheService.save(projectId, agentUrl, machineId);
+                    if (saveResult.success) {
+                        console.log(`   ✅ [NextCache] Saved to cloud in ${saveResult.elapsed}ms`);
+                    }
+                } catch (e) {
+                    console.warn(`   ⚠️ [NextCache] Background save failed: ${e.message}`);
+                }
+            });
+        }
+
+        // Step 7b: Save .angular cache for Angular projects (background, non-blocking)
+        if (projectInfo.type === 'angular') {
+            setImmediate(async () => {
+                try {
+                    const angularCacheService = require('./angular-cache-service');
+                    console.log(`\n💾 [AngularCache] Saving .angular to cloud (background)...`);
+                    const saveResult = await angularCacheService.save(projectId, agentUrl, machineId);
+                    if (saveResult.success) {
+                        console.log(`   ✅ [AngularCache] Saved to cloud in ${saveResult.elapsed}ms`);
+                    }
+                } catch (e) {
+                    console.warn(`   ⚠️ [AngularCache] Background save failed: ${e.message}`);
+                }
+            });
+        }
+
+        return { success: true, serverReady: true };
+    }
 
     /**
      * Start the Reaper Loop

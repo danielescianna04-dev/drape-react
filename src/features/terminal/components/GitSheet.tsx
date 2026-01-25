@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, Dimensions, Pressable, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, Dimensions, Pressable, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,6 +70,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [isGitRepo, setIsGitRepo] = useState(false);
   const [gitLoading, setGitLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [commitMessage, setCommitMessage] = useState('');
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -356,12 +358,112 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       return;
     }
 
+    // Check if user can push to this repo
+    if (action === 'push' && !isOwnRepo) {
+      Alert.alert(
+        'Repository non tuo',
+        `Non puoi pushare direttamente su "${repoOwner}/${repoName}" perché non sei il proprietario.\n\nPer contribuire:\n1. Fai fork del repo\n2. Pusha sul tuo fork\n3. Crea una Pull Request`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Check for local changes before pull
+    if (action === 'pull' && allChangedFiles.length > 0) {
+      Alert.alert(
+        'Modifiche locali rilevate',
+        `Hai ${allChangedFiles.length} file modificati che potrebbero essere sovrascritti dal pull.\n\nCosa vuoi fare?`,
+        [
+          { text: 'Annulla', style: 'cancel' },
+          {
+            text: 'Stash & Pull',
+            onPress: () => executeGitActionWithStash(action),
+          },
+          {
+            text: 'Pull comunque',
+            style: 'destructive',
+            onPress: () => executeGitAction(action),
+          },
+        ]
+      );
+      return;
+    }
+
+    await executeGitAction(action);
+  };
+
+  const executeGitActionWithStash = async (action: 'pull' | 'push' | 'fetch') => {
     setActionLoading(action);
     try {
-      // Get token properly
-      const token = await gitAccountService.getToken(linkedAccount, userId);
+      const token = await gitAccountService.getToken(linkedAccount!, userId);
 
-      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation.id}`, {
+      // First stash
+      const stashResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'push', message: 'Auto-stash before pull' }),
+      });
+
+      if (!stashResponse.ok) {
+        Alert.alert('Errore', 'Impossibile salvare le modifiche in stash');
+        return;
+      }
+
+      // Then do the action
+      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation!.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        // Try to restore stash
+        const popResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action: 'pop' }),
+        });
+
+        if (popResponse.ok) {
+          Alert.alert('Successo', `${action.charAt(0).toUpperCase() + action.slice(1)} completato e modifiche ripristinate`);
+        } else {
+          Alert.alert('Attenzione', `${action.charAt(0).toUpperCase() + action.slice(1)} completato ma ci potrebbero essere conflitti. Controlla lo stash.`);
+        }
+        await loadGitData();
+      } else {
+        // Restore stash if action failed
+        await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ action: 'pop' }),
+        });
+        const error = await response.json();
+        Alert.alert('Errore', error.message || `Errore durante ${action}`);
+      }
+    } catch (error) {
+      Alert.alert('Errore', `Impossibile eseguire ${action}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const executeGitAction = async (action: 'pull' | 'push' | 'fetch') => {
+    setActionLoading(action);
+    try {
+      const token = await gitAccountService.getToken(linkedAccount!, userId);
+
+      const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation!.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -378,6 +480,81 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       }
     } catch (error) {
       Alert.alert('Errore', `Impossibile eseguire ${action}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Get all changed files for selection
+  const allChangedFiles = gitStatus ? [
+    ...gitStatus.modified.map(f => ({ file: f, type: 'modified' })),
+    ...gitStatus.untracked.map(f => ({ file: f, type: 'untracked' })),
+    ...gitStatus.deleted.map(f => ({ file: f, type: 'deleted' })),
+  ] : [];
+
+  const toggleFileSelection = (file: string) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(file)) {
+        newSet.delete(file);
+      } else {
+        newSet.add(file);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedFiles.size === allChangedFiles.length) {
+      setSelectedFiles(new Set());
+    } else {
+      setSelectedFiles(new Set(allChangedFiles.map(f => f.file)));
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!currentWorkstation?.id || !linkedAccount) {
+      Alert.alert('Errore', 'Collega un account Git per eseguire commit');
+      return;
+    }
+
+    if (selectedFiles.size === 0) {
+      Alert.alert('Errore', 'Seleziona almeno un file da committare');
+      return;
+    }
+
+    if (!commitMessage.trim()) {
+      Alert.alert('Errore', 'Inserisci un messaggio di commit');
+      return;
+    }
+
+    setActionLoading('commit');
+    try {
+      const token = await gitAccountService.getToken(linkedAccount, userId);
+
+      const response = await fetch(`${config.apiUrl}/git/commit/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          files: Array.from(selectedFiles),
+          message: commitMessage.trim(),
+        }),
+      });
+
+      if (response.ok) {
+        Alert.alert('Successo', 'Commit creato con successo');
+        setCommitMessage('');
+        setSelectedFiles(new Set());
+        await loadGitData();
+      } else {
+        const error = await response.json();
+        Alert.alert('Errore', error.message || 'Errore durante il commit');
+      }
+    } catch (error) {
+      Alert.alert('Errore', 'Impossibile eseguire il commit');
     } finally {
       setActionLoading(null);
     }
@@ -402,6 +579,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
   const repoName = repoUrl ? repoUrl.split('/').pop()?.replace('.git', '') : 'Repository';
   const repoOwner = repoUrl ? repoUrl.split('/').slice(-2, -1)[0] : '';
+  const isOwnRepo = linkedAccount?.username?.toLowerCase() === repoOwner?.toLowerCase();
 
   return (
     <Modal
@@ -420,7 +598,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 <Ionicons name="git-branch" size={18} color="#fff" />
               </View>
               <View style={styles.headerTitleContainer}>
-                <Text style={styles.headerTitle}>{repoName}</Text>
+                <Text style={styles.headerTitle} numberOfLines={1}>{repoName}</Text>
                 <Text style={styles.headerSubtitle}>{repoOwner}</Text>
               </View>
             </View>
@@ -495,7 +673,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           {/* Content */}
           <ScrollView
             style={styles.content}
-            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={true}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#fff" />
             }
@@ -511,46 +690,61 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <View style={styles.commitsList}>
 
 
-                {commits.slice(0, 8).map((commit, index) => (
+                {commits.slice(0, 10).map((commit, index) => (
                   <TouchableOpacity
                     key={commit.hash || index}
                     style={styles.commitItem}
                     onPress={() => commit.url && Linking.openURL(commit.url)}
                     activeOpacity={0.7}
                   >
-                    <View style={styles.commitLeft}>
-                      {commit.authorAvatar ? (
-                        <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatar} />
-                      ) : (
-                        <View style={[styles.commitAvatar, styles.commitAvatarPlaceholder]}>
-                          <Text style={styles.commitAvatarText}>
-                            {commit.author.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
+                    {/* Timeline */}
+                    <View style={styles.timeline}>
+                      {index > 0 && <View style={[styles.timelineLine, styles.timelineLineTop]} />}
+                      <View style={[
+                        styles.timelineDot,
+                        commit.isHead && styles.timelineDotHead
+                      ]}>
+                        {commit.isHead && (
+                          <View style={styles.timelineDotInner} />
+                        )}
+                      </View>
+                      {index < Math.min(commits.length - 1, 9) && (
+                        <View style={[styles.timelineLine, styles.timelineLineBottom]} />
                       )}
                     </View>
+
+                    {/* Content */}
                     <View style={styles.commitContent}>
-                      <Text style={styles.commitMessage} numberOfLines={1}>
+                      {/* HEAD badges on first line */}
+                      {commit.isHead && (
+                        <View style={styles.commitBadgesRow}>
+                          <View style={styles.branchBadgeInline}>
+                            <Ionicons name="git-branch" size={11} color="#fff" />
+                            <Text style={styles.branchBadgeInlineText}>{currentBranch}</Text>
+                          </View>
+                          <View style={styles.headBadgeInline}>
+                            <Text style={styles.headBadgeInlineText}>HEAD</Text>
+                          </View>
+                        </View>
+                      )}
+                      <Text style={styles.commitMessage} numberOfLines={2}>
                         {commit.message}
                       </Text>
                       <View style={styles.commitMeta}>
-                        <Text style={styles.commitHash}>{commit.shortHash}</Text>
+                        {commit.authorAvatar ? (
+                          <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatarSmall} />
+                        ) : (
+                          <View style={[styles.commitAvatarSmall, styles.commitAvatarPlaceholder]}>
+                            <Text style={styles.commitAvatarTextSmall}>
+                              {commit.author.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
                         <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
+                        <Text style={styles.commitHash}>{commit.shortHash}</Text>
                         <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
                       </View>
-                      {commit.isHead && (
-                        <View style={styles.commitBadges}>
-                          <View style={styles.headBadge}>
-                            <Text style={styles.headBadgeText}>HEAD</Text>
-                          </View>
-                          <View style={styles.branchBadgeSmall}>
-                            <Ionicons name="git-branch" size={10} color="#fff" />
-                            <Text style={styles.branchBadgeText}>{currentBranch}</Text>
-                          </View>
-                        </View>
-                      )}
                     </View>
-                    <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.3)" />
                   </TouchableOpacity>
                 ))}
                 {commits.length === 0 && (
@@ -566,10 +760,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                   </View>
                 )}
-                {commits.length > 8 && (
+                {commits.length > 10 && (
                   <TouchableOpacity style={styles.showMoreBtn} onPress={expandToTab}>
-                    <Text style={styles.showMoreText}>Mostra tutti ({commits.length})</Text>
-                    <Ionicons name="arrow-forward" size={14} color={AppColors.primary} />
+                    <Text style={styles.showMoreText}>Mostra tutti i {commits.length} commit</Text>
+                    <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -597,52 +791,71 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : (
               <View style={styles.changesContainer}>
-                {gitStatus && (gitStatus.modified.length > 0 || gitStatus.staged.length > 0 || gitStatus.untracked.length > 0 || gitStatus.deleted.length > 0) ? (
+                {allChangedFiles.length > 0 ? (
                   <>
-                    {gitStatus.staged.length > 0 && (
+                    {/* Select All Header */}
+                    <TouchableOpacity style={styles.selectAllRow} onPress={toggleSelectAll}>
+                      <Ionicons
+                        name={selectedFiles.size === allChangedFiles.length ? "checkbox" : "square-outline"}
+                        size={18}
+                        color={selectedFiles.size === allChangedFiles.length ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                      />
+                      <Text style={styles.selectAllText}>
+                        {selectedFiles.size === allChangedFiles.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
+                      </Text>
+                      <Text style={styles.selectedCount}>{selectedFiles.size}/{allChangedFiles.length}</Text>
+                    </TouchableOpacity>
+
+                    {/* File List with Checkboxes */}
+                    {gitStatus?.modified.length > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>Staged</Text>
-                        {gitStatus.staged.map((file) => (
-                          <View key={`staged-${file}`} style={styles.changeItem}>
-                            <Ionicons name="add-circle" size={14} color="#22c55e" />
-                            <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                    {gitStatus.modified.length > 0 && (
-                      <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>Modificati</Text>
+                        <Text style={styles.changeSectionTitle}>MODIFICATI</Text>
                         {gitStatus.modified.map((file) => (
-                          <View key={`mod-${file}`} style={styles.changeItem}>
+                          <TouchableOpacity key={`mod-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
+                            <Ionicons
+                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              size={16}
+                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
+                            />
                             <Ionicons name="create-outline" size={14} color="#f59e0b" />
                             <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </View>
                     )}
-                    {gitStatus.untracked.length > 0 && (
+                    {gitStatus?.untracked.length > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>Non tracciati</Text>
+                        <Text style={styles.changeSectionTitle}>NUOVI</Text>
                         {gitStatus.untracked.map((file) => (
-                          <View key={`untracked-${file}`} style={styles.changeItem}>
-                            <Ionicons name="help-circle-outline" size={14} color="#8b5cf6" />
+                          <TouchableOpacity key={`untracked-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
+                            <Ionicons
+                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              size={16}
+                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
+                            />
+                            <Ionicons name="add-circle-outline" size={14} color="#22c55e" />
                             <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </View>
                     )}
-                    {gitStatus.deleted.length > 0 && (
+                    {gitStatus?.deleted.length > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>Eliminati</Text>
+                        <Text style={styles.changeSectionTitle}>ELIMINATI</Text>
                         {gitStatus.deleted.map((file) => (
-                          <View key={`del-${file}`} style={styles.changeItem}>
+                          <TouchableOpacity key={`del-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
+                            <Ionicons
+                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              size={16}
+                              color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
+                            />
                             <Ionicons name="trash-outline" size={14} color="#ef4444" />
                             <Text style={styles.changeFileName} numberOfLines={1}>{file}</Text>
-                          </View>
+                          </TouchableOpacity>
                         ))}
                       </View>
                     )}
+
                   </>
                 ) : (
                   <View style={styles.emptyState}>
@@ -653,6 +866,51 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             )}
           </ScrollView>
+
+          {/* Commit Section - Fixed Footer (only in Changes tab with changes) */}
+          {activeSection === 'changes' && allChangedFiles.length > 0 && (
+            <View style={styles.commitSection}>
+              <TextInput
+                style={styles.commitInput}
+                placeholder="Messaggio di commit..."
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={commitMessage}
+                onChangeText={setCommitMessage}
+                multiline
+                numberOfLines={2}
+              />
+              <View style={styles.commitActions}>
+                <TouchableOpacity
+                  style={[styles.commitBtn, (!selectedFiles.size || !commitMessage.trim()) && styles.commitBtnDisabled]}
+                  onPress={handleCommit}
+                  disabled={!selectedFiles.size || !commitMessage.trim() || !!actionLoading}
+                >
+                  {actionLoading === 'commit' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                      <Text style={styles.commitBtnText}>Commit</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.pushBtn, !isOwnRepo && styles.pushBtnWarning]}
+                  onPress={() => handleGitAction('push')}
+                  disabled={!!actionLoading}
+                >
+                  {actionLoading === 'push' ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name={isOwnRepo ? "cloud-upload" : "lock-closed"} size={16} color={isOwnRepo ? "#fff" : "#f59e0b"} />
+                      <Text style={[styles.pushBtnText, !isOwnRepo && styles.pushBtnTextWarning]}>Push</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           {/* Account Link */}
           {linkedAccount && (
@@ -670,6 +928,64 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         onClose={() => setShowAddAccountModal(false)}
         onAccountAdded={loadAccountInfo}
       />
+
+      {/* Account Picker Modal */}
+      <Modal
+        visible={showAccountPicker}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowAccountPicker(false)}
+        statusBarTranslucent
+      >
+        <Animated.View
+          style={styles.pickerBackdrop}
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAccountPicker(false)} />
+          <Animated.View
+            style={styles.pickerContainer}
+            entering={SlideInDown.duration(250)}
+            exiting={SlideOutDown.duration(200)}
+          >
+            <Text style={styles.pickerTitle}>Seleziona Account</Text>
+            <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
+              {gitAccounts.map((account) => (
+                <TouchableOpacity
+                  key={account.id}
+                  style={[
+                    styles.pickerItem,
+                    linkedAccount?.id === account.id && styles.pickerItemActive
+                  ]}
+                  onPress={() => {
+                    setLinkedAccount(account);
+                    setShowAccountPicker(false);
+                  }}
+                >
+                  <Image source={{ uri: account.avatarUrl }} style={styles.pickerAvatar} />
+                  <View style={styles.pickerItemContent}>
+                    <Text style={styles.pickerItemName}>{account.username}</Text>
+                    <Text style={styles.pickerItemProvider}>{account.provider}</Text>
+                  </View>
+                  {linkedAccount?.id === account.id && (
+                    <Ionicons name="checkmark-circle" size={20} color={AppColors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.pickerAddBtn}
+              onPress={() => {
+                setShowAccountPicker(false);
+                setShowAddAccountModal(true);
+              }}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
+              <Text style={styles.pickerAddText}>Aggiungi account</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </Modal>
   );
 };
@@ -705,6 +1021,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 10,
+    overflow: 'hidden',
   },
   gitIcon: {
     width: 36,
@@ -716,6 +1036,8 @@ const styles = StyleSheet.create({
   },
   headerTitleContainer: {
     gap: 2,
+    flex: 1,
+    flexShrink: 1,
   },
   headerTitle: {
     fontSize: 16,
@@ -730,6 +1052,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
   },
   expandButton: {
     width: 32,
@@ -807,6 +1130,9 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
   },
+  contentContainer: {
+    paddingBottom: 20,
+  },
   loadingContainer: {
     padding: 40,
     alignItems: 'center',
@@ -818,89 +1144,144 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   commitsList: {
-    gap: 2,
+    paddingLeft: 4,
   },
   commitItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-    marginBottom: 4,
-    gap: 10,
+    alignItems: 'stretch',
+    minHeight: 56,
   },
-  commitLeft: {},
-  commitAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  timeline: {
+    width: 24,
+    position: 'relative',
   },
-  commitAvatarPlaceholder: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+  timelineLine: {
+    width: 2,
+    backgroundColor: 'rgba(139, 92, 246, 0.3)',
+    position: 'absolute',
+    left: 11,
+  },
+  timelineLineTop: {
+    top: 0,
+    height: '50%',
+  },
+  timelineLineBottom: {
+    bottom: 0,
+    height: '50%',
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#1a1a1c',
+    borderWidth: 2,
+    borderColor: 'rgba(139, 92, 246, 0.6)',
+    position: 'absolute',
+    left: 7,
+    top: 8,
+    zIndex: 1,
+  },
+  timelineDotHead: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: AppColors.primary,
+    borderWidth: 0,
+    position: 'absolute',
+    left: 5,
+    top: 6,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 3,
+    zIndex: 1,
   },
-  commitAvatarText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
+  timelineDotInner: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#fff',
   },
   commitContent: {
     flex: 1,
-    gap: 3,
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 4,
+    gap: 4,
+  },
+  commitBadgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  branchBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: AppColors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  branchBadgeInlineText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  headBadgeInline: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  headBadgeInlineText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
   },
   commitMessage: {
     fontSize: 13,
     fontWeight: '500',
     color: '#fff',
+    lineHeight: 18,
   },
   commitMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginTop: 2,
+  },
+  commitAvatarSmall: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  commitAvatarPlaceholder: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  commitAvatarTextSmall: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: '#fff',
   },
   commitHash: {
     fontSize: 10,
     fontFamily: 'monospace',
-    color: AppColors.primary,
+    color: 'rgba(255,255,255,0.4)',
   },
   commitAuthor: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(255,255,255,0.6)',
   },
   commitDate: {
     fontSize: 10,
     color: 'rgba(255,255,255,0.35)',
-  },
-  commitBadges: {
-    flexDirection: 'row',
-    gap: 4,
-    marginTop: 3,
-  },
-  headBadge: {
-    backgroundColor: AppColors.primary,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  headBadgeText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  branchBadgeSmall: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-  },
-  branchBadgeText: {
-    fontSize: 8,
-    fontWeight: '500',
-    color: '#fff',
   },
   showMoreBtn: {
     flexDirection: 'row',
@@ -908,10 +1289,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 12,
+    marginLeft: 24,
     marginTop: 4,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    borderRadius: 8,
   },
   showMoreText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
     color: AppColors.primary,
   },
@@ -952,7 +1336,8 @@ const styles = StyleSheet.create({
   },
   changesContainer: {
     flex: 1,
-    paddingVertical: 12,
+    paddingTop: 4,
+    paddingBottom: 20,
   },
   changeSection: {
     marginBottom: 16,
@@ -983,10 +1368,93 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     gap: 10,
+    paddingVertical: 40,
   },
   emptyStateText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.4)',
+  },
+  selectAllRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 8,
+  },
+  selectAllText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    flex: 1,
+  },
+  selectedCount: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  commitSection: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#151517',
+  },
+  commitInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    padding: 12,
+    color: '#fff',
+    fontSize: 13,
+    minHeight: 60,
+    textAlignVertical: 'top',
+    marginBottom: 12,
+  },
+  commitActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  commitBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: AppColors.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  commitBtnDisabled: {
+    opacity: 0.4,
+  },
+  commitBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  pushBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  pushBtnText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  pushBtnWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  pushBtnTextWarning: {
+    color: '#f59e0b',
   },
   accountRow: {
     flexDirection: 'row',
@@ -1017,5 +1485,74 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#fff',
     fontWeight: '500',
+  },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  pickerContainer: {
+    backgroundColor: '#1a1a1c',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: 400,
+    paddingBottom: 30,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    textAlign: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  pickerList: {
+    maxHeight: 250,
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  pickerItemActive: {
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  },
+  pickerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  pickerItemContent: {
+    flex: 1,
+  },
+  pickerItemName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  pickerItemProvider: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    textTransform: 'capitalize',
+  },
+  pickerAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    borderRadius: 10,
+  },
+  pickerAddText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppColors.primary,
   },
 });

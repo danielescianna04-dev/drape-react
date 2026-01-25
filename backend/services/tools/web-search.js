@@ -1,23 +1,18 @@
 /**
  * WebSearch Tool
- * Search the web and use results to inform responses
- * Based on Claude Code's WebSearch tool specification
+ * Search the web using DuckDuckGo (Free, no API key required)
  */
 
 const axios = require('axios');
+const cheerio = require('cheerio');
 const metricsService = require('../metrics-service');
 
 /**
- * Search the web for information
+ * Search the web for information using DuckDuckGo (100% Free)
  * @param {string} query - Search query
  * @param {string[]} allowed_domains - Only include results from these domains
  * @param {string[]} blocked_domains - Never include results from these domains
  * @returns {Promise<Object>} Search results
- */
-const cheerio = require('cheerio');
-
-/**
- * Search the web for information using Google (standard) or DuckDuckGo Scraper (fallback)
  */
 async function webSearch(query, allowed_domains = [], blocked_domains = [], projectId = 'global') {
     try {
@@ -28,67 +23,77 @@ async function webSearch(query, allowed_domains = [], blocked_domains = [], proj
 
         let results = [];
 
-        // Try Google Custom Search if API key is provided
-        if (process.env.SEARCH_API_KEY && process.env.SEARCH_ENGINE_ID) {
-            console.log('🔍 Using Google Custom Search API');
-            const response = await axios.get('https://www.googleapis.com/customsearch/v1', {
+        // DuckDuckGo HTML Scraping (Free, no API key needed)
+        console.log('🔍 Using DuckDuckGo HTML Scraping (Free)');
+
+        try {
+            const ddgResponse = await axios.get('https://html.duckduckgo.com/html/', {
                 params: {
-                    key: process.env.SEARCH_API_KEY,
-                    cx: process.env.SEARCH_ENGINE_ID,
                     q: query,
-                    num: 10
+                    kl: 'us-en' // US English results
+                },
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5'
+                },
+                timeout: 10000
+            });
+
+            // Parse HTML results using cheerio
+            const $ = cheerio.load(ddgResponse.data);
+
+            // DuckDuckGo HTML results are in .result elements
+            $('.result').each((index, element) => {
+                if (index >= 10) return false; // Max 10 results
+
+                const titleEl = $(element).find('.result__a');
+                const snippetEl = $(element).find('.result__snippet');
+                const urlEl = $(element).find('.result__url');
+
+                const title = titleEl.text().trim();
+                let url = titleEl.attr('href') || '';
+                const snippet = snippetEl.text().trim();
+
+                // DuckDuckGo wraps URLs, need to extract actual URL
+                if (url.includes('uddg=')) {
+                    try {
+                        const uddgMatch = url.match(/uddg=([^&]+)/);
+                        if (uddgMatch) {
+                            url = decodeURIComponent(uddgMatch[1]);
+                        }
+                    } catch (e) {
+                        // Use URL element as fallback
+                        url = 'https://' + urlEl.text().trim();
+                    }
+                }
+
+                if (title && url && !url.includes('duckduckgo.com')) {
+                    results.push({
+                        title: title,
+                        url: url,
+                        snippet: snippet || title
+                    });
                 }
             });
 
-            results = response.data.items?.map(item => ({
-                title: item.title,
-                url: item.link,
-                snippet: item.snippet
-            })) || [];
-        } else {
-            // Fallback to Brave Search API (Zero-Config)
-            console.log('🔍 Using Brave Search API (Zero-Config Fallback)');
+            console.log(`📄 DuckDuckGo HTML returned ${results.length} results`);
+        } catch (ddgError) {
+            console.log('⚠️ DuckDuckGo HTML scraping failed:', ddgError.message);
+        }
 
+        // Fallback: DuckDuckGo Instant Answer API if HTML scraping failed
+        if (results.length === 0) {
+            console.log('🔍 Trying DuckDuckGo Instant Answer API...');
             try {
-                // Use Brave's free search suggestions API (no key needed)
-                const braveResponse = await axios.get('https://search.brave.com/api/suggest', {
-                    params: {
-                        q: query
-                    },
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    },
-                    timeout: 5000
-                });
-
-                // Parse suggestions
-                if (Array.isArray(braveResponse.data) && braveResponse.data[1]) {
-                    const suggestions = braveResponse.data[1];
-                    const urls = braveResponse.data[3] || [];
-
-                    for (let i = 0; i < Math.min(suggestions.length, 5); i++) {
-                        if (suggestions[i]) {
-                            results.push({
-                                title: suggestions[i],
-                                url: urls[i] || `https://search.brave.com/search?q=${encodeURIComponent(suggestions[i])}`,
-                                snippet: suggestions[i]
-                            });
-                        }
-                    }
-                }
-            } catch (braveError) {
-                console.log('⚠️ Brave API failed, trying DuckDuckGo...');
-            }
-
-            // Fallback to DuckDuckGo Instant Answer if Brave failed
-            if (results.length === 0) {
                 const instantResponse = await axios.get('https://api.duckduckgo.com/', {
                     params: {
                         q: query,
                         format: 'json',
                         no_html: 1,
                         skip_disambig: 1
-                    }
+                    },
+                    timeout: 10000
                 });
 
                 // Add instant answer if available
@@ -112,20 +117,24 @@ async function webSearch(query, allowed_domains = [], blocked_domains = [], proj
                         }
                     }
                 }
+            } catch (instantError) {
+                console.log('⚠️ DuckDuckGo Instant Answer failed:', instantError.message);
             }
+        }
 
-            // Last resort: Use Wikipedia API for factual queries
-            if (results.length === 0 && (query.toLowerCase().includes('when') || query.toLowerCase().includes('what') || query.toLowerCase().includes('who') || query.toLowerCase().includes('quando') || query.toLowerCase().includes('cosa') || query.toLowerCase().includes('chi'))) {
+        // Last resort: Wikipedia API for factual queries
+        if (results.length === 0) {
+            const factualKeywords = ['when', 'what', 'who', 'where', 'why', 'how', 'quando', 'cosa', 'chi', 'dove', 'perché', 'come'];
+            const isFactual = factualKeywords.some(kw => query.toLowerCase().includes(kw));
+
+            if (isFactual) {
                 console.log('🔍 Trying Wikipedia API...');
                 try {
-                    // Clean query for Wikipedia - extract main subject
                     let wikiQuery = query
                         .toLowerCase()
                         .replace(/quando|when|what|who|where|why|how|cosa|chi|dove|perch[eé]|come/gi, '')
                         .replace(/è stata fondata|was founded|foundation|founding|created|started/gi, '')
                         .trim();
-
-                    console.log(`📚 Wikipedia query: "${wikiQuery}"`);
 
                     const wikiResponse = await axios.get('https://en.wikipedia.org/w/api.php', {
                         params: {
@@ -133,7 +142,8 @@ async function webSearch(query, allowed_domains = [], blocked_domains = [], proj
                             search: wikiQuery,
                             limit: 5,
                             format: 'json'
-                        }
+                        },
+                        timeout: 10000
                     });
 
                     if (wikiResponse.data && wikiResponse.data[1]) {
@@ -150,14 +160,13 @@ async function webSearch(query, allowed_domains = [], blocked_domains = [], proj
                         }
                     }
                 } catch (wikiError) {
-                    console.log('⚠️ Wikipedia API failed');
+                    console.log('⚠️ Wikipedia API failed:', wikiError.message);
                 }
             }
+        }
 
-            // If absolutely no results, return empty (let the agent handle it)
-            if (results.length === 0) {
-                console.log('⚠️ All search methods failed, returning 0 results');
-            }
+        if (results.length === 0) {
+            console.log('⚠️ All search methods failed, returning 0 results');
         }
 
         // Apply domain filtering
@@ -180,7 +189,7 @@ async function webSearch(query, allowed_domains = [], blocked_domains = [], proj
         return {
             success: true,
             query,
-            results: filteredResults.slice(0, 10), // Return max 10
+            results: filteredResults.slice(0, 10),
             count: Math.min(filteredResults.length, 10)
         };
 

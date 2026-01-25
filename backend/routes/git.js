@@ -64,6 +64,16 @@ router.get('/status/:projectId', asyncHandler(async (req, res) => {
 
     console.log(`☁️  Git Status in cloud: ${wsName}`);
 
+    // CRITICAL: Ensure Git repo exists before running git commands
+    // This fixes "fatal: not a git repository" errors
+    try {
+        const orch = getOrchestrator();
+        const vm = await orch.getOrCreateVM(projectId);
+        await orch.ensureGitRepo(projectId, vm.agentUrl, vm.machineId);
+    } catch (e) {
+        console.warn(`⚠️ [Git] ensureGitRepo failed: ${e.message}`);
+    }
+
     // Use detailed git log format: hash|author|email|date|message
     const [statusResult, branchResult, logResult] = await Promise.all([
         executeGitCommand(projectId, 'status --porcelain'),
@@ -298,7 +308,7 @@ router.post('/push/:projectId', asyncHandler(async (req, res) => {
  */
 router.post('/commit/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
-    const { message } = req.body;
+    const { message, files } = req.body;
     const wsName = cleanWorkspaceName(projectId);
 
     if (!message) {
@@ -307,11 +317,22 @@ router.post('/commit/:projectId', asyncHandler(async (req, res) => {
 
     console.log(`☁️  Git Commit in cloud: ${wsName}`);
 
-    // Stage all changes
-    await executeGitCommand(projectId, 'add -A');
+    // Stage files - either specific files or all
+    if (files && Array.isArray(files) && files.length > 0) {
+        // Stage specific files
+        console.log(`   📁 Staging ${files.length} files:`, files);
+        for (const file of files) {
+            // Sanitize file path to prevent injection
+            const safePath = file.replace(/[;&|`$()]/g, '');
+            await executeGitCommand(projectId, `add "${safePath}"`);
+        }
+    } else {
+        // Stage all changes
+        await executeGitCommand(projectId, 'add -A');
+    }
 
     // Commit
-    const escapedMessage = message.replace(/"/g, '\\"');
+    const escapedMessage = message.replace(/"/g, '\\"').replace(/\n/g, '\\n');
     const result = await executeGitCommand(projectId, `commit -m "${escapedMessage}"`);
 
     res.json({

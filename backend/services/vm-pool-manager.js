@@ -205,8 +205,7 @@ class VMPoolManager {
      */
     async allocateVM(projectId) {
         // CRITICAL: Never allocate cache masters to projects - they're reserved for cache copying only
-        // CRITICAL: Never allocate VMs that are still downloading cache (cacheReady must be true)
-        // Try to get prewarmed worker VM first (has npm cache ready)
+        // PRIORITY 1: Try to get prewarmed worker VM first (has npm cache ready)
         let pooledVM = this.pool.find(vm =>
             !vm.allocatedTo &&
             vm.prewarmed &&
@@ -214,7 +213,7 @@ class VMPoolManager {
             !vm.isCacheMaster
         );
 
-        // If no prewarmed worker VM, fallback to any available worker VM WITH cache ready
+        // PRIORITY 2: If no prewarmed worker VM, fallback to any available worker VM WITH cache ready
         if (!pooledVM) {
             pooledVM = this.pool.find(vm =>
                 !vm.allocatedTo &&
@@ -223,12 +222,17 @@ class VMPoolManager {
             );
         }
 
-        // Log if VMs exist but aren't ready (helps debugging)
+        // PRIORITY 3 (NEW): If still no VM, accept VMs still downloading cache (slower but better than failing)
         if (!pooledVM) {
             const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster);
             if (downloadingVMs.length > 0) {
-                console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, not available yet`);
+                console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, using one anyway (slower startup)`);
+                pooledVM = downloadingVMs[0];
             }
+        }
+
+        // Log if VMs exist but aren't ready (helps debugging)
+        if (!pooledVM) {
             // DEBUG: Show all VMs in pool
             console.log(`🔍 [DEBUG] Pool has ${this.pool.length} VMs total:`);
             for (const vm of this.pool) {

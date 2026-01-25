@@ -78,26 +78,49 @@ class FileWatcherService {
         const removed = [...lastFiles].filter(f => !currentFiles.has(f));
 
         // Broadcast changes
-        for (const filePath of added) {
-            const relativePath = filePath.replace('/home/coder/project/', '');
+        // For large batch operations (>10 files), send a single batch event to reduce noise
+        if (added.length > 10) {
+            const timestamp = Date.now();
             this._broadcast(projectId, {
-                type: 'file_created',
-                path: relativePath,
+                type: 'files_batch_created',
+                count: added.length,
                 projectId,
-                timestamp: Date.now()
+                timestamp
             });
-            console.log(`📝 [FileWatcher] File created: ${relativePath}`);
+            console.log(`📦 [FileWatcher] Batch: ${added.length} files created`);
+        } else {
+            for (const filePath of added) {
+                const relativePath = filePath.replace('/home/coder/project/', '');
+                this._broadcast(projectId, {
+                    type: 'file_created',
+                    path: relativePath,
+                    projectId,
+                    timestamp: Date.now()
+                });
+                console.log(`📝 [FileWatcher] File created: ${relativePath}`);
+            }
         }
 
-        for (const filePath of removed) {
-            const relativePath = filePath.replace('/home/coder/project/', '');
+        if (removed.length > 10) {
+            const timestamp = Date.now();
             this._broadcast(projectId, {
-                type: 'file_deleted',
-                path: relativePath,
+                type: 'files_batch_deleted',
+                count: removed.length,
                 projectId,
-                timestamp: Date.now()
+                timestamp
             });
-            console.log(`🗑️ [FileWatcher] File deleted: ${relativePath}`);
+            console.log(`🗑️ [FileWatcher] Batch: ${removed.length} files deleted`);
+        } else {
+            for (const filePath of removed) {
+                const relativePath = filePath.replace('/home/coder/project/', '');
+                this._broadcast(projectId, {
+                    type: 'file_deleted',
+                    path: relativePath,
+                    projectId,
+                    timestamp: Date.now()
+                });
+                console.log(`🗑️ [FileWatcher] File deleted: ${relativePath}`);
+            }
         }
 
         // Update last known state

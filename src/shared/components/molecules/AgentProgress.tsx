@@ -82,6 +82,41 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
 
     const activeConfig = currentTool ? (TOOL_CONFIG[currentTool] || TOOL_CONFIG['default']) : TOOL_CONFIG['think'];
 
+    // Get details from the current running tool
+    const getCurrentToolDetails = (): string => {
+        if (!currentTool) return '';
+
+        // Find the most recent tool_start event for current tool
+        const toolStartEvent = [...events].reverse().find(e => e.type === 'tool_start' && e.tool === currentTool);
+        if (!toolStartEvent || !toolStartEvent.input) return '';
+
+        try {
+            const input = typeof toolStartEvent.input === 'string' ? JSON.parse(toolStartEvent.input) : toolStartEvent.input;
+
+            // Extract relevant details based on tool type
+            if (currentTool === 'read_file') {
+                const path = input.filePath || input.path || input.AbsolutePath;
+                return path ? path.split('/').pop() : '';
+            } else if (currentTool === 'edit_file' || currentTool === 'write_file' || currentTool === 'replace_file_content') {
+                const path = input.filePath || input.targetFile || input.TargetFile || input.AbsolutePath;
+                return path ? path.split('/').pop() : '';
+            } else if (currentTool === 'search_web' || currentTool === 'web_search') {
+                const query = input.query || input.q || input.search_term;
+                return query ? `"${query.substring(0, 30)}"` : '';
+            } else if (currentTool === 'glob_files' || currentTool === 'search_in_files') {
+                const pattern = input.pattern || input.glob || input.query;
+                return pattern ? `${pattern.substring(0, 30)}` : '';
+            } else if (currentTool === 'execute_command' || currentTool === 'run_command') {
+                const cmd = input.command || input.cmd;
+                return cmd ? cmd.split(' ')[0] : '';
+            }
+        } catch (_) {}
+
+        return '';
+    };
+
+    const currentToolDetails = getCurrentToolDetails();
+
     // Filter relevant events for the log
     const relevantEvents = events.filter(e =>
         ['tool_start', 'tool_complete', 'tool_error'].includes(e.type)
@@ -110,7 +145,7 @@ export const AgentProgress: React.FC<Props> = ({ events, status, currentTool }) 
 
                     {status === 'running' && (
                         <Animated.Text style={[styles.statusText, { opacity: pulseAnim }]}>
-                            {currentTool || 'Thinking'}{loadingDots}
+                            {currentToolDetails || currentTool || 'Thinking'}{loadingDots}
                         </Animated.Text>
                     )}
                 </View>

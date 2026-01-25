@@ -760,9 +760,9 @@ async function runProjectCreationTask(taskId, wsId, params) {
 
     console.log(`\n🚀 [Task ${taskId}] Creating AI-powered project: ${projectName}`);
 
-    // Get AI provider (using Gemini - configured in .env)
+    // Get AI provider (using Gemini 3 Flash - fastest available)
     update(10, 'Preparing AI Model...', 'Configuration');
-    const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
+    const { provider, modelId } = getProviderForModel('gemini-3-flash');
 
     console.log(`   📋 Description provided: "${description?.substring(0, 80)}..."`);
     console.log(`   🤖 Provider available: ${provider?.isAvailable?.() || 'unknown'}`);
@@ -904,7 +904,7 @@ NO markdown, NO explanation, NO code blocks - ONLY the raw JSON object.
   ...additional files specific to the project
 }
 
-Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT specific to: "${description || projectName}"`;
+Generate the project with 8-10 essential files and focused content for: "${description || projectName}"`;
 
     let filesArray = [];
     let templateDescription = `AI-generated ${technology} project`;
@@ -929,21 +929,41 @@ Generate the COMPLETE project with AT LEAST 10-12 files and REALISTIC CONTENT sp
             let responseText = '';
             const stream = provider.chatStream(messages, {
                 model: modelId,
-                maxTokens: 32000,
-                temperature: 0.7
+                maxTokens: 16000,  // Reduced from 32000 for faster generation
+                temperature: 0.6   // Slightly lower for more focused output
             });
+
+            // Varied messages during AI generation
+            const generationMessages = [
+                'Analisi requisiti...',
+                'Progettazione struttura...',
+                'Generazione componenti...',
+                'Creazione pagine...',
+                'Scrittura stili CSS...',
+                'Configurazione routing...',
+                'Ottimizzazione codice...',
+            ];
+            let lastMessageIndex = 0;
+            let lastUpdateTime = Date.now();
 
             for await (const chunk of stream) {
                 if (chunk.type === 'text') {
                     responseText += chunk.text;
-                    // Roughly estimate progress based on response length 
-                    // (Assuming avg project is 15k-20k characters)
                     const currentLen = responseText.length;
-                    const estimatedProgress = Math.min(75, 30 + Math.floor(currentLen / 500));
+                    const estimatedProgress = Math.min(70, 25 + Math.floor(currentLen / 400));
 
-                    // Only update every few chunks to save traffic
-                    if (Math.random() > 0.8) {
-                        update(estimatedProgress, 'Writing code...', 'AI Generating');
+                    // Update message every ~3 seconds with varied content (reduced overhead)
+                    const now = Date.now();
+                    if (now - lastUpdateTime > 3000) {
+                        lastUpdateTime = now;
+                        const messageIndex = Math.min(
+                            Math.floor(currentLen / 3000),
+                            generationMessages.length - 1
+                        );
+                        if (messageIndex > lastMessageIndex) {
+                            lastMessageIndex = messageIndex;
+                        }
+                        update(estimatedProgress, generationMessages[lastMessageIndex], 'AI Generating');
                     }
                 } else if (chunk.type === 'done') {
                     responseText = chunk.fullText || responseText;
@@ -1134,8 +1154,8 @@ CRITICAL: You MUST respond with ONLY valid JSON.
 
     console.log(`   📋 Added project context: industry=${projectContext.industry}, features=${projectContext.features.join(',')}`);
 
-    // Storage
-    update(90, 'Saving Project Files...', 'Finalizing');
+    // Storage - show each file being saved
+    update(80, 'Salvataggio progetto...', 'Creating files');
     try {
         await db.collection('user_projects').doc(wsId).set({
             id: wsId,
@@ -1151,7 +1171,15 @@ CRITICAL: You MUST respond with ONLY valid JSON.
             lastAccessed: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        await storageService.saveFiles(wsId, filesArray);
+        // Save files one by one with progress updates
+        const totalFiles = filesArray.length;
+        for (let i = 0; i < filesArray.length; i++) {
+            const file = filesArray[i];
+            const fileName = file.path.split('/').pop(); // Get just filename
+            const progress = 80 + Math.floor((i / totalFiles) * 15); // 80-95%
+            update(progress, `Creazione ${fileName}`, 'Creating files');
+            await storageService.saveFile(wsId, file.path, file.content);
+        }
         console.log(`   ✅ Saved ${filesArray.length} files`);
     } catch (error) {
         console.error('❌ Error saving:', error.message);

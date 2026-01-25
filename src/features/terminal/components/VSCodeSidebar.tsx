@@ -155,22 +155,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, []);
 
-  const handleTerminalClick = useCallback(() => {
-    setActivePanel(null);
-    setShowPreviewPanel(false); // Close preview when switching to terminal
-    const aiTerminalTab = tabs.find(t => t.id === 'terminal-ai');
-    if (aiTerminalTab) {
-      setActiveTab('terminal-ai');
-    } else {
-      addTab({
-        id: 'terminal-ai',
-        type: 'terminal',
-        title: 'Terminal AI',
-        data: { sourceTabId: 'all' },
-      });
-    }
-  }, [tabs, setActiveTab, addTab]);
-
   const handleGitClick = useCallback(() => {
     // Open git sheet instead of creating a tab
     setIsGitSheetVisible(true);
@@ -191,21 +175,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         id: 'env-vars',
         type: 'envVars',
         title: 'Variabili Ambiente',
-        data: {},
-      });
-    }
-  }, [tabs, setActiveTab, addTab]);
-
-  const handleTasksClick = useCallback(() => {
-    setShowPreviewPanel(false);
-    const tasksTab = tabs.find(t => t.id === 'agent-tasks');
-    if (tasksTab) {
-      setActiveTab('agent-tasks');
-    } else {
-      addTab({
-        id: 'agent-tasks',
-        type: 'tasks',
-        title: 'Task Manager',
         data: {},
       });
     }
@@ -363,11 +332,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <View style={{ height: 160 }} />
             <VerticalIconSwitcher
               icons={[
-                { name: 'terminal-outline', action: handleTerminalClick },
                 { name: 'git-branch-outline', action: handleGitClick },
-                { name: 'list-outline', action: handleTasksClick },
                 { name: 'key-outline', action: handleEnvVarsClick },
-                // { name: 'extension-puzzle-outline', action: handleIntegrationsClick },
               ]}
               onIconChange={() => { }}
             />

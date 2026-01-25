@@ -65,9 +65,12 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   // Determine if we should show thinking state (either from parent isLoading or item.isThinking)
   const showThinking = isLoading || item?.isThinking;
 
-  // Pulse animation for loading thread dot
+  // Determine if tool is executing (pulsing animation but with content visible)
+  const isExecuting = item?.isExecuting;
+
+  // Pulse animation for loading thread dot OR executing tools
   useEffect(() => {
-    if (showThinking) {
+    if (showThinking || isExecuting) {
       const pulseAnimation = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -87,7 +90,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     } else {
       pulseAnim.setValue(1);
     }
-  }, [showThinking]);
+  }, [showThinking, isExecuting]);
 
   // Animated loading dots (cycles through '.', '..', '...')
   useEffect(() => {
@@ -104,6 +107,23 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       setLoadingDots('.');
     }
   }, [showThinking]);
+
+  // Animated dots for executing tools (cycles through '.', '..', '...')
+  const [executingDots, setExecutingDots] = useState('.');
+  useEffect(() => {
+    if (isExecuting) {
+      const interval = setInterval(() => {
+        setExecutingDots(prev => {
+          if (prev === '.') return '..';
+          if (prev === '..') return '...';
+          return '.';
+        });
+      }, 400);
+      return () => clearInterval(interval);
+    } else {
+      setExecutingDots('.');
+    }
+  }, [isExecuting]);
 
   // IMPORTANT: All hooks must be called before any conditional return!
   // Skip rendering empty placeholder messages (created for post-tool streaming)
@@ -184,8 +204,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
           <Animated.View
             style={[
               styles.threadDot,
-              { backgroundColor: dotColor },
-              showThinking && { opacity: pulseAnim }
+              { backgroundColor: isExecuting ? AppColors.primary : dotColor },
+              (showThinking || isExecuting) && { opacity: pulseAnim }
             ]}
           />
           {isNextItemOutput && <View style={styles.threadLine} />}
@@ -360,31 +380,83 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
         )}
 
         {item.type === ItemType.OUTPUT && (
-          // Check if this is a tool executing indicator
-          (item.content || '').startsWith('Executing: ') ? (
+          // Check if this is a tool executing indicator (pulsing state)
+          isExecuting ? (
             (() => {
-              const toolName = (item.content || '').replace('Executing: ', '');
-              // Map tool names to friendly names and icons
-              const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-                'read_file': { icon: 'document-text-outline', label: 'Reading', color: '#58A6FF' },
-                'glob_files': { icon: 'search-outline', label: 'Searching', color: '#A371F7' },
-                'edit_file': { icon: 'create-outline', label: 'Editing', color: '#3FB950' },
-                'write_file': { icon: 'save-outline', label: 'Writing', color: '#3FB950' },
-                'search_in_files': { icon: 'code-slash-outline', label: 'Searching', color: '#FFA657' },
-                'list_files': { icon: 'folder-outline', label: 'Listing', color: '#58A6FF' },
-              };
-              const config = toolConfig[toolName] || { icon: 'cog-outline', label: 'Executing', color: '#8B949E' };
+              const content = item.content || '';
+              const lines = content.split('\n');
+              const header = lines[0] || ''; // e.g., "Read style.css"
+              const statusLine = lines[1] || ''; // e.g., "└─ Reading..."
+
+              // Replace "..." with animated dots
+              const animatedStatus = statusLine.replace(/\.\.\./, executingDots);
+
+              // Detect tool type from header for badge color
+              let badgeColor = AppColors.primary;
+              let badgeText = 'LOADING';
+              let iconName: any = 'hourglass-outline';
+
+              if (header.startsWith('Read ')) {
+                badgeColor = '#58A6FF';
+                badgeText = 'READ';
+                iconName = 'document-text-outline';
+              } else if (header.startsWith('Write ')) {
+                badgeColor = '#3FB950';
+                badgeText = 'WRITE';
+                iconName = 'document-text-outline';
+              } else if (header.startsWith('Edit ')) {
+                badgeColor = '#3FB950';
+                badgeText = 'EDIT';
+                iconName = 'create-outline';
+              } else if (header.startsWith('List files')) {
+                badgeColor = '#A371F7';
+                badgeText = 'LIST';
+                iconName = 'folder-open-outline';
+              } else if (header.startsWith('Search ') || header.startsWith('Glob ')) {
+                badgeColor = '#A371F7';
+                badgeText = header.startsWith('Glob ') ? 'GLOB' : 'SEARCH';
+                iconName = 'search-outline';
+              } else if (header.startsWith('Run command')) {
+                badgeColor = '#3FB950';
+                badgeText = 'CMD';
+                iconName = 'terminal';
+              } else if (header.startsWith('Web search')) {
+                badgeColor = '#58A6FF';
+                badgeText = 'WEB';
+                iconName = 'globe-outline';
+              } else if (header.startsWith('Fetch URL')) {
+                badgeColor = '#58A6FF';
+                badgeText = 'FETCH';
+                iconName = 'cloud-download-outline';
+              } else if (header.startsWith('User Question')) {
+                badgeColor = '#FFA657';
+                badgeText = 'Q&A';
+                iconName = 'help-circle-outline';
+              } else if (header.startsWith('Todo List')) {
+                badgeColor = '#FFA657';
+                badgeText = 'TODO';
+                iconName = 'checkbox-outline';
+              }
+
+              // Extract the label from header (e.g., "style.css" from "Read style.css")
+              const labelParts = header.split(' ');
+              const label = labelParts.slice(1).join(' ') || '';
 
               return (
-                <View style={styles.readFileInline}>
-                  <View style={[styles.toolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
-                    <Ionicons name={config.icon as any} size={12} color={config.color} />
-                    <Text style={[styles.toolBadgeText, { color: config.color }]}>{config.label.toUpperCase()}</Text>
+                <Animated.View style={{ opacity: pulseAnim }}>
+                  <View style={styles.readFileInline}>
+                    <View style={[styles.toolBadge, { backgroundColor: `${badgeColor}15`, borderColor: `${badgeColor}30` }]}>
+                      <Ionicons name={iconName} size={12} color={badgeColor} />
+                      <Text style={[styles.toolBadgeText, { color: badgeColor }]}>{badgeText}</Text>
+                    </View>
+                    {label && <Text style={styles.readFileName}>{label}</Text>}
                   </View>
-                  <Animated.View style={{ opacity: pulseAnim }}>
-                    <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)' }]}>...</Text>
-                  </Animated.View>
-                </View>
+                  {animatedStatus && (
+                    <Text style={[styles.executingStatus, { color: badgeColor }]}>
+                      {animatedStatus}
+                    </Text>
+                  )}
+                </Animated.View>
               );
             })()
           ) : // Check if this is a Read tool result
@@ -1072,8 +1144,39 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                 );
                               })()
                             ) : isTerminalCommand ? (
-                    // Regular terminal output
-                    <Text style={styles.terminalOutput}>{item.content || ''}</Text>
+                    // Regular terminal output - with truncation for long outputs
+                    (() => {
+                      const content = item.content || '';
+                      const lines = content.split('\n');
+                      const MAX_LINES = 50;
+                      const shouldTruncate = lines.length > MAX_LINES;
+                      const displayLines = isExpanded ? lines : lines.slice(0, MAX_LINES);
+                      const displayContent = displayLines.join('\n');
+
+                      return (
+                        <View>
+                          <Text style={styles.terminalOutput}>{displayContent}</Text>
+                          {shouldTruncate && !isExpanded && (
+                            <TouchableOpacity
+                              onPress={() => setIsExpanded(true)}
+                              style={styles.showMoreButtonSimple}
+                            >
+                              <Text style={styles.showMoreText}>Show {lines.length - MAX_LINES} more lines</Text>
+                              <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                            </TouchableOpacity>
+                          )}
+                          {shouldTruncate && isExpanded && (
+                            <TouchableOpacity
+                              onPress={() => setIsExpanded(false)}
+                              style={styles.showMoreButtonSimple}
+                            >
+                              <Text style={styles.showMoreText}>Show less</Text>
+                              <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      );
+                    })()
                   ) : (
                   <View style={styles.assistantMessageContent}>
                     {showThinking && !item.content ? (
@@ -1296,6 +1399,12 @@ const styles = StyleSheet.create({
     marginLeft: 20,
     marginTop: 4,
   },
+  executingStatus: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginLeft: 20,
+    marginTop: 4,
+  },
   globFileList: {
     marginTop: 8,
     marginLeft: 20,
@@ -1407,6 +1516,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  showMoreButtonSimple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   showMoreText: {
     fontSize: 12,
@@ -1797,13 +1918,12 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   userMessageCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 18,
+    borderTopRightRadius: 4,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    maxWidth: '75%',
+    maxWidth: '78%',
     alignSelf: 'flex-end',
   },
   userMessageCardWide: {

@@ -537,6 +537,246 @@ app.listen(PORT, '0.0.0.0', () => {
 });`
         },
         startCommand: 'npm install && npm start'
+    },
+
+    // =====================================================
+    // VUE (with Vite)
+    // =====================================================
+    vue: {
+        name: 'Vue',
+        description: 'Vue 3 + Vite application',
+        files: {
+            'package.json': `{
+  "name": "my-vue-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}`,
+            'index.html': `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Vue App</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>`,
+            'vite.config.js': `import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()],
+  server: {
+    host: '0.0.0.0',
+    port: 3000
+  }
+})`,
+            'src/main.js': `import { createApp } from 'vue'
+import App from './App.vue'
+import './style.css'
+
+createApp(App).mount('#app')`,
+            'src/App.vue': `<script setup>
+import HelloWorld from './components/HelloWorld.vue'
+</script>
+
+<template>
+  <div class="app">
+    <HelloWorld msg="Welcome to Vue 3!" />
+  </div>
+</template>
+
+<style scoped>
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+</style>`,
+            'src/components/HelloWorld.vue': `<script setup>
+import { ref } from 'vue'
+
+defineProps({
+  msg: String
+})
+
+const count = ref(0)
+</script>
+
+<template>
+  <div class="hello">
+    <h1>{{ msg }}</h1>
+    <button @click="count++">Count is: {{ count }}</button>
+    <p>Edit <code>src/components/HelloWorld.vue</code> to test HMR</p>
+  </div>
+</template>
+
+<style scoped>
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+button {
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background-color: #1a1a1a;
+  color: white;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+button:hover {
+  background-color: #42b883;
+}
+</style>`,
+            'src/style.css': `* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: #ffffff;
+  min-height: 100vh;
+}`
+        },
+        startCommand: 'npm install && npm run dev'
+    },
+
+    // =====================================================
+    // NEXT.JS
+    // =====================================================
+    nextjs: {
+        name: 'Next.js',
+        description: 'Next.js React framework',
+        files: {
+            'package.json': `{
+  "name": "my-nextjs-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  }
+}`,
+            'next.config.js': `/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+}
+
+module.exports = nextConfig`,
+            'app/layout.js': `import './globals.css'
+
+export const metadata = {
+  title: 'My Next.js App',
+  description: 'Created with Next.js',
+}
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}`,
+            'app/page.js': `'use client'
+import { useState } from 'react'
+
+export default function Home() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <main className="main">
+      <h1>Welcome to Next.js!</h1>
+      <p>Get started by editing <code>app/page.js</code></p>
+      <button onClick={() => setCount(count + 1)}>
+        Count: {count}
+      </button>
+    </main>
+  )
+}`,
+            'app/globals.css': `* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+  color: #ffffff;
+  min-height: 100vh;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  text-align: center;
+  gap: 1rem;
+}
+
+h1 {
+  font-size: 3rem;
+  background: linear-gradient(90deg, #fff, #888);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+button {
+  padding: 0.8em 1.5em;
+  font-size: 1em;
+  font-weight: 500;
+  border-radius: 8px;
+  border: none;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+button:hover {
+  transform: scale(1.05);
+}
+
+code {
+  background: rgba(255,255,255,0.1);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: monospace;
+}`
+        },
+        startCommand: 'npm install && npm run dev'
     }
 };
 
@@ -564,6 +804,10 @@ function getTemplate(technologyId) {
         'htmlcss': 'html',
         'statichtml': 'html',
         'reactjs': 'react',
+        'vuejs': 'vue',
+        'vue3': 'vue',
+        'next': 'nextjs',
+        'nextjs14': 'nextjs',
         'cpp': 'javascript', // Fallback for unsupported
         'java': 'javascript', // Fallback for unsupported
         'swift': 'javascript', // Fallback for unsupported
@@ -613,12 +857,16 @@ function generateTemplateFiles(technologyId, projectName) {
         // Replace placeholder project names
         let finalContent = content
             .replace(/my-react-app/g, safeName)
+            .replace(/my-vue-app/g, safeName)
+            .replace(/my-nextjs-app/g, safeName)
             .replace(/my-js-app/g, safeName)
             .replace(/my-ts-app/g, safeName)
             .replace(/my-node-server/g, safeName)
             .replace(/My Website/g, projectName)
             .replace(/My Site/g, projectName)
-            .replace(/My React App/g, projectName);
+            .replace(/My React App/g, projectName)
+            .replace(/My Vue App/g, projectName)
+            .replace(/My Next\.js App/g, projectName);
 
         files[path] = finalContent;
     }

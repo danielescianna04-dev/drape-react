@@ -25,7 +25,9 @@ interface TabStore {
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
   addTerminalItem: (tabId: string, item: any) => void;
+  updateTerminalItemById: (tabId: string, itemId: string, updates: any) => void;
   clearTerminalItems: (tabId: string) => void;
+  removeTerminalItemById: (tabId: string, itemId: string) => void;
   removeTerminalItemsByType: (tabId: string, type: string) => void;
   updateTerminalItemsByType: (tabId: string, oldType: string, updates: any) => void;
 }
@@ -181,7 +183,7 @@ export const useTabStore = create<TabStore>((set) => ({
   })),
 
   addTerminalItem: (tabId, item) => {
-    console.log('🔵 Store addTerminalItem called:', { tabId, itemType: item?.type, itemContent: item?.content?.substring(0, 50), isThinking: item?.isThinking });
+    console.log('🔵 Store addTerminalItem called:', { tabId, itemId: item?.id, itemType: item?.type, itemContent: item?.content?.substring(0, 50), isExecuting: item?.isExecuting });
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       const currentItems = tab?.terminalItems || [];
@@ -196,12 +198,48 @@ export const useTabStore = create<TabStore>((set) => ({
     });
   },
 
+  updateTerminalItemById: (tabId, itemId, updates) => {
+    set((state) => {
+      const tab = state.tabs.find(t => t.id === tabId);
+      const existingItem = tab?.terminalItems?.find(item => item.id === itemId);
+      console.log('🔵 Updating terminal item by ID:', itemId, 'found:', !!existingItem, 'items:', tab?.terminalItems?.map(i => i.id));
+
+      if (!existingItem) {
+        console.warn('⚠️ Item not found for update! ID:', itemId);
+      }
+
+      return {
+        tabs: state.tabs.map(t =>
+          t.id === tabId
+            ? {
+              ...t,
+              terminalItems: (t.terminalItems || []).map(item =>
+                item.id === itemId ? { ...item, ...updates } : item
+              )
+            }
+            : t
+        ),
+      };
+    });
+  },
+
   clearTerminalItems: (tabId) => {
     console.log('🔵 Clearing terminal items for tab:', tabId);
     set((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
           ? { ...t, terminalItems: [] }
+          : t
+      ),
+    }));
+  },
+
+  removeTerminalItemById: (tabId, itemId) => {
+    console.log('🔵 Removing terminal item by ID:', itemId, 'from tab:', tabId);
+    set((state) => ({
+      tabs: state.tabs.map(t =>
+        t.id === tabId
+          ? { ...t, terminalItems: (t.terminalItems || []).filter(item => item.id !== itemId) }
           : t
       ),
     }));

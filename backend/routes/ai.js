@@ -431,6 +431,63 @@ Provide a clear, concise analysis.`;
 }));
 
 /**
+ * POST /ai/chat/generate-title
+ * Generate a smart title for a chat conversation (like ChatGPT)
+ */
+router.post('/chat/generate-title', asyncHandler(async (req, res) => {
+    const { message } = req.body;
+
+    if (!message) {
+        return res.status(400).json({ error: 'message is required' });
+    }
+
+    console.log('🏷️ Generating chat title for:', message.substring(0, 50) + '...');
+
+    // Use a fast model for quick title generation
+    const { provider, modelId } = getProviderForModel('gemini-2.0-flash-exp');
+
+    if (!provider.client) {
+        await provider.initialize();
+    }
+
+    const prompt = `Generate a very short title (3-5 words max, in the same language as the message) for a chat that starts with this message. The title should capture the main topic/intent.
+
+Message: "${message.substring(0, 200)}"
+
+Rules:
+- Maximum 5 words
+- No quotes or punctuation at the end
+- Same language as the message
+- Be specific and descriptive
+- Don't start with "Chat about" or similar
+
+Respond with ONLY the title, nothing else.`;
+
+    const messages = [{ role: 'user', content: prompt }];
+
+    let response = '';
+    for await (const chunk of provider.chatStream(messages, {
+        model: modelId,
+        maxTokens: 50 // Very short response needed
+    })) {
+        if (chunk.type === 'text') response += chunk.text;
+    }
+
+    // Clean up the title
+    let title = response.trim()
+        .replace(/^["']|["']$/g, '') // Remove quotes
+        .replace(/\.+$/, '') // Remove trailing dots
+        .substring(0, 50); // Max 50 chars
+
+    console.log('✅ Generated title:', title);
+
+    res.json({
+        success: true,
+        title
+    });
+}));
+
+/**
  * POST /ai/recommend
  * AI-powered technology recommendation based on project description
  */

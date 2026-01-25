@@ -18,6 +18,7 @@ import { logCommand, logOutput, logError, logSystem } from '../../../core/termin
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
+import { useAgentStream } from '../../../hooks/api/useAgentStream';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -40,7 +41,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const setGlobalFlyMachineId = useTerminalStore((state) => state.setFlyMachineId);
   const projectMachineIds = useTerminalStore((state) => state.projectMachineIds);
   const projectPreviewUrls = useTerminalStore((state) => state.projectPreviewUrls);
+  const selectedModel = useTerminalStore((state) => state.selectedModel);
   const { apiUrl } = useNetworkConfig();
+
+  // Agent stream for full tool execution (like ChatPage)
+  const {
+    start: startAgent,
+    stop: stopAgent,
+    isRunning: agentStreaming,
+    events: agentEvents,
+    reset: resetAgent
+  } = useAgentStream('fast');
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
   const { sidebarTranslateX } = useSidebarOffset();
@@ -143,6 +154,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     filePath?: string;
     pattern?: string;
   }>>([]);
+  // Chat ID for saving preview conversations to chat history
+  const [previewChatId, setPreviewChatId] = useState<string | null>(null);
   const [coderToken, setCoderToken] = useState<string | null>(null);
   // Use global store for machine ID to persist across navigation
   const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
@@ -163,7 +176,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const maskOpacityAnim = useRef(new Animated.Value(1)).current;
   const [smoothProgress, setSmoothProgress] = useState(0);
+  const [targetProgress, setTargetProgress] = useState(0); // Step-based target progress
   const [displayedMessage, setDisplayedMessage] = useState('');
+  const [isNextJsProject, setIsNextJsProject] = useState(false); // Track if Next.js for time estimates
 
   // Error handling state
   const [previewError, setPreviewError] = useState<{ message: string; timestamp: Date } | null>(null);
@@ -207,6 +222,131 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     ]
   };
 
+  // Process agent events and update aiMessages (like ChatPage)
+  useEffect(() => {
+    if (agentEvents.length === 0) return;
+
+    // Get latest event
+    const latestEvent = agentEvents[agentEvents.length - 1];
+
+    if (latestEvent.type === 'tool_start' && latestEvent.tool) {
+      setActiveTools(prev => [...prev, latestEvent.tool!]);
+      setAiMessages(prev => [...prev, {
+        type: 'tool_start',
+        content: latestEvent.tool!,
+        tool: latestEvent.tool
+      }]);
+    }
+    else if (latestEvent.type === 'tool_input' && latestEvent.tool) {
+      setActiveTools(prev => prev.includes(latestEvent.tool!) ? prev : [...prev, latestEvent.tool!]);
+      setAiMessages(prev => {
+        const updated = [...prev];
+        const existingToolIndex = updated.findIndex(
+          m => (m.type === 'tool_start' || m.type === 'tool_result') && m.tool === latestEvent.tool && !m.success
+        );
+        if (existingToolIndex >= 0) {
+          updated[existingToolIndex] = {
+            ...updated[existingToolIndex],
+            filePath: (latestEvent as any).input?.filePath,
+            pattern: (latestEvent as any).input?.pattern
+          };
+        } else {
+          updated.push({
+            type: 'tool_start',
+            content: latestEvent.tool!,
+            tool: latestEvent.tool,
+            filePath: (latestEvent as any).input?.filePath,
+            pattern: (latestEvent as any).input?.pattern
+          });
+        }
+        return updated;
+      });
+    }
+    else if (latestEvent.type === 'tool_complete' && latestEvent.tool) {
+      setActiveTools(prev => prev.filter(t => t !== latestEvent.tool));
+      setAiMessages(prev => {
+        const updated = [...prev];
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if ((updated[i].type === 'tool_start' || updated[i].type === 'tool_result') && updated[i].tool === latestEvent.tool) {
+            updated[i] = {
+              ...updated[i],
+              type: 'tool_result',
+              success: !latestEvent.error
+            };
+            break;
+          }
+        }
+        return updated;
+      });
+    }
+    else if (latestEvent.type === 'text_delta') {
+      const delta = (latestEvent as any).delta;
+      if (delta) {
+        setAiMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last && last.type === 'text') {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...last,
+              content: (last.content || '') + delta
+            };
+            return updated;
+          } else {
+            return [...prev, { type: 'text', content: delta }];
+          }
+        });
+      }
+    }
+    else if (latestEvent.type === 'message' || latestEvent.type === 'response') {
+      const msg = (latestEvent as any).content || (latestEvent as any).message || (latestEvent as any).text || (latestEvent as any).output;
+      if (msg) {
+        setAiMessages(prev => {
+          const last = prev[prev.length - 1];
+          // Don't add duplicate if we already have this content from streaming
+          if (last && last.type === 'text' && last.content === msg) {
+            return prev;
+          }
+          return [...prev, { type: 'text', content: msg }];
+        });
+      }
+    }
+    else if (latestEvent.type === 'complete' || latestEvent.type === 'done') {
+      setIsAiLoading(false);
+      setActiveTools([]);
+    }
+    else if (latestEvent.type === 'error' || latestEvent.type === 'fatal_error') {
+      setIsAiLoading(false);
+      setActiveTools([]);
+      const errorMsg = latestEvent.error || latestEvent.message || 'Error';
+      setAiMessages(prev => [...prev, { type: 'text', content: `❌ ${errorMsg}` }]);
+    }
+  }, [agentEvents]);
+
+  // Save chat messages when agent completes
+  useEffect(() => {
+    if (!agentStreaming && agentEvents.length > 0 && previewChatId && aiMessages.length > 0) {
+      // Convert aiMessages to TerminalItem format for storage
+      const messagesToSave = aiMessages.map((msg, index) => ({
+        id: `preview-msg-${index}`,
+        content: msg.content || '',
+        type: msg.type === 'user' ? 'user_message' : 'output',
+        timestamp: new Date(),
+        toolInfo: msg.tool ? {
+          tool: msg.tool,
+          input: { filePath: msg.filePath, pattern: msg.pattern },
+          status: msg.success !== undefined ? (msg.success ? 'completed' : 'error') : 'running'
+        } : undefined
+      }));
+
+      console.log('💾 [PreviewPanel] Saving chat messages:', { chatId: previewChatId, messageCount: messagesToSave.length });
+
+      useTerminalStore.getState().updateChat(previewChatId, {
+        messages: messagesToSave,
+        lastUsed: new Date(),
+      });
+    }
+  }, [agentStreaming, agentEvents.length, previewChatId, aiMessages]);
+
   // Extensions for "fanne di più" - cycling messages within steps
   useEffect(() => {
     if (!currentStepId || serverStatus === 'stopped') return;
@@ -225,37 +365,71 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return () => clearInterval(interval);
   }, [currentStepId, serverStatus]);
 
-  // Smooth progress animation
+  // Smooth progress animation - progressive 1-100, guided by real backend steps
+  // Each step has a range, progress animates within that range over time
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
+    // Step ranges - progress can animate within each step's range
+    // For Next.js, "starting" step (compilation) takes longest, so it has biggest range
+    const stepRanges: Record<string, { min: number; max: number }> = {
+      'analyzing': { min: 1, max: 12 },
+      'cloning': { min: 12, max: 20 },
+      'detecting': { min: 20, max: 28 },
+      'warning': { min: 28, max: 32 },
+      'booting': { min: 32, max: 45 },
+      'install': { min: 45, max: 55 },
+      'installing': { min: 45, max: 55 },
+      'starting': { min: 55, max: 92 }, // Big range for compilation time
+      'ready': { min: 92, max: 100 }
+    };
+
     if (serverStatus === 'stopped') {
       setSmoothProgress(0);
+      setTargetProgress(0);
     } else {
       interval = setInterval(() => {
         setSmoothProgress(prev => {
           // If webview is ready, zoom to 100%
           if (webViewReady) {
-            return Math.min(prev + 5, 100);
+            return Math.min(prev + 3, 100);
           }
 
-          // Slower approach to 95% to match ~40s real boot time
-          // 20% in 2s (Fast start)
-          if (prev < 20) return prev + 0.5;
-          // 20-50% in ~12s
-          if (prev < 50) return prev + 0.12;
-          // 50-80% in ~15s
-          if (prev < 80) return prev + 0.1;
-          // 80-95% in ~15s (Very slow finish)
-          if (prev < 95) return prev + 0.05;
+          // Get current step's range
+          const range = currentStepId ? stepRanges[currentStepId] : { min: 0, max: 10 };
+          if (!range) return prev;
 
-          return prev;
+          // If below step's min, move quickly to get there
+          if (prev < range.min) {
+            return Math.min(prev + 0.5, range.min);
+          }
+
+          // Within step's range - animate slowly toward max
+          // For Next.js "starting" step, this will take 3-5 minutes to go from 55% to 92%
+          if (prev < range.max) {
+            // Slower animation for longer steps (like "starting")
+            const stepSize = range.max - range.min;
+            const baseSpeed = isNextJsProject && currentStepId === 'starting'
+              ? 0.008  // Very slow for Next.js compilation (~5 min to complete range)
+              : stepSize > 20
+                ? 0.02   // Slow for big ranges
+                : 0.08;  // Normal for small ranges
+
+            // Slow down as approaching max (asymptotic)
+            const distToMax = range.max - prev;
+            const speed = Math.max(0.005, baseSpeed * (distToMax / stepSize));
+
+            return Math.min(prev + speed, range.max - 0.5);
+          }
+
+          // At max of current step - tiny movement to show activity
+          return prev + 0.002;
         });
       }, 50);
     }
 
     return () => clearInterval(interval);
-  }, [serverStatus, webViewReady]);
+  }, [serverStatus, webViewReady, targetProgress, currentStepId, isNextJsProject]);
 
   // Pulse animation for active step
   useEffect(() => {
@@ -894,6 +1068,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     ]);
     setCurrentStepId('analyzing');
     setStartingMessage('Analisi del progetto...');
+    setTargetProgress(5); // Start at 5% for analyzing step
+    setIsNextJsProject(false); // Reset - will be detected from backend response
 
     logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
@@ -954,6 +1130,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     console.warn('⚠️ Preview Warning:', warningData);
                     // Store warning for display
                     if (warningData.type === 'nextjs-version') {
+                      setIsNextJsProject(true); // Definitely Next.js
+                      setTargetProgress(20); // Update progress for warning step
                       logOutput(`⚠️ ${warningData.message}`, 'preview', 0);
                       logOutput(`   Recommended: ${warningData.recommendation}`, 'preview', 0);
                     }
@@ -967,6 +1145,29 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
                   setCurrentStepId(parsed.step);
                   setStartingMessage(parsed.message);
+
+                  // REAL progress based on backend steps
+                  // Steps: analyzing(5%) -> detecting(15%) -> booting(25%) -> install(40%) -> starting(70%) -> ready(100%)
+                  const stepProgressMap: Record<string, number> = {
+                    'analyzing': 5,
+                    'cloning': 10,
+                    'detecting': 15,
+                    'warning': 20, // Next.js version warning
+                    'booting': 25,
+                    'install': 40,
+                    'installing': 40,
+                    'starting': 70, // This is where most time is spent for Next.js (compilation)
+                    'ready': 100
+                  };
+                  const newTarget = stepProgressMap[parsed.step] || targetProgress;
+                  setTargetProgress(newTarget);
+
+                  // Detect Next.js project for time estimates
+                  if (parsed.projectType?.toLowerCase().includes('next') ||
+                      parsed.message?.toLowerCase().includes('next.js') ||
+                      parsed.message?.toLowerCase().includes('turbopack')) {
+                    setIsNextJsProject(true);
+                  }
 
                   setStartupSteps(prev => prev.map(step => {
                     if (step.id === parsed.step) return { ...step, status: 'active' };
@@ -1344,221 +1545,70 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     // Clear previous response accumulator but keep messages history
     setAiResponse('');
-    // setAiMessages([]); // Don't clear history to allow conversation
     setIsAiLoading(true);
 
     const userMessage = message.trim();
+
+    // Build prompt with element context if selected
+    let prompt = userMessage;
+    if (selectedElement) {
+      prompt = `[Elemento selezionato: <${selectedElement.tag}> class="${selectedElement.className}" id="${selectedElement.id}" text="${selectedElement.text?.slice(0, 100)}"]\n\n${userMessage}`;
+    }
+
     // Add user message to history locally
     const newUserMsg = { type: 'user' as const, content: userMessage };
     setAiMessages(prev => [...prev, newUserMsg]);
 
-    const historyToSend = [...aiMessages, newUserMsg];
+    // Create or update chat in history (like ChatPage)
+    const isFirstMessage = aiMessages.filter(m => m.type === 'user').length === 0;
+    let chatId = previewChatId;
 
-    const elementData = selectedElement ? {
-      tag: selectedElement.tag || 'unknown',
-      className: selectedElement.className || '',
-      id: selectedElement.id || '',
-      text: selectedElement.text || '',
-      innerHTML: selectedElement.innerHTML || ''
-    } : null;
+    if (isFirstMessage || !chatId) {
+      // Create new chat for this preview session
+      chatId = `preview-${Date.now()}`;
+      setPreviewChatId(chatId);
 
-    console.log('🔍 [PreviewPanel] Sending inspect request:', { userMessage, elementData, projectId: currentWorkstation.id });
-    console.log('🔍 [PreviewPanel] API URL:', apiUrl);
+      // Generate title from first message
+      let title = `🎨 ${userMessage.slice(0, 35)}`;
+      if (userMessage.length > 35) title += '...';
 
-    // Clear input immediately for better UX
+      const newChat = {
+        id: chatId,
+        title: title,
+        description: `Preview: ${currentWorkstation.name || 'Progetto'}`,
+        createdAt: new Date(),
+        lastUsed: new Date(),
+        messages: [],
+        aiModel: selectedModel,
+        repositoryId: currentWorkstation.id,
+        repositoryName: currentWorkstation.name,
+      };
+
+      console.log('✨ [PreviewPanel] Creating new chat:', { chatId, title });
+      useTerminalStore.getState().addChat(newChat);
+    } else {
+      // Update lastUsed
+      useTerminalStore.getState().updateChatLastUsed(chatId);
+    }
+
+    // Build conversation history for agent (like ChatPage)
+    const conversationHistory = aiMessages
+      .filter(m => m.type === 'user' || m.type === 'text')
+      .map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.content || ''
+      }));
+
+    // Clear input immediately
     setMessage('');
 
-    // Keep selected element active for follow-up questions!
-    // setSelectedElement(null); 
+    // Reset agent and start new session
+    resetAgent();
 
-    // Don't clear visual selection overlay so user knows context is still active
-    /* 
-    webViewRef.current?.injectJavaScript(`
-      if (window.__clearInspectSelection) {
-        window.__clearInspectSelection();
-      }
-      true;
-    `);
-    */
+    console.log('🚀 [PreviewPanel] Starting agent with:', { prompt: prompt.slice(0, 50), projectId: currentWorkstation.id, model: selectedModel });
 
-    try {
-      // Use XMLHttpRequest for SSE streaming with polling (React Native compatible)
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        // 🚀 HOLY GRAIL: Use Fly.io inspect endpoint
-        const inspectEndpoint = USE_HOLY_GRAIL
-          ? `${apiUrl}/fly/inspect`
-          : `${apiUrl}/preview/inspect`;
-
-        xhr.open('POST', inspectEndpoint);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.timeout = 60000; // 60 second timeout
-
-        // Multi-user context
-        const state = useTerminalStore.getState();
-        const userId = state.userId || 'anonymous-user';
-        const username = userId.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-
-        let lastIndex = 0;
-        let fullResponse = '';
-        let pollInterval: NodeJS.Timeout | null = null;
-
-        // Add state change listener for debugging
-        xhr.onreadystatechange = () => {
-          console.log('🔄 XHR state:', xhr.readyState, 'status:', xhr.status, 'responseLength:', xhr.responseText?.length || 0);
-        };
-
-        const processResponse = () => {
-          const newData = xhr.responseText.substring(lastIndex);
-          if (newData.length === 0) return;
-
-          lastIndex = xhr.responseText.length;
-          console.log('📦 Polling received:', newData.length, 'bytes');
-
-          // Parse SSE events
-          const lines = newData.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.substring(6);
-              if (data === '[DONE]') {
-                setActiveTools([]);
-                continue;
-              }
-              try {
-                const parsed = JSON.parse(data);
-                console.log('🎯 SSE event received:', parsed.type, parsed);
-
-                // Handle tool events
-                if (parsed.type === 'tool_start') {
-                  console.log('🔧 Tool started:', parsed.tool);
-                  setActiveTools(prev => [...prev, parsed.tool]);
-                  setAiMessages(prev => [...prev, {
-                    type: 'tool_start',
-                    content: parsed.tool,
-                    tool: parsed.tool
-                  }]);
-                } else if (parsed.type === 'tool_input') {
-                  console.log('📥 Tool input:', parsed.tool, parsed.input);
-                  // Add tool to active tools
-                  setActiveTools(prev => prev.includes(parsed.tool) ? prev : [...prev, parsed.tool]);
-
-                  setAiMessages(prev => {
-                    const updated = [...prev];
-                    // Check if tool_start already exists for this tool
-                    const existingToolIndex = updated.findIndex(
-                      m => (m.type === 'tool_start' || m.type === 'tool_result') && m.tool === parsed.tool && !m.success
-                    );
-
-                    if (existingToolIndex >= 0) {
-                      // Update existing tool message with input details
-                      updated[existingToolIndex] = {
-                        ...updated[existingToolIndex],
-                        filePath: parsed.input?.filePath,
-                        pattern: parsed.input?.pattern
-                      };
-                    } else {
-                      // Create new tool_start message (Gemini doesn't emit tool_start)
-                      updated.push({
-                        type: 'tool_start',
-                        content: parsed.tool,
-                        tool: parsed.tool,
-                        filePath: parsed.input?.filePath,
-                        pattern: parsed.input?.pattern
-                      });
-                    }
-                    return updated;
-                  });
-
-                } else if (parsed.type === 'tool_result') {
-                  console.log('✅ Tool result:', parsed.tool, parsed.success);
-                  setActiveTools(prev => prev.filter(t => t !== parsed.tool));
-                  setAiMessages(prev => {
-                    const updated = [...prev];
-                    for (let i = updated.length - 1; i >= 0; i--) {
-                      if ((updated[i].type === 'tool_start' || updated[i].type === 'tool_result') && updated[i].tool === parsed.tool) {
-                        updated[i] = {
-                          ...updated[i],
-                          type: 'tool_result',
-                          success: parsed.success
-                        };
-
-
-                        break;
-                      }
-                    }
-                    return updated;
-                  });
-                } else if (parsed.text) {
-                  setAiMessages(prev => {
-                    const last = prev[prev.length - 1];
-                    if (last && last.type === 'text') {
-                      const updated = [...prev];
-                      const newContent = (last.content || '') + parsed.text;
-                      updated[updated.length - 1] = {
-                        ...last,
-                        content: newContent
-                      };
-                      fullResponse = newContent;
-                      return updated;
-                    } else {
-                      fullResponse = parsed.text;
-                      return [...prev, { type: 'text', content: parsed.text }];
-                    }
-                  });
-                  setAiResponse(fullResponse);
-                }
-              } catch (e) {
-                // Ignore parse errors for partial data
-              }
-            }
-          }
-        };
-
-        // Poll for new data every 100ms (React Native doesn't support onprogress reliably)
-        pollInterval = setInterval(processResponse, 100);
-
-        xhr.onload = () => {
-          if (pollInterval) clearInterval(pollInterval);
-          processResponse(); // Process any remaining data
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            reject(new Error(`Request failed: ${xhr.status}`));
-          }
-        };
-
-        xhr.onerror = () => {
-          if (pollInterval) clearInterval(pollInterval);
-          reject(new Error('Network error'));
-        };
-        xhr.ontimeout = () => {
-          if (pollInterval) clearInterval(pollInterval);
-          reject(new Error('Request timeout'));
-        };
-
-        xhr.send(JSON.stringify({
-          description: selectedElement ? `Element <${selectedElement.tag}> with class "${selectedElement.className}"` : 'General Request',
-          userPrompt: userMessage,
-          elementInfo: elementData,
-          projectId: currentWorkstation.id,
-          workstationId: currentWorkstation.id,
-          userEmail: userId,
-          username: username,
-          element: elementData,
-          message: userMessage,
-          history: historyToSend,
-          selectedModel: 'claude-sonnet-4'
-        }));
-      });
-
-
-    } catch (error: any) {
-      console.error('❌ Inspect request failed:', error);
-      setAiResponse(`Errore: ${error.message}`);
-    } finally {
-      setIsAiLoading(false);
-    }
+    // Start the agent stream (same as ChatPage)
+    startAgent(prompt, currentWorkstation.id, selectedModel, conversationHistory);
   };
 
   const toggleInspectMode = () => {
@@ -2492,14 +2542,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                   {displayedMessage || 'Inizializzazione ambiente...'}
                                 </Text>
                                 <Text style={{
-                                  color: 'rgba(255,255,255,0.4)',
+                                  color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
                                   fontSize: 12,
                                   fontFamily: 'SF-Pro-Text-Regular',
-                                  marginTop: 8
+                                  marginTop: 8,
+                                  textAlign: 'center'
                                 }}>
                                   {smoothProgress > 88
                                     ? "Ultimi istanti..."
-                                    : `Circa ${Math.ceil(40 * (1 - smoothProgress / 100))} secondi rimanenti`}
+                                    : isNextJsProject
+                                      ? (currentStepId === 'starting'
+                                        ? "Compilazione Next.js in corso... (2-5 min)"
+                                        : "Next.js: primo avvio richiede 3-5 minuti")
+                                      : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
                                 </Text>
                               </View>
 
@@ -2791,21 +2846,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           </TouchableOpacity>
                         )}
 
-                        {/* Send Button */}
+                        {/* Send/Stop Button */}
                         <TouchableOpacity
-                          onPress={handleSendMessage}
-                          disabled={!message.trim()}
+                          onPress={agentStreaming || isAiLoading ? () => { stopAgent(); setIsAiLoading(false); } : handleSendMessage}
+                          disabled={!agentStreaming && !isAiLoading && !message.trim()}
                           style={styles.previewSendButton}
                           activeOpacity={0.7}
                         >
                           <View style={[
                             styles.previewSendButtonInner,
-                            message.trim() && styles.previewSendButtonActive
+                            (agentStreaming || isAiLoading) ? styles.previewSendButtonStop : (message.trim() && styles.previewSendButtonActive)
                           ]}>
                             <Ionicons
-                              name="arrow-up"
+                              name={agentStreaming || isAiLoading ? "stop" : "arrow-up"}
                               size={16}
-                              color={message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)'}
+                              color={(agentStreaming || isAiLoading) ? '#fff' : (message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)')}
                             />
                           </View>
                         </TouchableOpacity>
@@ -3265,6 +3320,9 @@ const styles = StyleSheet.create({
   },
   previewSendButtonActive: {
     backgroundColor: AppColors.primary,
+  },
+  previewSendButtonStop: {
+    backgroundColor: '#FF6B6B',
   },
   // New animated FAB styles
   fabInputWrapper: {

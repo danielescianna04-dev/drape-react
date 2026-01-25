@@ -40,8 +40,8 @@ interface Props {
 const languages = [
   { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
   { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
-  { id: 'node', name: 'Node.js', icon: 'logo-nodejs', color: '#68A063' },
-  { id: 'typescript', name: 'TypeScript', icon: 'logo-javascript', color: '#3178C6' },
+  { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
+  { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
@@ -55,11 +55,14 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Agent system state
   const [showModeModal, setShowModeModal] = useState(false);
   const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
-  const [useAgentSystem, setUseAgentSystem] = useState(true); // Flag to enable/disable agent system
+  // DISABLED: React Native doesn't support fetch streaming (response.body.getReader())
+  // TODO: Implement EventSource polyfill for SSE support
+  const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
 
   // Agent stream hook
   const {
@@ -104,6 +107,15 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         useNativeDriver: true,
       }),
     ]).start();
+
+    // Cleanup polling interval on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        console.log('🧹 [CreateProject] Cleared polling interval on unmount');
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -309,6 +321,12 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
     if (step > 1) {
       setStep(step - 1);
     } else {
+      // Clear any polling interval when leaving the screen
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        console.log('🧹 [CreateProject] Cleared polling on back');
+      }
       onBack();
     }
   };
@@ -411,12 +429,35 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
       console.log('✅ Task started:', result.taskId);
       const taskId = result.taskId;
+      let errorCount = 0;
+      const maxErrors = 5;
+
+      // Clear any existing polling interval
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
 
       // 2. Poll Status
-      const pollInterval = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         try {
           const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`);
+
+          // Stop polling on 404 (task doesn't exist)
+          if (statusRes.status === 404) {
+            console.warn('⚠️ [CreateProject] Task not found (404), stopping poll');
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setIsCreating(false);
+            setCreationTask(null);
+            return;
+          }
+
           const statusData = await statusRes.json();
+
+          // Reset error count on successful response
+          errorCount = 0;
 
           if (statusData.success && statusData.task) {
             const task = statusData.task;
@@ -430,7 +471,10 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             });
 
             if (task.status === 'completed') {
-              clearInterval(pollInterval);
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
 
               // Log what we received from backend
               console.log('📦 [CreateProject] Task result:', JSON.stringify(task.result, null, 2));
@@ -460,14 +504,28 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
               }, 800);
 
             } else if (task.status === 'failed') {
-              clearInterval(pollInterval);
+              if (pollIntervalRef.current) {
+                clearInterval(pollIntervalRef.current);
+                pollIntervalRef.current = null;
+              }
               throw new Error(task.error || 'Creation failed');
             }
           }
         } catch (pollError) {
           console.error('Polling error:', pollError);
-          // Don't stop polling immediately on network hiccup, but maybe limit retries?
-          // For now, let it continue or user can cancel (if we add cancel button)
+          errorCount++;
+
+          // Stop polling after too many consecutive errors
+          if (errorCount >= maxErrors) {
+            console.error('❌ [CreateProject] Too many polling errors, stopping');
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setIsCreating(false);
+            setCreationTask(null);
+            Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
+          }
         }
       }, 1000);
 

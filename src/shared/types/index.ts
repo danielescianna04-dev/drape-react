@@ -24,6 +24,7 @@ export interface TerminalItem {
   thinkingContent?: string; // The actual thinking text from Claude (extended thinking)
   isAgentProgress?: boolean; // Show agent progress UI for this item
   agentEvents?: any[]; // Snapshot of tool events for this specific run
+  isExecuting?: boolean; // Show pulsing animation for tool being executed
   images?: {
     uri: string;
     base64?: string;

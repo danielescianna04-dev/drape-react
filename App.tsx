@@ -974,7 +974,7 @@ export default function App() {
 
                               // Trigger clone to ensure files are in Coder workspace
                               console.log('📂 [onOpenProject-Home] Triggering clone to sync files...');
-                              fetch(`${config.apiUrl}/preview/clone`, {
+                              fetch(`${config.apiUrl}/fly/clone`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -983,11 +983,19 @@ export default function App() {
                                   githubToken: authToken || null,
                                 }),
                               }).then(r => r.json()).then(result => {
+                                console.log('📦 [Clone] Response received:', result);
                                 if (result.success) {
                                   console.log('✅ [Clone] Files synced to workspace');
                                   useCloneStatusStore.getState().completeClone(workstation.id);
                                   // Clear file cache so it refreshes with new files
                                   useFileCacheStore.getState().clearCache(workstation.id);
+                                  // Save project info (for Next.js warnings, etc.)
+                                  if (result.projectInfo) {
+                                    console.log('📋 [Clone] Project info received:', JSON.stringify(result.projectInfo));
+                                    useTerminalStore.getState().setProjectInfo(result.projectInfo);
+                                  } else {
+                                    console.log('⚠️ [Clone] No projectInfo in response');
+                                  }
                                 } else {
                                   console.warn('⚠️ [Clone] Sync issue:', result.error || result.message);
                                   useCloneStatusStore.getState().failClone(workstation.id, result.error || result.message);

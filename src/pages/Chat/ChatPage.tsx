@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -121,6 +121,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
   const {
     start: startAgent,
+    stop: stopAgent,
     isRunning: agentStreaming,
     events: agentEvents,
     currentTool: agentCurrentTool,
@@ -129,6 +130,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   } = useAgentStream(agentMode);
   // const [activeAgentProgressId, setActiveAgentProgressId] = useState<string | null>(null); // REMOVED
   const [showPlanApproval, setShowPlanApproval] = useState(false);
+  const [showNextJsWarning, setShowNextJsWarning] = useState(false);
+  const [nextJsWarningData, setNextJsWarningData] = useState<any>(null);
 
   // Track processed events to avoid duplicates in terminal
   const processedEventIdsRef = useRef<Set<string>>(new Set());
@@ -136,45 +139,117 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Track tool_start inputs to get filenames later (since tool_complete may not have input)
   const toolInputsRef = useRef<Map<string, any>>(new Map());
 
+  // Track executing item IDs by tool ID (to link tool_start with tool_complete)
+  const executingToolItemsRef = useRef<Map<string, string>>(new Map());
+
+  // Track tool start timestamps for minimum display time
+  const toolStartTimesRef = useRef<Map<string, number>>(new Map());
+  const MIN_TOOL_DISPLAY_MS = 400; // Minimum time to show executing indicator
+
+  // Track accumulated streaming content (to avoid losing deltas due to async state updates)
+  const streamingContentRef = useRef<string>('');
+
   // Effect to map agent events to terminal items (Old School Style - Restored UI)
   useEffect(() => {
     if (!agentEvents || agentEvents.length === 0) return;
 
     agentEvents.forEach(event => {
-      if (processedEventIdsRef.current.has(event.id)) return;
-      processedEventIdsRef.current.add(event.id);
+      // Use composite key (id + type) since tool_start and tool_complete share the same id
+      const eventKey = `${event.id}-${event.type}`;
+      if (processedEventIdsRef.current.has(eventKey)) return;
+      processedEventIdsRef.current.add(eventKey);
 
-      // 1. TOOL START -> Store input for later (input might be in tool_start after merge)
+      // 1. TOOL START -> Show executing indicator for ALL tools
       if (event.type === 'tool_start') {
-        console.log('[ChatPage] tool_start event:', event.tool, 'input:', event.input);
+        console.log('[ChatPage] tool_start event:', event.tool, 'ID:', event.id, 'input:', event.input);
 
         // Store the input for later use in tool_complete
         if (event.tool && event.input) {
           toolInputsRef.current.set(event.tool, event.input);
         }
+
+        // Generate formatted message matching tool_complete format (but with loading indicator)
+        const getToolStartMessage = (tool: string, input: any): string => {
+          // Parse input safely
+          let parsedInput: any = {};
+          try {
+            parsedInput = typeof input === 'string' ? JSON.parse(input) : (input || {});
+          } catch {
+            parsedInput = input || {};
+          }
+
+          const getFileName = (i: any) => {
+            const path = i?.path || i?.filePath || '';
+            return path ? path.split('/').pop() || path : '?';
+          };
+
+          const toolMessages: Record<string, (i: any) => string> = {
+            'read_file': (i) => `Read ${getFileName(i)}\n└─ Reading...`,
+            'write_file': (i) => `Write ${getFileName(i)}\n└─ Writing...`,
+            'edit_file': (i) => `Edit ${getFileName(i)}\n└─ Editing...`,
+            'list_directory': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
+            'list_files': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
+            'search_in_files': (i) => `Search "${i?.pattern || i?.query || '?'}"\n└─ Searching...`,
+            'grep_search': (i) => `Search "${i?.pattern || i?.query || '?'}"\n└─ Searching...`,
+            'glob_files': (i) => `Glob pattern: ${i?.pattern || '?'}\n└─ Searching...`,
+            'run_command': (i) => `Run command\n└─ ${(i?.command || '?').substring(0, 50)}...`,
+            'execute_command': (i) => `Run command\n└─ ${(i?.command || '?').substring(0, 50)}...`,
+            'web_search': (i) => `Web search\n└─ "${i?.query || '?'}"...`,
+            'web_fetch': (i) => `Fetch URL\n└─ Loading...`,
+            'ask_user_question': () => `User Question\n└─ Waiting for response...`,
+            'todo_write': () => `Todo List\n└─ Updating...`,
+            'signal_completion': () => `Completion\n└─ Finishing...`,
+          };
+
+          const getMessage = toolMessages[tool];
+          if (getMessage) {
+            try {
+              return getMessage(parsedInput);
+            } catch {
+              return `${tool}\n└─ Running...`;
+            }
+          }
+          return `${tool}\n└─ Running...`;
+        };
+
+        // Skip signal_completion as it's internal
+        if (event.tool !== 'signal_completion') {
+          const message = getToolStartMessage(event.tool || '', event.input);
+          const itemId = `${event.id}-executing`;
+
+          // Reset streaming message ref so next message creates new item
+          if (currentAgentMessageIdRef.current?.startsWith('streaming-msg-')) {
+            currentAgentMessageIdRef.current = null;
+          }
+
+          // Store the item ID and start time
+          executingToolItemsRef.current.set(event.id, itemId);
+          toolStartTimesRef.current.set(event.id, Date.now());
+
+          addTerminalItem({
+            id: itemId,
+            content: message,
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(event.timestamp),
+            isExecuting: true, // Mark as executing for styling
+          });
+        }
       }
 
-      // 2. TOOL INPUT -> Show "Executing: tool_name" indicator (will be hidden by old UI)
+      // 2. TOOL INPUT -> Just store input, don't show indicator (handled by tool_start)
       else if (event.type === 'tool_input') {
-        console.log('[ChatPage] tool_input event:', event.tool, 'input:', event.input);
-
         // Store the input for later use in tool_complete
         if (event.tool && event.input) {
           toolInputsRef.current.set(event.tool, event.input);
         }
-
-        addTerminalItem({
-          id: event.id,
-          content: `Executing: ${event.tool}`,
-          type: TerminalItemType.OUTPUT,
-          timestamp: new Date(event.timestamp),
-        });
       }
 
-      // 3. TOOL COMPLETE -> Show formatted result (Old UI format)
+      // 3. TOOL COMPLETE -> Replace executing indicator with formatted result
       // Filter out signal_completion as it's internal
       else if (event.type === 'tool_complete' && event.tool !== 'signal_completion') {
-        console.log('[ChatPage] tool_complete event:', event.tool, 'input:', event.input, 'result type:', typeof event.result, 'result preview:', typeof event.result === 'string' ? event.result.substring(0, 100) : event.result);
+        const resultPreview = typeof event.result === 'string' ? event.result.substring(0, 100) : event.result;
+        const resultLines = typeof event.result === 'string' ? event.result.split('\n').length : 0;
+        console.log('[ChatPage] tool_complete event:', event.tool, 'ID:', event.id, 'looking for:', `${event.id}-executing`);
 
         let formattedOutput = '';
 
@@ -206,6 +281,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           console.warn('[ChatPage] Failed to stringify tool result:', e);
           result = '';
         }
+
+        // Log extracted result
+        const extractedResultLines = result.split('\n').length;
+        console.log(`[RESULT DEBUG] Tool: ${event.tool}, Extracted result lines: ${extractedResultLines}, Has error: ${hasError}`);
 
         // If there's an error, we'll format it as normal but with error message
         // The red dot will be shown automatically by TerminalItem based on "Error:" text
@@ -339,8 +418,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             formattedOutput = `Execute: curl ${url}\n└─ ${status}${output}`;
           } else {
-            // Regular command
-            formattedOutput = `Execute: ${cmd}\n└─ Command completed\n\n${result}`;
+            // Regular command - extract stdout from result object first
+            let actualOutput = result;
+
+            // If result is an object with stdout, extract it
+            if (typeof event.result === 'object' && event.result !== null && event.result.stdout) {
+              actualOutput = event.result.stdout;
+              console.log(`[TRUNCATE DEBUG] Extracted stdout from object result`);
+            }
+
+            // Regular command - truncate long outputs
+            const resultLines = (actualOutput || '').split('\n');
+            const MAX_OUTPUT_LINES = 50;
+
+            console.log(`[TRUNCATE DEBUG] Command: ${cmd}`);
+            console.log(`[TRUNCATE DEBUG] Total lines: ${resultLines.length}`);
+            console.log(`[TRUNCATE DEBUG] Should truncate: ${resultLines.length > MAX_OUTPUT_LINES}`);
+
+            let truncatedResult = actualOutput;
+            if (resultLines.length > MAX_OUTPUT_LINES) {
+              truncatedResult = resultLines.slice(0, MAX_OUTPUT_LINES).join('\n') +
+                `\n\n... (${resultLines.length - MAX_OUTPUT_LINES} more lines - expand to see all)`;
+              console.log(`[TRUNCATE DEBUG] Truncated! Showing ${MAX_OUTPUT_LINES}/${resultLines.length} lines`);
+            }
+            formattedOutput = `Execute: ${cmd}\n└─ Command completed\n\n${truncatedResult}`;
+            console.log(`[TRUNCATE DEBUG] Formatted output length: ${formattedOutput.length}`);
           }
         }
         else if (event.tool === 'launch_sub_agent') {
@@ -449,16 +551,119 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           formattedOutput = `${event.tool}\n└─ Completed\n\n${result}`;
         }
 
-        addTerminalItem({
-          id: `${event.id}-result`,
-          content: formattedOutput,
-          type: TerminalItemType.OUTPUT,
-          timestamp: new Date(event.timestamp),
-        });
+        // Find the executing item ID from the map using event.id (toolId)
+        // Both tool_start and tool_complete have the same event.id from backend
+        const executingItemId = executingToolItemsRef.current.get(event.id) || `${event.id}-executing`;
+        console.log('[ChatPage] tool_complete: looking for item', executingItemId, 'for tool', event.tool, 'eventId:', event.id);
+
+        // Calculate time since tool started
+        const startTime = toolStartTimesRef.current.get(event.id) || Date.now();
+        const elapsed = Date.now() - startTime;
+        const delay = Math.max(0, MIN_TOOL_DISPLAY_MS - elapsed);
+
+        // Update after minimum display time (so user always sees the executing indicator)
+        const doUpdate = () => {
+          updateTerminalItemById(currentTab.id, executingItemId, {
+            content: formattedOutput,
+            isExecuting: false, // Remove pulsing animation
+          });
+          // Clean up the map entries
+          executingToolItemsRef.current.delete(event.id);
+          toolStartTimesRef.current.delete(event.id);
+        };
+
+        if (delay > 0) {
+          setTimeout(doUpdate, delay);
+        } else {
+          doUpdate();
+        }
       }
 
-      // NOTE: message, thinking, complete are handled by the streaming useEffect below
-      // to avoid duplicates. Only tool events are handled here.
+      // Handle TEXT_DELTA events (real-time streaming from AI)
+      else if (event.type === 'text_delta') {
+        const delta = (event as any).delta;
+        if (delta) {
+          // Check if we need to transition from thinking to streaming
+          const wasThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-');
+          if (wasThinking) {
+            // Remove thinking placeholder
+            removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+            // Create new streaming message ID immediately (before accumulating)
+            const newStreamingId = `streaming-msg-${Date.now()}`;
+            currentAgentMessageIdRef.current = newStreamingId;
+            // Reset and start accumulating
+            streamingContentRef.current = delta;
+
+            addTerminalItem({
+              id: newStreamingId,
+              content: delta,
+              type: TerminalItemType.OUTPUT,
+              timestamp: new Date(event.timestamp),
+            });
+          } else if (currentAgentMessageIdRef.current?.startsWith('streaming-msg-')) {
+            // Already streaming - accumulate and update
+            streamingContentRef.current += delta;
+            updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
+              content: streamingContentRef.current,
+            });
+          } else {
+            // Edge case: no thinking, no streaming - create new message
+            streamingContentRef.current = delta;
+            const newStreamingId = `streaming-msg-${Date.now()}`;
+            currentAgentMessageIdRef.current = newStreamingId;
+
+            addTerminalItem({
+              id: newStreamingId,
+              content: delta,
+              type: TerminalItemType.OUTPUT,
+              timestamp: new Date(event.timestamp),
+            });
+          }
+        }
+      }
+
+      // Handle MESSAGE events (complete messages, fallback)
+      else if (event.type === 'message' || event.type === 'response') {
+        // Extract message content
+        const msg = (event as any).content || (event as any).message || (event as any).text || (event as any).output;
+        let content = msg;
+        if (typeof msg === 'object' && msg !== null) {
+          content = msg.text || msg.content || msg.message || JSON.stringify(msg);
+        }
+
+        if (content && content.trim()) {
+          // Remove any "Thinking..." placeholder when first message arrives
+          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+            removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+            currentAgentMessageIdRef.current = null;
+          }
+
+          // Check if we have an existing streaming message to append to
+          const existingStreamingId = currentAgentMessageIdRef.current;
+
+          if (existingStreamingId && existingStreamingId.startsWith('streaming-msg-')) {
+            // Append to existing message (streaming effect)
+            const currentTab = tabs.find(t => t.id === activeTabId);
+            const existingItem = currentTab?.terminalItems?.find(i => i.id === existingStreamingId);
+            const currentContent = existingItem?.content || '';
+
+            updateTerminalItemById(currentTab?.id || '', existingStreamingId, {
+              content: currentContent + content,
+            });
+          } else {
+            // Create new streaming message
+            const newStreamingId = `streaming-msg-${event.id}`;
+            currentAgentMessageIdRef.current = newStreamingId;
+
+            addTerminalItem({
+              id: newStreamingId,
+              content: content,
+              type: TerminalItemType.OUTPUT,
+              timestamp: new Date(event.timestamp),
+            });
+          }
+        }
+      }
 
       // Handle errors explicitly
       else if (event.type === 'error' || event.type === 'fatal_error') {
@@ -488,6 +693,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Ref to store a stable message ID for the current agent session
   // This is set when the user sends a message, before starting the agent
   const currentAgentMessageIdRef = useRef<string | null>(null);
+
+  // Track how many agent messages we've already shown as terminal items
+  // This allows us to create SEPARATE items for each new message
+  const shownAgentMessagesCountRef = useRef<number>(0);
 
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
@@ -650,6 +859,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const activeTabId = useTabStore((state) => state.activeTabId);
   const updateTab = useTabStore((state) => state.updateTab);
   const addTerminalItemToStore = useTabStore((state) => state.addTerminalItem);
+  const removeTerminalItemById = useTabStore((state) => state.removeTerminalItemById);
+  const updateTerminalItemById = useTabStore((state) => state.updateTerminalItemById);
 
   // Model selector dropdown state
   const [showModelSelector, setShowModelSelector] = useState(false);
@@ -747,6 +958,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const setGitHubUser = useTerminalStore((state) => state.setGitHubUser);
   const setGitHubRepositories = useTerminalStore((state) => state.setGitHubRepositories);
   const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
+  const currentProjectInfo = useTerminalStore((state) => state.currentProjectInfo);
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
@@ -826,81 +1038,78 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [agentEvents]);
 
-  // Replace AgentProgress with normal message when agent completes
-  // Real-time agent message updates during streaming
+  // Detect Next.js 16.x and show warning dialog
+  // DISABLED: Next.js 16.1 works fine with --no-turbo flag, no need for downgrade warning
+  // useEffect(() => {
+  //   console.log('[NEXTJS DEBUG] currentProjectInfo:', currentProjectInfo);
+  //   console.log('[NEXTJS DEBUG] showNextJsWarning:', showNextJsWarning);
+
+  //   if (!currentProjectInfo || showNextJsWarning) {
+  //     console.log('[NEXTJS DEBUG] Returning early - no projectInfo or already showing warning');
+  //     return;
+  //   }
+
+  //   // Check if Next.js 16.x is detected with version warning
+  //   if (currentProjectInfo.nextJsVersionWarning) {
+  //     console.log('⚠️ [ChatPage] Next.js version warning detected:', currentProjectInfo.nextJsVersionWarning);
+  //     const warningData = currentProjectInfo.nextJsVersionWarning;
+  //     setNextJsWarningData(warningData);
+  //     setShowNextJsWarning(true);
+
+  //     // Show alert dialog - pass warningData directly to closure
+  //     Alert.alert(
+  //       '⚠️ Next.js Version Issue',
+  //       `Abbiamo rilevato Next.js ${warningData.version} che ha problemi noti di performance (2-3 minuti di avvio del server).\n\nVuoi fare downgrade a Next.js 15.3.0 (versione stabile)?`,
+  //       [
+  //         {
+  //           text: 'No, continua',
+  //           style: 'cancel',
+  //           onPress: () => setShowNextJsWarning(false)
+  //         },
+  //         {
+  //           text: 'Sì, downgrade',
+  //           onPress: () => handleDowngradeAccept(warningData)
+  //         }
+  //       ]
+  //     );
+  //   }
+  // }, [currentProjectInfo]);
+
+  // Handle "Thinking..." placeholder when agent is streaming but no messages yet
+  // Messages are now handled in the main agentEvents useEffect to preserve order
   useEffect(() => {
     if (agentEvents.length > 0 && currentTab?.id) {
-      // Extract all messages - try multiple possible fields
-      const messages = agentEvents
-        .filter(e => e.type === 'message' || e.type === 'response' || e.type === 'complete')
-        .map(e => {
-          // For complete events, extract summary
-          if (e.type === 'complete') {
-            return (e as any).summary || (e as any).message || '';
-          }
-
-          // Try different possible message fields
-          const msg = (e as any).content || (e as any).message || (e as any).text || (e as any).output;
-          // If it's an object, try to extract text from it
-          if (typeof msg === 'object' && msg !== null) {
-            return msg.text || msg.content || msg.message || JSON.stringify(msg);
-          }
-          return msg;
-        })
-        .filter(Boolean);
-
       const hasThinking = agentEvents.some(e => e.type === 'thinking');
-      const latestMessage = messages.length > 0 ? messages[messages.length - 1] : '';
+      // Include text_delta as "message" since streaming text means we have content
+      const hasMessages = agentEvents.some(e => e.type === 'message' || e.type === 'response' || e.type === 'text_delta');
       const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
+      const stillThinking = agentStreaming && hasThinking && !hasMessages;
 
-      // Debug log
-      if (messages.length > 0) {
-        console.log('[ChatPage] Extracted messages:', messages.length, 'latest:', latestMessage.substring(0, 100));
-      }
+      // If thinking but no messages yet, show thinking placeholder
+      if (stillThinking) {
+        if (!currentAgentMessageIdRef.current) {
+          currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+        }
 
-      // Create/update streaming message (even if empty to show thinking)
-      // Show thinking only if streaming AND no messages yet
-      // Once we have messages or it's complete, show the message
-      if (hasThinking || messages.length > 0) {
-        // Use the stable ID that was set when the user sent the message
-        // Always use the same ID throughout the streaming lifecycle
-        const messageId = currentAgentMessageIdRef.current || `agent-message-${Date.now()}`;
-
-        useTabStore.setState((state) => {
-          // Get the CURRENT tab from state (not from props which might be stale)
-          const currentTabFromState = state.tabs.find(t => t.id === currentTab.id);
-          if (!currentTabFromState) return state;
-
-          return {
-            tabs: state.tabs.map(t => {
-              if (t.id !== currentTab.id) return t;
-
-              // Keep all existing items except the streaming/message placeholders
-              const existingItems = t.terminalItems?.filter(item =>
-                item.id !== 'agent-streaming' && item.id !== messageId
-              ) || [];
-
-              // Check if the agent message already exists to avoid duplicates
-              const agentMessageExists = existingItems.some(item => item.id === messageId);
-
-              return {
+        useTabStore.setState((state) => ({
+          tabs: state.tabs.map(t =>
+            t.id === currentTab.id
+              ? {
                 ...t,
-                terminalItems: agentMessageExists
-                  ? existingItems
-                  : [
-                    ...existingItems,
-                    {
-                      id: messageId,
-                      content: latestMessage,
-                      type: TerminalItemType.OUTPUT,
-                      timestamp: new Date(),
-                      isThinking: agentStreaming && hasThinking && messages.length === 0,
-                    }
-                  ]
-              };
-            })
-          };
-        });
+                terminalItems: [
+                  ...(t.terminalItems || []).filter(item => item.id !== currentAgentMessageIdRef.current),
+                  {
+                    id: currentAgentMessageIdRef.current!,
+                    content: '',
+                    type: TerminalItemType.OUTPUT,
+                    timestamp: new Date(),
+                    isThinking: true,
+                  }
+                ]
+              }
+              : t
+          )
+        }));
       }
       // If complete but no message was ever sent, remove the thinking placeholder
       else if (isComplete && !agentStreaming) {
@@ -909,7 +1118,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             t.id === currentTab.id
               ? {
                 ...t,
-                terminalItems: t.terminalItems?.filter(item => item.id !== 'agent-streaming') || []
+                terminalItems: t.terminalItems?.filter(item =>
+                  item.id !== 'agent-streaming' && !item.id?.startsWith('agent-thinking-')
+                ) || []
               }
               : t
           )
@@ -918,22 +1129,49 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [agentStreaming, agentEvents, currentTab?.id, agentCurrentPrompt]);
 
-  // Effect for cache invalidation on agent completion
+  // Effect for cache invalidation and chat saving on agent completion
   useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id && currentTab?.data?.projectId) {
-      // Invalidate file cache when agent completes - triggers FileExplorer refresh
-      const hadFileChanges = agentEvents.some(e =>
-        e.type === 'tool_complete' &&
-        ['write_file', 'edit_file', 'run_command', 'notebook_edit', 'launch_sub_agent'].includes((e as any).tool)
-      );
+    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
+      // Save chat messages when agent completes
+      if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
+        const chatId = currentTab.data.chatId;
+        const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
 
-      const projectId = currentTab?.data?.projectId;
-      if (hadFileChanges && projectId) {
-        console.log('🔄 [ChatPage] Agent completed with file changes - invalidating cache');
-        useFileCacheStore.getState().invalidateCache(projectId);
+        if (existingChat) {
+          // Get fresh tab state from store to ensure we have latest messages
+          const freshTab = useTabStore.getState().tabs.find(t => t.id === currentTab.id);
+          const updatedMessages = freshTab?.terminalItems || [];
+
+          console.log('💾 [Agent Complete] Saving chat messages:', { chatId, messageCount: updatedMessages.length });
+
+          useTerminalStore.getState().updateChat(chatId, {
+            messages: updatedMessages,
+            lastUsed: new Date(),
+          });
+        }
       }
+
+      // Invalidate file cache when agent completes - triggers FileExplorer refresh
+      if (currentTab?.data?.projectId) {
+        const hadFileChanges = agentEvents.some(e =>
+          e.type === 'tool_complete' &&
+          ['write_file', 'edit_file', 'run_command', 'notebook_edit', 'launch_sub_agent'].includes((e as any).tool)
+        );
+
+        const projectId = currentTab?.data?.projectId;
+        if (hadFileChanges && projectId) {
+          console.log('🔄 [ChatPage] Agent completed with file changes - invalidating cache');
+          useFileCacheStore.getState().invalidateCache(projectId);
+        }
+      }
+
+      // Reset agent message refs when agent completes
+      // This ensures next agent session starts with fresh state
+      currentAgentMessageIdRef.current = null;
+      shownAgentMessagesCountRef.current = 0;
+      streamingContentRef.current = '';
     }
-  }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId]);
+  }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -1263,6 +1501,87 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     return commandPrefixes.includes(firstWord) || text.includes('&&') || text.includes('|') || text.includes('>');
   };
 
+  // Handle Next.js downgrade acceptance
+  const handleDowngradeAccept = (warningData: any) => {
+    console.log('[handleDowngradeAccept] START', {
+      workstationId: currentWorkstation?.id,
+      warningData: warningData,
+      currentTab: currentTab?.id,
+      agentMode
+    });
+
+    if (!currentWorkstation?.id || !warningData) {
+      console.log('[handleDowngradeAccept] Missing requirements - abort');
+      return;
+    }
+
+    if (!currentTab?.id) {
+      console.log('[handleDowngradeAccept] No current tab - abort');
+      return;
+    }
+
+    // Close dialog
+    setShowNextJsWarning(false);
+
+    // Build auto-message for downgrade
+    const downgradeMessage = `Downgrade this Next.js app from version ${warningData.version} to Next.js 15.3.0 (stable version). Update package.json, run npm install, and verify the downgrade is successful.`;
+
+    console.log('[handleDowngradeAccept] Adding message to terminal:', downgradeMessage.substring(0, 50));
+
+    // Add user message to terminal
+    addTerminalItem({
+      id: Date.now().toString(),
+      content: downgradeMessage,
+      type: TerminalItemType.USER_MESSAGE,
+      timestamp: new Date(),
+    });
+
+    // Reset refs for new agent session
+    currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+    shownAgentMessagesCountRef.current = 0;
+    streamingContentRef.current = '';
+    processedEventIdsRef.current.clear();
+
+    console.log('[handleDowngradeAccept] Starting agent with message');
+
+    // Start agent with downgrade message
+    const conversationHistory: any[] = [];
+    startAgent(downgradeMessage, currentWorkstation.id, selectedModel, conversationHistory);
+
+    console.log('✅ [ChatPage] Auto-downgrade message sent to AI');
+  };
+
+  // Handle stop button - stops agent and clears loading state
+  const handleStop = useCallback(() => {
+    console.log('[ChatPage] handleStop called - stopping agent');
+
+    // Stop the agent SSE stream
+    stopAgent();
+
+    // Clear loading state
+    setLoading(false);
+
+    // Remove any "Thinking..." placeholders from the current tab
+    if (currentTab?.id) {
+      useTabStore.setState((state) => ({
+        tabs: state.tabs.map(t =>
+          t.id === currentTab.id
+            ? {
+              ...t,
+              terminalItems: t.terminalItems?.map(item =>
+                item.isThinking ? { ...item, isThinking: false, content: item.content || '(Interrotto)' } : item
+              ).filter(item => item.content !== '' && item.content !== '(Interrotto)') || []
+            }
+            : t
+        )
+      }));
+    }
+
+    // Reset the agent message refs
+    currentAgentMessageIdRef.current = null;
+    streamingContentRef.current = '';
+  }, [stopAgent, currentTab?.id]);
+
   const handleSend = async (images?: {uri: string; base64?: string; type?: string}[]) => {
     // Use passed images or fall back to selectedInputImages
     console.log('[ChatPage] handleSend - selectedInputImages.length:', selectedInputImages.length);
@@ -1297,10 +1616,96 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Check if agent mode is active (fast or planning)
     const isAgentMode = agentMode === 'fast' || agentMode === 'planning';
 
+    // Auto-save chat on first message - must happen BEFORE any return statements
+    // Check if this is the first USER message (not system messages)
+    const existingUserMessages = currentTab?.terminalItems?.filter(item =>
+      item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.COMMAND
+    ) || [];
+    const isFirstUserMessage = existingUserMessages.length === 0;
+
+    if (isFirstUserMessage && currentTab?.type === 'chat' && currentTab.data?.chatId) {
+      const chatId = currentTab.data.chatId;
+      const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+
+      // Generate a temporary title from first message (will be replaced by AI-generated title)
+      let title = userMessage.slice(0, 40);
+      const punctuationIndex = title.search(/[.!?]/);
+      if (punctuationIndex > 10) {
+        title = title.slice(0, punctuationIndex);
+      }
+      if (userMessage.length > 40) title += '...';
+
+      // Generate AI title asynchronously (like ChatGPT)
+      const generateAITitle = async () => {
+        try {
+          const response = await fetch(`${config.apiUrl}/ai/chat/generate-title`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: userMessage }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.title) {
+              console.log('🏷️ AI generated title:', data.title);
+              useTerminalStore.getState().updateChat(chatId, { title: data.title });
+              updateTab(currentTab.id, { title: data.title });
+            }
+          }
+        } catch (e) {
+          console.log('⚠️ Could not generate AI title, using default');
+        }
+      };
+      // Fire and forget - don't wait for AI title
+      generateAITitle();
+
+      if (existingChat) {
+        // Chat already exists, update description and lastUsed
+        const wasManuallyRenamed = existingChat.title !== 'Nuova Conversazione';
+        const finalTitle = wasManuallyRenamed ? existingChat.title : title;
+
+        console.log('💾 Updating existing chat:', { chatId, title: finalTitle });
+        useTerminalStore.getState().updateChat(chatId, {
+          title: finalTitle,
+          description: userMessage.slice(0, 100),
+          lastUsed: new Date(),
+          repositoryId: existingChat.repositoryId || currentWorkstation?.id,
+          repositoryName: existingChat.repositoryName || currentWorkstation?.name,
+        });
+
+        if (!wasManuallyRenamed) {
+          updateTab(currentTab.id, { title: finalTitle });
+        }
+      } else {
+        // Chat doesn't exist yet, create it now
+        const newChat = {
+          id: chatId,
+          title: title,
+          description: userMessage.slice(0, 100),
+          createdAt: new Date(),
+          lastUsed: new Date(),
+          messages: [],
+          aiModel: selectedModel,
+          repositoryId: currentWorkstation?.id,
+          repositoryName: currentWorkstation?.name,
+        };
+
+        console.log('✨ Creating new chat:', { chatId, title });
+        useTerminalStore.getState().addChat(newChat);
+        updateTab(currentTab.id, { title: title });
+      }
+    } else if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
+      // Update lastUsed for existing chat
+      useTerminalStore.getState().updateChatLastUsed(currentTab.data.chatId);
+    }
+
     // If agent mode AND we have a workstation, use agent stream
     if (isAgentMode && currentWorkstation?.id) {
-      // Generate a unique ID for this agent session BEFORE starting
-      currentAgentMessageIdRef.current = `agent-message-${Date.now()}`;
+      // Reset ALL refs for new agent session (CRITICAL: prevents event ID collisions)
+      // Use agent-thinking- prefix so it gets properly removed when text arrives
+      currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+      shownAgentMessagesCountRef.current = 0;
+      streamingContentRef.current = '';
+      processedEventIdsRef.current.clear(); // CRITICAL: Clear processed events for new session
 
       // Add user message to terminal with images
       // Clean images to avoid circular references in store
@@ -1373,70 +1778,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       setLoading(false);
       return;
-
-      setLoading(false);
-      return;
-    }
-
-    // Auto-save chat on first message - check if this is the first USER message (not system messages)
-    const userMessages = currentTab?.terminalItems?.filter(item =>
-      item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.COMMAND
-    ) || [];
-    const isFirstMessage = userMessages.length === 0;
-
-    if (isFirstMessage && currentTab?.type === 'chat' && currentTab.data?.chatId) {
-      const chatId = currentTab.data.chatId;
-      const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
-
-      // Generate title from first message
-      let title = userMessage.slice(0, 50);
-      const punctuationIndex = title.search(/[.!?]/);
-      if (punctuationIndex > 10) {
-        title = title.slice(0, punctuationIndex);
-      }
-      if (userMessage.length > 50) title += '...';
-
-      if (existingChat) {
-        // Chat already exists, update description and lastUsed
-        // Only update title if it's still the default (not manually renamed by user)
-        const wasManuallyRenamed = existingChat.title !== 'Nuova Conversazione';
-        const finalTitle = wasManuallyRenamed ? existingChat.title : title;
-
-        useTerminalStore.getState().updateChat(chatId, {
-          title: finalTitle,
-          description: userMessage.slice(0, 100),
-          lastUsed: new Date(),
-          repositoryId: existingChat.repositoryId || currentWorkstation?.id,
-          repositoryName: existingChat.repositoryName || currentWorkstation?.name,
-        });
-
-        // Update tab title to match chat title (only if not manually renamed)
-        if (!wasManuallyRenamed) {
-          updateTab(currentTab.id, { title: finalTitle });
-        }
-      } else {
-        // Chat doesn't exist yet, create it now
-        const newChat = {
-          id: chatId,
-          title: title,
-          description: userMessage.slice(0, 100),
-          createdAt: new Date(),
-          lastUsed: new Date(),
-          messages: [],
-          aiModel: 'llama-3.1-8b-instant',
-          repositoryId: currentWorkstation?.id,
-          repositoryName: currentWorkstation?.name,
-        };
-
-        console.log('✨ Creating new chat:', { chatId, title });
-        useTerminalStore.getState().addChat(newChat);
-
-        // Update tab title to match chat title
-        updateTab(currentTab.id, { title: title });
-      }
-    } else if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
-      // Update lastUsed for existing chat
-      useTerminalStore.getState().updateChatLastUsed(currentTab.data.chatId);
     }
 
     // Se c'è un forced mode, usa quello, altrimenti auto-detect
@@ -2276,9 +2617,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               visible={!!pendingQuestion}
               questions={pendingQuestion || []}
               onAnswer={(answers) => {
-                // TODO: Send answers back to agent via SSE or API call
-                console.log('User answers:', answers);
+                // Format answers as a response message to continue the agent
+                const questions = pendingQuestion || [];
+                const responseLines = questions.map((q: any, idx: number) => {
+                  const answer = answers[`q${idx}`] || '';
+                  return `${q.question}: ${answer}`;
+                }).join('\n');
+
+                const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
+                console.log('User answers formatted:', responseMessage);
+
+                // Clear pending question first
                 setPendingQuestion(null);
+
+                // Resume agent with the answers by sending as a new message
+                if (currentWorkstation?.id) {
+                  // Reset refs for new agent session
+                  currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+                  shownAgentMessagesCountRef.current = 0;
+                  streamingContentRef.current = '';
+                  processedEventIdsRef.current.clear();
+
+                  startAgent(responseMessage, currentWorkstation.id, selectedModel, conversationHistory);
+                }
               }}
               onCancel={() => {
                 setPendingQuestion(null);
@@ -2368,14 +2729,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       </TouchableOpacity>
                     </View>
 
-                    {/* Agent Status Badge - show when agent is running */}
-                    {agentStreaming && (
-                      <AgentStatusBadge
-                        isRunning={agentStreaming}
-                        currentTool={agentCurrentTool}
-                        iteration={agentIteration}
-                      />
-                    )}
                   </View>
 
                   {/* Model Selector */}
@@ -2439,17 +2792,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     keyboardType="default"
                   />
 
-                  {/* Send Button */}
+                  {/* Send/Stop Button */}
                   <TouchableOpacity
-                    onPress={handleSend}
-                    disabled={(!input.trim() && selectedInputImages.length === 0) || isLoading}
+                    onPress={agentStreaming || isLoading ? handleStop : handleSend}
+                    disabled={!agentStreaming && !isLoading && !input.trim() && selectedInputImages.length === 0}
                     style={styles.sendButton}
                     activeOpacity={0.7}
                   >
                     <Ionicons
-                      name="arrow-up-circle"
+                      name={agentStreaming || isLoading ? "stop-circle" : "arrow-up-circle"}
                       size={32}
-                      color={(input.trim() || selectedInputImages.length > 0) && !isLoading ? AppColors.primary : AppColors.dark.surfaceVariant}
+                      color={agentStreaming || isLoading ? "#FF6B6B" : (input.trim() || selectedInputImages.length > 0) ? AppColors.primary : AppColors.dark.surfaceVariant}
                     />
                   </TouchableOpacity>
 

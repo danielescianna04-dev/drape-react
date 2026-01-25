@@ -165,59 +165,68 @@ class AgentLoop {
 
     /**
      * Initialize the agent loop
+     * OPTIMIZED: Zero blocking - all checks run in background
      */
     async initialize() {
         // Get or create VM for this project
         this.vmInfo = await workspaceOrchestrator.getOrCreateVM(this.projectId);
 
-        // Check if project directory has files (including in subdirectories)
-        const fileCheckResult = await flyService.exec(
-            this.vmInfo.agentUrl,
-            '[ "$(ls -A /home/coder/project)" ] && echo "FOUND" || echo "EMPTY"',
-            '/home/coder/project',
-            this.vmInfo.machineId,
-            5000,
-            true // silent
-        );
+        // INSTANT START: No blocking operations
+        // Agent starts immediately, all context loads in background
+        this.projectContext = null;
+        this.projectFiles = [];
 
-        const hasFiles = fileCheckResult.stdout.includes('FOUND');
-        if (!hasFiles) {
-            console.log(`⚠️ [AgentLoop] Project directory is empty on VM ${this.vmInfo.machineId}, forcing sync...`);
-            await workspaceOrchestrator.forceSync(this.projectId, this.vmInfo);
-        }
+        // Fire-and-forget: All checks run in background, don't block agent
+        setImmediate(() => {
+            // Background file check and sync if needed
+            flyService.exec(
+                this.vmInfo.agentUrl,
+                '[ "$(ls -A /home/coder/project)" ] && echo "FOUND" || echo "EMPTY"',
+                '/home/coder/project',
+                this.vmInfo.machineId,
+                2000,
+                true
+            ).then(result => {
+                if (!result.stdout.includes('FOUND')) {
+                    workspaceOrchestrator.forceSync(this.projectId, this.vmInfo).catch(() => {});
+                }
+            }).catch(() => {});
 
-        // Load project context and files
-        const [context, filesResult] = await Promise.all([
-            this._loadProjectContext(),
-            workspaceOrchestrator.listFiles(this.projectId)
-        ]);
-
-        this.projectContext = context;
-        this.projectFiles = filesResult?.files || [];
+            // Background context and file list load
+            Promise.all([
+                this._loadProjectContext(),
+                workspaceOrchestrator.listFiles(this.projectId)
+            ]).then(([context, filesResult]) => {
+                this.projectContext = context;
+                this.projectFiles = filesResult?.files || [];
+            }).catch(() => {});
+        });
 
         return this;
     }
 
     /**
      * Load project context from .drape/project.json
+     * OPTIMIZED: Reduced timeout to 2s, silent fail
      */
     async _loadProjectContext() {
         try {
             const result = await flyService.exec(
                 this.vmInfo.agentUrl,
-                'cat /home/coder/project/.drape/project.json',
+                'cat /home/coder/project/.drape/project.json 2>/dev/null || echo "{}"',
                 '/home/coder/project',
                 this.vmInfo.machineId,
-                5000
+                2000, // Reduced from 5000ms
+                true  // silent
             );
 
-            if (result.exitCode === 0 && result.stdout.trim()) {
+            if (result.exitCode === 0 && result.stdout.trim() && result.stdout.trim() !== '{}') {
                 const context = JSON.parse(result.stdout);
-                console.log(`📋 [AgentLoop] Loaded project context: ${context.name} (${context.industry})`);
+                console.log(`📋 [AgentLoop] Project context: ${context.name}`);
                 return context;
             }
         } catch (e) {
-            console.log(`⚠️ [AgentLoop] No project context found: ${e.message}`);
+            // Silent fail - context is optional
         }
         return null;
     }
@@ -674,9 +683,19 @@ class AgentLoop {
                     tools
                 });
 
+                let deltaCounter = 0;
+                let textWasStreamed = false; // Track if text was already sent via text_delta
                 for await (const chunk of stream) {
                     if (chunk.type === 'text') {
                         responseText += chunk.text;
+                        textWasStreamed = true; // Mark that we already streamed text
+                        // Stream text chunks to frontend in real-time
+                        yield {
+                            type: 'text_delta',
+                            id: `delta-${this.iteration}-${deltaCounter++}`,
+                            delta: chunk.text,
+                            timestamp: new Date().toISOString()
+                        };
                     } else if (chunk.type === 'tool_use') {
                         toolCalls.push(chunk);
                     } else if (chunk.type === 'done') {
@@ -691,12 +710,33 @@ class AgentLoop {
                     this.iterationsWithoutTools = 0;
                     const toolResults = [];
 
+                    // Generate synthetic explanation ONLY if Gemini didn't provide any text
+                    // Don't send message if text was already streamed via text_delta (avoid duplication!)
+                    let syntheticExplanation = null;
+                    if (!textWasStreamed && modelId.toLowerCase().includes('gemini')) {
+                        // Generate synthetic explanation based on tool being called (Gemini only)
+                        syntheticExplanation = this._generateToolExplanation(toolCalls);
+                    }
+
+                    // Send synthetic explanation to frontend (only if text wasn't streamed)
+                    if (syntheticExplanation) {
+                        yield {
+                            type: 'message',
+                            content: syntheticExplanation,
+                            timestamp: new Date().toISOString()
+                        };
+                    }
+
                     for (const toolCall of toolCalls) {
                         const toolName = toolCall.name;
                         const toolInput = toolCall.input;
 
+                        // Use toolCall.id as unique identifier to link start and complete events
+                        const toolId = toolCall.id || `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
                         yield {
                             type: 'tool_start',
+                            id: toolId,
                             tool: toolName,
                             input: toolInput,
                             timestamp: new Date().toISOString()
@@ -704,6 +744,7 @@ class AgentLoop {
 
                         yield {
                             type: 'tool_input',
+                            id: toolId,
                             tool: toolName,
                             input: toolInput,
                             timestamp: new Date().toISOString()
@@ -714,6 +755,7 @@ class AgentLoop {
 
                             yield {
                                 type: 'tool_complete',
+                                id: toolId,
                                 tool: toolName,
                                 success: result.success,
                                 result: result,
@@ -730,12 +772,23 @@ class AgentLoop {
                             }
 
                             // Emit ask_user_question event if question was set
+                            // IMPORTANT: Stop execution and wait for user response
                             if (toolName === 'ask_user_question' && this.pendingQuestion) {
                                 yield {
                                     type: 'ask_user_question',
                                     questions: this.pendingQuestion.questions,
                                     timestamp: new Date().toISOString()
                                 };
+
+                                // Stop agent execution - wait for user to respond
+                                // The frontend will restart the agent with answers
+                                yield {
+                                    type: 'waiting_for_user',
+                                    message: 'Waiting for user response...',
+                                    timestamp: new Date().toISOString()
+                                };
+                                this.isComplete = true;
+                                return; // Stop execution here
                             }
 
                             toolResults.push({
@@ -888,11 +941,16 @@ class AgentLoop {
 
                     messages.push({ role: 'assistant', content: responseText });
 
-                    yield {
-                        type: 'message',
-                        content: responseText,
-                        timestamp: new Date().toISOString()
-                    };
+                    // DON'T send 'message' event if text was already streamed via text_delta
+                    // This prevents duplicate display in the frontend
+                    // Only send if text was NOT streamed (shouldn't happen, but safety check)
+                    if (!textWasStreamed) {
+                        yield {
+                            type: 'message',
+                            content: responseText,
+                            timestamp: new Date().toISOString()
+                        };
+                    }
 
                     // Increment counter for iterations without tools
                     this.iterationsWithoutTools++;
@@ -971,6 +1029,88 @@ class AgentLoop {
             };
         }
 
+    }
+
+    /**
+     * Generate a human-readable explanation for tool calls
+     * Used when the AI model (especially Gemini) doesn't provide text explanations
+     */
+    _generateToolExplanation(toolCalls) {
+        if (!toolCalls || toolCalls.length === 0) return '';
+
+        const explanations = toolCalls.map(tc => {
+            const toolName = tc.name.replace(/^.*:/, ''); // Clean prefixes
+            const input = tc.input || {};
+
+            switch (toolName) {
+                case 'list_directory':
+                    if (input.path === '.' || !input.path) {
+                        return 'Analizzo la struttura del progetto...';
+                    }
+                    return `Esploro la cartella ${input.path}...`;
+
+                case 'read_file':
+                    const fileName = input.path?.split('/').pop() || input.path;
+                    return `Leggo ${fileName} per capire il codice esistente...`;
+
+                case 'write_file':
+                    const newFileName = input.path?.split('/').pop() || input.path;
+                    return `Creo ${newFileName}...`;
+
+                case 'edit_file':
+                    const editFileName = input.path?.split('/').pop() || input.path;
+                    return `Modifico ${editFileName}...`;
+
+                case 'run_command':
+                    const cmd = input.command || '';
+                    if (cmd.includes('npm install') || cmd.includes('pnpm install')) {
+                        return 'Installo le dipendenze...';
+                    }
+                    if (cmd.includes('npm run') || cmd.includes('pnpm run')) {
+                        return 'Eseguo lo script...';
+                    }
+                    if (cmd.includes('git')) {
+                        return 'Eseguo operazione git...';
+                    }
+                    return `Eseguo comando...`;
+
+                case 'glob_search':
+                    return `Cerco file ${input.pattern}...`;
+
+                case 'grep_search':
+                    return `Cerco "${input.pattern}" nel codice...`;
+
+                case 'signal_completion':
+                    return ''; // No message needed, the summary will be shown
+
+                case 'web_search':
+                    return `Cerco informazioni su "${input.query}"...`;
+
+                case 'todo_write':
+                    return 'Aggiorno il piano di lavoro...';
+
+                case 'launch_sub_agent':
+                case 'Task':
+                    const agentType = input.subagent_type || input.description || '';
+                    if (agentType.toLowerCase().includes('explore')) {
+                        return 'Analizzo il codebase per capire la struttura...';
+                    }
+                    if (agentType.toLowerCase().includes('plan')) {
+                        return 'Pianifico i passaggi necessari...';
+                    }
+                    return 'Analizzo il progetto...';
+
+                case 'ask_user_question':
+                    return 'Ho bisogno di alcune informazioni...';
+
+                default:
+                    // Don't show ugly tool names, just a generic message
+                    return 'Lavoro sul progetto...';
+            }
+        });
+
+        // Filter out empty strings and join
+        return explanations.filter(e => e).join(' ');
     }
 
     /**
@@ -1091,3 +1231,4 @@ module.exports = {
 };
 // Force reload: 1768252494
 // FINAL_LOAD_1768253553
+// FIX_ITERATION_SCOPE: 1737734400

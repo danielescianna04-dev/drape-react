@@ -1,12 +1,21 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Modal, Dimensions, Animated } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    Modal,
+    Dimensions,
+    Animated,
+    ScrollView,
+    Easing
+} from 'react-native';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
     visible: boolean;
-    progress: number; // 0 to 100
+    progress: number;
     status: string;
     step?: string;
 }
@@ -15,14 +24,54 @@ const { width } = Dimensions.get('window');
 
 export const CreationProgressModal = ({ visible, progress, status, step }: Props) => {
     const progressAnim = useRef(new Animated.Value(0)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const [activityLog, setActivityLog] = useState<string[]>([]);
+    const scrollRef = useRef<ScrollView>(null);
 
+    // Fade in animation
+    useEffect(() => {
+        if (visible) {
+            Animated.timing(fadeAnim, {
+                toValue: 1,
+                duration: 300,
+                useNativeDriver: true,
+            }).start();
+        } else {
+            fadeAnim.setValue(0);
+        }
+    }, [visible]);
+
+    // Animate progress bar smoothly
     useEffect(() => {
         Animated.timing(progressAnim, {
             toValue: progress,
             duration: 500,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: false,
         }).start();
     }, [progress]);
+
+    // Add status to activity log
+    useEffect(() => {
+        if (status && visible) {
+            setActivityLog(prev => {
+                // Avoid duplicates
+                if (prev[prev.length - 1] === status) return prev;
+                const newLog = [...prev, status];
+                return newLog.slice(-8);
+            });
+            setTimeout(() => {
+                scrollRef.current?.scrollToEnd({ animated: true });
+            }, 100);
+        }
+    }, [status, visible]);
+
+    // Reset log when modal opens
+    useEffect(() => {
+        if (visible) {
+            setActivityLog([]);
+        }
+    }, [visible]);
 
     if (!visible) return null;
 
@@ -39,36 +88,76 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             statusBarTranslucent={true}
         >
             <View style={styles.container}>
-                {/* Blur/Dim background */}
                 <View style={styles.backdrop} />
 
-                <View style={styles.card}>
-                    <View style={styles.iconContainer}>
-                        <LinearGradient
-                            colors={[AppColors.primary, '#9333EA']}
-                            style={styles.iconGradient}
+                <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
+                    {/* Header */}
+                    <View style={styles.header}>
+                        <View style={styles.iconWrapper}>
+                            <Ionicons name="code-slash" size={22} color={AppColors.primary} />
+                        </View>
+                        <View style={styles.headerText}>
+                            <Text style={styles.title}>Creazione progetto</Text>
+                            <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
+                        </View>
+                    </View>
+
+                    {/* Terminal-like log */}
+                    <View style={styles.terminal}>
+                        <View style={styles.terminalHeader}>
+                            <View style={styles.terminalDots}>
+                                <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
+                                <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
+                                <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
+                            </View>
+                            <Text style={styles.terminalTitle}>output</Text>
+                        </View>
+                        <ScrollView
+                            ref={scrollRef}
+                            style={styles.terminalContent}
+                            showsVerticalScrollIndicator={false}
                         >
-                            <Ionicons name="sparkles" size={24} color="#fff" />
-                        </LinearGradient>
+                            {activityLog.map((log, index) => (
+                                <View key={index} style={styles.logLine}>
+                                    <Text style={styles.logPrefix}>{'>'}</Text>
+                                    <Text
+                                        style={[
+                                            styles.logText,
+                                            index === activityLog.length - 1 && styles.logTextActive
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {log}
+                                    </Text>
+                                </View>
+                            ))}
+                            {activityLog.length === 0 && (
+                                <View style={styles.logLine}>
+                                    <Text style={styles.logPrefix}>{'>'}</Text>
+                                    <Text style={styles.logText}>Avvio generazione...</Text>
+                                </View>
+                            )}
+                        </ScrollView>
                     </View>
 
-                    <Text style={styles.title}>Creating Magic</Text>
-                    <Text style={styles.status}>{status}</Text>
-                    {step && <Text style={styles.subStatus}>{step}</Text>}
-
-                    <View style={styles.progressTrack}>
-                        <Animated.View style={[styles.progressBar, { width: widthInterpolated }]}>
-                            <LinearGradient
-                                colors={[AppColors.primary, '#9333EA']}
-                                style={StyleSheet.absoluteFill}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                            />
-                        </Animated.View>
+                    {/* Progress */}
+                    <View style={styles.progressContainer}>
+                        <View style={styles.progressInfo}>
+                            <Text style={styles.progressLabel}>Progresso</Text>
+                            <Text style={styles.progressValue}>{Math.round(progress)}%</Text>
+                        </View>
+                        <View style={styles.progressTrack}>
+                            <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
+                                <LinearGradient
+                                    colors={[AppColors.primary, '#A855F7']}
+                                    style={StyleSheet.absoluteFill}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 0 }}
+                                />
+                            </Animated.View>
+                        </View>
                     </View>
-
-                    <Text style={styles.percentage}>{Math.round(progress)}%</Text>
-                </View>
+                </Animated.View>
             </View>
         </Modal>
     );
@@ -79,75 +168,134 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        paddingHorizontal: 24,
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
     },
     card: {
-        width: width * 0.85,
-        backgroundColor: '#13131F',
-        borderRadius: 24,
-        padding: 32,
-        alignItems: 'center',
+        width: '100%',
+        maxWidth: 380,
+        backgroundColor: '#1A1A2E',
+        borderRadius: 20,
+        overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 20,
-        elevation: 10,
+        borderColor: 'rgba(255,255,255,0.08)',
     },
-    iconContainer: {
-        marginBottom: 20,
-        shadowColor: AppColors.primary,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 10,
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 20,
+        gap: 14,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255,255,255,0.06)',
     },
-    iconGradient: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
+    iconWrapper: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: 'rgba(139, 92, 246, 0.15)',
         justifyContent: 'center',
         alignItems: 'center',
     },
+    headerText: {
+        flex: 1,
+    },
     title: {
-        fontSize: 20,
-        fontWeight: 'bold',
+        fontSize: 17,
+        fontWeight: '600',
         color: '#fff',
-        marginBottom: 8,
-        fontFamily: 'Inter-Bold',
+        marginBottom: 2,
     },
-    status: {
-        fontSize: 16,
-        color: 'rgba(255,255,255,0.9)',
-        marginBottom: 4,
-        textAlign: 'center',
-        fontFamily: 'Inter-Medium',
-    },
-    subStatus: {
+    subtitle: {
         fontSize: 13,
         color: 'rgba(255,255,255,0.5)',
-        marginBottom: 24,
+    },
+    terminal: {
+        margin: 16,
+        backgroundColor: '#0D0D14',
+        borderRadius: 12,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    terminalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255,255,255,0.06)',
+    },
+    terminalDots: {
+        flexDirection: 'row',
+        gap: 6,
+    },
+    dot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+    },
+    terminalTitle: {
+        flex: 1,
         textAlign: 'center',
-        fontFamily: 'Inter-Regular',
+        fontSize: 12,
+        color: 'rgba(255,255,255,0.4)',
+        marginRight: 30,
+    },
+    terminalContent: {
+        height: 120,
+        padding: 12,
+    },
+    logLine: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 6,
+    },
+    logPrefix: {
+        fontSize: 13,
+        color: '#10B981',
+        fontFamily: 'monospace',
+        marginRight: 8,
+        fontWeight: '600',
+    },
+    logText: {
+        flex: 1,
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.5)',
+        fontFamily: 'monospace',
+    },
+    logTextActive: {
+        color: '#fff',
+    },
+    progressContainer: {
+        padding: 20,
+        paddingTop: 4,
+    },
+    progressInfo: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 10,
+    },
+    progressLabel: {
+        fontSize: 13,
+        color: 'rgba(255,255,255,0.5)',
+    },
+    progressValue: {
+        fontSize: 13,
+        color: '#fff',
+        fontWeight: '600',
     },
     progressTrack: {
-        width: '100%',
         height: 6,
         backgroundColor: 'rgba(255,255,255,0.1)',
         borderRadius: 3,
         overflow: 'hidden',
-        marginBottom: 12,
     },
-    progressBar: {
+    progressFill: {
         height: '100%',
         borderRadius: 3,
-    },
-    percentage: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.4)',
-        fontFamily: 'Inter-Medium',
     },
 });

@@ -77,9 +77,10 @@ router.get('/logs/recent', (req, res) => {
 });
 
 // Backwards compatibility: redirect old /preview/* to /fly/*
-router.use('/preview', (req, res) => {
-    res.redirect(307, `/fly${req.url}`);
-});
+// DISABLED: All clients should use /fly/* directly now
+// router.use('/preview', (req, res) => {
+//     res.redirect(307, `/fly${req.url}`);
+// });
 
 // API info
 router.get('/', (req, res) => {

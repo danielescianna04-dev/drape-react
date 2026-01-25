@@ -82,6 +82,7 @@ interface TerminalState {
   projectFolders: ProjectFolder[];
   isCreatingWorkstation: boolean;
   userId: string | null;
+  currentProjectInfo: any | null; // Project metadata (type, warnings, etc.) from backend
 
   // UI State
   selectedModel: string;
@@ -129,6 +130,7 @@ interface TerminalState {
   setProjectFolders: (folders: ProjectFolder[]) => void;
   removeWorkstation: (workstationId: string) => Promise<void>;
   addProjectFolder: (folder: ProjectFolder) => void;
+  setProjectInfo: (projectInfo: any | null) => void;
   removeProjectFolder: (folderId: string) => void;
   toggleFolderExpanded: (folderId: string) => void;
   moveProjectToFolder: (projectId: string, folderId: string | null) => void;
@@ -173,6 +175,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   projectFolders: [],
   isCreatingWorkstation: false,
   userId: null,
+  currentProjectInfo: null,
   selectedModel: 'claude-sonnet-4',
   isTerminalMode: true,
   autoApprove: false,
@@ -306,6 +309,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     })),
   loadWorkstations: (workstations) => set({ workstations }),
   setProjectFolders: (folders) => set({ projectFolders: folders }),
+  setProjectInfo: (projectInfo) => set({ currentProjectInfo: projectInfo }),
   removeWorkstation: async (workstationId) => {
     console.log('🗑️🗑️🗑️ [TerminalStore] === REMOVE WORKSTATION ===');
     console.log('🗑️ [TerminalStore] workstationId:', workstationId);
