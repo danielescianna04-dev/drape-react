@@ -70,7 +70,8 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 
 // Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-sonnet-4', name: 'Claude 4', IconComponent: AnthropicIcon },
+  { id: 'claude-4-5-opus', name: 'Claude 4.5 Opus', IconComponent: AnthropicIcon },
+  { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon },
   { id: 'gemini-3-pro', name: 'Gemini 3.0', IconComponent: GoogleIcon },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon },
 ];

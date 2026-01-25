@@ -150,6 +150,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     type: 'text' | 'tool_start' | 'tool_result' | 'user';
     content: string;
     tool?: string;
+    toolId?: string;
     success?: boolean;
     filePath?: string;
     pattern?: string;
@@ -160,6 +161,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Use global store for machine ID to persist across navigation
   const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
   const aiScrollViewRef = useRef<ScrollView>(null);
+  const lastProcessedEventIndexRef = useRef<number>(-1); // Track last processed event to avoid missing events
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -223,103 +225,152 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   };
 
   // Process agent events and update aiMessages (like ChatPage)
+  // IMPORTANT: Process ALL new events, not just the latest one
   useEffect(() => {
     if (agentEvents.length === 0) return;
 
-    // Get latest event
-    const latestEvent = agentEvents[agentEvents.length - 1];
+    // Get all events since last processed
+    const startIndex = lastProcessedEventIndexRef.current + 1;
+    if (startIndex >= agentEvents.length) return;
 
-    if (latestEvent.type === 'tool_start' && latestEvent.tool) {
-      setActiveTools(prev => [...prev, latestEvent.tool!]);
-      setAiMessages(prev => [...prev, {
-        type: 'tool_start',
-        content: latestEvent.tool!,
-        tool: latestEvent.tool
-      }]);
-    }
-    else if (latestEvent.type === 'tool_input' && latestEvent.tool) {
-      setActiveTools(prev => prev.includes(latestEvent.tool!) ? prev : [...prev, latestEvent.tool!]);
-      setAiMessages(prev => {
-        const updated = [...prev];
-        const existingToolIndex = updated.findIndex(
-          m => (m.type === 'tool_start' || m.type === 'tool_result') && m.tool === latestEvent.tool && !m.success
-        );
-        if (existingToolIndex >= 0) {
-          updated[existingToolIndex] = {
-            ...updated[existingToolIndex],
-            filePath: (latestEvent as any).input?.filePath,
-            pattern: (latestEvent as any).input?.pattern
-          };
-        } else {
-          updated.push({
-            type: 'tool_start',
-            content: latestEvent.tool!,
-            tool: latestEvent.tool,
-            filePath: (latestEvent as any).input?.filePath,
-            pattern: (latestEvent as any).input?.pattern
+    // Process each new event
+    for (let i = startIndex; i < agentEvents.length; i++) {
+      const event = agentEvents[i];
+      const toolId = (event as any).id || `tool-${Date.now()}-${i}`;
+
+      if (event.type === 'tool_start' && event.tool) {
+        const input = (event as any).input || {};
+        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
+        const pattern = input.pattern || input.command || input.query || '';
+
+        console.log(`🔧 [Preview] tool_start: ${event.tool}, id=${toolId}, path=${filePath || 'n/a'}`);
+        setActiveTools(prev => [...prev, event.tool!]);
+        setAiMessages(prev => [...prev, {
+          type: 'tool_start',
+          content: event.tool!,
+          tool: event.tool,
+          toolId: toolId,
+          filePath: filePath,
+          pattern: pattern
+        }]);
+      }
+      else if (event.type === 'tool_input' && event.tool) {
+        const input = (event as any).input || {};
+        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
+        const pattern = input.pattern || input.command || input.query || '';
+
+        console.log(`🔧 [Preview] tool_input: ${event.tool}, id=${toolId}, path=${filePath || 'n/a'}`);
+        setActiveTools(prev => prev.includes(event.tool!) ? prev : [...prev, event.tool!]);
+        setAiMessages(prev => {
+          const updated = [...prev];
+          // Find matching tool by toolId or tool name
+          const existingToolIndex = updated.findIndex(
+            m => m.toolId === toolId || ((m.type === 'tool_start') && m.tool === event.tool && !m.success)
+          );
+          if (existingToolIndex >= 0) {
+            updated[existingToolIndex] = {
+              ...updated[existingToolIndex],
+              toolId: toolId,
+              filePath: filePath || updated[existingToolIndex].filePath,
+              pattern: pattern || updated[existingToolIndex].pattern
+            };
+          } else {
+            updated.push({
+              type: 'tool_start',
+              content: event.tool!,
+              tool: event.tool,
+              toolId: toolId,
+              filePath: filePath,
+              pattern: pattern
+            });
+          }
+          return updated;
+        });
+      }
+      else if (event.type === 'tool_complete' && event.tool) {
+        console.log(`✅ [Preview] tool_complete: ${event.tool}, id=${toolId}`);
+        setActiveTools(prev => prev.filter(t => t !== event.tool));
+        setAiMessages(prev => {
+          const updated = [...prev];
+          // Find matching tool by toolId or tool name (search backwards)
+          for (let j = updated.length - 1; j >= 0; j--) {
+            if (updated[j].toolId === toolId ||
+                ((updated[j].type === 'tool_start' || updated[j].type === 'tool_result') &&
+                 updated[j].tool === event.tool && !updated[j].success)) {
+              updated[j] = {
+                ...updated[j],
+                type: 'tool_result',
+                success: !(event as any).error
+              };
+              break;
+            }
+          }
+          return updated;
+        });
+      }
+      else if (event.type === 'tool_error' && event.tool) {
+        console.log(`❌ [Preview] tool_error: ${event.tool}, id=${toolId}`);
+        setActiveTools(prev => prev.filter(t => t !== event.tool));
+        setAiMessages(prev => {
+          const updated = [...prev];
+          for (let j = updated.length - 1; j >= 0; j--) {
+            if (updated[j].toolId === toolId ||
+                ((updated[j].type === 'tool_start') && updated[j].tool === event.tool && !updated[j].success)) {
+              updated[j] = {
+                ...updated[j],
+                type: 'tool_result',
+                success: false
+              };
+              break;
+            }
+          }
+          return updated;
+        });
+      }
+      else if (event.type === 'text_delta') {
+        const delta = (event as any).delta;
+        if (delta) {
+          setAiMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.type === 'text') {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                ...last,
+                content: (last.content || '') + delta
+              };
+              return updated;
+            } else {
+              return [...prev, { type: 'text', content: delta }];
+            }
           });
         }
-        return updated;
-      });
-    }
-    else if (latestEvent.type === 'tool_complete' && latestEvent.tool) {
-      setActiveTools(prev => prev.filter(t => t !== latestEvent.tool));
-      setAiMessages(prev => {
-        const updated = [...prev];
-        for (let i = updated.length - 1; i >= 0; i--) {
-          if ((updated[i].type === 'tool_start' || updated[i].type === 'tool_result') && updated[i].tool === latestEvent.tool) {
-            updated[i] = {
-              ...updated[i],
-              type: 'tool_result',
-              success: !latestEvent.error
-            };
-            break;
-          }
+      }
+      else if (event.type === 'message' || event.type === 'response') {
+        const msg = (event as any).content || (event as any).message || (event as any).text || (event as any).output;
+        if (msg) {
+          setAiMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.type === 'text' && last.content === msg) {
+              return prev;
+            }
+            return [...prev, { type: 'text', content: msg }];
+          });
         }
-        return updated;
-      });
-    }
-    else if (latestEvent.type === 'text_delta') {
-      const delta = (latestEvent as any).delta;
-      if (delta) {
-        setAiMessages(prev => {
-          const last = prev[prev.length - 1];
-          if (last && last.type === 'text') {
-            const updated = [...prev];
-            updated[updated.length - 1] = {
-              ...last,
-              content: (last.content || '') + delta
-            };
-            return updated;
-          } else {
-            return [...prev, { type: 'text', content: delta }];
-          }
-        });
+      }
+      else if (event.type === 'complete' || event.type === 'done') {
+        setIsAiLoading(false);
+        setActiveTools([]);
+      }
+      else if (event.type === 'error' || event.type === 'fatal_error') {
+        setIsAiLoading(false);
+        setActiveTools([]);
+        const errorMsg = (event as any).error || (event as any).message || 'Error';
+        setAiMessages(prev => [...prev, { type: 'text', content: `❌ ${errorMsg}` }]);
       }
     }
-    else if (latestEvent.type === 'message' || latestEvent.type === 'response') {
-      const msg = (latestEvent as any).content || (latestEvent as any).message || (latestEvent as any).text || (latestEvent as any).output;
-      if (msg) {
-        setAiMessages(prev => {
-          const last = prev[prev.length - 1];
-          // Don't add duplicate if we already have this content from streaming
-          if (last && last.type === 'text' && last.content === msg) {
-            return prev;
-          }
-          return [...prev, { type: 'text', content: msg }];
-        });
-      }
-    }
-    else if (latestEvent.type === 'complete' || latestEvent.type === 'done') {
-      setIsAiLoading(false);
-      setActiveTools([]);
-    }
-    else if (latestEvent.type === 'error' || latestEvent.type === 'fatal_error') {
-      setIsAiLoading(false);
-      setActiveTools([]);
-      const errorMsg = latestEvent.error || latestEvent.message || 'Error';
-      setAiMessages(prev => [...prev, { type: 'text', content: `❌ ${errorMsg}` }]);
-    }
+
+    // Update last processed index
+    lastProcessedEventIndexRef.current = agentEvents.length - 1;
   }, [agentEvents]);
 
   // Save chat messages when agent completes
@@ -515,30 +566,38 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       if (restoredMachineId) {
         console.log(`✨ [MultiProject] Restoring session for ${currentId} (machine: ${restoredMachineId}, url: ${restoredUrl})`);
 
-        // Sync routing cookie immediately 
-        fetch(`${apiUrl}/fly/session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
-          credentials: 'include'
-        }).catch(err => console.warn('Failed to sync restored session cookie:', err));
-
-        // Restore URL and status
-        if (restoredUrl) {
-          setCurrentPreviewUrl(restoredUrl);
-        }
-
         setServerStatus('checking');
         setGlobalFlyMachineId(restoredMachineId, currentId);
 
         // Reconnect to logs for this project
         serverLogService.connect(currentId);
 
-        // TRIGGER HEALTH CHECK to verify if VM/Server is still alive
-        // Give cookie a small moment to sync
-        setTimeout(() => {
-          checkServerStatus(restoredUrl || undefined);
-        }, 500);
+        // 🔑 FIX: Sync routing cookie FIRST, then set URL after propagation
+        fetch(`${apiUrl}/fly/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
+          credentials: 'include'
+        })
+          .then(() => {
+            console.log('🍪 Restored session cookie established');
+            // Wait for cookie propagation, then set URL and check status
+            setTimeout(() => {
+              if (restoredUrl) {
+                console.log('🌐 Setting restored preview URL after cookie sync');
+                setCurrentPreviewUrl(restoredUrl);
+              }
+              checkServerStatus(restoredUrl || undefined);
+            }, 1000);
+          })
+          .catch(err => {
+            console.warn('Failed to sync restored session cookie:', err);
+            // Try anyway
+            if (restoredUrl) {
+              setCurrentPreviewUrl(restoredUrl);
+            }
+            checkServerStatus(restoredUrl || undefined);
+          });
       } else {
         // Full reset for projects with no active session
         console.log(`   No active session for ${currentId}, showing Start Preview`);
@@ -1185,18 +1244,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     const result = parsed;
                     console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
 
-                    // Show UI immediately - don't wait for cookie sync
-                    setServerStatus('running');
-                    setIsStarting(false);
-
                     // Handle final success state
                     const completeSetup = () => {
-                      // Just resolve - UI is already shown
+                      // Show UI now that cookie is ready
+                      setServerStatus('running');
+                      setIsStarting(false);
                       resolve();
                     };
 
                     if (result.previewUrl) {
-                      setCurrentPreviewUrl(result.previewUrl);
                       if (result.coderToken) setCoderToken(result.coderToken);
                       // Set hasWebUI flag (default true if not specified)
                       const projectHasWebUI = result.hasWebUI !== false;
@@ -1210,7 +1266,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
                         flyMachineIdRef.current = result.machineId;
 
-                        // Set session and WAIT for it before showing preview
+                        // 🔑 FIX: Set session cookie FIRST, wait for propagation, THEN set URL
+                        // This ensures the WebView loads with the cookie already established
                         fetch(`${apiUrl}/fly/session`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
@@ -1219,14 +1276,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         })
                           .then(() => {
                             console.log('🍪 Session cookie established');
-                            // Wait 2.5s for native cookie sync (critical for first load)
-                            setTimeout(completeSetup, 2500);
+                            // Wait 1s for native cookie sync, then set URL to trigger WebView load
+                            setTimeout(() => {
+                              console.log('🌐 Setting preview URL after cookie sync');
+                              setCurrentPreviewUrl(result.previewUrl);
+                              completeSetup();
+                            }, 1000);
                           })
                           .catch(e => {
                             console.warn('⚠️ Session fail:', e);
-                            completeSetup(); // Try anyway
+                            // Try anyway with URL
+                            setCurrentPreviewUrl(result.previewUrl);
+                            completeSetup();
                           });
                       } else {
+                        setCurrentPreviewUrl(result.previewUrl);
                         completeSetup();
                       }
                     } else {
@@ -1556,6 +1620,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     // Clear previous response accumulator but keep messages history
     setAiResponse('');
     setIsAiLoading(true);
+    // Reset event processing index for new conversation
+    lastProcessedEventIndexRef.current = agentEvents.length - 1;
 
     const userMessage = message.trim();
 
@@ -1579,7 +1645,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       setPreviewChatId(chatId);
 
       // Generate title from first message
-      let title = `🎨 ${userMessage.slice(0, 35)}`;
+      let title = `👁 ${userMessage.slice(0, 35)}`;
       if (userMessage.length > 35) title += '...';
 
       const newChat = {
@@ -2722,15 +2788,58 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     }
 
                     if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-                      // Tool badge rendering (like ChatPage)
+                      // Tool badge rendering - comprehensive mapping for all tools
                       const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                        // === Claude Code tool names (PascalCase) ===
+                        'Read': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                        'Edit': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                        'Write': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
+                        'Glob': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
+                        'Grep': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
+                        'Bash': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
+                        'Task': { icon: 'git-branch-outline', label: 'TASK', color: '#DB61A2' },
+                        'WebFetch': { icon: 'globe-outline', label: 'FETCH', color: '#79C0FF' },
+                        'WebSearch': { icon: 'search-outline', label: 'SEARCH', color: '#79C0FF' },
+                        'TodoWrite': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
+                        'AskUserQuestion': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
+                        'EnterPlanMode': { icon: 'map-outline', label: 'PLAN', color: '#8957E5' },
+                        'ExitPlanMode': { icon: 'checkmark-done-outline', label: 'PLAN', color: '#8957E5' },
+                        'NotebookEdit': { icon: 'code-outline', label: 'NOTEBOOK', color: '#F97583' },
+                        'KillShell': { icon: 'close-circle-outline', label: 'KILL', color: '#F85149' },
+                        'TaskOutput': { icon: 'download-outline', label: 'OUTPUT', color: '#79C0FF' },
+                        'Skill': { icon: 'flash-outline', label: 'SKILL', color: '#D29922' },
+
+                        // === Agent tools (snake_case) ===
                         'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
                         'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                        'glob_files': { icon: 'search-outline', label: 'GLOB', color: '#A371F7' },
-                        'search_in_files': { icon: 'code-slash-outline', label: 'SEARCH', color: '#FFA657' },
+                        'write_file': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
+                        'list_directory': { icon: 'folder-open-outline', label: 'LIST', color: '#A371F7' },
+                        'run_command': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
+                        'glob_search': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
+                        'grep_search': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
+                        'launch_sub_agent': { icon: 'git-branch-outline', label: 'AGENT', color: '#DB61A2' },
+                        'todo_write': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
+                        'ask_user_question': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
+                        'enter_plan_mode': { icon: 'map-outline', label: 'PLAN', color: '#8957E5' },
+                        'exit_plan_mode': { icon: 'checkmark-done-outline', label: 'PLAN', color: '#8957E5' },
+                        'web_search': { icon: 'globe-outline', label: 'SEARCH', color: '#79C0FF' },
+                        'execute_skill': { icon: 'flash-outline', label: 'SKILL', color: '#D29922' },
+                        'notebook_edit': { icon: 'code-outline', label: 'NOTEBOOK', color: '#F97583' },
+                        'kill_shell': { icon: 'close-circle-outline', label: 'KILL', color: '#F85149' },
+                        'get_task_output': { icon: 'download-outline', label: 'OUTPUT', color: '#79C0FF' },
+                        'signal_completion': { icon: 'checkmark-circle-outline', label: 'DONE', color: '#3FB950' },
+
+                        // === MCP tools ===
+                        'mcp__ide__getDiagnostics': { icon: 'bug-outline', label: 'DIAG', color: '#F85149' },
+                        'mcp__ide__executeCode': { icon: 'play-outline', label: 'EXEC', color: '#3FB950' },
+
+                        // === Legacy/Alternative names ===
+                        'glob_files': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
+                        'search_in_files': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
+                        'list_files': { icon: 'list-outline', label: 'LIST', color: '#A371F7' },
                       };
 
-                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: 'TOOL', color: '#8B949E' };
+                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: msg.tool?.replace(/_/g, ' ').toUpperCase().slice(0, 8) || 'TOOL', color: '#8B949E' };
                       const isComplete = msg.type === 'tool_result';
                       const isSuccess = msg.success !== false;
 

@@ -6,6 +6,7 @@
  */
 
 const httpProxy = require('http-proxy');
+const { URL } = require('url');
 const orchestrator = require('../services/workspace-orchestrator');
 
 // Create proxy instance
@@ -19,6 +20,14 @@ proxy.on('error', (err, req, res) => {
     if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'text/plain' });
         res.end('Bad Gateway: Could not reach Worker VM');
+    }
+});
+
+// Log proxy responses (only non-200 or non-polling)
+proxy.on('proxyRes', (proxyRes, req, res) => {
+    const isPolling = req.url.includes('?_=');
+    if (!isPolling || proxyRes.statusCode !== 200) {
+        console.log(`📥 [Gateway] Response: ${proxyRes.statusCode} ${req.url}`);
     }
 });
 
@@ -38,9 +47,22 @@ const getRoutingMachineId = (req) => {
         if (cookies['drape_vm_id']) return cookies['drape_vm_id'];
     }
 
-    // 3. Try query param (Easy for testing)
+    // 3. Try query param (Express parsed)
     if (req.query && req.query.drape_vm_id) {
         return req.query.drape_vm_id;
+    }
+
+    // 4. Try parsing URL query params directly (for WebSocket upgrades without Express)
+    if (req.url && req.url.includes('?')) {
+        try {
+            const fullUrl = `http://localhost${req.url}`;
+            const urlParams = new URL(fullUrl).searchParams;
+            if (urlParams.get('drape_vm_id')) {
+                return urlParams.get('drape_vm_id');
+            }
+        } catch (e) {
+            // URL parsing failed, continue
+        }
     }
 
     return null;
@@ -91,18 +113,9 @@ const vmRouterMiddleware = async (req, res, next) => {
         return;
     }
 
-    // 3. Lookup VM
-    const targetVM = await getTargetVM(machineId);
-
-    if (!targetVM) {
-        const activeVMs = await orchestrator.getActiveVMs();
-        console.warn(`⚠️ [Gateway] VM ${machineId} not active/found for ${req.url}. Active VMs:`, activeVMs.map(v => v.vmId).join(', '));
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Workspace not active');
-        return;
-    }
-
-    // 4. Proxy Request
+    // 3. Proxy Request directly to Fly.io with machine ID header
+    // Skip VM lookup validation - Fly.io handles routing via Fly-Force-Instance-Id
+    console.log(`🚀 [Gateway] Routing to ${machineId} for ${req.url}`);
     proxy.web(req, res, {
         target: TARGET_GATEWAY,
         headers: {
@@ -116,15 +129,14 @@ const vmRouterMiddleware = async (req, res, next) => {
  */
 const proxyWS = async (req, socket, head) => {
     const machineId = getRoutingMachineId(req);
-    const targetVM = await getTargetVM(machineId);
 
-    if (!targetVM) {
-        console.warn(`⚠️ [Gateway-WS] No target for WS upgrade: ${req.url}`);
+    if (!machineId) {
+        console.warn(`⚠️ [Gateway-WS] No machineId for WS upgrade: ${req.url}`);
         socket.destroy();
         return;
     }
 
-    // console.log(`🔀 [Gateway-WS] Routing WS ${req.url} -> ${TARGET_GATEWAY} (Machine: ${machineId})`);
+    console.log(`🔀 [Gateway-WS] Routing WS ${req.url} -> ${TARGET_GATEWAY} (Machine: ${machineId})`);
 
     proxy.ws(req, socket, head, {
         target: TARGET_GATEWAY,

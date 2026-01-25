@@ -92,19 +92,33 @@ const AI_MODELS = {
     },
 
     // Claude Models
+    'claude-4-5-opus': {
+        provider: 'anthropic',
+        modelId: 'claude-opus-4-5-20251101',
+        displayName: 'Claude 4.5 Opus',
+        supportsTools: true,
+        maxTokens: 32000
+    },
+    'claude-4-5-sonnet': {
+        provider: 'anthropic',
+        modelId: 'claude-sonnet-4-5-20250929',
+        displayName: 'Claude 4.5 Sonnet',
+        supportsTools: true,
+        maxTokens: 64000
+    },
     'claude-3.5-sonnet': {
         provider: 'anthropic',
         modelId: 'claude-sonnet-4-5-20250929',
         displayName: 'Claude 4.5 Sonnet',
         supportsTools: true,
-        maxTokens: 64000  // Model limit is 64k, not 128k
+        maxTokens: 64000
     },
     'claude-sonnet-4': {
         provider: 'anthropic',
         modelId: 'claude-sonnet-4-5-20250929',
         displayName: 'Claude 4.5 Sonnet',
         supportsTools: true,
-        maxTokens: 64000  // Model limit is 64k, not 128k
+        maxTokens: 64000
     },
     'claude-3.5-haiku': {
         provider: 'anthropic',
