@@ -6568,13 +6568,25 @@
     }
   },
   "ws-1769282245775-pokdu2j0p": {
-    "id": "3287d490f393e8",
+    "id": "3d8de710f19748",
     "name": "ws-ws-1769282245775-pokdu2j0p",
     "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "3287d490f393e8",
+    "machineId": "3d8de710f19748",
     "projectId": "ws-1769282245775-pokdu2j0p",
-    "createdAt": 1769308976306,
-    "lastUsed": 1769308977482,
+    "createdAt": 1769381201120,
+    "lastUsed": 1769381201120,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J"
+  },
+  "ws-1769366133432-5creo1y5y": {
+    "id": "3d8de970c09768",
+    "name": "ws-ws-1769366133432-5creo1y5y",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "3d8de970c09768",
+    "projectId": "ws-1769366133432-5creo1y5y",
+    "createdAt": 1769381578828,
+    "lastUsed": 1769381578828,
     "fromPool": true,
     "prewarmed": true,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J"

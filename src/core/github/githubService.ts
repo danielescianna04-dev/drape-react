@@ -387,6 +387,83 @@ class GitHubService {
       return [];
     }
   }
+
+  // Create a new repository
+  async createRepository(
+    name: string,
+    token: string,
+    options?: {
+      description?: string;
+      isPrivate?: boolean;
+      autoInit?: boolean;
+    }
+  ): Promise<{ success: boolean; repoUrl?: string; error?: string }> {
+    try {
+      const response = await axios.post(
+        `${GITHUB_API_BASE}/user/repos`,
+        {
+          name,
+          description: options?.description || '',
+          private: options?.isPrivate ?? true,
+          auto_init: options?.autoInit ?? true,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+          },
+        }
+      );
+
+      return {
+        success: true,
+        repoUrl: response.data.html_url,
+      };
+    } catch (error: any) {
+      console.error('Create repository error:', error);
+      if (error.response?.status === 422) {
+        return { success: false, error: 'Repository con questo nome esiste già' };
+      }
+      if (error.response?.status === 401) {
+        return { success: false, error: 'Token non valido o scaduto' };
+      }
+      return { success: false, error: error.message || 'Errore durante la creazione' };
+    }
+  }
+
+  // Fetch user's repositories for selection
+  async fetchUserRepositories(token: string): Promise<GitHubRepository[]> {
+    try {
+      const response = await axios.get(`${GITHUB_API_BASE}/user/repos`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+        params: {
+          sort: 'updated',
+          per_page: 50,
+          affiliation: 'owner',
+        },
+      });
+
+      return response.data.map((repo: any) => ({
+        id: repo.id.toString(),
+        name: repo.name,
+        fullName: repo.full_name,
+        description: repo.description,
+        language: repo.language,
+        isPrivate: repo.private,
+        stars: repo.stargazers_count,
+        forks: repo.forks_count,
+        updatedAt: new Date(repo.updated_at),
+        cloneUrl: repo.clone_url,
+        avatarUrl: repo.owner.avatar_url,
+      }));
+    } catch (error) {
+      console.error('Fetch user repos error:', error);
+      return [];
+    }
+  }
 }
 
 export const githubService = new GitHubService();

@@ -12,6 +12,7 @@ import { config } from '../../../config/config';
 import { AddGitAccountModal } from '../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../core/github/githubService';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { ConnectRepoModal } from './ConnectRepoModal';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -72,6 +73,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [commitMessage, setCommitMessage] = useState('');
+  const [showConnectModal, setShowConnectModal] = useState(false);
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -761,15 +763,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         </Text>
                         <TouchableOpacity
                           style={styles.connectGitButton}
-                          onPress={() => {
-                            onClose();
-                            // TODO: Open create/connect repo flow
-                            Alert.alert(
-                              'Connetti Repository',
-                              'Per collegare questo progetto a GitHub:\n\n1. Crea un nuovo repository su GitHub\n2. Copia l\'URL del repository\n3. Vai nelle impostazioni del progetto e incolla l\'URL',
-                              [{ text: 'OK' }]
-                            );
-                          }}
+                          onPress={() => setShowConnectModal(true)}
                         >
                           <Ionicons name="add-circle-outline" size={18} color="#fff" />
                           <Text style={styles.connectGitButtonText}>Collega Repository</Text>
@@ -958,6 +952,17 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         visible={showAddAccountModal}
         onClose={() => setShowAddAccountModal(false)}
         onAccountAdded={loadAccountInfo}
+      />
+
+      <ConnectRepoModal
+        visible={showConnectModal}
+        onClose={() => setShowConnectModal(false)}
+        onConnected={(repoUrl) => {
+          setShowConnectModal(false);
+          // Reload git data after connecting
+          loadGitData();
+        }}
+        projectName={currentWorkstation?.name}
       />
 
       {/* Account Picker Modal */}
