@@ -408,9 +408,14 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
                     // Get cached project info
                     projectInfo = existingSession.projectInfo || await orchestrator.detectProjectMetadata(projectId);
 
+                    // Use backend gateway for routing (handles Fly-Force-Instance-Id header)
+                    const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+                    const host = req.headers.host;
+                    const gatewayPreviewUrl = `${protocol}://${host}`;
+
                     // Send quick ready event
                     sendStep('ready', 'Preview pronta!', {
-                        previewUrl: process.env.FLY_GATEWAY_URL || existingSession.agentUrl,
+                        previewUrl: gatewayPreviewUrl,
                         coderToken: existingSession.coderToken,
                         agentUrl: existingSession.agentUrl,
                         machineId: existingSession.machineId,

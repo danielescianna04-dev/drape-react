@@ -1536,6 +1536,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     `);
   };
 
+  // Select parent element in the WebView
+  const selectParentElement = () => {
+    webViewRef.current?.injectJavaScript(`
+      if (window.__selectParentElement) {
+        window.__selectParentElement();
+      }
+      true;
+    `);
+  };
+
   const handleSendMessage = async () => {
     if (!message.trim() && !selectedElement) return;
     if (!currentWorkstation?.id) {
@@ -1703,6 +1713,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             if (id) tooltipText = '<' + tagName + '#' + id + '>';
             else if (classes) tooltipText = '<' + tagName + '.' + classes.split(' ').join('.') + '>';
 
+            // Add text preview to tooltip
+            const textContent = target.textContent?.trim().substring(0, 25);
+            if (textContent) {
+              tooltipText += ' "' + textContent + (target.textContent.length > 25 ? '...' : '') + '"';
+            }
+
+            // Add dimensions
+            tooltipText += '  ' + Math.round(rect.width) + '×' + Math.round(rect.height);
+
             tooltip.textContent = tooltipText;
             lastElement = target;
           };
@@ -1791,6 +1810,40 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     window.__inspectorCleanup();
                   }
                 }, 300);
+              };
+
+              // Store selected element for parent navigation
+              window.__selectedElement = lastElement;
+
+              // Function to select parent element
+              window.__selectParentElement = () => {
+                const parent = window.__selectedElement?.parentElement;
+                if (parent && parent !== document.body && parent !== document.documentElement) {
+                  window.__selectedElement = parent;
+                  lastElement = parent;
+
+                  const rect = parent.getBoundingClientRect();
+                  overlay.style.top = (rect.top + window.scrollY) + 'px';
+                  overlay.style.left = (rect.left + window.scrollX) + 'px';
+                  overlay.style.width = rect.width + 'px';
+                  overlay.style.height = rect.height + 'px';
+
+                  const tagName = parent.tagName.toLowerCase();
+                  const className = parent.className || '';
+                  const id = parent.id || '';
+                  const text = parent.textContent?.substring(0, 50) || '';
+
+                  window.ReactNativeWebView?.postMessage(JSON.stringify({
+                    type: 'ELEMENT_SELECTED',
+                    element: {
+                      tag: tagName,
+                      className: className,
+                      id: id,
+                      text: text,
+                      innerHTML: parent.innerHTML?.substring(0, 200)
+                    }
+                  }));
+                }
               };
             }, 350); // Wait 350ms for CSS animations to settle
           };
@@ -2769,20 +2822,49 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
-                            paddingHorizontal: 16,
-                            paddingTop: 12,
+                            paddingHorizontal: 12,
+                            paddingTop: 10,
                             paddingBottom: 8,
+                            gap: 6,
                           }}>
-                            <Ionicons name="code-slash" size={12} color={AppColors.primary} style={{ marginRight: 6 }} />
-                            <Text style={{ flex: 1, color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'Inter-Medium' }} numberOfLines={1}>
-                              {selectedElement.selector}
-                            </Text>
+                            {/* Parent button */}
+                            <TouchableOpacity
+                              onPress={selectParentElement}
+                              style={{
+                                padding: 6,
+                                borderRadius: 6,
+                                backgroundColor: 'rgba(255,255,255,0.08)',
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.5)" />
+                            </TouchableOpacity>
+                            {/* Element tag badge */}
+                            <View style={{
+                              backgroundColor: 'rgba(139, 124, 246, 0.2)',
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 6,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                            }}>
+                              <Text style={{ color: AppColors.primary, fontSize: 12, fontFamily: 'Inter-SemiBold' }}>
+                                {selectedElement.selector}
+                              </Text>
+                            </View>
+                            {/* Text preview */}
+                            {selectedElement.text && (
+                              <Text style={{ flex: 1, color: 'rgba(255,255,255,0.5)', fontSize: 11, fontFamily: 'Inter-Regular' }} numberOfLines={1}>
+                                "{selectedElement.text}"
+                              </Text>
+                            )}
+                            {/* Close button */}
                             <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4 }}>
-                              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />
+                              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.35)" />
                             </TouchableOpacity>
                           </View>
                           {/* Divider */}
-                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 16 }} />
+                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: 12 }} />
                         </>
                       )}
 
