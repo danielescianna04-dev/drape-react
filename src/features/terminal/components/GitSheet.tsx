@@ -749,14 +749,45 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 ))}
                 {commits.length === 0 && (
                   <View style={styles.emptyState}>
-                    <Ionicons name="git-commit-outline" size={40} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.emptyStateText}>
-                      {errorMsg || 'Nessun commit trovato'}
-                    </Text>
-                    {errorMsg && (
-                      <TouchableOpacity onPress={() => loadGitData()} style={styles.retryButton}>
-                        <Text style={styles.retryText}>Riprova</Text>
-                      </TouchableOpacity>
+                    {!repoUrl ? (
+                      // Progetto creato in-app, non connesso a GitHub
+                      <>
+                        <View style={styles.connectGitIcon}>
+                          <Ionicons name="logo-github" size={32} color="rgba(255,255,255,0.4)" />
+                        </View>
+                        <Text style={styles.connectGitTitle}>Connetti a GitHub</Text>
+                        <Text style={styles.connectGitSubtitle}>
+                          Questo progetto non è ancora collegato a un repository GitHub
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.connectGitButton}
+                          onPress={() => {
+                            onClose();
+                            // TODO: Open create/connect repo flow
+                            Alert.alert(
+                              'Connetti Repository',
+                              'Per collegare questo progetto a GitHub:\n\n1. Crea un nuovo repository su GitHub\n2. Copia l\'URL del repository\n3. Vai nelle impostazioni del progetto e incolla l\'URL',
+                              [{ text: 'OK' }]
+                            );
+                          }}
+                        >
+                          <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                          <Text style={styles.connectGitButtonText}>Collega Repository</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      // Repository collegato ma nessun commit
+                      <>
+                        <Ionicons name="git-commit-outline" size={40} color="rgba(255,255,255,0.2)" />
+                        <Text style={styles.emptyStateText}>
+                          {errorMsg || 'Nessun commit trovato'}
+                        </Text>
+                        {errorMsg && (
+                          <TouchableOpacity onPress={() => loadGitData()} style={styles.retryButton}>
+                            <Text style={styles.retryText}>Riprova</Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
                     )}
                   </View>
                 )}
@@ -1373,6 +1404,43 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.4)',
+  },
+  connectGitIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  connectGitTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  connectGitSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  connectGitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  connectGitButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
   selectAllRow: {
     flexDirection: 'row',
