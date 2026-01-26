@@ -10,6 +10,7 @@ import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDet
 import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
 import { IconButton } from '../../../shared/components/atoms';
@@ -295,8 +296,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           // Find matching tool by toolId or tool name (search backwards)
           for (let j = updated.length - 1; j >= 0; j--) {
             if (updated[j].toolId === toolId ||
-                ((updated[j].type === 'tool_start' || updated[j].type === 'tool_result') &&
-                 updated[j].tool === event.tool && !updated[j].success)) {
+              ((updated[j].type === 'tool_start' || updated[j].type === 'tool_result') &&
+                updated[j].tool === event.tool && !updated[j].success)) {
               updated[j] = {
                 ...updated[j],
                 type: 'tool_result',
@@ -315,7 +316,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           const updated = [...prev];
           for (let j = updated.length - 1; j >= 0; j--) {
             if (updated[j].toolId === toolId ||
-                ((updated[j].type === 'tool_start') && updated[j].tool === event.tool && !updated[j].success)) {
+              ((updated[j].type === 'tool_start') && updated[j].tool === event.tool && !updated[j].success)) {
               updated[j] = {
                 ...updated[j],
                 type: 'tool_result',
@@ -1223,8 +1224,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
                   // Detect Next.js project for time estimates
                   if (parsed.projectType?.toLowerCase().includes('next') ||
-                      parsed.message?.toLowerCase().includes('next.js') ||
-                      parsed.message?.toLowerCase().includes('turbopack')) {
+                    parsed.message?.toLowerCase().includes('next.js') ||
+                    parsed.message?.toLowerCase().includes('turbopack')) {
                     setIsNextJsProject(true);
                   }
 
@@ -2151,12 +2152,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       >
                         <View style={styles.cosmicGlowRing1} />
                         <View style={styles.cosmicGlowRing2} />
-                        <LinearGradient
-                          colors={[AppColors.primary, '#6C5CE7']}
-                          style={[styles.cosmicOrb, { width: 56, height: 56, borderRadius: 28 }]}
+
+                        <LiquidGlassView
+                          style={[styles.cosmicOrbGlass, { width: 56, height: 56, borderRadius: 28 }]}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
                         >
-                          <Ionicons name="refresh" size={24} color="#FFFFFF" />
-                        </LinearGradient>
+                          <LinearGradient
+                            colors={[`${AppColors.primary}CC`, '#6C5CE7CC']}
+                            style={[styles.cosmicOrbRaw, { borderRadius: 28 }]}
+                          >
+                            <Ionicons name="refresh" size={24} color="#FFFFFF" />
+                          </LinearGradient>
+                        </LiquidGlassView>
                       </TouchableOpacity>
 
                       <Text style={[styles.cosmicSubtitle, { marginTop: 8 }]}>
@@ -2196,7 +2205,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     {/* Screen content - Cosmic Energy Design */}
                     <View style={styles.iphoneScreenCentered}>
 
-                      {/* Integrated Cosmic Orb Button */}
+                      {/* Integrated Cosmic Orb Button - Glass & Round */}
                       <TouchableOpacity
                         style={styles.cosmicOrbContainer}
                         onPress={handleStartServer}
@@ -2206,12 +2215,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         <View style={styles.cosmicGlowRing1} />
                         <View style={styles.cosmicGlowRing2} />
 
-                        <LinearGradient
-                          colors={[AppColors.primary, '#6C5CE7']}
-                          style={styles.cosmicOrb}
+                        <LiquidGlassView
+                          style={styles.cosmicOrbGlass}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
                         >
-                          <Ionicons name="play" size={32} color="#FFFFFF" style={{ marginLeft: 4 }} />
-                        </LinearGradient>
+                          <View style={styles.cosmicOrbRaw}>
+                            <Ionicons name="play" size={32} color={AppColors.primary} style={{ marginLeft: 4 }} />
+                          </View>
+                        </LiquidGlassView>
                       </TouchableOpacity>
 
                       {/* High-Impact Typography */}
@@ -2233,44 +2246,40 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   </View>
 
                   <View style={styles.loadingFooter}>
-                    {/* Premium CTA Banner - High End Redesign */}
+                    {/* Premium CTA Banner - Glass & Round High End Redesign */}
                     <TouchableOpacity
-                      style={styles.premiumBanner}
+                      style={styles.premiumBannerRound}
                       activeOpacity={0.9}
                       onPress={() => {
                         console.log('💎 Upgrade to Professional');
                       }}
                     >
-                      <LinearGradient
-                        colors={['rgba(139, 124, 246, 0.15)', 'rgba(108, 92, 231, 0.05)']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      <View style={styles.premiumBorderGradient} />
-
-                      <View style={styles.premiumBannerContent}>
-                        <LinearGradient
-                          colors={[AppColors.primary, '#9F7AEA']}
-                          style={styles.premiumIconContainer}
-                        >
-                          <Ionicons name="flash" size={14} color="#fff" />
-                        </LinearGradient>
-
-                        <View style={{ flex: 1, gap: 1 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <Text style={styles.premiumBannerTitle}>Professional</Text>
-                            <View style={styles.proBadge}>
-                              <Text style={styles.proBadgeText}>PRO</Text>
-                            </View>
+                      <LiquidGlassView
+                        style={styles.premiumGlass}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        <View style={styles.premiumBannerContentRaw}>
+                          <View style={styles.premiumIconContainerGlass}>
+                            <Ionicons name="flash" size={14} color={AppColors.primary} />
                           </View>
-                          <Text style={styles.premiumBannerSubtitle}>Anteprime 4x più veloci ed istantanee</Text>
-                        </View>
 
-                        <View style={styles.premiumArrow}>
-                          <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.3)" />
+                          <View style={{ flex: 1, gap: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.premiumBannerTitle}>Professional</Text>
+                              <View style={styles.proBadge}>
+                                <Text style={styles.proBadgeText}>PRO</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.premiumBannerSubtitle}>Anteprime 4x più veloci ed istantanee</Text>
+                          </View>
+
+                          <View style={styles.premiumArrow}>
+                            <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.3)" />
+                          </View>
                         </View>
-                      </View>
+                      </LiquidGlassView>
                     </TouchableOpacity>
 
                     {/* Technical credit text removed for a cleaner look */}
@@ -2283,30 +2292,30 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
                     {hasWebUI ? (
                       currentPreviewUrl && (currentPreviewUrl.startsWith('http://') || currentPreviewUrl.startsWith('https://')) ? (
-                      <WebView
-                        key={coderToken || 'init'}
-                        ref={webViewRef}
-                        source={{
-                          uri: currentPreviewUrl,
-                          headers: {
-                            'Coder-Session-Token': coderToken || '',
-                            'session_token': coderToken || '',
-                            ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                            'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`,
-                            ...(flyMachineIdRef.current ? {
-                              'X-Drape-VM-Id': flyMachineIdRef.current,
-                              'Fly-Force-Instance-Id': flyMachineIdRef.current
-                            } : {})
-                          }
-                        }}
-                        sharedCookiesEnabled={true}
-                        thirdPartyCookiesEnabled={true}
-                        // 🔑 FIX: Always show WebView (no opacity:0 hiding)
-                        // The LOADING SPIRIT MASK overlay handles the loading state
-                        // This prevents black screen when webViewReady is false
-                        style={styles.webView}
+                        <WebView
+                          key={coderToken || 'init'}
+                          ref={webViewRef}
+                          source={{
+                            uri: currentPreviewUrl,
+                            headers: {
+                              'Coder-Session-Token': coderToken || '',
+                              'session_token': coderToken || '',
+                              ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
+                              'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`,
+                              ...(flyMachineIdRef.current ? {
+                                'X-Drape-VM-Id': flyMachineIdRef.current,
+                                'Fly-Force-Instance-Id': flyMachineIdRef.current
+                              } : {})
+                            }
+                          }}
+                          sharedCookiesEnabled={true}
+                          thirdPartyCookiesEnabled={true}
+                          // 🔑 FIX: Always show WebView (no opacity:0 hiding)
+                          // The LOADING SPIRIT MASK overlay handles the loading state
+                          // This prevents black screen when webViewReady is false
+                          style={styles.webView}
 
-                        injectedJavaScriptBeforeContentLoaded={`
+                          injectedJavaScriptBeforeContentLoaded={`
                           (function() {
                             var token = "${coderToken || ''}";
                             var vmId = "${globalFlyMachineId || ''}";
@@ -2364,18 +2373,18 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           true;
                         `}
 
-                        onLoadStart={(syntheticEvent) => {
-                          const { nativeEvent } = syntheticEvent;
-                          console.log('🔵 WebView load start:', nativeEvent.url);
-                          if (serverStatus !== 'running') {
-                            setWebViewReady(false);
-                          }
-                          setIsLoading(true);
-                        }}
-                        onLoadEnd={(syntheticEvent) => {
-                          const { nativeEvent } = syntheticEvent;
-                          console.log('✅ WebView load end:', nativeEvent.url);
-                          webViewRef.current?.injectJavaScript(`
+                          onLoadStart={(syntheticEvent) => {
+                            const { nativeEvent } = syntheticEvent;
+                            console.log('🔵 WebView load start:', nativeEvent.url);
+                            if (serverStatus !== 'running') {
+                              setWebViewReady(false);
+                            }
+                            setIsLoading(true);
+                          }}
+                          onLoadEnd={(syntheticEvent) => {
+                            const { nativeEvent } = syntheticEvent;
+                            console.log('✅ WebView load end:', nativeEvent.url);
+                            webViewRef.current?.injectJavaScript(`
                            (function() {
                              window.addEventListener('error', function(e) {
                                window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -2439,62 +2448,62 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                            })();
                            true;
                          `);
-                          setIsLoading(false);
-                        }}
+                            setIsLoading(false);
+                          }}
 
-                        onLoadProgress={({ nativeEvent }) => {
-                          if (nativeEvent.progress === 1) setIsLoading(false);
-                        }}
-                        onNavigationStateChange={(navState) => {
-                          setCanGoBack(navState.canGoBack);
-                          setCanGoForward(navState.canGoForward);
-                          setIsLoading(navState.loading);
-                        }}
-                        onMessage={(event) => {
-                          try {
-                            const data = JSON.parse(event.nativeEvent.data);
+                          onLoadProgress={({ nativeEvent }) => {
+                            if (nativeEvent.progress === 1) setIsLoading(false);
+                          }}
+                          onNavigationStateChange={(navState) => {
+                            setCanGoBack(navState.canGoBack);
+                            setCanGoForward(navState.canGoForward);
+                            setIsLoading(navState.loading);
+                          }}
+                          onMessage={(event) => {
+                            try {
+                              const data = JSON.parse(event.nativeEvent.data);
 
-                            if (data.type === 'WEBVIEW_READY') {
-                              setWebViewReady(true);
-                            }
-                            if (data.type === 'TRIGGER_REFRESH') {
-                              handleRefresh();
-                            }
-                            if (data.type === 'PAGE_INFO') {
-                              if (data.rootChildren > 0 || data.forceReady) {
-                                if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
+                              if (data.type === 'WEBVIEW_READY') {
+                                setWebViewReady(true);
                               }
-                            }
-                            if (data.type === 'ELEMENT_SELECTED') {
-                              let elementSelector = `<${data.element.tag}>`;
-                              if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
-                              else if (data.element.className) {
-                                const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
-                                const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
-                                if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                              if (data.type === 'TRIGGER_REFRESH') {
+                                handleRefresh();
                               }
-                              setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
-                              inputRef.current?.focus();
-                              setIsInspectMode(false);
-                            }
-                          } catch (error) { }
-                        }}
-                        javaScriptEnabled={true}
-                        domStorageEnabled={true}
-                        startInLoadingState={false}
-                        scalesPageToFit={true}
-                        bounces={false}
-                        mixedContentMode="always"
-                        allowsInlineMediaPlayback={true}
-                        mediaPlaybackRequiresUserAction={false}
-                        originWhitelist={['*']}
-                        renderToHardwareTextureAndroid={true}
-                        shouldRasterizeIOS={true}
-                        cacheEnabled={true}
-                      />
-                    ) : (
-                      <View style={{ flex: 1, backgroundColor: '#0a0a0c' }} />
-                    )
+                              if (data.type === 'PAGE_INFO') {
+                                if (data.rootChildren > 0 || data.forceReady) {
+                                  if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
+                                }
+                              }
+                              if (data.type === 'ELEMENT_SELECTED') {
+                                let elementSelector = `<${data.element.tag}>`;
+                                if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
+                                else if (data.element.className) {
+                                  const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
+                                  const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
+                                  if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                                }
+                                setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
+                                inputRef.current?.focus();
+                                setIsInspectMode(false);
+                              }
+                            } catch (error) { }
+                          }}
+                          javaScriptEnabled={true}
+                          domStorageEnabled={true}
+                          startInLoadingState={false}
+                          scalesPageToFit={true}
+                          bounces={false}
+                          mixedContentMode="always"
+                          allowsInlineMediaPlayback={true}
+                          mediaPlaybackRequiresUserAction={false}
+                          originWhitelist={['*']}
+                          renderToHardwareTextureAndroid={true}
+                          shouldRasterizeIOS={true}
+                          cacheEnabled={true}
+                        />
+                      ) : (
+                        <View style={{ flex: 1, backgroundColor: '#0a0a0c' }} />
+                      )
                     ) : (
                       /* Terminal Output View for CLI projects */
                       <ScrollView
@@ -4053,6 +4062,24 @@ const styles = StyleSheet.create({
     elevation: 20,
     zIndex: 5,
   },
+  cosmicOrbGlass: {
+    width: 130,
+    height: 130,
+    borderRadius: 65,
+    overflow: 'hidden',
+    zIndex: 5,
+  },
+  cosmicOrbRaw: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 65,
+    overflow: 'hidden',
+  },
   cosmicGlowRing1: {
     position: 'absolute',
     width: 170,
@@ -4107,7 +4134,7 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 320,
     height: 64,
-    borderRadius: 20,
+    borderRadius: 32,
     overflow: 'hidden',
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
     marginBottom: 24,
@@ -4117,12 +4144,33 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 15,
   },
-  premiumBorderGradient: {
+  premiumBannerRound: {
+    width: '90%',
+    maxWidth: 320,
+    height: 64,
+    borderRadius: 32,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  premiumGlass: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 32,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  premiumBannerContentRaw: {
     ...StyleSheet.absoluteFillObject,
-    borderWidth: 1.5,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 20,
-    opacity: 0.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    gap: 14,
   },
   premiumBannerContent: {
     flex: 1,
@@ -4131,16 +4179,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 14,
   },
-  premiumIconContainer: {
+  premiumIconContainerGlass: {
     width: 32,
     height: 32,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
+    backgroundColor: 'rgba(155, 138, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(155, 138, 255, 0.2)',
   },
   premiumBannerTitle: {
     fontSize: 15,

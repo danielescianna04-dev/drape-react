@@ -14,7 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.drape.app"
+      "bundleIdentifier": "com.drape.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
+        "NSPhotoLibraryAddUsageDescription": "L'app necessita di salvare immagini nella tua galleria.",
+        "NSCameraUsageDescription": "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat."
+      }
     },
     "android": {
       "package": "com.drape.app",
@@ -37,6 +42,14 @@
     "plugins": [
       "expo-web-browser",
       "expo-apple-authentication",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
+          "cameraPermission": "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat."
+        }
+      ],
+      "expo-media-library",
       [
         "expo-build-properties",
         {

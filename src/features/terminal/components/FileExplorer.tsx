@@ -8,6 +8,7 @@ import { gitAccountService } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { websocketService } from '../../../core/websocket/websocketService';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -500,40 +501,80 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
   return (
     <View style={styles.container}>
-      {/* Compact Search Bar */}
+      {/* Compact Search Bar - Round & Glass */}
       <View style={styles.searchContainer}>
-        <View style={styles.searchInputWrapper}>
-          {searching ? (
-            <ActivityIndicator size="small" color={AppColors.primary} style={styles.searchIcon} />
-          ) : (
-            <Ionicons name="search" size={14} color={AppColors.white.w40} style={styles.searchIcon} />
-          )}
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Cerca..."
-            placeholderTextColor={AppColors.white.w25}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-              <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
-            </TouchableOpacity>
-          )}
-          {/* Search mode toggle inline */}
-          <TouchableOpacity
-            style={styles.searchModeToggle}
-            onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={styles.searchGlass}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
           >
-            <Ionicons
-              name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'}
-              size={14}
-              color={AppColors.primary}
+            <View style={styles.searchInputWrapperRaw}>
+              {searching ? (
+                <ActivityIndicator size="small" color={AppColors.primary} style={styles.searchIcon} />
+              ) : (
+                <Ionicons name="search" size={14} color={AppColors.white.w40} style={styles.searchIcon} />
+              )}
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Cerca..."
+                placeholderTextColor={AppColors.white.w25}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                  <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.searchModeToggle}
+                onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}
+              >
+                <Ionicons
+                  name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'}
+                  size={14}
+                  color={AppColors.primary}
+                />
+              </TouchableOpacity>
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.searchInputWrapper}>
+            {searching ? (
+              <ActivityIndicator size="small" color={AppColors.primary} style={styles.searchIcon} />
+            ) : (
+              <Ionicons name="search" size={14} color={AppColors.white.w40} style={styles.searchIcon} />
+            )}
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Cerca..."
+              placeholderTextColor={AppColors.white.w25}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
-          </TouchableOpacity>
-        </View>
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.searchModeToggle}
+              onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}
+            >
+              <Ionicons
+                name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'}
+                size={14}
+                color={AppColors.primary}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Results or File Tree - NO INTERNAL SCROLLVIEW */}
@@ -554,14 +595,26 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingVertical: 10,
+  },
+  searchGlass: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    height: 32,
+  },
+  searchInputWrapperRaw: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    height: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: AppColors.white.w06,
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderRadius: 16,
+    paddingHorizontal: 12,
     height: 32,
   },
   searchIcon: {

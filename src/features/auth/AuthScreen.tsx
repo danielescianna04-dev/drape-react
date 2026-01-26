@@ -709,7 +709,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   primaryButton: {
-    borderRadius: 16,
+    borderRadius: 28,
     overflow: 'hidden',
   },
   primaryButtonGradient: {
@@ -726,7 +726,7 @@ const styles = StyleSheet.create({
     height: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 28,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   secondaryButtonText: {
@@ -820,7 +820,7 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     height: 52,
-    borderRadius: 14,
+    borderRadius: 26,
     backgroundColor: AppColors.primary,
     alignItems: 'center',
     justifyContent: 'center',

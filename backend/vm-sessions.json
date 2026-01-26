@@ -6566,34 +6566,5 @@
       "requiresDocker": false,
       "hasWebUI": true
     }
-  },
-  "1769225859332-wi8a1sjjt": {
-    "id": "4d8921d5f27d28",
-    "name": "ws-1769225859332-wi8a1sjjt",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "4d8921d5f27d28",
-    "projectId": "1769225859332-wi8a1sjjt",
-    "createdAt": 1769429356823,
-    "lastUsed": 1769429359114,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J",
-    "projectInfo": {
-      "type": "static",
-      "startCommand": "npx http-server . -p 3000 -a 0.0.0.0",
-      "port": 3000
-    }
-  },
-  "ws-1769225859332-wi8a1sjjt": {
-    "id": "e2861672b69998",
-    "name": "ws-ws-1769225859332-wi8a1sjjt",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "e2861672b69998",
-    "projectId": "ws-1769225859332-wi8a1sjjt",
-    "createdAt": 1769429577162,
-    "lastUsed": 1769429577162,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J"
   }
 }

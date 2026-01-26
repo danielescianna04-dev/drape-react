@@ -148,24 +148,81 @@ export const ProjectLoadingOverlay = ({
             <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
                 <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
 
-                {isLiquidGlassSupported ? (
-                    <LiquidGlassView
-                        style={styles.cardGlass}
-                        interactive={isLiquidGlassSupported}
-                        effect="clear"
-                        colorScheme="dark"
-                    >
-                        <Animated.View
-                            style={[
-                                styles.card,
-                                {
-                                    transform: [
-                                        { scale: scaleAnim },
-                                        { translateY: translateYAnim }
-                                    ]
-                                }
-                            ]}
+                <Animated.View
+                    style={[
+                        {
+                            transform: [
+                                { scale: scaleAnim },
+                                { translateY: translateYAnim }
+                            ]
+                        }
+                    ]}
+                >
+                    {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                            style={styles.cardGlass}
+                            interactive={true}
+                            effect="clear"
+                            colorScheme="dark"
                         >
+                            <View style={styles.cardInner}>
+                                {/* Project name */}
+                                {projectName && (
+                                    <View style={styles.headerSection}>
+                                        <Ionicons name="folder-open" size={20} color={AppColors.primary} />
+                                        <Text style={styles.projectName} numberOfLines={1}>
+                                            {projectName}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* Current step */}
+                                {currentStep && (
+                                    <Text style={styles.stepText}>{currentStep}</Text>
+                                )}
+
+                                {/* Progress bar */}
+                                {progress > 0 && (
+                                    <View style={styles.progressContainer}>
+                                        <View style={styles.progressBar}>
+                                            <Animated.View style={[styles.progressFill, { width: progressWidth }]}>
+                                                <LinearGradient
+                                                    colors={[AppColors.primary, '#8B5CF6']}
+                                                    start={{ x: 0, y: 0 }}
+                                                    end={{ x: 1, y: 0 }}
+                                                    style={StyleSheet.absoluteFill}
+                                                />
+                                            </Animated.View>
+                                        </View>
+                                        <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+                                    </View>
+                                )}
+
+                                {/* Loading message */}
+                                <Text style={styles.message}>{message}</Text>
+
+                                {/* Rotating tips */}
+                                {showTips && (
+                                    <View style={styles.tipGlassWrapper}>
+                                        <LiquidGlassView
+                                            style={styles.tipGlass}
+                                            interactive={true}
+                                            effect="clear"
+                                            colorScheme="dark"
+                                        >
+                                            <Animated.View style={[styles.tipContainerRaw, { opacity: tipFadeAnim }]}>
+                                                <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
+                                                <Text style={styles.tipText} numberOfLines={2}>
+                                                    {LOADING_TIPS[currentTip].text}
+                                                </Text>
+                                            </Animated.View>
+                                        </LiquidGlassView>
+                                    </View>
+                                )}
+                            </View>
+                        </LiquidGlassView>
+                    ) : (
+                        <View style={styles.card}>
                             {/* Project name */}
                             {projectName && (
                                 <View style={styles.headerSection}>
@@ -210,66 +267,9 @@ export const ProjectLoadingOverlay = ({
                                     </Text>
                                 </Animated.View>
                             )}
-                        </Animated.View>
-                    </LiquidGlassView>
-                ) : (
-                    <Animated.View
-                        style={[
-                            styles.card,
-                            {
-                                transform: [
-                                    { scale: scaleAnim },
-                                    { translateY: translateYAnim }
-                                ]
-                            }
-                        ]}
-                    >
-                        {/* Project name */}
-                        {projectName && (
-                            <View style={styles.headerSection}>
-                                <Ionicons name="folder-open" size={20} color={AppColors.primary} />
-                                <Text style={styles.projectName} numberOfLines={1}>
-                                    {projectName}
-                                </Text>
-                            </View>
-                        )}
-
-                        {/* Current step */}
-                        {currentStep && (
-                            <Text style={styles.stepText}>{currentStep}</Text>
-                        )}
-
-                        {/* Progress bar */}
-                        {progress > 0 && (
-                            <View style={styles.progressContainer}>
-                                <View style={styles.progressBar}>
-                                    <Animated.View style={[styles.progressFill, { width: progressWidth }]}>
-                                        <LinearGradient
-                                            colors={[AppColors.primary, '#8B5CF6']}
-                                            start={{ x: 0, y: 0 }}
-                                            end={{ x: 1, y: 0 }}
-                                            style={StyleSheet.absoluteFill}
-                                        />
-                                    </Animated.View>
-                                </View>
-                                <Text style={styles.progressText}>{Math.round(progress)}%</Text>
-                            </View>
-                        )}
-
-                        {/* Loading message */}
-                        <Text style={styles.message}>{message}</Text>
-
-                        {/* Rotating tips */}
-                        {showTips && (
-                            <Animated.View style={[styles.tipContainer, { opacity: tipFadeAnim }]}>
-                                <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
-                                <Text style={styles.tipText} numberOfLines={2}>
-                                    {LOADING_TIPS[currentTip].text}
-                                </Text>
-                            </Animated.View>
-                        )}
-                    </Animated.View>
-                )}
+                        </View>
+                    )}
+                </Animated.View>
             </Animated.View>
         </Modal>
     );
@@ -282,8 +282,18 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     cardGlass: {
-        borderRadius: 28,
+        borderRadius: 24,
         overflow: 'hidden',
+        width: 310,
+        alignSelf: 'center',
+    },
+    cardInner: {
+        backgroundColor: 'rgba(15, 15, 18, 0.95)',
+        padding: 20,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        borderRadius: 24,
     },
     card: {
         backgroundColor: 'rgba(15, 15, 18, 0.7)',
@@ -305,8 +315,8 @@ const styles = StyleSheet.create({
     headerSection: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        marginBottom: 20,
+        gap: 8,
+        marginBottom: 16,
     },
     projectName: {
         fontSize: 16,
@@ -327,8 +337,8 @@ const styles = StyleSheet.create({
         width: '100%',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 14,
-        marginBottom: 16,
+        gap: 12,
+        marginBottom: 12,
     },
     progressBar: {
         flex: 1,
@@ -349,24 +359,43 @@ const styles = StyleSheet.create({
         textAlign: 'right',
     },
     message: {
-        fontSize: 13,
-        color: 'rgba(255, 255, 255, 0.4)',
+        fontSize: 12,
+        color: 'rgba(255, 255, 255, 0.3)',
         textAlign: 'center',
-        marginBottom: 16,
+        marginBottom: 12,
         fontWeight: '500',
+    },
+    tipGlassWrapper: {
+        borderRadius: 12,
+        overflow: 'hidden',
+        width: '100%',
+    },
+    tipGlass: {
+        width: '100%',
+    },
+    tipContainerRaw: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: 'rgba(155, 138, 255, 0.08)',
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(155, 138, 255, 0.12)',
     },
     tipContainer: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
         backgroundColor: 'rgba(155, 138, 255, 0.06)',
-        paddingVertical: 12,
-        paddingHorizontal: 16,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
         borderRadius: 12,
         marginBottom: 10,
-        minHeight: 52,
         borderWidth: 1,
         borderColor: 'rgba(155, 138, 255, 0.1)',
+        width: '100%',
     },
     tipIcon: {
         fontSize: 18,
