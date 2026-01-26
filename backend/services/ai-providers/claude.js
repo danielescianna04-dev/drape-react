@@ -83,8 +83,16 @@ class ClaudeProvider extends BaseAIProvider {
             messages: formattedMessages
         };
 
+        // PROMPT CACHING: Cache system prompt for 90% cost reduction on repeated calls
+        // https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
         if (system) {
-            requestParams.system = system;
+            requestParams.system = [
+                {
+                    type: "text",
+                    text: system,
+                    cache_control: { type: "ephemeral" }  // 5 min TTL, refreshed on use
+                }
+            ];
         }
 
         if (options.tools && options.tools.length > 0) {
@@ -138,8 +146,16 @@ class ClaudeProvider extends BaseAIProvider {
             stream: true
         };
 
+        // PROMPT CACHING: Cache system prompt for 90% cost reduction on repeated calls
+        // https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
         if (system) {
-            requestParams.system = system;
+            requestParams.system = [
+                {
+                    type: "text",
+                    text: system,
+                    cache_control: { type: "ephemeral" }  // 5 min TTL, refreshed on use
+                }
+            ];
         }
 
         if (options.tools && options.tools.length > 0) {
@@ -161,11 +177,18 @@ class ClaudeProvider extends BaseAIProvider {
         let currentToolUse = null;
         let stopReason = null;
         let isThinking = false;
-        let usage = { inputTokens: 0, outputTokens: 0 };
+        let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheCreationTokens: 0 };
 
         for await (const event of stream) {
             if (event.type === 'message_start') {
                 usage.inputTokens = event.message?.usage?.input_tokens || 0;
+                usage.cachedTokens = event.message?.usage?.cache_read_input_tokens || 0;
+                usage.cacheCreationTokens = event.message?.usage?.cache_creation_input_tokens || 0;
+
+                // Log cache stats for debugging
+                if (usage.cachedTokens > 0 || usage.cacheCreationTokens > 0) {
+                    console.log(`💾 [Claude Cache] Read: ${usage.cachedTokens} tokens (90% saved), Created: ${usage.cacheCreationTokens} tokens`);
+                }
             } else if (event.type === 'content_block_start') {
                 if (event.content_block?.type === 'tool_use') {
                     currentToolUse = {
@@ -240,11 +263,19 @@ class ClaudeProvider extends BaseAIProvider {
     }
 
     getUsage(response) {
-        return {
+        const usage = {
             inputTokens: response.usage?.input_tokens || 0,
             outputTokens: response.usage?.output_tokens || 0,
-            cachedTokens: response.usage?.cache_read_input_tokens || 0
+            cachedTokens: response.usage?.cache_read_input_tokens || 0,
+            cacheCreationTokens: response.usage?.cache_creation_input_tokens || 0
         };
+
+        // Log cache stats for debugging
+        if (usage.cachedTokens > 0 || usage.cacheCreationTokens > 0) {
+            console.log(`💾 [Claude Cache] Read: ${usage.cachedTokens} tokens (90% saved), Created: ${usage.cacheCreationTokens} tokens`);
+        }
+
+        return usage;
     }
 }
 

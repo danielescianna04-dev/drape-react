@@ -17,7 +17,7 @@ const DEFAULT_MACHINE_CONFIG = {
         memory_mb: 2048,
         cpu_kind: 'shared'
     },
-    auto_destroy: true, // Destroy when stopped
+    auto_destroy: false, // Keep VM when stopped (cost optimization: $0.30/mo vs $11.83/mo)
     restart: {
         policy: 'no' // Don't auto-restart
     }

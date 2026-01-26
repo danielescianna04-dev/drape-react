@@ -14,8 +14,39 @@ const { validateBody, schema, commonSchemas } = require('../middleware/validator
 const { cleanProjectId, unescapeString, getRepoPath, execAsync } = require('../utils/helpers');
 const { FILE_LIMITS, IGNORED_DIRS } = require('../utils/constants');
 const { executeTool, createContext } = require('../services/tool-executor');
+const { getPlan, checkProjectLimit } = require('../utils/plans');
 
 const creationTasks = new Map();
+
+/**
+ * Helper: Count user's projects by type
+ */
+async function getUserProjectCounts(userId) {
+    const admin = require('firebase-admin');
+    const db = admin.firestore();
+
+    let created = 0;
+    let imported = 0;
+
+    try {
+        const projectsSnapshot = await db.collection('user_projects')
+            .where('userId', '==', userId)
+            .get();
+
+        projectsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.type === 'ai-generated') {
+                created++;
+            } else if (data.type === 'git' || data.type === 'imported') {
+                imported++;
+            }
+        });
+    } catch (e) {
+        console.warn(`Could not count projects for user ${userId}: ${e.message}`);
+    }
+
+    return { created, imported, total: created + imported };
+}
 
 /**
  * GET /workstation/create-status/:taskId
@@ -590,12 +621,28 @@ router.delete('/:projectId', asyncHandler(async (req, res) => {
  * Create a workstation and fetch GitHub files
  */
 router.post('/create', asyncHandler(async (req, res) => {
-    const { repositoryUrl, userId, projectId, projectType, projectName, githubToken } = req.body;
+    const { repositoryUrl, userId, projectId, projectType, projectName, githubToken, userPlan = 'free' } = req.body;
     const axios = require('axios');
     const admin = require('firebase-admin');
     const db = admin.firestore();
 
     console.log('🚀 Creating workstation for:', projectType === 'git' ? repositoryUrl : projectName);
+
+    // Check project import limit for git projects
+    if (projectType === 'git' && userId) {
+        const projectCounts = await getUserProjectCounts(userId);
+        const limitCheck = checkProjectLimit(projectCounts, 'imported', userPlan);
+
+        if (!limitCheck.allowed) {
+            console.log(`🚫 [Workstation] User ${userId} exceeded project import limit: ${limitCheck.reason}`);
+            return res.status(403).json({
+                success: false,
+                error: 'PROJECT_LIMIT_EXCEEDED',
+                message: limitCheck.reason,
+                limits: limitCheck.limits
+            });
+        }
+    }
 
     const workstationId = `ws-${projectId.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
     console.log('Workstation ID:', workstationId);
@@ -672,6 +719,22 @@ router.post('/create', asyncHandler(async (req, res) => {
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             console.log(`💾 Saved ${files.length} files to Firestore`);
+
+            // Also save to user_projects for tracking limits
+            if (userId) {
+                await db.collection('user_projects').doc(workstationId).set({
+                    id: workstationId,
+                    name: projectName || repositoryUrl.split('/').pop().replace('.git', ''),
+                    type: 'git',
+                    repositoryUrl,
+                    userId,
+                    status: 'ready',
+                    cloned: true,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastAccessed: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`💾 Saved project to user_projects: ${workstationId}`);
+            }
         } catch (error) {
             console.error('⚠️ Error saving files to Firestore:', error.message);
         }
@@ -696,11 +759,25 @@ router.post('/create', asyncHandler(async (req, res) => {
  * Create a workstation with AI-generated code using Claude
  */
 router.post('/create-with-template', asyncHandler(async (req, res) => {
-    const { projectName, technology, description, userId, projectId } = req.body;
+    const { projectName, technology, description, userId, projectId, userPlan = 'free' } = req.body;
 
     if (!projectName || !technology || !userId) {
         return res.status(400).json({
             error: 'Missing required fields: projectName, technology, userId'
+        });
+    }
+
+    // Check project creation limit
+    const projectCounts = await getUserProjectCounts(userId);
+    const limitCheck = checkProjectLimit(projectCounts, 'created', userPlan);
+
+    if (!limitCheck.allowed) {
+        console.log(`🚫 [Workstation] User ${userId} exceeded project creation limit: ${limitCheck.reason}`);
+        return res.status(403).json({
+            success: false,
+            error: 'PROJECT_LIMIT_EXCEEDED',
+            message: limitCheck.reason,
+            limits: limitCheck.limits
         });
     }
 

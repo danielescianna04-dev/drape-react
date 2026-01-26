@@ -35,10 +35,11 @@ import { useCloneStatusStore } from './src/core/clone/cloneStatusStore';
 import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
+import { useNavigationStore } from './src/core/navigation/navigationStore';
 
 console.log('App.tsx loaded');
 
-type Screen = 'splash' | 'auth' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings';
+type Screen = 'splash' | 'auth' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -76,6 +77,24 @@ export default function App() {
       setCurrentScreen('home');
     }
   }, [user, isInitialized, currentScreen]);
+
+  // Listen to navigation store for cross-component navigation
+  const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
+  useEffect(() => {
+    if (pendingNavigation) {
+      setCurrentScreen(pendingNavigation);
+      useNavigationStore.getState().clearPendingNavigation();
+    }
+  }, [pendingNavigation]);
+
+  // Automatically track previous screen whenever currentScreen changes.
+  // We skip screens like 'settings' and 'plans' because we want to return FROM them to the previous workspace.
+  useEffect(() => {
+    if (currentScreen !== 'settings' && currentScreen !== 'plans' && currentScreen !== 'splash' && currentScreen !== 'auth') {
+      useNavigationStore.setState({ previousScreen: currentScreen });
+      console.log('🔄 [App] Updated previousScreen in store to:', currentScreen);
+    }
+  }, [currentScreen]);
 
   // Helper function to check auth BEFORE opening project
   // Returns token if auth successful, empty string if no auth needed (public repo), null if cancelled
@@ -894,6 +913,7 @@ export default function App() {
                       onImportProject={() => setShowImportModal(true)}
                       onMyProjects={() => setCurrentScreen('allProjects')}
                       onSettings={() => setCurrentScreen('settings')}
+                      onOpenPlans={() => setCurrentScreen('plans')}
                       onOpenProject={async (workstation) => {
                         const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
@@ -1243,7 +1263,27 @@ export default function App() {
                   style={{ flex: 1 }}
                 >
                   <SettingsScreen
-                    onClose={() => setCurrentScreen('home')}
+                    onClose={() => {
+                      const prev = useNavigationStore.getState().previousScreen;
+                      setCurrentScreen(prev || 'home');
+                    }}
+                  />
+                </Animated.View>
+              )}
+
+              {currentScreen === 'plans' && (
+                <Animated.View
+                  key="plans-screen"
+                  entering={SlideInRight.duration(300)}
+                  exiting={FadeOut.duration(200)}
+                  style={{ flex: 1 }}
+                >
+                  <SettingsScreen
+                    onClose={() => {
+                      const prev = useNavigationStore.getState().previousScreen;
+                      setCurrentScreen(prev || 'home');
+                    }}
+                    initialShowPlans={true}
                   />
                 </Animated.View>
               )}

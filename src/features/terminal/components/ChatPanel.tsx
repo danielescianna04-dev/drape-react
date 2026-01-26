@@ -4,8 +4,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { EmptyState } from '../../../shared/components/organisms';
 import { IconButton } from '../../../shared/components/atoms';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface Props {
   onClose: () => void;
@@ -15,9 +18,12 @@ export const ChatPanel = ({ onClose }: Props) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
-  const [renamingValue, setRenamingValue] = useState('');
+  const { renamingValue, setRenamingValue } = useState('');
   const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats, currentWorkstation } = useTerminalStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
+  const { user } = useAuthStore();
+
+  const isGoUser = user?.plan === 'go';
 
   // Load chats from AsyncStorage on mount
   useEffect(() => {
@@ -141,6 +147,36 @@ export const ChatPanel = ({ onClose }: Props) => {
   return (
     <>
       <View style={styles.container}>
+        {/* Upgrade CTA for Free Users */}
+        {!isGoUser && (
+          <TouchableOpacity
+            style={styles.upgradeBtnContainer}
+            onPress={() => {
+              onClose();
+              useNavigationStore.getState().navigateTo('plans');
+            }}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#2C2C2E', '#1C1C1E']}
+              style={styles.upgradeBtn}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <View style={styles.upgradeLeft}>
+                <View style={styles.flashIconBg}>
+                  <Ionicons name="flash" size={12} color="#9B8AFF" />
+                </View>
+                <View>
+                  <Text style={styles.upgradeTitle}>Passa a GO</Text>
+                  <Text style={styles.upgradeSubtitle}>Modelli AI avanzati e altro</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.2)" />
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
         {/* New Chat Button - ChatGPT style */}
         <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
           <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
@@ -404,5 +440,45 @@ const styles = StyleSheet.create({
   bottomCloseText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.5)',
+  },
+  upgradeBtnContainer: {
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  upgradeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  upgradeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  flashIconBg: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(155, 138, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(155, 138, 255, 0.2)',
+  },
+  upgradeTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  upgradeSubtitle: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 1,
   },
 });

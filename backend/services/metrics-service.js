@@ -7,9 +7,11 @@
  * - VM pool hit rate
  * - Error types and frequencies
  * - Resource usage
+ * - AI usage and costs per user (EUR)
  */
 
 const admin = require('firebase-admin');
+const { calculateCostEur, getPlan, checkBudget } = require('../utils/plans');
 
 class MetricsService {
     constructor() {
@@ -152,7 +154,18 @@ class MetricsService {
                         totalInputTokens: admin.firestore.FieldValue.increment(metric.inputTokens),
                         totalOutputTokens: admin.firestore.FieldValue.increment(metric.outputTokens),
                         totalCachedTokens: admin.firestore.FieldValue.increment(metric.cachedTokens),
+                        totalCostEur: admin.firestore.FieldValue.increment(metric.costEur || 0),
                         [`hourly_${hour}`]: admin.firestore.FieldValue.increment(metric.inputTokens + metric.outputTokens),
+                        lastUpdate: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+
+                    // Also aggregate monthly
+                    const currentMonth = today.substring(0, 7);
+                    const monthlyRef = this.db.collection('usage_monthly').doc(currentMonth);
+                    batch.set(monthlyRef, {
+                        totalInputTokens: admin.firestore.FieldValue.increment(metric.inputTokens),
+                        totalOutputTokens: admin.firestore.FieldValue.increment(metric.outputTokens),
+                        totalCostEur: admin.firestore.FieldValue.increment(metric.costEur || 0),
                         lastUpdate: admin.firestore.FieldValue.serverTimestamp()
                     }, { merge: true });
                 }
@@ -187,21 +200,111 @@ class MetricsService {
     }
 
     /**
-     * Track AI usage
-     * @param {object} data - Usage data { inputTokens, outputTokens, cachedTokens, model, projectId }
+     * Track AI usage with cost calculation
+     * @param {object} data - Usage data { inputTokens, outputTokens, cachedTokens, model, projectId, userId }
      */
     async trackAIUsage(data) {
+        const inputTokens = data.inputTokens || 0;
+        const outputTokens = data.outputTokens || 0;
+        const cachedTokens = data.cachedTokens || 0;
+
+        // Calculate cost in EUR
+        const costEur = calculateCostEur(data.model, inputTokens, outputTokens, cachedTokens);
+
+        console.log(`📈 [Metrics] Tracking AI: ${inputTokens} in, ${outputTokens} out, cached: ${cachedTokens}, model: ${data.model}, cost: €${costEur.toFixed(6)}`);
+
         const metric = {
             type: 'ai_usage',
             timestamp: Date.now(),
             projectId: data.projectId,
+            userId: data.userId || null,
             model: data.model,
-            inputTokens: data.inputTokens || 0,
-            outputTokens: data.outputTokens || 0,
-            cachedTokens: data.cachedTokens || 0
+            inputTokens,
+            outputTokens,
+            cachedTokens,
+            costEur // Track cost in EUR
         };
 
         this.metricsCache.push(metric);
+
+        // Flush immediately for AI usage (important for real-time dashboard)
+        if (this.metricsCache.length >= 1) {
+            this.flushMetrics().catch(e => console.warn(`⚠️ [Metrics] Flush failed: ${e.message}`));
+        }
+
+        // Update user's monthly spending if userId provided
+        if (data.userId && this.db) {
+            this._updateUserSpending(data.userId, costEur).catch(e =>
+                console.warn(`⚠️ [Metrics] Failed to update user spending: ${e.message}`)
+            );
+        }
+
+        return { costEur };
+    }
+
+    /**
+     * Update user's monthly AI spending
+     * @param {string} userId - User ID
+     * @param {number} costEur - Cost to add in EUR
+     */
+    async _updateUserSpending(userId, costEur) {
+        if (!this.db || !userId) return;
+
+        const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+        const spendingRef = this.db.collection('user_spending').doc(`${userId}_${currentMonth}`);
+
+        await spendingRef.set({
+            userId,
+            month: currentMonth,
+            totalSpentEur: admin.firestore.FieldValue.increment(costEur),
+            lastUpdate: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+
+    /**
+     * Get user's current monthly AI spending
+     * @param {string} userId - User ID
+     * @returns {Promise<number>} Total spent in EUR this month
+     */
+    async getUserMonthlySpending(userId) {
+        if (!this.db || !userId) return 0;
+
+        try {
+            const currentMonth = new Date().toISOString().substring(0, 7);
+            const spendingDoc = await this.db.collection('user_spending').doc(`${userId}_${currentMonth}`).get();
+
+            if (spendingDoc.exists) {
+                return spendingDoc.data().totalSpentEur || 0;
+            }
+            return 0;
+        } catch (e) {
+            console.warn(`⚠️ [Metrics] Failed to get user spending: ${e.message}`);
+            return 0;
+        }
+    }
+
+    /**
+     * Check if user can make an AI call based on their plan budget
+     * @param {string} userId - User ID
+     * @param {string} planId - User's plan ID (free, go, pro, enterprise)
+     * @param {string} model - AI model to use
+     * @param {number} estimatedInputTokens - Estimated input tokens (optional)
+     * @returns {Promise<object>} { allowed, reason, remaining, budgetEur, spentEur }
+     */
+    async checkUserBudget(userId, planId, model, estimatedInputTokens = 3000) {
+        const currentSpent = await this.getUserMonthlySpending(userId);
+
+        // Estimate cost for this call
+        const estimatedCost = calculateCostEur(model, estimatedInputTokens, 500, 0);
+
+        const result = checkBudget(currentSpent, estimatedCost, planId);
+        result.estimatedCostEur = estimatedCost;
+
+        if (!result.allowed) {
+            console.log(`🚫 [Metrics] Budget exceeded for user ${userId}: spent €${currentSpent.toFixed(4)} / €${result.budgetEur}`);
+        }
+
+        return result;
     }
 
     /**
@@ -226,8 +329,25 @@ class MetricsService {
      * Get real usage stats for the dashboard
      */
     async getSystemStatus() {
+        console.log(`📊 [Metrics] getSystemStatus called - initialized: ${this.initialized}, hasDb: ${!!this.db}`);
+
+        // Always try to get VM pool stats (works without Firebase)
+        let poolStats = { workers: { allocated: 0 } };
+        try {
+            const vmPoolManager = require('./vm-pool-manager');
+            poolStats = vmPoolManager.getStats();
+            console.log(`📊 [Metrics] VM Pool: ${poolStats.workers?.allocated || 0} allocated, ${poolStats.workers?.available || 0} available`);
+        } catch (e) {
+            console.warn(`⚠️ [Metrics] Could not get VM pool stats: ${e.message}`);
+        }
+
         if (!this.initialized || !this.db) {
-            return this._getFallbackStats();
+            console.log(`📊 [Metrics] Using fallback stats (Firebase not ready)`);
+            // Return partial stats with VM pool data
+            const stats = this._getFallbackStats();
+            stats.previews.active = poolStats.workers?.allocated || 0;
+            stats.previews.percent = Math.min(100, Math.round((stats.previews.active / 10) * 100));
+            return stats;
         }
 
         try {
@@ -246,26 +366,37 @@ class MetricsService {
                 hourlyData.push(dailyData[`hourly_${h}`] || 0);
             }
 
-            // Get VM Pool stats
-            const vmPoolManager = require('./vm-pool-manager');
-            const poolStats = vmPoolManager.getStats();
+            // Extract workers allocated (active previews) from poolStats fetched at top
+            const activePreviewsCount = poolStats.workers?.allocated || 0;
 
-            // Get total projects (real count from DB)
-            const projectsSnapshot = await this.db.collection('projects').get();
-            const totalProjects = projectsSnapshot.size;
+            // Get total projects (real count from DB) - use user_projects collection
+            let totalProjects = 0;
+            try {
+                const projectsSnapshot = await this.db.collection('user_projects').get();
+                totalProjects = projectsSnapshot.size;
+            } catch (e) {
+                console.warn(`⚠️ [Metrics] Could not count projects: ${e.message}`);
+            }
 
             const totalTokens = (dailyData.totalInputTokens || 0) + (dailyData.totalOutputTokens || 0);
             const tokenLimit = 1000000; // 1M hardcoded for now (could be per-plan)
 
             // Get monthly search usage
             const currentMonth = today.substring(0, 7);
-            const monthlyDoc = await this.db.collection('usage_monthly').doc(currentMonth).get();
-            const monthlyData = monthlyDoc.exists ? monthlyDoc.data() : { totalSearches: 0 };
+            let totalSearches = 0;
+            try {
+                const monthlyDoc = await this.db.collection('usage_monthly').doc(currentMonth).get();
+                const monthlyData = monthlyDoc.exists ? monthlyDoc.data() : { totalSearches: 0 };
+                totalSearches = monthlyData.totalSearches || 0;
+            } catch (e) {
+                console.warn(`⚠️ [Metrics] Could not get search stats: ${e.message}`);
+            }
 
-            const totalSearches = monthlyData.totalSearches || 0;
             const searchLimit = 20;
-
             const projectsLimit = 5;
+            const previewsLimit = 10;
+
+            console.log(`📊 [Metrics] Stats: tokens=${totalTokens}, previews=${activePreviewsCount}, projects=${totalProjects}, searches=${totalSearches}`);
 
             return {
                 tokens: {
@@ -275,9 +406,9 @@ class MetricsService {
                     hourly: hourlyData
                 },
                 previews: {
-                    active: poolStats.allocated,
-                    limit: 10, // Max concurrent previews
-                    percent: Math.min(100, Math.round((poolStats.allocated / 10) * 100))
+                    active: activePreviewsCount,
+                    limit: previewsLimit,
+                    percent: Math.min(100, Math.round((activePreviewsCount / previewsLimit) * 100))
                 },
                 projects: {
                     active: totalProjects,

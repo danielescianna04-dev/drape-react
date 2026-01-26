@@ -395,6 +395,108 @@ router.get('/branches/:projectId', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /git/init/:projectId
+ * Initialize git repo, add all files, commit, set remote, and push
+ */
+router.post('/init/:projectId', asyncHandler(async (req, res) => {
+    const { projectId } = req.params;
+    const { repoUrl } = req.body;
+    const token = extractToken(req);
+    const wsName = cleanWorkspaceName(projectId);
+
+    console.log(`☁️  Git Init in cloud: ${wsName} -> ${repoUrl}`);
+
+    if (!repoUrl) {
+        return res.status(400).json({ error: 'Repository URL is required' });
+    }
+
+    const orch = getOrchestrator();
+    const results = [];
+
+    try {
+        // 1. Initialize git if not already
+        console.log(`   📂 Initializing git...`);
+        await orch.exec(projectId, 'git init');
+        results.push('Git initialized');
+
+        // 2. Configure git user (use token user info or defaults)
+        console.log(`   👤 Configuring git user...`);
+        await orch.exec(projectId, 'git config user.email "drape@app.com"');
+        await orch.exec(projectId, 'git config user.name "Drape User"');
+        results.push('Git user configured');
+
+        // 3. Add all files
+        console.log(`   ➕ Adding all files...`);
+        const addResult = await orch.exec(projectId, 'git add -A');
+        results.push('All files added');
+
+        // 4. Check if there are files to commit
+        const statusResult = await orch.exec(projectId, 'git status --porcelain');
+        const hasFiles = statusResult.stdout.trim().length > 0;
+
+        if (hasFiles) {
+            // 5. Create initial commit
+            console.log(`   💾 Creating initial commit...`);
+            const commitResult = await orch.exec(projectId, 'git commit -m "Initial commit from Drape"');
+            if (commitResult.exitCode !== 0 && !commitResult.stderr.includes('nothing to commit')) {
+                console.warn(`   ⚠️ Commit warning: ${commitResult.stderr}`);
+            }
+            results.push('Initial commit created');
+        } else {
+            console.log(`   ℹ️ No files to commit`);
+            results.push('No files to commit (empty project)');
+        }
+
+        // 6. Remove existing origin if present, then add new one
+        console.log(`   🔗 Setting remote origin: ${repoUrl}`);
+        await orch.exec(projectId, 'git remote remove origin 2>/dev/null || true');
+        await orch.exec(projectId, `git remote add origin "${repoUrl}"`);
+        results.push('Remote origin configured');
+
+        // 7. Rename branch to main if needed
+        await orch.exec(projectId, 'git branch -M main');
+        results.push('Branch set to main');
+
+        // 8. Push to remote with token auth
+        if (token && hasFiles) {
+            console.log(`   🚀 Pushing to remote...`);
+            const authenticatedUrl = repoUrl.replace('https://github.com/', `https://${token}@github.com/`);
+            await orch.exec(projectId, `git remote set-url origin "${authenticatedUrl}"`);
+
+            const pushResult = await orch.exec(projectId, 'git push -u origin main --force');
+
+            // Restore clean URL (without token)
+            await orch.exec(projectId, `git remote set-url origin "${repoUrl}"`);
+
+            if (pushResult.exitCode === 0) {
+                results.push('Pushed to remote');
+            } else {
+                console.warn(`   ⚠️ Push warning: ${pushResult.stderr}`);
+                results.push(`Push warning: ${pushResult.stderr}`);
+            }
+        } else if (!hasFiles) {
+            results.push('Skipped push (no files)');
+        } else {
+            results.push('Skipped push (no token)');
+        }
+
+        res.json({
+            success: true,
+            message: 'Repository initialized and connected',
+            results
+        });
+
+    } catch (error) {
+        console.error(`❌ [Git Init] Error: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            results
+        });
+    }
+}));
+
+/**
  * POST /git/stash/:projectId
  * Stash changes
  */

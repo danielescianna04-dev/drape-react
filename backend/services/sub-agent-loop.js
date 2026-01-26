@@ -7,6 +7,7 @@ const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
 const { globSearch } = require('./tools/glob');
 const { grepSearch } = require('./tools/grep');
+const metricsService = require('./metrics-service');
 
 class SubAgentLoop {
     constructor(agentType, projectId, parentContext = null) {
@@ -199,6 +200,24 @@ Guidelines:
                         text += chunk.text;
                     } else if (chunk.type === 'tool_use') {
                         toolCalls.push(chunk);
+                    } else if (chunk.type === 'done') {
+                        text = chunk.fullText || text;
+                        toolCalls = chunk.toolCalls || toolCalls;
+
+                        // Track AI token usage
+                        if (chunk.usage) {
+                            const inputTokens = chunk.usage.inputTokens || 0;
+                            const outputTokens = chunk.usage.outputTokens || 0;
+                            if (inputTokens > 0 || outputTokens > 0) {
+                                metricsService.trackAIUsage({
+                                    projectId: this.projectId || 'sub-agent',
+                                    model: modelId,
+                                    inputTokens,
+                                    outputTokens,
+                                    cachedTokens: chunk.usage.cachedTokens || 0
+                                }).catch(e => console.warn(`⚠️ [SubAgent] Failed to track usage: ${e.message}`));
+                            }
+                        }
                     }
                 }
 

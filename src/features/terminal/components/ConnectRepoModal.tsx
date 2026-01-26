@@ -17,9 +17,10 @@ import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-nati
 import { AppColors } from '../../../shared/theme/colors';
 import { githubService, GitHubRepository } from '../../../core/github/githubService';
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
-import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
+import { db, auth } from '../../../config/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 interface Props {
   visible: boolean;
@@ -167,14 +168,29 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
   const updateWorkstationRepo = async (repoUrl: string) => {
     if (!currentWorkstation?.id) return;
 
-    await workstationService.updateWorkstation(currentWorkstation.id, {
+    const cleanId = currentWorkstation.id.startsWith('ws-')
+      ? currentWorkstation.id.substring(3)
+      : currentWorkstation.id;
+
+    // Use setDoc with merge to handle both existing and non-existing documents
+    const docRef = doc(db, 'user_projects', cleanId);
+    await setDoc(docRef, {
       repositoryUrl: repoUrl,
       githubUrl: repoUrl,
       githubAccountUsername: selectedAccount?.username,
-    });
+      name: currentWorkstation.name || projectName,
+      type: 'git',
+      userId: auth.currentUser?.uid || userId,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(), // Will only be set on creation, not updates
+      status: 'running',
+      lastAccessed: serverTimestamp(),
+    }, { merge: true });
+
+    console.log('✅ Workstation updated/created in Firebase:', cleanId);
 
     // Update local state
-    useTerminalStore.getState().setCurrentWorkstation({
+    useTerminalStore.getState().setWorkstation({
       ...currentWorkstation,
       repositoryUrl: repoUrl,
       githubUrl: repoUrl,

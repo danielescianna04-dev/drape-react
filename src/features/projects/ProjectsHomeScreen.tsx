@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -26,11 +27,42 @@ interface Props {
   onMyProjects: () => void;
   onOpenProject: (workstation: any) => void;
   onSettings?: () => void;
+  onOpenPlans?: () => void;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings }: Props) => {
+const TUTORIAL_KEY = '@drape_tutorial_completed';
+
+// Tutorial steps configuration
+const tutorialSteps = [
+  {
+    id: 'welcome',
+    title: 'Benvenuto su Drape!',
+    description: 'Ti mostro come funziona in pochi passi',
+    icon: 'sparkles' as const,
+  },
+  {
+    id: 'new',
+    title: 'Crea un nuovo progetto',
+    description: 'Usa AI per generare app complete partendo da una descrizione',
+    icon: 'add' as const,
+  },
+  {
+    id: 'clone',
+    title: 'Importa da GitHub',
+    description: 'Clona qualsiasi repository e modificalo con l\'AI',
+    icon: 'logo-github' as const,
+  },
+  {
+    id: 'recent',
+    title: 'Progetti recenti',
+    description: 'Qui trovi tutti i tuoi progetti salvati',
+    icon: 'time-outline' as const,
+  },
+];
+
+export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings, onOpenPlans }: Props) => {
   const { user } = useAuthStore();
   const { gitHubUser, loadWorkstations } = useTerminalStore();
 
@@ -44,6 +76,29 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         clearInterval(progressTimerRef.current);
       }
     };
+  }, []);
+
+  // Check if user needs tutorial
+  useEffect(() => {
+    const checkTutorial = async () => {
+      try {
+        const completed = await AsyncStorage.getItem(TUTORIAL_KEY);
+        if (!completed) {
+          // Small delay to let the screen render first
+          setTimeout(() => {
+            setShowTutorial(true);
+            Animated.timing(tutorialFadeAnim, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+            }).start();
+          }, 800);
+        }
+      } catch (error) {
+        console.log('Error checking tutorial status:', error);
+      }
+    };
+    checkTutorial();
   }, []);
 
   const currentHour = new Date().getHours();
@@ -66,6 +121,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loadingProjectName, setLoadingProjectName] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStep, setLoadingStep] = useState('');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'enterprise'>('free');
+  const [showUpgradeCta, setShowUpgradeCta] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const tutorialFadeAnim = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -692,6 +752,30 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
+  // Tutorial handlers
+  const handleNextTutorialStep = () => {
+    if (tutorialStep < tutorialSteps.length - 1) {
+      setTutorialStep(tutorialStep + 1);
+    } else {
+      handleCompleteTutorial();
+    }
+  };
+
+  const handleCompleteTutorial = async () => {
+    Animated.timing(tutorialFadeAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowTutorial(false);
+    });
+    try {
+      await AsyncStorage.setItem(TUTORIAL_KEY, 'true');
+    } catch (error) {
+      console.log('Error saving tutorial status:', error);
+    }
+  };
+
   const shimmerOpacity = shimmerAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0.3, 0.6],
@@ -765,7 +849,22 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           )}
           <View style={styles.welcomeTextContainer}>
             <Text style={styles.headerSubtitle}>{greeting}</Text>
-            <Text style={styles.headerTitle} numberOfLines={1}>{userName}</Text>
+            <View style={styles.nameWithBadge}>
+              <Text style={styles.headerTitle} numberOfLines={1}>{userName}</Text>
+              <View style={[styles.planBadge, {
+                backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.15)' :
+                                 currentPlan === 'go' ? `${AppColors.primary}15` :
+                                 currentPlan === 'pro' ? `${AppColors.primary}15` : '#F472B615'
+              }]}>
+                <Text style={[styles.planBadgeText, {
+                  color: currentPlan === 'free' ? '#94A3B8' :
+                         currentPlan === 'go' ? AppColors.primary :
+                         currentPlan === 'pro' ? AppColors.primary : '#F472B6'
+                }]}>
+                  {currentPlan.toUpperCase()}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -833,6 +932,41 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Upgrade CTA - only show for free users */}
+        {currentPlan === 'free' && showUpgradeCta && (
+          <TouchableOpacity
+            style={styles.upgradeCta}
+            activeOpacity={0.9}
+            onPress={onOpenPlans}
+          >
+            <TouchableOpacity
+              style={styles.upgradeCtaClose}
+              onPress={(e) => {
+                e.stopPropagation();
+                setShowUpgradeCta(false);
+              }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
+            </TouchableOpacity>
+
+            <View style={styles.upgradeCtaMain}>
+              <View style={styles.upgradeCtaContent}>
+                <View style={styles.upgradeCtaIconWrap}>
+                  <Ionicons name="diamond-outline" size={18} color={AppColors.primary} />
+                </View>
+                <View style={styles.upgradeCtaText}>
+                  <Text style={styles.upgradeCtaTitle}>Sblocca Pro</Text>
+                  <Text style={styles.upgradeCtaSubtitle}>Progetti illimitati e 6x budget AI</Text>
+                </View>
+              </View>
+              <View style={styles.upgradeCtaArrow}>
+                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* Recent Projects */}
         <View style={styles.projectsSection}>
@@ -1115,6 +1249,98 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         currentStep={loadingStep}
         showTips={true}
       />
+
+      {/* Onboarding Tutorial */}
+      {showTutorial && (
+        <Animated.View
+          style={[styles.tutorialOverlay, { opacity: tutorialFadeAnim }]}
+        >
+          <Pressable
+            style={styles.tutorialBackdrop}
+            onPress={handleNextTutorialStep}
+          />
+
+          <View style={styles.tutorialCard}>
+            {/* Step indicator */}
+            <Text style={styles.tutorialStepLabel}>
+              {tutorialStep + 1} di {tutorialSteps.length}
+            </Text>
+
+            {/* Icon */}
+            <View style={[
+              styles.tutorialIconWrap,
+              tutorialStep === 1 && { backgroundColor: `${AppColors.primary}20` },
+              tutorialStep === 2 && { backgroundColor: 'rgba(255,255,255,0.08)' },
+              tutorialStep === 3 && { backgroundColor: 'rgba(96, 165, 250, 0.15)' },
+            ]}>
+              <Ionicons
+                name={tutorialSteps[tutorialStep].icon}
+                size={32}
+                color={
+                  tutorialStep === 0 ? '#F59E0B' :
+                  tutorialStep === 1 ? AppColors.primary :
+                  tutorialStep === 2 ? '#fff' :
+                  '#60A5FA'
+                }
+              />
+            </View>
+
+            {/* Content */}
+            <Text style={styles.tutorialTitle}>
+              {tutorialSteps[tutorialStep].title}
+            </Text>
+            <Text style={styles.tutorialDescription}>
+              {tutorialSteps[tutorialStep].description}
+            </Text>
+
+            {/* Progress dots */}
+            <View style={styles.tutorialProgress}>
+              {tutorialSteps.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.tutorialDot,
+                    index === tutorialStep && styles.tutorialDotActive,
+                  ]}
+                />
+              ))}
+            </View>
+
+            {/* Actions */}
+            <View style={styles.tutorialActions}>
+              {tutorialStep === 0 ? (
+                <TouchableOpacity
+                  style={styles.tutorialNextFull}
+                  onPress={handleNextTutorialStep}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.tutorialNextText}>Scopri Drape</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" />
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.tutorialButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.tutorialSkip}
+                    onPress={handleCompleteTutorial}
+                  >
+                    <Text style={styles.tutorialSkipText}>Salta</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.tutorialNext}
+                    onPress={handleNextTutorialStep}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.tutorialNextText}>
+                      {tutorialStep === tutorialSteps.length - 1 ? 'Inizia!' : 'Avanti'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        </Animated.View>
+      )}
     </View>
   );
 };
@@ -1571,6 +1797,75 @@ const styles = StyleSheet.create({
   welcomeTextContainer: {
     justifyContent: 'center',
   },
+  nameWithBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  planBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  planBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // Upgrade CTA
+  upgradeCta: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    position: 'relative',
+  },
+  upgradeCtaMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  upgradeCtaClose: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    padding: 4,
+    zIndex: 10,
+  },
+  upgradeCtaContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  upgradeCtaIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: `${AppColors.primary}15`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upgradeCtaText: {
+    flex: 1,
+    gap: 2,
+  },
+  upgradeCtaTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  upgradeCtaSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  upgradeCtaArrow: {
+    marginRight: 20,
+  },
   seeAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1590,5 +1885,115 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: 'rgba(255,255,255,0.9)',
     letterSpacing: 0.4,
+  },
+  // Tutorial Styles
+  tutorialOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  tutorialBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+  },
+  tutorialCard: {
+    backgroundColor: '#16161a',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  tutorialStepLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: 24,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  tutorialIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  tutorialTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  tutorialDescription: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  tutorialProgress: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 28,
+    marginBottom: 24,
+  },
+  tutorialDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  tutorialDotActive: {
+    backgroundColor: AppColors.primary,
+  },
+  tutorialActions: {
+    width: '100%',
+  },
+  tutorialButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+  },
+  tutorialSkip: {
+    flex: 1,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  tutorialSkipText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  tutorialNext: {
+    flex: 1.5,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: AppColors.primary,
+  },
+  tutorialNextFull: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: AppColors.primary,
+  },
+  tutorialNextText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

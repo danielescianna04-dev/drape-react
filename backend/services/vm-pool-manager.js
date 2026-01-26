@@ -13,7 +13,7 @@ const flyService = require('./fly-service');
 
 class VMPoolManager {
     constructor() {
-        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false, isCacheMaster: false }
+        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false, isCacheMaster: false, stopped: false, stoppedAt: null }
 
         // Dynamic pool sizing for scalability
         this.BASE_POOL_SIZE = 3; // Minimum worker VMs
@@ -205,29 +205,40 @@ class VMPoolManager {
      */
     async allocateVM(projectId) {
         // CRITICAL: Never allocate cache masters to projects - they're reserved for cache copying only
-        // PRIORITY 1: Try to get prewarmed worker VM first (has npm cache ready)
+        // PRIORITY 1: Try to get prewarmed worker VM first (has npm cache ready, running)
         let pooledVM = this.pool.find(vm =>
             !vm.allocatedTo &&
+            !vm.stopped && // Must be running
             vm.prewarmed &&
             vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
             !vm.isCacheMaster
         );
 
-        // PRIORITY 2: If no prewarmed worker VM, fallback to any available worker VM WITH cache ready
+        // PRIORITY 2: If no prewarmed worker VM, fallback to any available RUNNING worker VM WITH cache ready
         if (!pooledVM) {
             pooledVM = this.pool.find(vm =>
                 !vm.allocatedTo &&
+                !vm.stopped && // Must be running
                 vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
                 !vm.isCacheMaster
             );
         }
 
-        // PRIORITY 3 (NEW): If still no VM, accept VMs still downloading cache (slower but better than failing)
+        // PRIORITY 3: If still no VM, accept VMs still downloading cache (slower but better than failing)
         if (!pooledVM) {
-            const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster);
+            const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster && !vm.stopped);
             if (downloadingVMs.length > 0) {
                 console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, using one anyway (slower startup)`);
                 pooledVM = downloadingVMs[0];
+            }
+        }
+
+        // PRIORITY 4 (NEW): Try stopped VMs as last resort (need restart ~5-10s)
+        if (!pooledVM) {
+            const stoppedVMs = this.pool.filter(vm => !vm.allocatedTo && vm.stopped && !vm.isCacheMaster);
+            if (stoppedVMs.length > 0) {
+                console.log(`🔄 [VM Pool] No running VMs available, using stopped VM (will restart ~5-10s)`);
+                pooledVM = stoppedVMs[0];
             }
         }
 
@@ -265,6 +276,9 @@ class VMPoolManager {
                     try {
                         await flyService.startMachine(pooledVM.machineId);
                         await flyService.waitForMachine(pooledVM.machineId, 15000, 30000);
+                        // Clear stopped flag on successful restart
+                        pooledVM.stopped = false;
+                        pooledVM.stoppedAt = null;
                         console.log(`✅ [VM Pool] VM ${pooledVM.machineId} restarted successfully`);
                     } catch (startErr) {
                         console.warn(`⚠️ [VM Pool] Failed to restart ${pooledVM.machineId}: ${startErr.message}, removing from pool`);
@@ -986,7 +1000,8 @@ PKGJSON
         console.log(`🔍 [Cleanup DEBUG] Pool state before cleanup:`);
         this.pool.forEach(vm => {
             const ageMinutes = Math.round((now - vm.createdAt) / 60000);
-            console.log(`   - ${vm.machineId}: isCacheMaster=${vm.isCacheMaster}, allocated=${vm.allocatedTo || 'none'}, age=${ageMinutes}min`);
+            const state = vm.stopped ? '⏸️stopped' : '🟢running';
+            console.log(`   - ${vm.machineId}: ${state}, isCacheMaster=${vm.isCacheMaster}, allocated=${vm.allocatedTo || 'none'}, age=${ageMinutes}min`);
         });
 
         // PHASE 1: Clean up ORPHAN VMs on Fly.io that aren't in our pool
@@ -1086,13 +1101,32 @@ PKGJSON
                         continue;
                     }
 
-                    // Only destroy if: very old (>30 min) AND stopped
-                    console.log(`   🗑️ Destroying old orphan worker: ${orphan.id} (${orphan.name}) - age: ${ageMinutesOrphan}min, state: ${orphan.state}`);
-                    try {
-                        await flyService.destroyMachine(orphan.id);
-                        console.log(`   ✅ Deleted orphan VM ${orphan.id}`);
-                    } catch (e) {
-                        console.warn(`   ⚠️ Failed to delete orphan ${orphan.id}: ${e.message}`);
+                    // Old orphan VM (>30 min) - adopt if started, skip if stopped (it's already cheap)
+                    if (orphan.state === 'started') {
+                        console.log(`   ⏸️ Stopping old orphan VM: ${orphan.id} (${orphan.name}) - age: ${ageMinutesOrphan}min`);
+                        try {
+                            await flyService.stopMachine(orphan.id);
+                            console.log(`   ✅ Stopped orphan VM ${orphan.id} (cost: ~$0.30/mo)`);
+                            // Adopt it as stopped
+                            this.pool.push({
+                                machineId: orphan.id,
+                                agentUrl: 'https://drape-workspaces.fly.dev',
+                                createdAt: Date.parse(orphan.created_at) || Date.now(),
+                                allocatedTo: null,
+                                allocatedAt: null,
+                                prewarmed: false,
+                                cacheReady: true,
+                                isCacheMaster: false,
+                                stopped: true,
+                                stoppedAt: Date.now(),
+                                image: orphan.config?.image || flyService.DRAPE_IMAGE
+                            });
+                        } catch (e) {
+                            console.warn(`   ⚠️ Failed to stop orphan ${orphan.id}: ${e.message}`);
+                        }
+                    } else {
+                        // Already stopped - just skip (it's already cheap at ~$0.30/mo)
+                        console.log(`   💤 Orphan VM ${orphan.id} already stopped (age: ${ageMinutesOrphan}min, cost: ~$0.30/mo) - skipping`);
                     }
                 }
             }
@@ -1125,6 +1159,13 @@ PKGJSON
 
             // Skip allocated VMs
             if (vm.allocatedTo) {
+                continue;
+            }
+
+            // Skip VMs that are already stopped (they're already cheap at ~$0.30/mo)
+            if (vm.stopped) {
+                const stoppedMinutes = vm.stoppedAt ? Math.round((now - vm.stoppedAt) / 60000) : 0;
+                console.log(`   💤 [Cleanup] VM ${vm.machineId} already stopped (${stoppedMinutes}min ago, cost: ~$0.30/mo)`);
                 continue;
             }
 
@@ -1170,10 +1211,15 @@ PKGJSON
                     continue;
                 }
 
-                console.log(`   🗑️ [Cleanup] Destroying VM ${vm.machineId}...`);
-                await flyService.destroyMachine(vm.machineId);
-                this.pool = this.pool.filter(v => v.machineId !== vm.machineId);
-                console.log(`   ✅ Deleted old VM ${vm.machineId}`);
+                console.log(`   ⏸️ [Cleanup] Stopping VM ${vm.machineId} (cost: ~$0.30/mo vs $11.83/mo running)...`);
+                await flyService.stopMachine(vm.machineId);
+                // Mark as stopped in pool (allocateVM will restart on demand)
+                const poolVm = this.pool.find(v => v.machineId === vm.machineId);
+                if (poolVm) {
+                    poolVm.stopped = true;
+                    poolVm.stoppedAt = Date.now();
+                }
+                console.log(`   ✅ Stopped VM ${vm.machineId} (available for restart on demand)`);
             } catch (e) {
                 console.warn(`   ⚠️ Failed to delete VM ${vm.machineId}: ${e.message}`);
             }
@@ -1186,14 +1232,18 @@ PKGJSON
     getStats() {
         const cacheMasters = this.pool.filter(vm => vm.isCacheMaster);
         const workers = this.pool.filter(vm => !vm.isCacheMaster);
-        const availableWorkers = workers.filter(vm => !vm.allocatedTo).length;
+        const runningWorkers = workers.filter(vm => !vm.stopped);
+        const stoppedWorkers = workers.filter(vm => vm.stopped);
+        const availableWorkers = runningWorkers.filter(vm => !vm.allocatedTo).length;
         const allocatedWorkers = workers.filter(vm => vm.allocatedTo).length;
 
         return {
             total: this.pool.length,
             workers: {
                 total: workers.length,
-                available: availableWorkers,
+                running: runningWorkers.length,
+                stopped: stoppedWorkers.length, // Stopped VMs cost ~$0.30/mo vs $11.83/mo running
+                available: availableWorkers, // Running + available
                 allocated: allocatedWorkers,
                 targetSize: this.calculateTargetPoolSize()
             },

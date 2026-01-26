@@ -21,6 +21,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
+import { useAuthStore } from '../../core/auth/authStore';
 
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
@@ -47,6 +48,7 @@ import { TodoList } from '../../shared/components/molecules/TodoList';
 import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQuestionModal';
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
+import { useNavigationStore } from '../../core/navigation/navigationStore';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -120,6 +122,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Agent state - 2-mode system (Fast or Planning only)
   const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
+
+  // User plan state for upgrade CTA
+  const { user } = useAuthStore();
+  const isGoUser = user?.plan === 'go';
+  const navigateTo = useNavigationStore((state) => state.navigateTo);
   const {
     start: startAgent,
     stop: stopAgent,
@@ -702,11 +709,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
   const toolsSheetAnim = useSharedValue(SCREEN_HEIGHT);
-  const [recentPhotos, setRecentPhotos] = useState<{uri: string; originalUri?: string; id: string}[]>([]);
+  const [recentPhotos, setRecentPhotos] = useState<{ uri: string; originalUri?: string; id: string }[]>([]);
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<Set<string>>(new Set());
 
   // Selected images for input preview (from tools sheet)
-  const [selectedInputImages, setSelectedInputImages] = useState<{uri: string; base64: string; type: string}[]>([]);
+  const [selectedInputImages, setSelectedInputImages] = useState<{ uri: string; base64: string; type: string }[]>([]);
 
   // Load recent photos when sheet opens
   const loadRecentPhotos = useCallback(async () => {
@@ -1583,7 +1590,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     streamingContentRef.current = '';
   }, [stopAgent, currentTab?.id]);
 
-  const handleSend = async (images?: {uri: string; base64?: string; type?: string}[]) => {
+  const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
     // Use passed images or fall back to selectedInputImages
     console.log('[ChatPage] handleSend - selectedInputImages.length:', selectedInputImages.length);
     console.log('[ChatPage] handleSend - images param:', images);
@@ -2477,6 +2484,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     ]}>
       {/* Content wrapper with sidebar offset */}
       <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
+        {/* Top Upgrade Pill - ChatGPT style - Hide once chat starts */}
+        {!isGoUser && terminalItems.length === 0 && (
+          <TouchableOpacity
+            style={[
+              styles.topUpgradePill,
+              { top: insets.top + (isCardMode ? 82 : 68) }
+            ]}
+            onPress={() => navigateTo('plans')}
+            activeOpacity={0.8}
+          >
+            <BlurView intensity={25} tint="light" style={styles.upgradePillBlur}>
+              <Ionicons name="flash" size={11} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.upgradePillText}>Passa a GO</Text>
+            </BlurView>
+          </TouchableOpacity>
+        )}
+
         {currentTab?.type === 'file' ? (
           <FileViewer
             visible={true}
@@ -3289,7 +3313,31 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
     maxWidth: 280,
-  }, outputContent: {
+  },
+  topUpgradePill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 100,
+    borderRadius: 30,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  upgradePillBlur: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  upgradePillText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.7)',
+    letterSpacing: 0.2,
+  },
+  outputContent: {
     padding: 20,
     paddingTop: 20, // Reduced since output already has paddingTop:80
     // paddingBottom managed dynamically via state

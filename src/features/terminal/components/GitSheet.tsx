@@ -196,7 +196,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   };
 
-  const loadGitData = async (passedAccounts?: GitAccount[]) => {
+  const loadGitData = async (passedAccounts?: GitAccount[], overrideRepoUrl?: string) => {
     if (!currentWorkstation?.id) return;
 
     // Prevent multiple simultaneous calls
@@ -211,7 +211,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     setGitLoading(true);
     setErrorMsg(null);
 
-    const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
+    const repoUrl = overrideRepoUrl || currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
     let localCurrentBranch = 'main';
 
     try {
@@ -957,10 +957,15 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       <ConnectRepoModal
         visible={showConnectModal}
         onClose={() => setShowConnectModal(false)}
-        onConnected={(repoUrl) => {
+        onConnected={(newRepoUrl) => {
           setShowConnectModal(false);
-          // Reload git data after connecting
-          loadGitData();
+          // Reset loading state and reload with the new repo URL
+          isLoadingRef.current = false;
+          hasStartedRef.current = false;
+          // Small delay to let state propagate, then reload with the new URL
+          setTimeout(() => {
+            loadGitData(accountsRef.current, newRepoUrl);
+          }, 300);
         }}
         projectName={currentWorkstation?.name}
       />

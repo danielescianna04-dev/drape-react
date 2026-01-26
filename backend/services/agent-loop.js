@@ -16,6 +16,7 @@ const flyService = require('./fly-service');
 const workspaceOrchestrator = require('./workspace-orchestrator');
 const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
+const metricsService = require('./metrics-service');
 const TOOLS_CONFIG = require('./agent-tools.json');
 const { getSystemPrompt } = require('./system-prompt'); // Unified system prompt
 const { globSearch } = require('./tools/glob');
@@ -85,7 +86,7 @@ const TOOLS_PLANNING = convertToolsFormat(
  * Manages the execution of AI tasks with tools
  */
 class AgentLoop {
-    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL, conversationHistory = []) {
+    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL, conversationHistory = [], userId = null, userPlan = 'free') {
         this.projectId = projectId;
         this.selectedModel = model;  // Model selected by user
         this.mode = mode;
@@ -102,6 +103,8 @@ class AgentLoop {
         this.consecutiveFailedWebSearches = 0; // Track failed web searches
         this.consecutiveSuccessfulWebSearches = 0; // Track successful web searches
         this.conversationHistory = conversationHistory; // Previous conversation messages
+        this.userId = userId; // User ID for budget tracking
+        this.userPlan = userPlan; // User's plan (free, go, pro, enterprise)
     }
 
     /**
@@ -587,6 +590,29 @@ class AgentLoop {
             console.log(`📷 [AgentLoop] Multimodal mode: ${images.length} images attached`);
         }
 
+        // Check budget before starting (if userId is provided)
+        if (this.userId) {
+            const budgetCheck = await metricsService.checkUserBudget(
+                this.userId,
+                this.userPlan,
+                this.selectedModel
+            );
+
+            if (!budgetCheck.allowed) {
+                yield {
+                    type: 'budget_exceeded',
+                    reason: budgetCheck.reason,
+                    spentEur: budgetCheck.spentEur,
+                    budgetEur: budgetCheck.budgetEur,
+                    remaining: budgetCheck.remaining,
+                    timestamp: new Date().toISOString()
+                };
+                return; // Stop execution
+            }
+
+            console.log(`💰 [AgentLoop] Budget OK: €${budgetCheck.spentEur.toFixed(4)} / €${budgetCheck.budgetEur} (${budgetCheck.remaining.toFixed(4)} remaining)`);
+        }
+
         // Send start event
         yield {
             type: 'start',
@@ -701,6 +727,23 @@ class AgentLoop {
                     } else if (chunk.type === 'done') {
                         responseText = chunk.fullText || responseText;
                         toolCalls = chunk.toolCalls || toolCalls;
+
+                        // Track AI token usage with cost calculation
+                        if (chunk.usage) {
+                            const inputTokens = chunk.usage.inputTokens || 0;
+                            const outputTokens = chunk.usage.outputTokens || 0;
+                            if (inputTokens > 0 || outputTokens > 0) {
+                                console.log(`📈 [AgentLoop] Tracking AI usage: ${inputTokens} in, ${outputTokens} out`);
+                                metricsService.trackAIUsage({
+                                    projectId: this.projectId || 'agent',
+                                    userId: this.userId, // Track per-user spending
+                                    model: modelId,
+                                    inputTokens,
+                                    outputTokens,
+                                    cachedTokens: chunk.usage.cachedTokens || 0
+                                }).catch(e => console.warn(`⚠️ [AgentLoop] Failed to track usage: ${e.message}`));
+                            }
+                        }
                     }
                 }
 

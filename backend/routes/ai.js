@@ -15,6 +15,7 @@ const contextService = require('../services/context-service'); // Import Singlet
 const storageService = require('../services/storage-service'); // For reading project files
 const { getSystemPrompt } = require('../services/system-prompt'); // Unified system prompt
 const metricsService = require('../services/metrics-service');
+const { PLANS, getPlan, getEstimatedMessages } = require('../utils/plans');
 
 /**
  * Helper: Read key project files to understand what the project actually does
@@ -125,6 +126,123 @@ router.get('/models', (req, res) => {
         default: DEFAULT_AI_MODEL
     });
 });
+
+/**
+ * GET /ai/plans
+ * Get available subscription plans
+ */
+router.get('/plans', (req, res) => {
+    res.json({
+        success: true,
+        plans: PLANS
+    });
+});
+
+/**
+ * GET /ai/budget/:userId
+ * Get user's current AI budget status
+ */
+router.get('/budget/:userId', asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { planId = 'free' } = req.query;
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const plan = getPlan(planId);
+    const spentEur = await metricsService.getUserMonthlySpending(userId);
+    const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);
+    const percentUsed = Math.min(100, Math.round((spentEur / plan.monthlyBudgetEur) * 100));
+
+    // Estimate how many messages left for each model
+    const estimatedMessagesLeft = {};
+    const modelCosts = {
+        'gemini-3-flash': 0.0001,
+        'gemini-3-pro': 0.0006,
+        'claude-sonnet-4': 0.002,
+        'claude-opus-4': 0.008
+    };
+
+    for (const [model, costPerMsg] of Object.entries(modelCosts)) {
+        estimatedMessagesLeft[model] = Math.floor(remainingEur / costPerMsg);
+    }
+
+    res.json({
+        success: true,
+        userId,
+        plan: {
+            id: planId,
+            name: plan.name,
+            monthlyBudgetEur: plan.monthlyBudgetEur
+        },
+        usage: {
+            spentEur: Math.round(spentEur * 10000) / 10000, // Round to 4 decimals
+            remainingEur: Math.round(remainingEur * 10000) / 10000,
+            percentUsed,
+            estimatedMessagesLeft
+        }
+    });
+}));
+
+/**
+ * GET /ai/projects/:userId
+ * Get user's project counts and limits
+ */
+router.get('/projects/:userId', asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { planId = 'free' } = req.query;
+    const admin = require('firebase-admin');
+
+    if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+    }
+
+    const plan = getPlan(planId);
+    const db = admin.firestore();
+
+    // Count user's projects by type
+    let createdCount = 0;
+    let importedCount = 0;
+
+    try {
+        const projectsSnapshot = await db.collection('user_projects')
+            .where('userId', '==', userId)
+            .get();
+
+        projectsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.type === 'ai-generated') {
+                createdCount++;
+            } else if (data.type === 'git' || data.type === 'imported') {
+                importedCount++;
+            }
+        });
+    } catch (e) {
+        console.warn(`Could not count projects for user ${userId}: ${e.message}`);
+    }
+
+    const totalCount = createdCount + importedCount;
+
+    res.json({
+        success: true,
+        userId,
+        plan: {
+            id: planId,
+            name: plan.name,
+            maxProjects: plan.maxProjects,
+            maxCreatedProjects: plan.maxCreatedProjects,
+            maxImportedProjects: plan.maxImportedProjects
+        },
+        usage: {
+            created: createdCount,
+            imported: importedCount,
+            total: totalCount,
+            canCreate: createdCount < plan.maxCreatedProjects && totalCount < plan.maxProjects,
+            canImport: importedCount < plan.maxImportedProjects && totalCount < plan.maxProjects
+        }
+    });
+}));
 
 /**
  * POST /ai/chat

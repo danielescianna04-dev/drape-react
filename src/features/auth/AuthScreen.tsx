@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,95 +7,226 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   ActivityIndicator,
   Alert,
-  Image,
+  Dimensions,
+  Animated as RNAnimated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { BlurView } from 'expo-blur';
 import { AppColors } from '../../shared/theme/colors';
 import { useAuthStore } from '../../core/auth/authStore';
-import * as Google from 'expo-auth-session/providers/google';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as WebBrowser from 'expo-web-browser';
 
-// Enable auth session completion
-WebBrowser.maybeCompleteAuthSession();
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Google OAuth client IDs - these need to be configured in Firebase Console
-const GOOGLE_CLIENT_ID_IOS = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || '';
-const GOOGLE_CLIENT_ID_ANDROID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || '';
-const GOOGLE_CLIENT_ID_WEB = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB || '';
+type AuthMode = 'initial' | 'login' | 'register' | 'forgot';
 
-type AuthMode = 'login' | 'register' | 'forgot';
+// Animated glow orb component
+const AnimatedGlow = ({ style, durationY = 5000, durationX = 6000 }: { style: any; durationY?: number; durationX?: number }) => {
+  const translateY = useRef(new RNAnimated.Value(-25)).current;
+  const translateX = useRef(new RNAnimated.Value(-20)).current;
+
+  useEffect(() => {
+    // Floating animation Y
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(translateY, {
+          toValue: 25,
+          duration: durationY,
+          useNativeDriver: true,
+          easing: (t) => Math.sin(t * Math.PI),
+        }),
+        RNAnimated.timing(translateY, {
+          toValue: -25,
+          duration: durationY,
+          useNativeDriver: true,
+          easing: (t) => Math.sin(t * Math.PI),
+        }),
+      ])
+    ).start();
+
+    // Floating animation X
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(translateX, {
+          toValue: 20,
+          duration: durationX,
+          useNativeDriver: true,
+          easing: (t) => Math.sin(t * Math.PI),
+        }),
+        RNAnimated.timing(translateX, {
+          toValue: -20,
+          duration: durationX,
+          useNativeDriver: true,
+          easing: (t) => Math.sin(t * Math.PI),
+        }),
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <RNAnimated.View
+      style={[
+        styles.glowOrb,
+        style,
+        {
+          transform: [
+            { translateY },
+            { translateX },
+          ],
+        },
+      ]}
+    />
+  );
+};
+
+// Terminal typing animation component
+const TerminalTyping = () => {
+  const [lines, setLines] = useState<{ text: string; isTyping: boolean; color?: string }[]>([]);
+  const [currentLineIndex, setCurrentLineIndex] = useState(0);
+  const [currentCharIndex, setCurrentCharIndex] = useState(0);
+
+  const codeLines = [
+    { text: '$ npm create drape-app', color: '#10B981' },
+    { text: '', color: '#fff' },
+    { text: 'Creating your project...', color: '#6B7280' },
+    { text: '', color: '#fff' },
+    { text: 'import { AI } from "@drape/core"', color: '#C084FC' },
+    { text: 'import { Preview } from "@drape/live"', color: '#C084FC' },
+    { text: '', color: '#fff' },
+    { text: 'const app = new AI({', color: '#F472B6' },
+    { text: '  model: "claude-sonnet",', color: '#60A5FA' },
+    { text: '  preview: true,', color: '#60A5FA' },
+    { text: '})', color: '#F472B6' },
+    { text: '', color: '#fff' },
+    { text: 'await app.generate("Build me an app")', color: '#34D399' },
+    { text: '', color: '#fff' },
+    { text: '✓ App generated successfully!', color: '#10B981' },
+  ];
+
+  useEffect(() => {
+    if (currentLineIndex >= codeLines.length) {
+      // Animation complete - stay as is, don't reset
+      return;
+    }
+
+    const currentLine = codeLines[currentLineIndex];
+
+    if (currentCharIndex === 0) {
+      // Start new line
+      setLines(prev => [...prev, { text: '', isTyping: true, color: currentLine.color }]);
+    }
+
+    if (currentCharIndex < currentLine.text.length) {
+      // Type next character
+      const timeout = setTimeout(() => {
+        setLines(prev => {
+          const newLines = [...prev];
+          const lastIndex = newLines.length - 1;
+          newLines[lastIndex] = {
+            ...newLines[lastIndex],
+            text: currentLine.text.substring(0, currentCharIndex + 1),
+          };
+          return newLines;
+        });
+        setCurrentCharIndex(prev => prev + 1);
+      }, 30 + Math.random() * 40); // Random typing speed
+      return () => clearTimeout(timeout);
+    } else {
+      // Line complete, move to next
+      const timeout = setTimeout(() => {
+        setLines(prev => {
+          const newLines = [...prev];
+          const lastIndex = newLines.length - 1;
+          newLines[lastIndex] = { ...newLines[lastIndex], isTyping: false };
+          return newLines;
+        });
+        setCurrentLineIndex(prev => prev + 1);
+        setCurrentCharIndex(0);
+      }, 200);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentLineIndex, currentCharIndex]);
+
+  return (
+    <View style={styles.terminalWindow}>
+      {/* Terminal Header */}
+      <View style={styles.terminalHeader}>
+        <View style={styles.terminalButtons}>
+          <View style={[styles.terminalBtn, { backgroundColor: '#FF5F56' }]} />
+          <View style={[styles.terminalBtn, { backgroundColor: '#FFBD2E' }]} />
+          <View style={[styles.terminalBtn, { backgroundColor: '#27CA40' }]} />
+        </View>
+        <Text style={styles.terminalTitle}>drape — zsh</Text>
+        <View style={{ width: 52 }} />
+      </View>
+
+      {/* Terminal Content */}
+      <View style={styles.terminalContent}>
+        {lines.map((line, index) => (
+          <View key={index} style={styles.terminalLine}>
+            <Text style={[styles.terminalText, { color: line.color || '#fff' }]}>
+              {line.text}
+              {line.isTyping && <Text style={styles.cursor}>▋</Text>}
+            </Text>
+          </View>
+        ))}
+        {lines.length === 0 && (
+          <View style={styles.terminalLine}>
+            <Text style={[styles.terminalText, { color: '#10B981' }]}>
+              $ <Text style={styles.cursor}>▋</Text>
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
 
 export const AuthScreen = () => {
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [mode, setMode] = useState<AuthMode>('initial');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [isAppleAvailable, setIsAppleAvailable] = useState(false);
 
-  const { signIn, signUp, signInWithGoogle, signInWithApple, resetPassword, isLoading, error, clearError } = useAuthStore();
+  const modalHeight = useRef(new RNAnimated.Value(200)).current;
+  const blurOpacity = useRef(new RNAnimated.Value(0)).current;
+  const { signIn, signUp, resetPassword, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
 
-  // Google Auth hook
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    iosClientId: GOOGLE_CLIENT_ID_IOS,
-    androidClientId: GOOGLE_CLIENT_ID_ANDROID,
-    webClientId: GOOGLE_CLIENT_ID_WEB,
-  });
-
-  // Check Apple Sign In availability (iOS only)
   useEffect(() => {
-    if (Platform.OS === 'ios') {
-      AppleAuthentication.isAvailableAsync().then(setIsAppleAvailable);
-    }
-  }, []);
+    let targetHeight = 200;
+    if (mode === 'login') targetHeight = 380;
+    if (mode === 'register') targetHeight = 480;
+    if (mode === 'forgot') targetHeight = 300;
 
-  // Handle Google auth response
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { id_token } = response.params;
-      if (id_token) {
-        signInWithGoogle(id_token).catch(() => {
-          // Error handled by store
-        });
-      }
-    }
-  }, [response]);
+    const showBlur = mode !== 'initial';
 
-  const handleGoogleSignIn = async () => {
-    setLocalError(null);
-    clearError();
-    try {
-      await promptAsync();
-    } catch (err) {
-      setLocalError('Errore durante l\'accesso con Google');
-    }
-  };
-
-  const handleAppleSignIn = async () => {
-    setLocalError(null);
-    clearError();
-    try {
-      await signInWithApple();
-    } catch (err) {
-      // Error handled by store
-    }
-  };
+    RNAnimated.parallel([
+      RNAnimated.spring(modalHeight, {
+        toValue: targetHeight,
+        useNativeDriver: false,
+        tension: 65,
+        friction: 12,
+      }),
+      RNAnimated.timing(blurOpacity, {
+        toValue: showBlur ? 1 : 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [mode]);
 
   const handleSubmit = async () => {
     setLocalError(null);
     clearError();
 
-    // Validation
     if (!email.trim()) {
       setLocalError('Inserisci la tua email');
       return;
@@ -130,12 +261,12 @@ export const AuthScreen = () => {
         await resetPassword(email.trim());
         Alert.alert(
           'Email inviata',
-          'Controlla la tua casella email per il link di reset della password.',
+          'Controlla la tua casella email per il link di reset.',
           [{ text: 'OK', onPress: () => setMode('login') }]
         );
       }
     } catch (err) {
-      // Error is handled by the store
+      // Error handled by store
     }
   };
 
@@ -143,245 +274,231 @@ export const AuthScreen = () => {
     setMode(newMode);
     setLocalError(null);
     clearError();
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setDisplayName('');
   };
 
   const displayError = localError || error;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
+      {/* Background */}
       <LinearGradient
-        colors={['#0a0a0a', '#121212', '#0f0f0f']}
+        colors={['#0a0a0f', '#0f0f18', '#0a0a0f']}
         style={StyleSheet.absoluteFillObject}
       />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
+      {/* Background Glow Effects */}
+      <View style={styles.glowContainer}>
+        <AnimatedGlow style={styles.glowOrb1} durationY={5000} durationX={6000} />
+        <AnimatedGlow style={styles.glowOrb2} durationY={6000} durationX={5000} />
+      </View>
+
+      {/* Content */}
+      <View style={[styles.content, { paddingTop: insets.top + 20 }]}>
+        {/* Terminal Animation */}
+        <Animated.View entering={FadeInDown.delay(200).duration(800)} style={styles.terminalContainer}>
+          <TerminalTyping />
+        </Animated.View>
+
+        {/* Branding */}
+        <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.brandingSection}>
+          <Text style={styles.brandName}>Drape</Text>
+          <Text style={styles.tagline}>Code with AI</Text>
+        </Animated.View>
+      </View>
+
+      {/* Blur Overlay when modal expanded */}
+      <RNAnimated.View
+        style={[styles.blurOverlay, { opacity: blurOpacity }]}
+        pointerEvents={mode !== 'initial' ? 'auto' : 'none'}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Logo */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.logoContainer}>
-            <View style={styles.logoCircle}>
-              <Text style={styles.logoText}>D</Text>
-            </View>
-            <Text style={styles.appName}>Drape</Text>
-            <Text style={styles.tagline}>Code with AI</Text>
-          </Animated.View>
+        <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
+      </RNAnimated.View>
 
-          {/* Form */}
-          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.formContainer}>
-            {/* Title */}
-            <Text style={styles.title}>
-              {mode === 'login' && 'Bentornato'}
-              {mode === 'register' && 'Crea un account'}
-              {mode === 'forgot' && 'Reset password'}
-            </Text>
-            <Text style={styles.subtitle}>
-              {mode === 'login' && 'Accedi per continuare'}
-              {mode === 'register' && 'Inizia a programmare con l\'AI'}
-              {mode === 'forgot' && 'Ti invieremo un link per reimpostare la password'}
-            </Text>
+      {/* Bottom Modal */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalContainer}
+        keyboardVerticalOffset={0}
+      >
+        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: mode === 'initial' ? 90 : 30 }]}>
+          <BlurView intensity={60} tint="dark" style={styles.modalBlur}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
 
-            {/* Error */}
-            {displayError && (
-              <Animated.View entering={FadeIn.duration(200)} style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={18} color={AppColors.error} />
-                <Text style={styles.errorText}>{displayError}</Text>
-              </Animated.View>
-            )}
-
-            {/* Name input (register only) */}
-            {mode === 'register' && (
-              <Animated.View entering={FadeIn.duration(300)} style={styles.inputContainer}>
-                <Ionicons name="person-outline" size={20} color={AppColors.white.w40} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nome"
-                  placeholderTextColor={AppColors.white.w35}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  autoCapitalize="words"
-                  autoComplete="name"
-                />
-              </Animated.View>
-            )}
-
-            {/* Email input */}
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color={AppColors.white.w40} style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor={AppColors.white.w35}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-            </View>
-
-            {/* Password input */}
-            {mode !== 'forgot' && (
-              <View style={styles.inputContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color={AppColors.white.w40} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor={AppColors.white.w35}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoComplete="password"
-                />
-                <TouchableOpacity
-                  style={styles.eyeButton}
-                  onPress={() => setShowPassword(!showPassword)}
-                >
-                  <Ionicons
-                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                    size={20}
-                    color={AppColors.white.w40}
-                  />
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Confirm Password (register only) */}
-            {mode === 'register' && (
-              <Animated.View entering={FadeIn.duration(300)} style={styles.inputContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color={AppColors.white.w40} style={styles.inputIcon} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Conferma password"
-                  placeholderTextColor={AppColors.white.w35}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-              </Animated.View>
-            )}
-
-            {/* Forgot Password Link */}
-            {mode === 'login' && (
-              <TouchableOpacity
-                style={styles.forgotButton}
-                onPress={() => switchMode('forgot')}
-              >
-                <Text style={styles.forgotText}>Password dimenticata?</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Submit Button */}
-            <TouchableOpacity
-              style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={isLoading}
-              activeOpacity={0.8}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>
-                  {mode === 'login' && 'Accedi'}
-                  {mode === 'register' && 'Registrati'}
-                  {mode === 'forgot' && 'Invia email'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            {/* Social Login Divider - only on login/register */}
-            {mode !== 'forgot' && (
-              <Animated.View entering={FadeIn.delay(300).duration(400)} style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>oppure</Text>
-                <View style={styles.dividerLine} />
-              </Animated.View>
-            )}
-
-            {/* Social Login Buttons - only on login/register */}
-            {mode !== 'forgot' && (
-              <Animated.View entering={FadeIn.delay(400).duration(400)} style={styles.socialContainer}>
-                {/* Google Sign In */}
-                <TouchableOpacity
-                  style={styles.socialButton}
-                  onPress={handleGoogleSignIn}
-                  disabled={isLoading || !request}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.socialIconContainer}>
-                    <Ionicons name="logo-google" size={20} color="#DB4437" />
-                  </View>
-                  <Text style={styles.socialButtonText}>
-                    {mode === 'login' ? 'Accedi con Google' : 'Registrati con Google'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Apple Sign In - iOS only */}
-                {Platform.OS === 'ios' && isAppleAvailable && (
+              {/* Initial State */}
+              {mode === 'initial' && (
+                <Animated.View entering={FadeIn.duration(300)} style={styles.initialButtons}>
                   <TouchableOpacity
-                    style={[styles.socialButton, styles.appleButton]}
-                    onPress={handleAppleSignIn}
-                    disabled={isLoading}
+                    style={styles.primaryButton}
+                    onPress={() => switchMode('register')}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={[AppColors.primary, '#8B5CF6']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.primaryButtonGradient}
+                    >
+                      <Text style={styles.primaryButtonText}>Inizia Gratis</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    onPress={() => switchMode('login')}
                     activeOpacity={0.8}
                   >
-                    <View style={styles.socialIconContainer}>
-                      <Ionicons name="logo-apple" size={22} color="#fff" />
-                    </View>
-                    <Text style={[styles.socialButtonText, styles.appleButtonText]}>
-                      {mode === 'login' ? 'Accedi con Apple' : 'Registrati con Apple'}
-                    </Text>
+                    <Text style={styles.secondaryButtonText}>Ho già un account</Text>
                   </TouchableOpacity>
-                )}
-              </Animated.View>
-            )}
+                </Animated.View>
+              )}
 
-            {/* Switch Mode */}
-            <View style={styles.switchContainer}>
-              {mode === 'login' && (
-                <>
-                  <Text style={styles.switchText}>Non hai un account?</Text>
-                  <TouchableOpacity onPress={() => switchMode('register')}>
-                    <Text style={styles.switchLink}>Registrati</Text>
+              {/* Form */}
+              {mode !== 'initial' && (
+                <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
+                  <View style={styles.formHeader}>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => switchMode('initial')}
+                    >
+                      <Ionicons name="arrow-back" size={22} color="#fff" />
+                    </TouchableOpacity>
+                    <Text style={styles.formTitle}>
+                      {mode === 'login' && 'Accedi'}
+                      {mode === 'register' && 'Registrati'}
+                      {mode === 'forgot' && 'Reset Password'}
+                    </Text>
+                    <View style={{ width: 40 }} />
+                  </View>
+
+                  {displayError && (
+                    <View style={styles.errorBox}>
+                      <Ionicons name="alert-circle" size={16} color="#EF4444" />
+                      <Text style={styles.errorText}>{displayError}</Text>
+                    </View>
+                  )}
+
+                  {mode === 'register' && (
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="person-outline" size={18} color="rgba(255,255,255,0.4)" />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Nome"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={displayName}
+                        onChangeText={setDisplayName}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  )}
+
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.4)" />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Email"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+
+                  {mode !== 'forgot' && (
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Password"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                        <Ionicons
+                          name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                          size={18}
+                          color="rgba(255,255,255,0.4)"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {mode === 'register' && (
+                    <View style={styles.inputWrapper}>
+                      <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Conferma Password"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                        secureTextEntry={!showPassword}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                  )}
+
+                  {mode === 'login' && (
+                    <TouchableOpacity
+                      style={styles.forgotLink}
+                      onPress={() => switchMode('forgot')}
+                    >
+                      <Text style={styles.forgotLinkText}>Password dimenticata?</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+                    onPress={handleSubmit}
+                    disabled={isLoading}
+                    activeOpacity={0.9}
+                  >
+                    {isLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>
+                        {mode === 'login' && 'Accedi'}
+                        {mode === 'register' && 'Crea Account'}
+                        {mode === 'forgot' && 'Invia Email'}
+                      </Text>
+                    )}
                   </TouchableOpacity>
-                </>
-              )}
-              {mode === 'register' && (
-                <>
-                  <Text style={styles.switchText}>Hai gia un account?</Text>
-                  <TouchableOpacity onPress={() => switchMode('login')}>
-                    <Text style={styles.switchLink}>Accedi</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              {mode === 'forgot' && (
-                <>
-                  <Text style={styles.switchText}>Ricordi la password?</Text>
-                  <TouchableOpacity onPress={() => switchMode('login')}>
-                    <Text style={styles.switchLink}>Torna al login</Text>
-                  </TouchableOpacity>
-                </>
+
+                  {mode === 'login' && (
+                    <TouchableOpacity onPress={() => switchMode('register')} style={styles.switchMode}>
+                      <Text style={styles.switchModeText}>
+                        Non hai un account? <Text style={styles.switchModeLink}>Registrati</Text>
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {mode === 'register' && (
+                    <TouchableOpacity onPress={() => switchMode('login')} style={styles.switchMode}>
+                      <Text style={styles.switchModeText}>
+                        Hai già un account? <Text style={styles.switchModeLink}>Accedi</Text>
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </Animated.View>
               )}
             </View>
-          </Animated.View>
-
-          {/* Footer */}
-          <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.footer}>
-            <Text style={styles.footerText}>
-              Continuando, accetti i nostri{' '}
-              <Text style={styles.footerLink}>Termini di Servizio</Text>
-              {' '}e la{' '}
-              <Text style={styles.footerLink}>Privacy Policy</Text>
-            </Text>
-          </Animated.View>
-        </ScrollView>
+          </BlurView>
+        </RNAnimated.View>
       </KeyboardAvoidingView>
+
+      {/* Footer */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
+        <Text style={styles.footerText}>
+          Continuando accetti i <Text style={styles.footerLink}>Termini</Text> e la <Text style={styles.footerLink}>Privacy</Text>
+        </Text>
+      </View>
     </View>
   );
 };
@@ -389,210 +506,284 @@ export const AuthScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#0a0a0f',
   },
-  keyboardView: {
+  glowContainer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+  },
+  glowOrb: {
+    position: 'absolute',
+    borderRadius: 999,
+  },
+  glowOrb1: {
+    width: 400,
+    height: 400,
+    top: 60,
+    right: -120,
+    backgroundColor: '#7C3AED',
+    opacity: 0.2,
+  },
+  glowOrb2: {
+    width: 150,
+    height: 150,
+    bottom: 180,
+    left: -40,
+    backgroundColor: '#7C3AED',
+    opacity: 0.18,
+  },
+  blurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+  },
+  content: {
     flex: 1,
+    paddingHorizontal: 20,
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+  // Terminal Styles
+  terminalContainer: {
+    marginTop: 20,
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 40,
-  },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: AppColors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  appName: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1,
-  },
-  tagline: {
-    fontSize: 14,
-    color: AppColors.white.w50,
-    marginTop: 4,
-  },
-  formContainer: {
-    backgroundColor: AppColors.white.w04,
-    borderRadius: 24,
-    padding: 24,
+  terminalWindow: {
+    backgroundColor: '#1a1a24',
+    borderRadius: 12,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: AppColors.white.w08,
+    borderColor: 'rgba(255,255,255,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: AppColors.white.w50,
-    marginBottom: 24,
-  },
-  errorContainer: {
+  terminalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: AppColors.errorAlpha.a15,
+    justifyContent: 'space-between',
+    backgroundColor: '#2a2a36',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  terminalButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  terminalBtn: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  terminalTitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  terminalContent: {
+    padding: 16,
+    height: 260,
+    overflow: 'hidden',
+  },
+  terminalLine: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  terminalText: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  cursor: {
+    color: '#10B981',
+    opacity: 1,
+  },
+  // Branding
+  brandingSection: {
+    alignItems: 'center',
+    marginTop: 32,
+  },
+  brandName: {
+    fontSize: 42,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -1,
+  },
+  tagline: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: 6,
+    fontWeight: '500',
+  },
+  // Modal
+  modalContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  modal: {
+    marginHorizontal: 16,
+    marginBottom: 90,
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  modalBlur: {
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalContent: {
+    flex: 1,
+    padding: 24,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  initialButtons: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 12,
+  },
+  primaryButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  primaryButtonGradient: {
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  secondaryButton: {
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+  },
+  formContent: {
+    flex: 1,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  formTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
     marginBottom: 16,
-    gap: 8,
   },
   errorText: {
     flex: 1,
     fontSize: 13,
-    color: AppColors.error,
+    color: '#EF4444',
   },
-  inputContainer: {
+  inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: AppColors.white.w06,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
+    paddingHorizontal: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: AppColors.white.w08,
-  },
-  inputIcon: {
-    marginLeft: 14,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   input: {
     flex: 1,
-    height: 52,
-    paddingHorizontal: 12,
-    fontSize: 16,
+    height: 50,
+    fontSize: 15,
     color: '#fff',
+    marginLeft: 10,
   },
-  eyeButton: {
-    padding: 14,
-  },
-  forgotButton: {
+  forgotLink: {
     alignSelf: 'flex-end',
-    marginBottom: 20,
+    marginBottom: 16,
     marginTop: 4,
   },
-  forgotText: {
+  forgotLinkText: {
     fontSize: 13,
     color: AppColors.primary,
     fontWeight: '500',
   },
   submitButton: {
-    backgroundColor: AppColors.primary,
     height: 52,
     borderRadius: 14,
+    backgroundColor: AppColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
   },
   submitButtonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   submitButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#fff',
   },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  switchMode: {
     alignItems: 'center',
-    marginTop: 24,
-    gap: 6,
+    marginTop: 16,
   },
-  switchText: {
+  switchModeText: {
     fontSize: 14,
-    color: AppColors.white.w50,
+    color: 'rgba(255,255,255,0.5)',
   },
-  switchLink: {
-    fontSize: 14,
+  switchModeLink: {
     color: AppColors.primary,
     fontWeight: '600',
   },
   footer: {
-    marginTop: 32,
-    paddingHorizontal: 20,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingVertical: 12,
+    zIndex: 10,
   },
   footerText: {
     fontSize: 12,
-    color: AppColors.white.w35,
-    textAlign: 'center',
-    lineHeight: 18,
+    color: 'rgba(255,255,255,0.3)',
   },
   footerLink: {
     color: AppColors.primary,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: AppColors.white.w15,
-  },
-  dividerText: {
-    fontSize: 13,
-    color: AppColors.white.w40,
-    marginHorizontal: 16,
-  },
-  socialContainer: {
-    gap: 12,
-  },
-  socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 52,
-    borderRadius: 14,
-    backgroundColor: AppColors.white.w06,
-    borderWidth: 1,
-    borderColor: AppColors.white.w10,
-  },
-  socialIconContainer: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  socialButtonText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  appleButton: {
-    backgroundColor: '#000',
-    borderColor: AppColors.white.w25,
-  },
-  appleButtonText: {
-    color: '#fff',
   },
 });

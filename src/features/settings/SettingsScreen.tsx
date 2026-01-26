@@ -48,8 +48,22 @@ interface SystemStatus {
   };
 }
 
+interface BudgetStatus {
+  plan: {
+    id: string;
+    name: string;
+    monthlyBudgetEur: number;
+  };
+  usage: {
+    spentEur: number;
+    remainingEur: number;
+    percentUsed: number;
+  };
+}
+
 interface Props {
   onClose: () => void;
+  initialShowPlans?: boolean;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -88,7 +102,7 @@ const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, 
   </TouchableOpacity>
 );
 
-export const SettingsScreen = ({ onClose }: Props) => {
+export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
   const [darkMode, setDarkMode] = useState(true);
@@ -97,13 +111,14 @@ export const SettingsScreen = ({ onClose }: Props) => {
   const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showPlanSelection, setShowPlanSelection] = useState(false);
+  const [showPlanSelection, setShowPlanSelection] = useState(initialShowPlans);
   const [showResourceUsage, setShowResourceUsage] = useState(false);
   const [tokenTimeframe, setTokenTimeframe] = useState<'24h' | '7d' | '30d'>('24h');
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'max'>('free');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(0);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
@@ -136,9 +151,18 @@ export const SettingsScreen = ({ onClose }: Props) => {
     try {
       setStatusLoading(true);
       const { apiUrl } = getSystemConfig().backend;
+
+      // Fetch system status
       const response = await fetch(`${apiUrl}/stats/system-status`);
       const data = await response.json();
       setSystemStatus(data);
+
+      // Fetch budget status
+      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}?planId=${currentPlan}`);
+      const budgetData = await budgetResponse.json();
+      if (budgetData.success) {
+        setBudgetStatus(budgetData);
+      }
     } catch (error) {
       console.error('Error fetching system status:', error);
     } finally {
@@ -368,7 +392,13 @@ export const SettingsScreen = ({ onClose }: Props) => {
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity
             style={styles.backButtonCompact}
-            onPress={() => setShowPlanSelection(false)}
+            onPress={() => {
+              if (initialShowPlans) {
+                onClose();
+              } else {
+                setShowPlanSelection(false);
+              }
+            }}
           >
             <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
               <Ionicons name="close" size={20} color="#fff" />
@@ -511,31 +541,23 @@ export const SettingsScreen = ({ onClose }: Props) => {
   };
 
   const renderResourceUsage = () => {
-    const timeframes: { id: '24h' | '7d' | '30d'; label: string }[] = [
-      { id: '24h', label: 'Ultime 24h' },
-      { id: '7d', label: '7 Giorni' },
-      { id: '30d', label: '30 Giorni' },
-    ];
-
     const activeColor = AppColors.primary;
 
-    // Simulated Hourly Data (24 items for 24h)
-    const chartWidth = SCREEN_WIDTH - 48 - 40; // 40 for left padding/labels
-    const chartHeight = 160;
-    const barGap = 4;
-    const numBars = 24;
-    const barWidth = (chartWidth - (numBars - 1) * barGap) / numBars;
+    // Budget data
+    const spentEur = budgetStatus?.usage.spentEur || 0;
+    const budgetEur = budgetStatus?.plan.monthlyBudgetEur || 2.50;
+    const remainingEur = budgetStatus?.usage.remainingEur || budgetEur;
+    const percentUsed = budgetStatus?.usage.percentUsed || 0;
+    const planName = budgetStatus?.plan.name || 'Free';
 
-    const hourlyData = systemStatus?.tokens.hourly || new Array(24).fill(0);
-    const maxHourlyValue = Math.max(...hourlyData, 1);
-    const avgValue = hourlyData.reduce((a, b) => a + b, 0) / 24;
-    const avgPercent = (avgValue / maxHourlyValue) * 100;
+    const budgetDisplay = `€${spentEur.toFixed(2)} / €${budgetEur.toFixed(2)}`;
 
-    const usedTokens = systemStatus?.tokens.used || 0;
-    const limitTokens = systemStatus?.tokens.limit || 1000000;
-    const tokenDisplay = usedTokens >= 1000
-      ? `${(usedTokens / 1000).toFixed(0)}k / ${(limitTokens / 1000000).toFixed(0)}M`
-      : `${usedTokens} / ${(limitTokens / 1000000).toFixed(0)}M`;
+    // Get color based on usage
+    const getBudgetColor = () => {
+      if (percentUsed >= 90) return '#F87171'; // Red
+      if (percentUsed >= 70) return '#FBBF24'; // Yellow
+      return '#34D399'; // Green
+    };
 
     return (
       <View style={styles.container}>
@@ -550,7 +572,7 @@ export const SettingsScreen = ({ onClose }: Props) => {
               <Ionicons name="close" size={20} color="#fff" />
             </BlurView>
           </TouchableOpacity>
-          <Text style={styles.headerTitleSmall}>Stato del Sistema</Text>
+          <Text style={styles.headerTitleSmall}>Budget AI</Text>
           <View style={{ width: 44 }} />
         </View>
 
@@ -559,142 +581,73 @@ export const SettingsScreen = ({ onClose }: Props) => {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         >
-          {/* Token Consumption Area - Bar Chart Design */}
+          {/* Budget Card - Main */}
           <BlurView intensity={30} tint="dark" style={styles.mainMonitorCard}>
             <View style={styles.monitorHeader}>
               <View>
-                <Text style={styles.monitorTitle}>Utilizzo Token AI</Text>
-                <Text style={styles.monitorSub}>Distribuzione oraria consumi</Text>
+                <Text style={styles.monitorTitle}>Budget Mensile</Text>
+                <Text style={styles.monitorSub}>Piano {planName}</Text>
               </View>
-              <View style={[styles.monitorValueBadge, { backgroundColor: `${activeColor}20` }]}>
-                <Text style={[styles.monitorValueText, { color: activeColor }]}>{tokenDisplay}</Text>
-              </View>
-            </View>
-
-            {/* Apple-style Bar Chart SVG */}
-            <View style={styles.chartWrapper}>
-              <View style={styles.chartInnerContainer}>
-                {/* Y-Axis Labels */}
-                <View style={styles.yAxisLabels}>
-                  <Text style={styles.axisTextMini}>{maxHourlyValue >= 1000 ? `${(maxHourlyValue / 1000).toFixed(0)}k` : maxHourlyValue}</Text>
-                  <Text style={styles.axisTextMini}>{maxHourlyValue >= 2000 ? `${(maxHourlyValue / 2000).toFixed(0)}k` : (maxHourlyValue / 2).toFixed(0)}</Text>
-                  <Text style={styles.axisTextMini}>0</Text>
-                </View>
-
-                <Svg width={chartWidth} height={chartHeight}>
-                  {/* Grid Lines */}
-                  {[0, 0.5, 1].map((p, i) => (
-                    <Line
-                      key={i}
-                      x1="0"
-                      y1={chartHeight * p}
-                      x2={chartWidth}
-                      y2={chartHeight * p}
-                      stroke="rgba(255,255,255,0.05)"
-                      strokeWidth="1"
-                    />
-                  ))}
-
-                  {/* Average Line */}
-                  <Line
-                    x1="0"
-                    y1={chartHeight * (1 - avgPercent / 100)}
-                    x2={chartWidth}
-                    y2={chartHeight * (1 - avgPercent / 100)}
-                    stroke={activeColor}
-                    strokeWidth="1"
-                    strokeDasharray="4,4"
-                    opacity="0.5"
-                  />
-
-                  {/* Bars */}
-                  {hourlyData.map((val, i) => {
-                    const h = (val / maxHourlyValue) * chartHeight;
-                    const x = i * (barWidth + barGap);
-                    const y = chartHeight - h;
-                    return (
-                      <Rect
-                        key={i}
-                        x={x}
-                        y={y}
-                        width={barWidth}
-                        height={Math.max(h, 2)}
-                        fill={activeColor}
-                        rx={barWidth / 2}
-                        opacity={val >= avgValue ? 1 : 0.4}
-                      />
-                    );
-                  })}
-                </Svg>
-              </View>
-
-              {/* X-Axis Labels */}
-              <View style={[styles.xAxisLabels, { marginLeft: 40 }]}>
-                <Text style={styles.axisTextMini}>00h</Text>
-                <Text style={styles.axisTextMini}>06h</Text>
-                <Text style={styles.axisTextMini}>12h</Text>
-                <Text style={styles.axisTextMini}>18h</Text>
-                <Text style={styles.axisTextMini}>23h</Text>
+              <View style={[styles.monitorValueBadge, { backgroundColor: `${getBudgetColor()}20` }]}>
+                <Text style={[styles.monitorValueText, { color: getBudgetColor() }]}>{budgetDisplay}</Text>
               </View>
             </View>
 
-            {/* Timeframe Selectors */}
-            <View style={styles.segmentsRow}>
-              {timeframes.map((tf) => (
-                <TouchableOpacity
-                  key={tf.id}
-                  style={[
-                    styles.segmentBtn,
-                    tokenTimeframe === tf.id && styles.segmentBtnActive
-                  ]}
-                  onPress={() => setTokenTimeframe(tf.id)}
-                >
-                  <Text style={[
-                    styles.segmentLabel,
-                    tokenTimeframe === tf.id && styles.segmentLabelActive
-                  ]}>
-                    {tf.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* Big Progress Bar */}
+            <View style={styles.budgetProgressContainer}>
+              <View style={styles.budgetProgressBg}>
+                <LinearGradient
+                  colors={[getBudgetColor(), `${getBudgetColor()}80`]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.budgetProgressFill, { width: `${Math.min(percentUsed, 100)}%` }]}
+                />
+              </View>
+              <View style={styles.budgetProgressLabels}>
+                <Text style={styles.budgetProgressText}>€0</Text>
+                <Text style={styles.budgetProgressText}>€{(budgetEur / 2).toFixed(2)}</Text>
+                <Text style={styles.budgetProgressText}>€{budgetEur.toFixed(2)}</Text>
+              </View>
+            </View>
+
+            {/* Budget Stats */}
+            <View style={styles.budgetStatsRow}>
+              <View style={styles.budgetStatItem}>
+                <Text style={styles.budgetStatValue}>€{remainingEur.toFixed(2)}</Text>
+                <Text style={styles.budgetStatLabel}>Rimanente</Text>
+              </View>
+              <View style={styles.budgetStatDivider} />
+              <View style={styles.budgetStatItem}>
+                <Text style={styles.budgetStatValue}>{percentUsed}%</Text>
+                <Text style={styles.budgetStatLabel}>Utilizzato</Text>
+              </View>
+              <View style={styles.budgetStatDivider} />
+              <View style={styles.budgetStatItem}>
+                <Text style={styles.budgetStatValue}>{Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate()))}g</Text>
+                <Text style={styles.budgetStatLabel}>Al reset</Text>
+              </View>
             </View>
           </BlurView>
 
-
-
-          {/* Allocation Details - Restored Grid but Minimal */}
-          <Text style={styles.detailSectionTitle}>Allocazione e Limiti</Text>
+          {/* System Resources */}
+          <Text style={styles.detailSectionTitle}>Risorse Sistema</Text>
 
           <View style={styles.hudGridRefined}>
             <View style={styles.usageGridRow}>
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
-                <Ionicons name="sparkles" size={18} color="#A78BFA" style={{ marginBottom: 16 }} />
-                <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>Token AI</Text>
-                  <Text style={styles.usagePercent}>{systemStatus?.tokens.percent || 0}%</Text>
-                </View>
-                <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: `${systemStatus?.tokens.percent || 0}%`, backgroundColor: '#A78BFA' }]} />
-                </View>
-                <Text style={styles.usageSubtext}>{tokenDisplay} utilizzati</Text>
-              </BlurView>
-
-              <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
                 <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>Previews</Text>
+                  <Text style={styles.usageNameMini}>Anteprime</Text>
                   <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
                   <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.percent || 0}%`, backgroundColor: '#34D399' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 10} utilizzati</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 10} attive</Text>
               </BlurView>
-            </View>
 
-            <View style={styles.usageGridRow}>
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
-                <Ionicons name="git-branch" size={18} color="#60A5FA" style={{ marginBottom: 16 }} />
+                <Ionicons name="folder-outline" size={18} color="#60A5FA" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Progetti</Text>
                   <Text style={styles.usagePercent}>{systemStatus?.projects.percent || 0}%</Text>
@@ -703,18 +656,6 @@ export const SettingsScreen = ({ onClose }: Props) => {
                   <View style={[styles.miniBarFill, { width: `${systemStatus?.projects.percent || 0}%`, backgroundColor: '#60A5FA' }]} />
                 </View>
                 <Text style={styles.usageSubtext}>{systemStatus?.projects.active || 0} / {systemStatus?.projects.limit || 5} attivi</Text>
-              </BlurView>
-
-              <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
-                <Ionicons name="search-outline" size={18} color="#F472B6" style={{ marginBottom: 16 }} />
-                <View style={styles.usageTextRow}>
-                  <Text style={styles.usageNameMini}>Ricerca</Text>
-                  <Text style={styles.usagePercent}>{systemStatus?.search.percent || 0}%</Text>
-                </View>
-                <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: `${systemStatus?.search.percent || 0}%`, backgroundColor: '#F472B6' }]} />
-                </View>
-                <Text style={styles.usageSubtext}>{systemStatus?.search.used || 0} / {systemStatus?.search.limit || 20} al mese</Text>
               </BlurView>
             </View>
           </View>
@@ -791,7 +732,14 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 </LinearGradient>
               </View>
               <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
+                <View style={styles.profileNameRow}>
+                  <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
+                  <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
+                    <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
+                      {currentPlan.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
                 <Text style={styles.profileEmail}>{user.email}</Text>
               </View>
               <TouchableOpacity style={styles.editProfileBtn}>
@@ -849,10 +797,10 @@ export const SettingsScreen = ({ onClose }: Props) => {
                 onPress={() => setShowPlanSelection(true)}
               />
               <SettingItem
-                icon="bar-chart-outline"
+                icon="wallet-outline"
                 iconColor="#34D399"
-                title="Utilizzo Risorse"
-                subtitle={`${systemStatus?.tokens.percent || 0}% del limite mensile utilizzato`}
+                title="Budget AI"
+                subtitle={budgetStatus ? `€${budgetStatus.usage.spentEur.toFixed(2)} / €${budgetStatus.plan.monthlyBudgetEur.toFixed(2)} (${budgetStatus.usage.percentUsed}% usato)` : 'Caricamento...'}
                 onPress={() => setShowResourceUsage(true)}
               />
             </View>
@@ -1067,6 +1015,22 @@ const styles = StyleSheet.create({
   profileEmail: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.45)',
+    marginTop: 2,
+  },
+  profileNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  planBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  planBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   editProfileBtn: {
     width: 28,
@@ -1656,5 +1620,56 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.4)',
     marginTop: 2,
+  },
+  // Budget styles
+  budgetProgressContainer: {
+    marginVertical: 20,
+  },
+  budgetProgressBg: {
+    height: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  budgetProgressFill: {
+    height: '100%',
+    borderRadius: 6,
+  },
+  budgetProgressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  budgetProgressText: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.3)',
+    fontWeight: '600',
+  },
+  budgetStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  budgetStatItem: {
+    alignItems: 'center',
+  },
+  budgetStatValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.5,
+  },
+  budgetStatLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  budgetStatDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
 });

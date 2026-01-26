@@ -29,6 +29,7 @@ export interface DrapeUser {
   displayName: string | null;
   photoURL: string | null;
   createdAt: Date;
+  plan?: 'free' | 'go';
 }
 
 interface AuthState {
@@ -54,6 +55,7 @@ const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
   displayName: firebaseUser.displayName,
   photoURL: firebaseUser.photoURL,
   createdAt: new Date(firebaseUser.metadata.creationTime || Date.now()),
+  plan: 'free', // Default plan
 });
 
 export const useAuthStore = create<AuthState>((set, get) => ({
