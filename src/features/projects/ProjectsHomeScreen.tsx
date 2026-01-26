@@ -3,6 +3,8 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -61,6 +63,18 @@ const tutorialSteps = [
     icon: 'time-outline' as const,
   },
 ];
+
+// Glass wrapper component for LiquidGlass effect
+const GlassWrapper = ({ children, style }: { children: React.ReactNode; style?: any }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView style={[{ borderRadius: 16, overflow: 'hidden' }, style]} interactive={true} effect="clear" colorScheme="dark">
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  return <View style={style}>{children}</View>;
+};
 
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings, onOpenPlans }: Props) => {
   const { user } = useAuthStore();
@@ -416,7 +430,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     isGitRepo: true
                   });
                 }
-              } catch (e) {}
+              } catch (e) { }
             })()
           );
         }
@@ -425,7 +439,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         gitPromises.push(filePrefetchService.prefetchFiles(project.id, repoUrl, true));
 
         // Run both in parallel
-        await Promise.all(gitPromises).catch(() => {});
+        await Promise.all(gitPromises).catch(() => { });
         console.log('✅ [Home] Background refresh complete');
       };
       backgroundUpdate();
@@ -853,13 +867,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <Text style={styles.headerTitle} numberOfLines={1}>{userName}</Text>
               <View style={[styles.planBadge, {
                 backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.15)' :
-                                 currentPlan === 'go' ? `${AppColors.primary}15` :
-                                 currentPlan === 'pro' ? `${AppColors.primary}15` : '#F472B615'
+                  currentPlan === 'go' ? `${AppColors.primary}15` :
+                    currentPlan === 'pro' ? `${AppColors.primary}15` : '#F472B615'
               }]}>
                 <Text style={[styles.planBadgeText, {
                   color: currentPlan === 'free' ? '#94A3B8' :
-                         currentPlan === 'go' ? AppColors.primary :
-                         currentPlan === 'pro' ? AppColors.primary : '#F472B6'
+                    currentPlan === 'go' ? AppColors.primary :
+                      currentPlan === 'pro' ? AppColors.primary : '#F472B6'
                 }]}>
                   {currentPlan.toUpperCase()}
                 </Text>
@@ -906,66 +920,68 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </TouchableOpacity>
 
             {/* Import from GitHub */}
-            <TouchableOpacity
-              style={[styles.actionCard, styles.actionCardDark]}
-              activeOpacity={0.8}
-              onPress={onImportProject}
-            >
-              <View style={styles.actionCardInner}>
+            <GlassWrapper style={[styles.actionCard, styles.actionCardGlass]}>
+              <TouchableOpacity
+                style={styles.actionCardInner}
+                activeOpacity={0.8}
+                onPress={onImportProject}
+              >
                 <Ionicons name="logo-github" size={24} color="#fff" />
                 <Text style={styles.actionCardTitle}>Clona</Text>
                 <Text style={styles.actionCardSubtitle}>clona repo</Text>
-              </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </GlassWrapper>
 
             {/* Open File */}
-            <TouchableOpacity
-              style={[styles.actionCard, styles.actionCardDark]}
-              activeOpacity={0.8}
-              onPress={handleBrowseFiles}
-            >
-              <View style={styles.actionCardInner}>
+            <GlassWrapper style={[styles.actionCard, styles.actionCardGlass]}>
+              <TouchableOpacity
+                style={styles.actionCardInner}
+                activeOpacity={0.8}
+                onPress={handleBrowseFiles}
+              >
                 <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
                 <Text style={styles.actionCardTitle}>File</Text>
                 <Text style={styles.actionCardSubtitle}>Apri locale</Text>
-              </View>
-            </TouchableOpacity>
+              </TouchableOpacity>
+            </GlassWrapper>
           </View>
         </View>
 
         {/* Upgrade CTA - only show for free users */}
         {currentPlan === 'free' && showUpgradeCta && (
-          <TouchableOpacity
-            style={styles.upgradeCta}
-            activeOpacity={0.9}
-            onPress={onOpenPlans}
-          >
+          <GlassWrapper style={styles.upgradeCtaGlass}>
             <TouchableOpacity
-              style={styles.upgradeCtaClose}
-              onPress={(e) => {
-                e.stopPropagation();
-                setShowUpgradeCta(false);
-              }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              style={styles.upgradeCta}
+              activeOpacity={0.9}
+              onPress={onOpenPlans}
             >
-              <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.upgradeCtaClose}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setShowUpgradeCta(false);
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
+              </TouchableOpacity>
 
-            <View style={styles.upgradeCtaMain}>
-              <View style={styles.upgradeCtaContent}>
-                <View style={styles.upgradeCtaIconWrap}>
-                  <Ionicons name="diamond-outline" size={18} color={AppColors.primary} />
+              <View style={styles.upgradeCtaMain}>
+                <View style={styles.upgradeCtaContent}>
+                  <View style={styles.upgradeCtaIconWrap}>
+                    <Ionicons name="diamond-outline" size={18} color={AppColors.primary} />
+                  </View>
+                  <View style={styles.upgradeCtaText}>
+                    <Text style={styles.upgradeCtaTitle}>Sblocca Pro</Text>
+                    <Text style={styles.upgradeCtaSubtitle}>Progetti illimitati e 6x budget AI</Text>
+                  </View>
                 </View>
-                <View style={styles.upgradeCtaText}>
-                  <Text style={styles.upgradeCtaTitle}>Sblocca Pro</Text>
-                  <Text style={styles.upgradeCtaSubtitle}>Progetti illimitati e 6x budget AI</Text>
+                <View style={styles.upgradeCtaArrow}>
+                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
                 </View>
               </View>
-              <View style={styles.upgradeCtaArrow}>
-                <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
-              </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </GlassWrapper>
         )}
 
         {/* Recent Projects */}
@@ -990,35 +1006,36 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 const langColor = getLanguageColor(project.language);
                 const repoInfo = getRepoInfo(project.repositoryUrl || project.githubUrl);
                 return (
-                  <TouchableOpacity
-                    key={project.id}
-                    style={styles.projectCard}
-                    activeOpacity={0.7}
-                    onPress={() => handleProjectOpen(project)}
-                    onLongPress={() => handleOpenMenu(project)}
-                    delayLongPress={400}
-                  >
-                    <View style={styles.projectIcon}>
-                      {repoInfo ? (
-                        <Ionicons name="logo-github" size={22} color="rgba(255,255,255,0.7)" />
-                      ) : (
-                        <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor} />
-                      )}
-                    </View>
-                    <View style={styles.projectInfo}>
-                      <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
-                      <View style={styles.projectMetaRow}>
+                  <GlassWrapper key={project.id} style={styles.projectCardGlass}>
+                    <TouchableOpacity
+                      style={styles.projectCard}
+                      activeOpacity={0.7}
+                      onPress={() => handleProjectOpen(project)}
+                      onLongPress={() => handleOpenMenu(project)}
+                      delayLongPress={400}
+                    >
+                      <View style={styles.projectIcon}>
                         {repoInfo ? (
-                          <Text style={styles.projectRepoText} numberOfLines={1}>{repoInfo.full}</Text>
+                          <Ionicons name="logo-github" size={22} color="rgba(255,255,255,0.7)" />
                         ) : (
-                          <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+                          <Ionicons name={getLanguageIcon(project.language) as any} size={22} color={langColor} />
                         )}
-                        <View style={styles.metaDot} />
-                        <Text style={styles.projectTime}>{getTimeAgo(project.lastOpened || project.createdAt)}</Text>
                       </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
-                  </TouchableOpacity>
+                      <View style={styles.projectInfo}>
+                        <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
+                        <View style={styles.projectMetaRow}>
+                          {repoInfo ? (
+                            <Text style={styles.projectRepoText} numberOfLines={1}>{repoInfo.full}</Text>
+                          ) : (
+                            <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+                          )}
+                          <View style={styles.metaDot} />
+                          <Text style={styles.projectTime}>{getTimeAgo(project.lastOpened || project.createdAt)}</Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.2)" />
+                    </TouchableOpacity>
+                  </GlassWrapper>
                 );
               })}
               {/* See All Button */}
@@ -1050,133 +1067,264 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           <Pressable
             style={[StyleSheet.absoluteFill, styles.sheetBackdrop]}
             onPress={handleCloseMenu}
-          />
+          >
+            <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
+          </Pressable>
           <Animated.View
             style={[
-              styles.sheetContainer,
+              styles.sheetContainerBase,
               { transform: [{ translateY: sheetAnim }] }
             ]}
           >
-            <View style={styles.sheetHandle}>
-              <View style={styles.sheetHandleBar} />
-            </View>
-
-            {selectedProject && (
-              <>
-                <View style={styles.sheetHeader}>
-                  <View style={[styles.sheetProjectIcon, { backgroundColor: `${getLanguageColor(selectedProject.language)}15` }]}>
-                    <Ionicons
-                      name={getLanguageIcon(selectedProject.language) as any}
-                      size={20}
-                      color={getLanguageColor(selectedProject.language)}
-                    />
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView style={styles.sheetLiquidGlass} interactive={true} effect="clear" colorScheme="dark">
+                <View style={styles.sheetContent}>
+                  <View style={styles.sheetHandle}>
+                    <View style={styles.sheetHandleBar} />
                   </View>
-                  <View style={styles.sheetProjectInfo}>
-                    <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
-                    <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
-                  </View>
-                </View>
 
-                {/* Repository Info Section */}
-                {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
-                  <View style={styles.repoInfoSection}>
-                    <View style={styles.repoInfoRow}>
-                      <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
-                      <Text style={styles.repoUrlText} numberOfLines={1}>
-                        {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={async () => {
-                          const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
-                          await Clipboard.setStringAsync(url);
-                          Alert.alert('Copiato', 'Link repository copiato negli appunti');
-                        }}
-                        style={styles.copyButton}
-                      >
-                        <Ionicons name="copy-outline" size={14} color="rgba(255,255,255,0.4)" />
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.repoVisibilityRow}>
-                      {repoVisibility === 'loading' ? (
-                        <ActivityIndicator size="small" color={AppColors.primary} />
-                      ) : repoVisibility === 'public' ? (
-                        <View style={styles.visibilityBadge}>
-                          <Ionicons name="globe-outline" size={12} color="#4ade80" />
-                          <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                  {selectedProject && (
+                    <>
+                      <View style={styles.sheetHeader}>
+                        <View style={[styles.sheetProjectIcon, { backgroundColor: `${getLanguageColor(selectedProject.language)}15` }]}>
+                          <Ionicons
+                            name={getLanguageIcon(selectedProject.language) as any}
+                            size={20}
+                            color={getLanguageColor(selectedProject.language)}
+                          />
                         </View>
-                      ) : repoVisibility === 'private' ? (
-                        <View style={styles.visibilityBadge}>
-                          <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
-                          <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                        <View style={styles.sheetProjectInfo}>
+                          <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
+                          <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
                         </View>
-                      ) : null}
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.sheetActions}>
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
-                    handleCloseMenu();
-                    setTimeout(() => handleProjectOpen(selectedProject), 300);
-                  }}>
-                    <View style={styles.sheetActionIcon}>
-                      <Ionicons name="open-outline" size={20} color="#fff" />
-                    </View>
-                    <Text style={styles.sheetActionText}>Apri</Text>
-                  </TouchableOpacity>
-
-                  {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
-                    <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
-                      handleCloseMenu();
-                      setTimeout(() => setShowCommits(true), 300);
-                    }}>
-                      <View style={[styles.sheetActionIcon, { backgroundColor: `${AppColors.primary}15` }]}>
-                        <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
                       </View>
-                      <Text style={styles.sheetActionText}>Commit</Text>
-                    </TouchableOpacity>
+
+                      {/* Repository Info Section */}
+                      {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                        <View style={styles.repoInfoSection}>
+                          <View style={styles.repoInfoRow}>
+                            <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
+                            <Text style={styles.repoUrlText} numberOfLines={1}>
+                              {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
+                                await Clipboard.setStringAsync(url);
+                                Alert.alert('Copiato', 'Link repository copiato negli appunti');
+                              }}
+                              style={styles.copyButton}
+                            >
+                              <Ionicons name="copy-outline" size={14} color="rgba(255,255,255,0.4)" />
+                            </TouchableOpacity>
+                          </View>
+                          <View style={styles.repoVisibilityRow}>
+                            {repoVisibility === 'loading' ? (
+                              <ActivityIndicator size="small" color={AppColors.primary} />
+                            ) : repoVisibility === 'public' ? (
+                              <View style={styles.visibilityBadge}>
+                                <Ionicons name="globe-outline" size={12} color="#4ade80" />
+                                <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                              </View>
+                            ) : repoVisibility === 'private' ? (
+                              <View style={styles.visibilityBadge}>
+                                <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
+                                <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                      )}
+
+                      <View style={styles.sheetActions}>
+                        <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                          handleCloseMenu();
+                          setTimeout(() => handleProjectOpen(selectedProject), 300);
+                        }}>
+                          <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
+                            <Ionicons name="open-outline" size={20} color="#fff" />
+                          </LiquidGlassView>
+                          <Text style={styles.sheetActionText}>Apri</Text>
+                        </TouchableOpacity>
+
+                        {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                          <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                            handleCloseMenu();
+                            setTimeout(() => setShowCommits(true), 300);
+                          }}>
+                            <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
+                              <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
+                            </LiquidGlassView>
+                            <Text style={styles.sheetActionText}>Commit</Text>
+                          </TouchableOpacity>
+                        )}
+
+                        <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleDuplicateProject} disabled={isDuplicating}>
+                          <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
+                            {isDuplicating ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Ionicons name="copy-outline" size={20} color="#fff" />
+                            )}
+                          </LiquidGlassView>
+                          <Text style={styles.sheetActionText}>Duplica</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
+                          <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
+                            <Ionicons name="share-outline" size={20} color="#fff" />
+                          </LiquidGlassView>
+                          <Text style={styles.sheetActionText}>Condividi</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
+                          <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
+                            <Ionicons name="create-outline" size={20} color="#fff" />
+                          </LiquidGlassView>
+                          <Text style={styles.sheetActionText}>Rinomina</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.sheetDeleteButton}
+                        activeOpacity={0.7}
+                        onPress={handleDeleteProject}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                        <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                      </TouchableOpacity>
+                    </>
                   )}
 
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleDuplicateProject} disabled={isDuplicating}>
-                    <View style={styles.sheetActionIcon}>
-                      {isDuplicating ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <Ionicons name="copy-outline" size={20} color="#fff" />
-                      )}
-                    </View>
-                    <Text style={styles.sheetActionText}>Duplica</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
-                    <View style={styles.sheetActionIcon}>
-                      <Ionicons name="share-outline" size={20} color="#fff" />
-                    </View>
-                    <Text style={styles.sheetActionText}>Condividi</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
-                    <View style={styles.sheetActionIcon}>
-                      <Ionicons name="create-outline" size={20} color="#fff" />
-                    </View>
-                    <Text style={styles.sheetActionText}>Rinomina</Text>
+                  <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
+                    <Text style={styles.sheetCancelText}>Annulla</Text>
                   </TouchableOpacity>
                 </View>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.sheetContainer}>
+                <View style={styles.sheetHandle}>
+                  <View style={styles.sheetHandleBar} />
+                </View>
 
-                <TouchableOpacity
-                  style={styles.sheetDeleteButton}
-                  activeOpacity={0.7}
-                  onPress={handleDeleteProject}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-                  <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                {selectedProject && (
+                  <>
+                    <View style={styles.sheetHeader}>
+                      <View style={[styles.sheetProjectIcon, { backgroundColor: `${getLanguageColor(selectedProject.language)}15` }]}>
+                        <Ionicons
+                          name={getLanguageIcon(selectedProject.language) as any}
+                          size={20}
+                          color={getLanguageColor(selectedProject.language)}
+                        />
+                      </View>
+                      <View style={styles.sheetProjectInfo}>
+                        <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
+                        <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
+                      </View>
+                    </View>
+
+                    {/* Repository Info Section */}
+                    {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                      <View style={styles.repoInfoSection}>
+                        <View style={styles.repoInfoRow}>
+                          <Ionicons name="logo-github" size={16} color="rgba(255,255,255,0.5)" />
+                          <Text style={styles.repoUrlText} numberOfLines={1}>
+                            {getRepoInfo(selectedProject.repositoryUrl || selectedProject.githubUrl)?.full || 'Repository'}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
+                              await Clipboard.setStringAsync(url);
+                              Alert.alert('Copiato', 'Link repository copiato negli appunti');
+                            }}
+                            style={styles.copyButton}
+                          >
+                            <Ionicons name="copy-outline" size={14} color="rgba(255,255,255,0.4)" />
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.repoVisibilityRow}>
+                          {repoVisibility === 'loading' ? (
+                            <ActivityIndicator size="small" color={AppColors.primary} />
+                          ) : repoVisibility === 'public' ? (
+                            <View style={styles.visibilityBadge}>
+                              <Ionicons name="globe-outline" size={12} color="#4ade80" />
+                              <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                            </View>
+                          ) : repoVisibility === 'private' ? (
+                            <View style={styles.visibilityBadge}>
+                              <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
+                              <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                    )}
+
+                    <View style={styles.sheetActions}>
+                      <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                        handleCloseMenu();
+                        setTimeout(() => handleProjectOpen(selectedProject), 300);
+                      }}>
+                        <View style={styles.sheetActionIcon}>
+                          <Ionicons name="open-outline" size={20} color="#fff" />
+                        </View>
+                        <Text style={styles.sheetActionText}>Apri</Text>
+                      </TouchableOpacity>
+
+                      {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
+                        <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={() => {
+                          handleCloseMenu();
+                          setTimeout(() => setShowCommits(true), 300);
+                        }}>
+                          <View style={[styles.sheetActionIcon, { backgroundColor: `${AppColors.primary}15` }]}>
+                            <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
+                          </View>
+                          <Text style={styles.sheetActionText}>Commit</Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleDuplicateProject} disabled={isDuplicating}>
+                        <View style={styles.sheetActionIcon}>
+                          {isDuplicating ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Ionicons name="copy-outline" size={20} color="#fff" />
+                          )}
+                        </View>
+                        <Text style={styles.sheetActionText}>Duplica</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
+                        <View style={styles.sheetActionIcon}>
+                          <Ionicons name="share-outline" size={20} color="#fff" />
+                        </View>
+                        <Text style={styles.sheetActionText}>Condividi</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
+                        <View style={styles.sheetActionIcon}>
+                          <Ionicons name="create-outline" size={20} color="#fff" />
+                        </View>
+                        <Text style={styles.sheetActionText}>Rinomina</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.sheetDeleteButton}
+                      activeOpacity={0.7}
+                      onPress={handleDeleteProject}
+                    >
+                      <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                      <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
+                  <Text style={styles.sheetCancelText}>Annulla</Text>
                 </TouchableOpacity>
-              </>
+              </View>
             )}
-
-            <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
-              <Text style={styles.sheetCancelText}>Annulla</Text>
-            </TouchableOpacity>
           </Animated.View>
         </View>
       )}
@@ -1278,9 +1426,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 size={32}
                 color={
                   tutorialStep === 0 ? '#F59E0B' :
-                  tutorialStep === 1 ? AppColors.primary :
-                  tutorialStep === 2 ? '#fff' :
-                  '#60A5FA'
+                    tutorialStep === 1 ? AppColors.primary :
+                      tutorialStep === 2 ? '#fff' :
+                        '#60A5FA'
                 }
               />
             </View>
@@ -1426,10 +1574,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
+  actionCardGlass: {
+    flex: 1,
+  },
   actionCardInner: {
     padding: 14,
     alignItems: 'center',
     gap: 8,
+    backgroundColor: 'rgba(20,20,22,0.9)',
+    borderRadius: 14,
   },
   actionCardTitle: {
     fontSize: 13,
@@ -1458,16 +1611,18 @@ const styles = StyleSheet.create({
   },
 
   // Project Card
+  projectCardGlass: {
+    marginBottom: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
   projectCard: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 14,
-    marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: 'rgba(20,20,22,0.9)',
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
   },
   projectIcon: {
     marginRight: 4,
@@ -1563,11 +1718,21 @@ const styles = StyleSheet.create({
   sheetBackdrop: {
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
-  sheetContainer: {
+  sheetContainerBase: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+  },
+  sheetLiquidGlass: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+  },
+  sheetContent: {
+    paddingBottom: 40,
+  },
+  sheetContainer: {
     backgroundColor: '#141416',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -1673,6 +1838,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  sheetActionIconGlass: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
   sheetActionText: {
     fontSize: 12,
     fontWeight: '500',
@@ -1682,17 +1855,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    gap: 10,
+    paddingVertical: 16,
     marginHorizontal: 20,
     marginTop: 12,
-    backgroundColor: 'rgba(255, 107, 107, 0.08)',
+    backgroundColor: 'rgba(220, 53, 69, 0.85)',
     borderRadius: 14,
   },
   sheetDeleteText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FF6B6B',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#fff',
   },
   sheetCancelButton: {
     alignItems: 'center',
@@ -1813,13 +1986,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   // Upgrade CTA
-  upgradeCta: {
+  upgradeCtaGlass: {
     marginHorizontal: 20,
     marginBottom: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  upgradeCta: {
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(20,20,22,0.9)',
     paddingVertical: 14,
     paddingHorizontal: 16,
     position: 'relative',

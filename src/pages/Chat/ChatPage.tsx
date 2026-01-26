@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -140,6 +140,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const [showPlanApproval, setShowPlanApproval] = useState(false);
   const [showNextJsWarning, setShowNextJsWarning] = useState(false);
   const [nextJsWarningData, setNextJsWarningData] = useState<any>(null);
+
+  // Liquid Glass Shimmer Animation - flows across the button
+  const shimmerX = useSharedValue(-150);
+  useEffect(() => {
+    shimmerX.value = withRepeat(
+      withTiming(150, { duration: 3000, easing: Easing.bezier(0.4, 0, 0.2, 1) }),
+      -1,
+      false
+    );
+  }, []);
+
+  const shimmerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shimmerX.value }, { skewX: '-20deg' }],
+  }));
 
   // Track processed events to avoid duplicates in terminal
   const processedEventIdsRef = useRef<Set<string>>(new Set());
@@ -970,6 +984,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
+  const hasUserMessaged = terminalItems.some(item => item.type === TerminalItemType.USER_MESSAGE);
 
   // Set loading state for current tab
   const setLoading = (loading: boolean) => {
@@ -2484,18 +2499,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     ]}>
       {/* Content wrapper with sidebar offset */}
       <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
-        {/* Top Upgrade Pill - ChatGPT style - Hide once chat starts */}
-        {!isGoUser && terminalItems.length === 0 && (
+        {/* Top Upgrade Pill - Custom Liquid Glass (Expo Safe) */}
+        {!isGoUser && !hasUserMessaged && (
           <TouchableOpacity
             style={[
               styles.topUpgradePill,
-              { top: insets.top + (isCardMode ? 82 : 68) }
+              { top: insets.top + (isCardMode ? 47 : 40) }
             ]}
             onPress={() => navigateTo('plans')}
             activeOpacity={0.8}
           >
-            <BlurView intensity={25} tint="light" style={styles.upgradePillBlur}>
-              <Ionicons name="flash" size={11} color="rgba(255,255,255,0.7)" />
+            <BlurView intensity={35} tint="dark" style={styles.upgradePillBlur}>
+              {/* Animated Shimmer Highlight (Liquid feel) */}
+              <Animated.View style={[styles.shimmerLayer, shimmerStyle]}>
+                <LinearGradient
+                  colors={['transparent', 'rgba(255, 255, 255, 0.1)', 'transparent']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+
+              {/* Inner Border Reflection */}
+              <View style={styles.innerGloss} />
+
+              <Ionicons name="flash" size={11} color="rgba(255,255,255,0.95)" />
               <Text style={styles.upgradePillText}>Passa a GO</Text>
             </BlurView>
           </TouchableOpacity>
@@ -3321,21 +3349,45 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
   },
   upgradePillBlur: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-    gap: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    gap: 6,
+    borderRadius: 30,
+    overflow: 'hidden',
+  },
+  shimmerLayer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: '100%',
+    opacity: 0.7,
+  },
+  innerGloss: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 30,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   upgradePillText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.7)',
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.95)',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   outputContent: {
     padding: 20,

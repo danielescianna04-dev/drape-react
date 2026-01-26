@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
 import { useAuthStore } from '../../core/auth/authStore';
 
@@ -186,6 +187,37 @@ const TerminalTyping = () => {
   );
 };
 
+// Helper component to render input field with or without LiquidGlass
+// Defined outside AuthScreen to prevent re-creation on each render (which causes input focus loss)
+const GlassInputWrapper = ({ children }: { children: React.ReactNode }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView style={styles.glassInputWrapper} interactive={true} effect="clear" colorScheme="dark">
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  return <View style={styles.inputWrapper}>{children}</View>;
+};
+
+// Helper component for glass back button
+const GlassBackButton = ({ onPress }: { onPress: () => void }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView style={styles.glassBackButton} interactive={true} effect="clear" colorScheme="dark">
+        <TouchableOpacity onPress={onPress} style={styles.backButtonInner}>
+          <Ionicons name="arrow-back" size={22} color="#fff" />
+        </TouchableOpacity>
+      </LiquidGlassView>
+    );
+  }
+  return (
+    <TouchableOpacity style={styles.backButton} onPress={onPress}>
+      <Ionicons name="arrow-back" size={22} color="#fff" />
+    </TouchableOpacity>
+  );
+};
+
 export const AuthScreen = () => {
   const [mode, setMode] = useState<AuthMode>('initial');
   const [email, setEmail] = useState('');
@@ -196,6 +228,7 @@ export const AuthScreen = () => {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
+  const modalMarginBottom = useRef(new RNAnimated.Value(90)).current;
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
   const { signIn, signUp, resetPassword, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
@@ -208,9 +241,17 @@ export const AuthScreen = () => {
 
     const showBlur = mode !== 'initial';
 
+    const targetMarginBottom = mode === 'initial' ? 90 : 30;
+
     RNAnimated.parallel([
       RNAnimated.spring(modalHeight, {
         toValue: targetHeight,
+        useNativeDriver: false,
+        tension: 65,
+        friction: 12,
+      }),
+      RNAnimated.spring(modalMarginBottom, {
+        toValue: targetMarginBottom,
         useNativeDriver: false,
         tension: 65,
         friction: 12,
@@ -282,6 +323,168 @@ export const AuthScreen = () => {
 
   const displayError = localError || error;
 
+
+  const renderModalContent = () => (
+    <>
+      <View style={styles.modalHandle} />
+
+      {/* Initial State */}
+      {mode === 'initial' && (
+        <Animated.View entering={FadeIn.duration(300)} style={styles.initialButtons}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => switchMode('register')}
+            activeOpacity={0.9}
+          >
+            <LinearGradient
+              colors={[AppColors.primary, '#8B5CF6']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.primaryButtonGradient}
+            >
+              <Text style={styles.primaryButtonText}>Inizia Gratis</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => switchMode('login')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.secondaryButtonText}>Ho già un account</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* Form State */}
+      {mode !== 'initial' && (
+        <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
+          <View style={styles.formHeader}>
+            <GlassBackButton onPress={() => switchMode('initial')} />
+            <Text style={styles.formTitle}>
+              {mode === 'login' && 'Accedi'}
+              {mode === 'register' && 'Registrati'}
+              {mode === 'forgot' && 'Reset Password'}
+            </Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {displayError && (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle" size={16} color="#EF4444" />
+              <Text style={styles.errorText}>{displayError}</Text>
+            </View>
+          )}
+
+          {mode === 'register' && (
+            <GlassInputWrapper>
+              <Ionicons name="person-outline" size={18} color="rgba(255,255,255,0.4)" />
+              <TextInput
+                style={styles.input}
+                placeholder="Nome"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={displayName}
+                onChangeText={setDisplayName}
+                autoCapitalize="words"
+              />
+            </GlassInputWrapper>
+          )}
+
+          <GlassInputWrapper>
+            <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.4)" />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </GlassInputWrapper>
+
+          {mode !== 'forgot' && (
+            <GlassInputWrapper>
+              <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                <Ionicons
+                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                  size={18}
+                  color="rgba(255,255,255,0.4)"
+                />
+              </TouchableOpacity>
+            </GlassInputWrapper>
+          )}
+
+          {mode === 'register' && (
+            <GlassInputWrapper>
+              <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
+              <TextInput
+                style={styles.input}
+                placeholder="Conferma Password"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+              />
+            </GlassInputWrapper>
+          )}
+
+          {mode === 'login' && (
+            <TouchableOpacity
+              style={styles.forgotLink}
+              onPress={() => switchMode('forgot')}
+            >
+              <Text style={styles.forgotLinkText}>Password dimenticata?</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
+            onPress={handleSubmit}
+            disabled={isLoading}
+            activeOpacity={0.9}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.submitButtonText}>
+                {mode === 'login' && 'Accedi'}
+                {mode === 'register' && 'Crea Account'}
+                {mode === 'forgot' && 'Invia Email'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {mode === 'login' && (
+            <TouchableOpacity onPress={() => switchMode('register')} style={styles.switchMode}>
+              <Text style={styles.switchModeText}>
+                Non hai un account? <Text style={styles.switchModeLink}>Registrati</Text>
+              </Text>
+            </TouchableOpacity>
+          )}
+          {mode === 'register' && (
+            <TouchableOpacity onPress={() => switchMode('login')} style={styles.switchMode}>
+              <Text style={styles.switchModeText}>
+                Hai già un account? <Text style={styles.switchModeLink}>Accedi</Text>
+              </Text>
+            </TouchableOpacity>
+          )}
+        </Animated.View>
+      )}
+    </>
+  );
+
   return (
     <View style={styles.container}>
       {/* Background */}
@@ -324,181 +527,31 @@ export const AuthScreen = () => {
         style={styles.modalContainer}
         keyboardVerticalOffset={0}
       >
-        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: mode === 'initial' ? 90 : 30 }]}>
-          <BlurView intensity={60} tint="dark" style={styles.modalBlur}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHandle} />
-
-              {/* Initial State */}
-              {mode === 'initial' && (
-                <Animated.View entering={FadeIn.duration(300)} style={styles.initialButtons}>
-                  <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={() => switchMode('register')}
-                    activeOpacity={0.9}
-                  >
-                    <LinearGradient
-                      colors={[AppColors.primary, '#8B5CF6']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.primaryButtonGradient}
-                    >
-                      <Text style={styles.primaryButtonText}>Inizia Gratis</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={() => switchMode('login')}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.secondaryButtonText}>Ho già un account</Text>
-                  </TouchableOpacity>
-                </Animated.View>
-              )}
-
-              {/* Form */}
-              {mode !== 'initial' && (
-                <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
-                  <View style={styles.formHeader}>
-                    <TouchableOpacity
-                      style={styles.backButton}
-                      onPress={() => switchMode('initial')}
-                    >
-                      <Ionicons name="arrow-back" size={22} color="#fff" />
-                    </TouchableOpacity>
-                    <Text style={styles.formTitle}>
-                      {mode === 'login' && 'Accedi'}
-                      {mode === 'register' && 'Registrati'}
-                      {mode === 'forgot' && 'Reset Password'}
-                    </Text>
-                    <View style={{ width: 40 }} />
-                  </View>
-
-                  {displayError && (
-                    <View style={styles.errorBox}>
-                      <Ionicons name="alert-circle" size={16} color="#EF4444" />
-                      <Text style={styles.errorText}>{displayError}</Text>
-                    </View>
-                  )}
-
-                  {mode === 'register' && (
-                    <View style={styles.inputWrapper}>
-                      <Ionicons name="person-outline" size={18} color="rgba(255,255,255,0.4)" />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Nome"
-                        placeholderTextColor="rgba(255,255,255,0.3)"
-                        value={displayName}
-                        onChangeText={setDisplayName}
-                        autoCapitalize="words"
-                      />
-                    </View>
-                  )}
-
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.4)" />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Email"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      value={email}
-                      onChangeText={setEmail}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-
-                  {mode !== 'forgot' && (
-                    <View style={styles.inputWrapper}>
-                      <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Password"
-                        placeholderTextColor="rgba(255,255,255,0.3)"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        autoCapitalize="none"
-                      />
-                      <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                        <Ionicons
-                          name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                          size={18}
-                          color="rgba(255,255,255,0.4)"
-                        />
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {mode === 'register' && (
-                    <View style={styles.inputWrapper}>
-                      <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Conferma Password"
-                        placeholderTextColor="rgba(255,255,255,0.3)"
-                        value={confirmPassword}
-                        onChangeText={setConfirmPassword}
-                        secureTextEntry={!showPassword}
-                        autoCapitalize="none"
-                      />
-                    </View>
-                  )}
-
-                  {mode === 'login' && (
-                    <TouchableOpacity
-                      style={styles.forgotLink}
-                      onPress={() => switchMode('forgot')}
-                    >
-                      <Text style={styles.forgotLinkText}>Password dimenticata?</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    style={[styles.submitButton, isLoading && styles.submitButtonDisabled]}
-                    onPress={handleSubmit}
-                    disabled={isLoading}
-                    activeOpacity={0.9}
-                  >
-                    {isLoading ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <Text style={styles.submitButtonText}>
-                        {mode === 'login' && 'Accedi'}
-                        {mode === 'register' && 'Crea Account'}
-                        {mode === 'forgot' && 'Invia Email'}
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-
-                  {mode === 'login' && (
-                    <TouchableOpacity onPress={() => switchMode('register')} style={styles.switchMode}>
-                      <Text style={styles.switchModeText}>
-                        Non hai un account? <Text style={styles.switchModeLink}>Registrati</Text>
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                  {mode === 'register' && (
-                    <TouchableOpacity onPress={() => switchMode('login')} style={styles.switchMode}>
-                      <Text style={styles.switchModeText}>
-                        Hai già un account? <Text style={styles.switchModeLink}>Accedi</Text>
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </Animated.View>
-              )}
-            </View>
-          </BlurView>
+        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: modalMarginBottom }]}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView style={styles.liquidGlassModal} interactive={true} effect="clear" colorScheme="dark">
+              <View style={styles.modalContent}>
+                {renderModalContent()}
+              </View>
+            </LiquidGlassView>
+          ) : (
+            <BlurView intensity={60} tint="dark" style={styles.modalBlur}>
+              <View style={styles.modalContent}>
+                {renderModalContent()}
+              </View>
+            </BlurView>
+          )}
         </RNAnimated.View>
       </KeyboardAvoidingView>
 
-      {/* Footer */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
-        <Text style={styles.footerText}>
-          Continuando accetti i <Text style={styles.footerLink}>Termini</Text> e la <Text style={styles.footerLink}>Privacy</Text>
-        </Text>
-      </View>
+      {/* Footer - only show in initial mode */}
+      {mode === 'initial' && (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
+          <Text style={styles.footerText}>
+            Continuando accetti i <Text style={styles.footerLink}>Termini</Text> e la <Text style={styles.footerLink}>Privacy</Text>
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -632,8 +685,11 @@ const styles = StyleSheet.create({
   modalBlur: {
     flex: 1,
     borderRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  liquidGlassModal: {
+    flex: 1,
+    borderRadius: 28,
+    overflow: 'hidden',
   },
   modalContent: {
     flex: 1,
@@ -690,10 +746,30 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  glassBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  backButtonInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glassInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 25,
+    paddingHorizontal: 18,
+    marginBottom: 12,
+    height: 50,
+    overflow: 'hidden',
   },
   formTitle: {
     fontSize: 20,
@@ -719,8 +795,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
+    borderRadius: 25,
+    paddingHorizontal: 18,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',

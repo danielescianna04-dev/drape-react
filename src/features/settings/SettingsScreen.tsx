@@ -16,6 +16,7 @@ import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, Rect, Lin
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -101,6 +102,23 @@ const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, 
     ))}
   </TouchableOpacity>
 );
+
+// Glass Card wrapper - uses LiquidGlass on iOS 26+, dark View on older versions
+const GlassCard = ({ children, style }: { children: React.ReactNode; style?: any }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView style={[styles.glassCardLiquid, style]} interactive={true} effect="clear" colorScheme="dark">
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  // Fallback: simple dark card without blur for cleaner look
+  return (
+    <View style={[styles.sectionCardWrap, styles.sectionCardDark, style]}>
+      {children}
+    </View>
+  );
+};
 
 export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => {
   const insets = useSafeAreaInsets();
@@ -699,11 +717,19 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity
-          style={styles.backButton}
+          style={styles.backButtonWrapper}
           activeOpacity={0.7}
           onPress={onClose}
         >
-          <Ionicons name="chevron-back" size={24} color="#fff" />
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView style={styles.backButtonGlass} interactive={true} effect="clear" colorScheme="dark">
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.backButton}>
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </View>
+          )}
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Impostazioni</Text>
         <View style={{ width: 44 }} />
@@ -716,11 +742,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
       >
         {/* User Profile Section */}
         {user && (
-          <BlurView intensity={25} tint="dark" style={styles.profileBlur}>
-            <LinearGradient
-              colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
-              style={styles.profileSection}
-            >
+          <GlassCard style={styles.profileBlur}>
+            <View style={styles.profileSection}>
               <View style={styles.profileAvatarContainer}>
                 <LinearGradient
                   colors={[AppColors.primary, AppColors.primaryShade]}
@@ -745,8 +768,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
               <TouchableOpacity style={styles.editProfileBtn}>
                 <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.6)" />
               </TouchableOpacity>
-            </LinearGradient>
-          </BlurView>
+            </View>
+          </GlassCard>
         )}
 
         {/* Account Git Section */}
@@ -763,7 +786,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
             </TouchableOpacity>
           </View>
 
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               {loading ? (
                 <>
@@ -781,13 +804,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 </View>
               )}
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         {/* Abbonamento & Utilizzo Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Abbonamento & Utilizzo</Text>
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="card-outline"
@@ -804,13 +827,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 onPress={() => setShowResourceUsage(true)}
               />
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         {/* Aspetto Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Aspetto</Text>
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="moon-outline"
@@ -830,13 +853,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 }
               />
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         {/* Notifiche Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notifiche</Text>
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="notifications-outline"
@@ -856,13 +879,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 }
               />
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         {/* Info Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informazioni</Text>
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="information-circle-outline"
@@ -884,12 +907,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 onPress={() => Linking.openURL('https://drape.app/privacy')}
               />
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         {/* Danger Zone */}
         <View style={styles.section}>
-          <BlurView intensity={20} tint="dark" style={styles.sectionCardWrap}>
+          <GlassCard>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="log-out-outline"
@@ -912,7 +935,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 showChevron={false}
               />
             </View>
-          </BlurView>
+          </GlassCard>
         </View>
 
         <View style={{ height: 40 }} />
@@ -955,6 +978,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
+  backButtonWrapper: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonGlass: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  backButtonInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
   headerTitle: {
     fontSize: 16,
     fontWeight: '800',
@@ -976,13 +1023,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
   profileSection: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
+    backgroundColor: 'rgba(20,20,22,0.9)',
+    borderRadius: 16,
   },
   profileAvatarContainer: {
     shadowColor: AppColors.primary,
@@ -1056,11 +1103,20 @@ const styles = StyleSheet.create({
   sectionCardWrap: {
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  sectionCardDark: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  glassCardLiquid: {
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   sectionCard: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    padding: 4,
+    backgroundColor: 'rgba(20,20,22,0.9)',
+    borderRadius: 16,
   },
   addButton: {
     flexDirection: 'row',

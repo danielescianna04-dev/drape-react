@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableWithoutFeedback, Keyboard, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import * as Clipboard from 'expo-clipboard';
@@ -84,7 +85,89 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
 
           {/* Modal card - moves up when keyboard is visible */}
           <Animated.View style={[styles.modalWrapper, { transform: [{ translateY: modalOffset }] }]}>
-            <View style={styles.modalContainer}>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView style={styles.liquidGlassContainer} interactive={true} effect="clear" colorScheme="dark">
+                <View style={styles.modalContentInner}>
+                  {/* Header with icon */}
+                  <View style={styles.header}>
+                    <View style={styles.iconCircle}>
+                      <LinearGradient
+                        colors={[AppColors.primary, AppColors.purpleMedium]}
+                        style={styles.iconGradient}
+                      >
+                        <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
+                      </LinearGradient>
+                    </View>
+                    <Text style={styles.title}>Import from GitHub</Text>
+                  </View>
+
+                  {/* Input section */}
+                  <View style={styles.inputSection}>
+                    <Text style={styles.label}>GitHub URL</Text>
+                    <View style={styles.inputContainer}>
+                      <TextInput
+                        style={styles.input}
+                        value={String(repoUrl || '')}
+                        onChangeText={(text) => setRepoUrl(String(text || ''))}
+                        placeholder="https://github.com/username/repository"
+                        placeholderTextColor={AppColors.white.w35}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={!isLoading}
+                        keyboardAppearance="dark"
+                        returnKeyType="done"
+                        onSubmitEditing={handleImport}
+                      />
+                      {repoUrl.length > 0 && !isLoading && (
+                        <TouchableOpacity
+                          style={styles.clearButton}
+                          onPress={() => setRepoUrl('')}
+                        >
+                          <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Buttons */}
+                  <View style={styles.buttons}>
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={onClose}
+                      disabled={isLoading}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.importButtonContainer}
+                      onPress={handleImport}
+                      disabled={!isValidUrl || isLoading}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={
+                          !isValidUrl || isLoading
+                            ? [AppColors.primaryAlpha.a40, AppColors.primaryAlpha.a40]
+                            : [AppColors.primary, AppColors.purpleMedium]
+                        }
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.importButton}
+                      >
+                        {isLoading ? (
+                          <ActivityIndicator color={AppColors.white.full} />
+                        ) : (
+                          <Text style={styles.importText}>Import</Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.modalContainer}>
                 <LinearGradient
                   colors={[AppColors.white.w08, AppColors.white.w04]}
                   style={styles.modalGradient}
@@ -167,9 +250,10 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                   </View>
                 </LinearGradient>
 
-              {/* Border glow */}
-              <View style={styles.borderGlow} />
-            </View>
+                {/* Border glow */}
+                <View style={styles.borderGlow} />
+              </View>
+            )}
           </Animated.View>
         </View>
       </TouchableWithoutFeedback>
@@ -199,6 +283,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 10,
+  },
+  liquidGlassContainer: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  modalContentInner: {
+    padding: 24,
   },
   modalGradient: {
     backgroundColor: AppColors.dark.backgroundAlt,
@@ -260,8 +353,8 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.white.w04,
     borderWidth: 1,
     borderColor: AppColors.white.w10,
-    borderRadius: 12,
-    paddingHorizontal: 16,
+    borderRadius: 25,
+    paddingHorizontal: 20,
     paddingVertical: 14,
     fontSize: 14,
     color: AppColors.white.full,

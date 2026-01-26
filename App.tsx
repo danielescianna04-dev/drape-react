@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SplashScreen } from './src/features/splash/SplashScreen';
 import * as Linking from 'expo-linking';
-import Animated, { FadeIn, FadeOut, SlideInRight } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, SlideInRight, FadeInDown } from 'react-native-reanimated';
 
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { NavigationContainer } from '@react-navigation/native';
@@ -1123,8 +1123,8 @@ export default function App() {
               {currentScreen === 'terminal' && (
                 <Animated.View
                   key="terminal-screen"
-                  entering={FadeIn.duration(400)}
-                  exiting={FadeOut.duration(200)}
+                  entering={FadeInDown.duration(800)}
+                  exiting={FadeOut.duration(400)}
                   style={{ flex: 1 }}
                 >
                   <VSCodeSidebar

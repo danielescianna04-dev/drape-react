@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring } from 'react-native-reanimated';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -307,42 +307,57 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <Animated.View
           style={[styles.iconBar, sidebarAnimatedStyle]}
           onStartShouldSetResponder={() => true}
+          entering={FadeIn.duration(400)}
         >
           {/* Top icons */}
           <View style={styles.topIcons}>
-            <IconButton
-              iconName="grid-outline"
-              size={24}
-              color={AppColors.icon.default}
-              onPress={() => {
-                setActivePanel(null);
-                setShowPreviewPanel(false); // Go back to tabs (hide preview)
-              }}
-              isActive={(activePanel === null || activePanel === 'multitasking') && !showPreviewPanel}
-              activeColor={AppColors.primary}
-              accessibilityLabel="Tabs view"
-            />
-            <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
-            <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
-            <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
+            <Animated.View entering={FadeInDown.delay(100).duration(500)}>
+              <IconButton
+                iconName="grid-outline"
+                size={24}
+                color={AppColors.icon.default}
+                onPress={() => {
+                  setActivePanel(null);
+                  setShowPreviewPanel(false); // Go back to tabs (hide preview)
+                }}
+                isActive={(activePanel === null || activePanel === 'multitasking') && !showPreviewPanel}
+                activeColor={AppColors.primary}
+                accessibilityLabel="Tabs view"
+              />
+            </Animated.View>
+            <Animated.View entering={FadeInDown.delay(200).duration(500)}>
+              <IconButton iconName="folder" size={24} color={AppColors.icon.default} onPress={() => togglePanel('files')} isActive={activePanel === 'files'} activeColor={AppColors.primary} accessibilityLabel="Files panel" />
+            </Animated.View>
+            <Animated.View entering={FadeInDown.delay(300).duration(500)}>
+              <IconButton iconName="chatbubbles" size={24} color={AppColors.icon.default} onPress={() => togglePanel('chat')} isActive={activePanel === 'chat'} activeColor={AppColors.primary} accessibilityLabel="Chat panel" />
+            </Animated.View>
+            <Animated.View entering={FadeInDown.delay(400).duration(500)}>
+              <IconButton iconName="eye" size={24} color={AppColors.icon.default} onPress={() => togglePanel('preview')} isActive={showPreviewPanel} activeColor={AppColors.primary} accessibilityLabel="Preview panel" />
+            </Animated.View>
           </View>
 
           {/* Center section with wheel - lowered */}
           <View style={styles.centerSection}>
             <View style={{ height: 160 }} />
-            <VerticalIconSwitcher
-              icons={[
-                { name: 'git-branch-outline', action: handleGitClick },
-                { name: 'key-outline', action: handleEnvVarsClick },
-              ]}
-              onIconChange={() => { }}
-            />
+            <Animated.View entering={FadeInDown.delay(500).duration(500)}>
+              <VerticalIconSwitcher
+                icons={[
+                  { name: 'git-branch-outline', action: handleGitClick },
+                  { name: 'key-outline', action: handleEnvVarsClick },
+                ]}
+                onIconChange={() => { }}
+              />
+            </Animated.View>
           </View>
 
           {/* Bottom icons - always at bottom */}
           <View style={styles.bottomIcons}>
-            <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
-            <IconButton iconName="settings" size={24} color={AppColors.icon.default} onPress={() => togglePanel('settings')} isActive={activePanel === 'settings'} activeColor={AppColors.primary} accessibilityLabel="Settings panel" />
+            <Animated.View entering={FadeInDown.delay(600).duration(500)}>
+              <IconButton iconName="exit-outline" size={24} color={AppColors.icon.default} onPress={onExit} accessibilityLabel="Exit" />
+            </Animated.View>
+            <Animated.View entering={FadeInDown.delay(700).duration(500)}>
+              <IconButton iconName="settings" size={24} color={AppColors.icon.default} onPress={() => togglePanel('settings')} isActive={activePanel === 'settings'} activeColor={AppColors.primary} accessibilityLabel="Settings panel" />
+            </Animated.View>
           </View>
         </Animated.View>
       </GestureDetector>
@@ -378,7 +393,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         <TabBar isCardMode={activePanel === 'multitasking' || activePanel === 'vertical'} />
 
         {activePanel !== 'multitasking' && (
-          <Animated.View style={{ flex: 1 }}>
+          <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
             <ContentRenderer children={children} animatedStyle={{}} onPinchOut={() => togglePanel('multitasking')} swipeEnabled={false} />
           </Animated.View>
         )}
