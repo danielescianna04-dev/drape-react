@@ -10,6 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { githubTokenService, GitHubAccount } from '../../core/github/githubTokenService';
 import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
@@ -145,8 +146,8 @@ export const GitManagementScreen = ({ onClose }: Props) => {
     const isShared = account.id.startsWith('shared-');
     const providerIcon = account.provider === 'github' ? 'logo-github' : 'git-branch';
 
-    return (
-      <View key={account.id} style={styles.accountCard}>
+    const cardContent = (
+      <View style={styles.cardInner}>
         {account.avatarUrl ? (
           <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
         ) : (
@@ -178,6 +179,23 @@ export const GitManagementScreen = ({ onClose }: Props) => {
         )}
       </View>
     );
+
+    return (
+      <View key={account.id} style={styles.accountCard}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {cardContent}
+          </LiquidGlassView>
+        ) : (
+          cardContent
+        )}
+      </View>
+    );
   };
 
   return (
@@ -205,12 +223,32 @@ export const GitManagementScreen = ({ onClose }: Props) => {
 
       {/* Info Banner */}
       <View style={styles.infoBanner}>
-        <View style={styles.infoIconContainer}>
-          <Ionicons name="information-circle" size={20} color={AppColors.primary} />
-        </View>
-        <Text style={styles.infoText}>
-          Collega i tuoi account GitHub per accedere a repository privati e gestire i tuoi progetti.
-        </Text>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <View style={styles.infoBannerInner}>
+              <View style={styles.infoIconContainer}>
+                <Ionicons name="information-circle" size={20} color={AppColors.primary} />
+              </View>
+              <Text style={styles.infoText}>
+                Collega i tuoi account GitHub per accedere a repository privati e gestire i tuoi progetti.
+              </Text>
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.infoBannerInner}>
+            <View style={styles.infoIconContainer}>
+              <Ionicons name="information-circle" size={20} color={AppColors.primary} />
+            </View>
+            <Text style={styles.infoText}>
+              Collega i tuoi account GitHub per accedere a repository privati e gestire i tuoi progetti.
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Content */}
@@ -298,16 +336,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   infoBanner: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+  },
+  infoBannerInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginHorizontal: 20,
-    marginBottom: 20,
     padding: 14,
-    backgroundColor: `${AppColors.primary}15`,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: `${AppColors.primary}30`,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
   },
   infoIconContainer: {
     width: 32,
@@ -338,11 +379,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   accountCard: {
+    marginBottom: 10,
+    borderRadius: 16,
+  },
+  cardInner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
     paddingHorizontal: 16,
-    marginBottom: 10,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 16,
   },

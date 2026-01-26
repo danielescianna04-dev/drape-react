@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface CommandCardProps {
   /** Command text to display */
@@ -22,21 +23,42 @@ export const CommandCard: React.FC<CommandCardProps> = ({
   isRunning = false,
   backgroundColor = 'rgba(255, 255, 255, 0.05)',
 }) => {
-  return (
-    <View style={[styles.container, { backgroundColor }]}>
+  const renderContent = () => (
+    <>
       <View style={styles.commandRow}>
         <Text style={styles.prompt}>$</Text>
         <Text style={styles.command}>{command}</Text>
         {isRunning && <Text style={styles.cursor}>▊</Text>}
       </View>
       {output && <Text style={styles.output}>{output}</Text>}
+    </>
+  );
+
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView
+        style={[styles.container, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+        interactive={true}
+        effect="clear"
+        colorScheme="dark"
+      >
+        <View style={{ padding: 12 }}>
+          {renderContent()}
+        </View>
+      </LiquidGlassView>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor }]}>
+      {renderContent()}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    padding: 12,
+    padding: 0, // Padding handled by inner View if glass
     borderRadius: 8,
     marginVertical: 4,
   },

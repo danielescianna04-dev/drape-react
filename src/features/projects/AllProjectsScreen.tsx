@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Animated, Dimensions } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
@@ -282,24 +283,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     const hasRepo = project.repositoryUrl || project.githubUrl;
 
     const cardContent = (
-      <TouchableOpacity
-        style={[styles.projectCard, isSelected && styles.projectCardSelected]}
-        activeOpacity={0.7}
-        onPress={() => {
-          if (selectionMode) {
-            toggleSelection(project.id);
-          } else {
-            handleOpenProject(project);
-          }
-        }}
-        onLongPress={() => {
-          if (!selectionMode) {
-            setSelectionMode(true);
-            setSelectedIds(new Set([project.id]));
-          }
-        }}
-        delayLongPress={400}
-      >
+      <View style={styles.cardInner}>
         <View style={styles.cardMain}>
           {selectionMode && (
             <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
@@ -334,11 +318,45 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             </TouchableOpacity>
           )}
         </View>
+      </View>
+    );
+
+    const wrappedCard = (
+      <TouchableOpacity
+        style={[styles.projectCard, isSelected && styles.projectCardSelected]}
+        activeOpacity={0.7}
+        onPress={() => {
+          if (selectionMode) {
+            toggleSelection(project.id);
+          } else {
+            handleOpenProject(project);
+          }
+        }}
+        onLongPress={() => {
+          if (!selectionMode) {
+            setSelectionMode(true);
+            setSelectedIds(new Set([project.id]));
+          }
+        }}
+        delayLongPress={400}
+      >
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {cardContent}
+          </LiquidGlassView>
+        ) : (
+          cardContent
+        )}
       </TouchableOpacity>
     );
 
     if (selectionMode) {
-      return <View key={project.id}>{cardContent}</View>;
+      return <View key={project.id}>{wrappedCard}</View>;
     }
 
     return (
@@ -352,7 +370,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         overshootRight={false}
         friction={2}
       >
-        {cardContent}
+        {wrappedCard}
       </Swipeable>
     );
   };
@@ -396,22 +414,48 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 
       {/* Search */}
       <View style={styles.searchSection}>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search projects..."
-            placeholderTextColor="rgba(255,255,255,0.25)"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCorrect={false}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
-            </TouchableOpacity>
-          )}
-        </View>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[styles.searchContainer, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <View style={styles.searchInner}>
+              <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search projects..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search projects..."
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color="rgba(255,255,255,0.3)" />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
 
       {/* Filters */}
@@ -423,13 +467,8 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         >
           {filterOptions.map((opt) => {
             const isActive = activeFilter === opt.id;
-            return (
-              <TouchableOpacity
-                key={opt.id}
-                style={[styles.filterTab, isActive && styles.filterTabActive]}
-                onPress={() => setActiveFilter(opt.id)}
-                activeOpacity={0.7}
-              >
+            const filterContent = (
+              <View style={[styles.filterTabInner, isActive && styles.filterTabActive]}>
                 <Ionicons
                   name={opt.icon as any}
                   size={16}
@@ -438,6 +477,28 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
                 <Text style={[styles.filterTabText, isActive && styles.filterTabTextActive]}>
                   {opt.label}
                 </Text>
+              </View>
+            );
+
+            return (
+              <TouchableOpacity
+                key={opt.id}
+                style={styles.filterTab}
+                onPress={() => setActiveFilter(opt.id)}
+                activeOpacity={0.7}
+              >
+                {isActive && isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={{ backgroundColor: 'transparent', borderRadius: 100, overflow: 'hidden' }}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  >
+                    {filterContent}
+                  </LiquidGlassView>
+                ) : (
+                  filterContent
+                )}
               </TouchableOpacity>
             );
           })}
@@ -479,17 +540,38 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
       {/* Selection Action Bar */}
       {selectionMode && selectedIds.size > 0 && (
         <View style={styles.selectionBar}>
-          <TouchableOpacity
-            style={[styles.deleteSelectedBtn, isDeleting && styles.deleteSelectedBtnDisabled]}
-            onPress={handleDeleteSelected}
-            disabled={isDeleting}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="trash-outline" size={20} color="#fff" />
-            <Text style={styles.deleteSelectedText}>
-              {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
-            </Text>
-          </TouchableOpacity>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <TouchableOpacity
+                style={[styles.deleteSelectedBtn, isDeleting && styles.deleteSelectedBtnDisabled]}
+                onPress={handleDeleteSelected}
+                disabled={isDeleting}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={20} color="#fff" />
+                <Text style={styles.deleteSelectedText}>
+                  {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+                </Text>
+              </TouchableOpacity>
+            </LiquidGlassView>
+          ) : (
+            <TouchableOpacity
+              style={[styles.deleteSelectedBtn, isDeleting && styles.deleteSelectedBtnDisabled]}
+              onPress={handleDeleteSelected}
+              disabled={isDeleting}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="trash-outline" size={20} color="#fff" />
+              <Text style={styles.deleteSelectedText}>
+                {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </View>
@@ -537,11 +619,13 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   searchContainer: {
+    borderRadius: 14,
+  },
+  searchInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 14,
     paddingHorizontal: 16,
     height: 48,
     borderWidth: 1,
@@ -560,15 +644,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   projectCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.04)',
-    overflow: 'hidden',
   },
   projectCardSelected: {
     backgroundColor: 'rgba(123, 107, 255, 0.12)',
     borderColor: 'rgba(123, 107, 255, 0.3)',
+  },
+  cardInner: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 16,
   },
   cardMain: {
     flexDirection: 'row',
@@ -642,6 +728,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterTab: {
+    borderRadius: 100,
+  },
+  filterTabInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -720,7 +809,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 44,
-    backgroundColor: '#0A0A0C',
+    backgroundColor: 'transparent',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },

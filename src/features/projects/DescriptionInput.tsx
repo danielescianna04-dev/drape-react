@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity, Keyboard, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface DescriptionInputProps {
   value: string;
@@ -61,42 +62,59 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
     };
   }, []);
 
+  const renderContent = () => (
+    <>
+      <TextInput
+        ref={inputRef}
+        style={styles.textInput}
+        placeholder={placeholder}
+        placeholderTextColor="rgba(255,255,255,0.3)"
+        value={value}
+        onChangeText={onChangeText}
+        multiline
+        scrollEnabled={false}
+        textAlignVertical="top"
+        numberOfLines={6}
+        keyboardAppearance="dark"
+      />
+
+      <Animated.View
+        style={[
+          styles.dismissButtonContainer,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }]
+          }
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.dismissButton}
+          onPress={() => Keyboard.dismiss()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="checkmark-circle" size={18} color="#fff" />
+          <Text style={styles.dismissText}>Fatto</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </>
+  );
+
   return (
     <View style={styles.container}>
-      <View style={styles.inputContainer}>
-        <TextInput
-          ref={inputRef}
-          style={styles.textInput}
-          placeholder={placeholder}
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          value={value}
-          onChangeText={onChangeText}
-          multiline
-          scrollEnabled={false}
-          textAlignVertical="top"
-          numberOfLines={6}
-          keyboardAppearance="dark"
-        />
-
-        <Animated.View
-          style={[
-            styles.dismissButtonContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }]
-            }
-          ]}
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[styles.inputContainer, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
         >
-          <TouchableOpacity
-            style={styles.dismissButton}
-            onPress={() => Keyboard.dismiss()}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="checkmark-circle" size={18} color="#fff" />
-            <Text style={styles.dismissText}>Fatto</Text>
-          </TouchableOpacity>
-        </Animated.View>
-      </View>
+          {renderContent()}
+        </LiquidGlassView>
+      ) : (
+        <View style={styles.inputContainer}>
+          {renderContent()}
+        </View>
+      )}
       <View style={styles.aiHintContainer}>
         <Ionicons name="sparkles" size={14} color="rgba(139, 92, 246, 0.8)" />
         <Text style={styles.hintText}>L'AI genererà il codice in base a questa descrizione</Text>

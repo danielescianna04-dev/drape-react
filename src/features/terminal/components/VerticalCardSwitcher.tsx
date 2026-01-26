@@ -9,6 +9,7 @@ import Animated, {
   runOnJS,
   SharedValue,
 } from 'react-native-reanimated';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -86,7 +87,18 @@ const CardView = memo(({
 
   return (
     <Animated.View style={[styles.screen, animatedStyle]}>
-      {children(tab, true, { width: CARD_WIDTH, height: SCREEN_HEIGHT })}
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={{ backgroundColor: 'transparent', flex: 1, borderRadius: 16, overflow: 'hidden' }}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          {children(tab, true, { width: CARD_WIDTH, height: SCREEN_HEIGHT })}
+        </LiquidGlassView>
+      ) : (
+        children(tab, true, { width: CARD_WIDTH, height: SCREEN_HEIGHT })
+      )}
     </Animated.View>
   );
 });
@@ -173,17 +185,38 @@ export const VerticalCardSwitcher = ({
 
   return (
     <Animated.View style={[styles.container, containerAnimatedStyle]}>
-      <View style={styles.cardsWrapper}>
-        {tabs.map((tab, index) => (
-          <CardView
-            key={tab.id}
-            tab={tab}
-            index={index}
-            scrollPosition={scrollPosition}
-            children={children}
-          />
-        ))}
-      </View>
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={{ backgroundColor: 'transparent', flex: 1 }}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          <View style={styles.cardsWrapper}>
+            {tabs.map((tab, index) => (
+              <CardView
+                key={tab.id}
+                tab={tab}
+                index={index}
+                scrollPosition={scrollPosition}
+                children={children}
+              />
+            ))}
+          </View>
+        </LiquidGlassView>
+      ) : (
+        <View style={styles.cardsWrapper}>
+          {tabs.map((tab, index) => (
+            <CardView
+              key={tab.id}
+              tab={tab}
+              index={index}
+              scrollPosition={scrollPosition}
+              children={children}
+            />
+          ))}
+        </View>
+      )}
     </Animated.View>
   );
 };
@@ -191,7 +224,7 @@ export const VerticalCardSwitcher = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: 'transparent',
     overflow: 'hidden',
     marginLeft: 50, // Space for icon bar
   },

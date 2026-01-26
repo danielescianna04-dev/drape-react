@@ -5,6 +5,7 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -2730,24 +2731,43 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 </View>
               )}
 
-              <LinearGradient
-                colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
+              <View
                 style={[
                   styles.inputGradient,
+                  { borderRadius: 24, overflow: 'hidden' },
                   selectedInputImages.length > 0 && styles.inputGradientWithImages
                 ]}
                 onLayout={(e) => {
-                  // Aggiorna l'altezza del widget quando cambia
                   const newHeight = e.nativeEvent.layout.height;
                   widgetHeight.value = withTiming(newHeight, { duration: 100 });
                 }}
               >
+                {/* Background Layer */}
+                {isLiquidGlassSupported ? (
+                  <>
+                    <LiquidGlassView
+                      style={StyleSheet.absoluteFill}
+                      interactive={true}
+                      effect="regular"
+                      colorScheme="dark"
+                    />
+                    <View
+                      style={[
+                        StyleSheet.absoluteFill,
+                        { backgroundColor: 'rgba(20, 20, 25, 0.6)' }
+                      ]}
+                    />
+                  </>
+                ) : (
+                  <LinearGradient
+                    colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
                 {/* Top Controls */}
                 <View style={styles.topControls}>
-                  {/* Mode Toggle - 2-button system: Fast or Planning */}
                   <View style={styles.modeToggleContainer}>
                     <View style={styles.modeToggle}>
-                      {/* Fast Agent Mode */}
                       <TouchableOpacity
                         onPress={() => handleToggleMode('fast')}
                         style={[
@@ -2763,8 +2783,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           />
                         </Animated.View>
                       </TouchableOpacity>
-
-                      {/* Planning Agent Mode */}
                       <TouchableOpacity
                         onPress={() => handleToggleMode('planning')}
                         style={[
@@ -2781,10 +2799,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         </Animated.View>
                       </TouchableOpacity>
                     </View>
-
                   </View>
-
-                  {/* Model Selector */}
                   <TouchableOpacity
                     style={styles.modelSelector}
                     onPress={toggleModelSelector}
@@ -2798,22 +2813,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   </TouchableOpacity>
                 </View>
 
-                {/* Undo/Redo Bar - only show if there's a workstation with history */}
+                {/* Undo/Redo Bar */}
                 {currentWorkstation?.id && (
                   <UndoRedoBar
                     projectId={currentWorkstation.id}
-                    onUndoComplete={() => {
-                      console.log('✅ [Undo] File restored');
-                    }}
-                    onRedoComplete={() => {
-                      console.log('✅ [Redo] File re-applied');
-                    }}
+                    onUndoComplete={() => console.log('✅ [Undo] File restored')}
+                    onRedoComplete={() => console.log('✅ [Redo] File re-applied')}
                   />
                 )}
 
                 {/* Main Input Row */}
                 <View style={styles.mainInputRow}>
-                  {/* Tools Button */}
                   <TouchableOpacity
                     style={styles.toolsButton}
                     onPress={toggleToolsSheet}
@@ -2822,7 +2832,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <Ionicons name="add" size={24} color="#8A8A8A" />
                   </TouchableOpacity>
 
-                  {/* Input Field */}
                   <TextInput
                     style={[styles.input, { textTransform: 'none' }]}
                     value={input}
@@ -2845,7 +2854,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     keyboardType="default"
                   />
 
-                  {/* Send/Stop Button */}
                   <TouchableOpacity
                     onPress={agentStreaming || isLoading ? handleStop : handleSend}
                     disabled={!agentStreaming && !isLoading && !input.trim() && selectedInputImages.length === 0}
@@ -2858,9 +2866,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       color={agentStreaming || isLoading ? "#FF6B6B" : (input.trim() || selectedInputImages.length > 0) ? AppColors.primary : AppColors.dark.surfaceVariant}
                     />
                   </TouchableOpacity>
-
                 </View>
-              </LinearGradient>
+              </View>
+
 
               {/* Model Dropdown - positioned outside LinearGradient */}
               {showModelSelector && (
@@ -2906,11 +2914,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       </Animated.View>
 
       {/* Tools Bottom Sheet */}
-      {showToolsSheet && (
-        <Pressable style={StyleSheet.absoluteFill} onPress={toggleToolsSheet}>
-          <Animated.View style={[styles.sheetBackdrop, toolsBackdropStyle]} />
-        </Pressable>
-      )}
+      {
+        showToolsSheet && (
+          <Pressable style={StyleSheet.absoluteFill} onPress={toggleToolsSheet}>
+            <Animated.View style={[styles.sheetBackdrop, toolsBackdropStyle]} />
+          </Pressable>
+        )
+      }
       <Animated.View style={[styles.toolsSheet, toolsSheetStyle]}>
         <BlurView intensity={90} tint="dark" style={styles.sheetBlur}>
           <LinearGradient
@@ -3058,7 +3068,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           setShowPlanApproval(false);
         }}
       />
-    </Animated.View>
+    </Animated.View >
   );
 };
 

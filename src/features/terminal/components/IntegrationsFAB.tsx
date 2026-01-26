@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Dimensions, Pressable } from 'react-native';
+import { StyleSheet, Dimensions, Pressable, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
@@ -9,6 +9,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppColors } from '../../../shared/theme/colors';
 import { FigmaLogo } from '../../../shared/components/icons/FigmaLogo';
@@ -129,46 +130,62 @@ export const IntegrationsFAB: React.FC<IntegrationsFABProps> = ({
     return null;
   }
 
+  const renderContent = () => (
+    <>
+      {/* Drag handle bar */}
+      <Animated.View style={[styles.dragHandle, dragIndicatorStyle]} />
+
+      {/* Supabase button */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.iconButton,
+          styles.supabaseButton,
+          pressed && styles.pressed,
+        ]}
+        onPress={onSupabasePress}
+      >
+        <Ionicons name="flash" size={20} color="#3ECF8E" />
+      </Pressable>
+
+      {/* Figma button */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.iconButton,
+          styles.figmaButton,
+          pressed && styles.pressed,
+        ]}
+        onPress={onFigmaPress}
+      >
+        <FigmaLogo size={18} />
+      </Pressable>
+
+      {/* Close button */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.closeButton,
+          pressed && styles.pressed,
+        ]}
+        onPress={onClose}
+      >
+        <Ionicons name="close" size={14} color="rgba(255,255,255,0.4)" />
+      </Pressable>
+    </>
+  );
+
   return (
     <GestureDetector gesture={dragGesture}>
       <Animated.View style={[styles.container, containerStyle]}>
-        {/* Drag handle bar */}
-        <Animated.View style={[styles.dragHandle, dragIndicatorStyle]} />
-
-        {/* Supabase button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.iconButton,
-            styles.supabaseButton,
-            pressed && styles.pressed,
-          ]}
-          onPress={onSupabasePress}
-        >
-          <Ionicons name="flash" size={20} color="#3ECF8E" />
-        </Pressable>
-
-        {/* Figma button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.iconButton,
-            styles.figmaButton,
-            pressed && styles.pressed,
-          ]}
-          onPress={onFigmaPress}
-        >
-          <FigmaLogo size={18} />
-        </Pressable>
-
-        {/* Close button */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.closeButton,
-            pressed && styles.pressed,
-          ]}
-          onPress={onClose}
-        >
-          <Ionicons name="close" size={14} color="rgba(255,255,255,0.4)" />
-        </Pressable>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[StyleSheet.absoluteFill, { borderRadius: 24, overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          />
+        ) : null}
+        <View style={styles.innerContainer}>
+          {renderContent()}
+        </View>
       </Animated.View>
     </GestureDetector>
   );
@@ -180,11 +197,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     zIndex: 9999,
-    alignItems: 'center',
-    backgroundColor: 'rgba(20, 20, 22, 0.92)',
+    backgroundColor: 'rgba(20, 20, 22, 0.8)',
     borderRadius: 24,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.6,
@@ -192,6 +206,12 @@ const styles = StyleSheet.create({
     elevation: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+  },
+  innerContainer: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 6,
   },
   dragHandle: {
     width: 20,

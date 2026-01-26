@@ -6566,5 +6566,17 @@
       "requiresDocker": false,
       "hasWebUI": true
     }
+  },
+  "ws-1769226689618-1dmb1xwzw": {
+    "id": "4d8921d5f27d28",
+    "name": "ws-ws-1769226689618-1dmb1xwzw",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "4d8921d5f27d28",
+    "projectId": "ws-1769226689618-1dmb1xwzw",
+    "createdAt": 1769470213111,
+    "lastUsed": 1769470860795,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J"
   }
 }

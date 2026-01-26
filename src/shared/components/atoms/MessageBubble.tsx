@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface MessageBubbleProps {
   /** Message content */
@@ -25,17 +26,39 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   aiColor = 'rgba(255, 255, 255, 0.05)',
   timestamp,
 }) => {
+  const renderContent = () => (
+    <>
+      <Text style={styles.content}>{content}</Text>
+      {timestamp && <Text style={styles.timestamp}>{timestamp}</Text>}
+    </>
+  );
+
   return (
     <View style={[styles.container, isUser && styles.userContainer]}>
-      <View
-        style={[
-          styles.bubble,
-          { backgroundColor: isUser ? userColor : aiColor },
-        ]}
-      >
-        <Text style={styles.content}>{content}</Text>
-        {timestamp && <Text style={styles.timestamp}>{timestamp}</Text>}
-      </View>
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[
+            styles.bubble,
+            { backgroundColor: isUser ? userColor : aiColor, overflow: 'hidden', padding: 0 }
+          ]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          <View style={{ padding: 12 }}>
+            {renderContent()}
+          </View>
+        </LiquidGlassView>
+      ) : (
+        <View
+          style={[
+            styles.bubble,
+            { backgroundColor: isUser ? userColor : aiColor },
+          ]}
+        >
+          {renderContent()}
+        </View>
+      )}
     </View>
   );
 };

@@ -107,7 +107,7 @@ const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, 
 const GlassCard = ({ children, style }: { children: React.ReactNode; style?: any }) => {
   if (isLiquidGlassSupported) {
     return (
-      <LiquidGlassView style={[styles.glassCardLiquid, style]} interactive={true} effect="clear" colorScheme="dark">
+      <LiquidGlassView style={[styles.glassCardLiquid, style]} interactive={true} effect="regular" colorScheme="dark">
         {children}
       </LiquidGlassView>
     );
@@ -1028,7 +1028,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: 'rgba(20,20,22,0.9)',
+    backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
   },
   profileAvatarContainer: {
@@ -1115,7 +1115,7 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     padding: 4,
-    backgroundColor: 'rgba(20,20,22,0.9)',
+    backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
   },
   addButton: {

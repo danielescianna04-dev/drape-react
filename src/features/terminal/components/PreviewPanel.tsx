@@ -2550,169 +2550,333 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       webViewReady && { pointerEvents: 'none' }
                     ]}
                   >
-                    <View style={styles.startScreen}>
-                      <LinearGradient
-                        colors={['#050505', '#0a0a0b', '#0f0f12']}
-                        style={StyleSheet.absoluteFill}
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={styles.startScreen}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
                       >
                         {/* Animated Ambient Blobs */}
                         <View style={styles.ambientBlob1} />
                         <View style={styles.ambientBlob2} />
-                      </LinearGradient>
 
-                      {/* Close button top right */}
-                      <TouchableOpacity
-                        onPress={handleClose}
-                        style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                      </TouchableOpacity>
+                        {/* Close button top right */}
+                        <TouchableOpacity
+                          onPress={handleClose}
+                          style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
+                        </TouchableOpacity>
 
-                      {/* iPhone 15 Pro style mockup */}
-                      <View style={styles.iphoneMockup}>
-                        {/* Status bar area */}
-                        <View style={styles.statusBarArea}>
-                          <Text style={styles.fakeTime}>9:41</Text>
-                          <View style={styles.dynamicIsland} />
-                          <View style={styles.fakeStatusIcons}>
-                            <Ionicons name="wifi" size={10} color="#fff" />
-                            <Ionicons name="battery-full" size={10} color="#fff" />
-                          </View>
-                        </View>
-
-                        {/* Screen content - The Pulse Design OR Error UI */}
-                        <View style={styles.iphoneScreenCentered}>
-                          {previewError ? (
-                            /* ERROR UI */
-                            <View style={styles.errorContainer}>
-                              <View style={styles.errorIconContainer}>
-                                <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
-                              </View>
-                              <Text style={styles.errorTitle}>Si è verificato un errore</Text>
-                              <Text style={styles.errorMessage} numberOfLines={3}>
-                                {previewError.message}
-                              </Text>
-
-                              <View style={styles.errorButtonsContainer}>
-                                <TouchableOpacity
-                                  style={styles.retryButton}
-                                  onPress={handleRetryPreview}
-                                  activeOpacity={0.7}
-                                >
-                                  <Ionicons name="refresh" size={18} color="#fff" />
-                                  <Text style={styles.retryButtonText}>Riprova</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                  style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
-                                  onPress={sendErrorReport}
-                                  disabled={isSendingReport || reportSent}
-                                  activeOpacity={0.7}
-                                >
-                                  {isSendingReport ? (
-                                    <ActivityIndicator size="small" color="#fff" />
-                                  ) : reportSent ? (
-                                    <>
-                                      <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-                                      <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
-                                      <Text style={styles.sendLogsButtonText}>Invia log</Text>
-                                    </>
-                                  )}
-                                </TouchableOpacity>
-                              </View>
-
-                              {reportSent && (
-                                <Text style={styles.reportSentMessage}>
-                                  Grazie! Il nostro team analizzerà il problema.
-                                </Text>
-                              )}
+                        {/* iPhone 15 Pro style mockup */}
+                        <View style={styles.iphoneMockup}>
+                          {/* Status bar area */}
+                          <View style={styles.statusBarArea}>
+                            <Text style={styles.fakeTime}>9:41</Text>
+                            <View style={styles.dynamicIsland} />
+                            <View style={styles.fakeStatusIcons}>
+                              <Ionicons name="wifi" size={10} color="#fff" />
+                              <Ionicons name="battery-full" size={10} color="#fff" />
                             </View>
-                          ) : (
-                            /* LOADING UI */
-                            <>
-                              {/* 1. The Breathing Spirit (Orb) */}
-                              <View style={styles.spiritContainer}>
-                                <Animated.View style={[
-                                  styles.spiritOrb,
-                                  {
-                                    transform: [{ scale: pulseAnim }],
-                                    opacity: pulseAnim.interpolate({
-                                      inputRange: [0.6, 1],
-                                      outputRange: [0.3, 0.8]
-                                    })
-                                  }
-                                ]} />
-                                <Animated.View style={[
-                                  styles.spiritCore,
-                                  {
-                                    transform: [{
-                                      scale: pulseAnim.interpolate({
-                                        inputRange: [0.6, 1],
-                                        outputRange: [1, 1.2]
-                                      })
-                                    }]
-                                  }
-                                ]} />
-                                <View style={styles.spiritGlow} />
-                              </View>
+                          </View>
 
-                              {/* 2. Minimalist Status Info */}
-                              <View style={styles.pulseStatusContainer}>
-                                <Text style={styles.pulseStatusLabel}>
-                                  {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
+                          {/* Screen content - The Pulse Design OR Error UI */}
+                          <View style={styles.iphoneScreenCentered}>
+                            {previewError ? (
+                              /* ERROR UI */
+                              <View style={styles.errorContainer}>
+                                <View style={styles.errorIconContainer}>
+                                  <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
+                                </View>
+                                <Text style={styles.errorTitle}>Si è verificato un errore</Text>
+                                <Text style={styles.errorMessage} numberOfLines={3}>
+                                  {previewError.message}
                                 </Text>
-                                <Text style={styles.pulseStatusMessage} numberOfLines={2}>
-                                  {displayedMessage || 'Inizializzazione ambiente...'}
-                                </Text>
-                                <Text style={{
-                                  color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
-                                  fontSize: 12,
-                                  fontFamily: 'SF-Pro-Text-Regular',
-                                  marginTop: 8,
-                                  textAlign: 'center'
-                                }}>
-                                  {smoothProgress > 88
-                                    ? "Ultimi istanti..."
-                                    : isNextJsProject
-                                      ? (currentStepId === 'starting'
-                                        ? "Compilazione Next.js in corso... (2-5 min)"
-                                        : "Next.js: primo avvio richiede 3-5 minuti")
-                                      : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
-                                </Text>
-                              </View>
 
-                              {/* 3. Integrated Mini Progress at the bottom of screen */}
-                              <View style={styles.miniProgressContainer}>
-                                <View style={styles.miniProgressBarBase}>
-                                  <View style={[
-                                    styles.miniProgressBarActive,
+                                <View style={styles.errorButtonsContainer}>
+                                  <TouchableOpacity
+                                    style={styles.retryButton}
+                                    onPress={handleRetryPreview}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons name="refresh" size={18} color="#fff" />
+                                    <Text style={styles.retryButtonText}>Riprova</Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
+                                    onPress={sendErrorReport}
+                                    disabled={isSendingReport || reportSent}
+                                    activeOpacity={0.7}
+                                  >
+                                    {isSendingReport ? (
+                                      <ActivityIndicator size="small" color="#fff" />
+                                    ) : reportSent ? (
+                                      <>
+                                        <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                                        <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
+                                        <Text style={styles.sendLogsButtonText}>Invia log</Text>
+                                      </>
+                                    )}
+                                  </TouchableOpacity>
+                                </View>
+
+                                {reportSent && (
+                                  <Text style={styles.reportSentMessage}>
+                                    Grazie! Il nostro team analizzerà il problema.
+                                  </Text>
+                                )}
+                              </View>
+                            ) : (
+                              /* LOADING UI */
+                              <>
+                                {/* 1. The Breathing Spirit (Orb) */}
+                                <View style={styles.spiritContainer}>
+                                  <Animated.View style={[
+                                    styles.spiritOrb,
                                     {
-                                      width: `${smoothProgress}%`,
-                                      backgroundColor: AppColors.primary
+                                      transform: [{ scale: pulseAnim }],
+                                      opacity: pulseAnim.interpolate({
+                                        inputRange: [0.6, 1],
+                                        outputRange: [0.3, 0.8]
+                                      })
                                     }
                                   ]} />
-                                  <View style={styles.miniProgressBarGlow} />
+                                  <Animated.View style={[
+                                    styles.spiritCore,
+                                    {
+                                      transform: [{
+                                        scale: pulseAnim.interpolate({
+                                          inputRange: [0.6, 1],
+                                          outputRange: [1, 1.2]
+                                        })
+                                      }]
+                                    }
+                                  ]} />
+                                  <View style={styles.spiritGlow} />
                                 </View>
-                                <Text style={styles.miniProgressText}>
-                                  {Math.round(smoothProgress)}%
-                                </Text>
-                              </View>
-                            </>
-                          )}
+
+                                {/* 2. Minimalist Status Info */}
+                                <View style={styles.pulseStatusContainer}>
+                                  <Text style={styles.pulseStatusLabel}>
+                                    {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
+                                  </Text>
+                                  <Text style={styles.pulseStatusMessage} numberOfLines={2}>
+                                    {displayedMessage || 'Inizializzazione ambiente...'}
+                                  </Text>
+                                  <Text style={{
+                                    color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
+                                    fontSize: 12,
+                                    fontFamily: 'SF-Pro-Text-Regular',
+                                    marginTop: 8,
+                                    textAlign: 'center'
+                                  }}>
+                                    {smoothProgress > 88
+                                      ? "Ultimi istanti..."
+                                      : isNextJsProject
+                                        ? (currentStepId === 'starting'
+                                          ? "Compilazione Next.js in corso... (2-5 min)"
+                                          : "Next.js: primo avvio richiede 3-5 minuti")
+                                        : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
+                                  </Text>
+                                </View>
+
+                                {/* 3. Integrated Mini Progress at the bottom of screen */}
+                                <View style={styles.miniProgressContainer}>
+                                  <View style={styles.miniProgressBarBase}>
+                                    <View style={[
+                                      styles.miniProgressBarActive,
+                                      {
+                                        width: `${smoothProgress}%`,
+                                        backgroundColor: AppColors.primary
+                                      }
+                                    ]} />
+                                    <View style={styles.miniProgressBarGlow} />
+                                  </View>
+                                  <Text style={styles.miniProgressText}>
+                                    {Math.round(smoothProgress)}%
+                                  </Text>
+                                </View>
+                              </>
+                            )}
+                          </View>
+
+                          {/* Side buttons */}
+                          <View style={styles.iphoneSideButton} />
+                          <View style={styles.iphoneVolumeUp} />
+                          <View style={styles.iphoneVolumeDown} />
                         </View>
+                      </LiquidGlassView>
+                    ) : (
+                      <View style={styles.startScreen}>
+                        <LinearGradient
+                          colors={['#050505', '#0a0a0b', '#0f0f12']}
+                          style={StyleSheet.absoluteFill}
+                        >
+                          {/* Animated Ambient Blobs */}
+                          <View style={styles.ambientBlob1} />
+                          <View style={styles.ambientBlob2} />
+                        </LinearGradient>
 
-                        {/* Side buttons */}
-                        <View style={styles.iphoneSideButton} />
-                        <View style={styles.iphoneVolumeUp} />
-                        <View style={styles.iphoneVolumeDown} />
+                        {/* Close button top right */}
+                        <TouchableOpacity
+                          onPress={handleClose}
+                          style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
+                        </TouchableOpacity>
+
+                        {/* iPhone 15 Pro style mockup */}
+                        <View style={styles.iphoneMockup}>
+                          {/* Status bar area */}
+                          <View style={styles.statusBarArea}>
+                            <Text style={styles.fakeTime}>9:41</Text>
+                            <View style={styles.dynamicIsland} />
+                            <View style={styles.fakeStatusIcons}>
+                              <Ionicons name="wifi" size={10} color="#fff" />
+                              <Ionicons name="battery-full" size={10} color="#fff" />
+                            </View>
+                          </View>
+
+                          {/* Screen content - The Pulse Design OR Error UI */}
+                          <View style={styles.iphoneScreenCentered}>
+                            {previewError ? (
+                              /* ERROR UI */
+                              <View style={styles.errorContainer}>
+                                <View style={styles.errorIconContainer}>
+                                  <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
+                                </View>
+                                <Text style={styles.errorTitle}>Si è verificato un errore</Text>
+                                <Text style={styles.errorMessage} numberOfLines={3}>
+                                  {previewError.message}
+                                </Text>
+
+                                <View style={styles.errorButtonsContainer}>
+                                  <TouchableOpacity
+                                    style={styles.retryButton}
+                                    onPress={handleRetryPreview}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons name="refresh" size={18} color="#fff" />
+                                    <Text style={styles.retryButtonText}>Riprova</Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
+                                    onPress={sendErrorReport}
+                                    disabled={isSendingReport || reportSent}
+                                    activeOpacity={0.7}
+                                  >
+                                    {isSendingReport ? (
+                                      <ActivityIndicator size="small" color="#fff" />
+                                    ) : reportSent ? (
+                                      <>
+                                        <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                                        <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
+                                        <Text style={styles.sendLogsButtonText}>Invia log</Text>
+                                      </>
+                                    )}
+                                  </TouchableOpacity>
+                                </View>
+
+                                {reportSent && (
+                                  <Text style={styles.reportSentMessage}>
+                                    Grazie! Il nostro team analizzerà il problema.
+                                  </Text>
+                                )}
+                              </View>
+                            ) : (
+                              /* LOADING UI */
+                              <>
+                                {/* 1. The Breathing Spirit (Orb) */}
+                                <View style={styles.spiritContainer}>
+                                  <Animated.View style={[
+                                    styles.spiritOrb,
+                                    {
+                                      transform: [{ scale: pulseAnim }],
+                                      opacity: pulseAnim.interpolate({
+                                        inputRange: [0.6, 1],
+                                        outputRange: [0.3, 0.8]
+                                      })
+                                    }
+                                  ]} />
+                                  <Animated.View style={[
+                                    styles.spiritCore,
+                                    {
+                                      transform: [{
+                                        scale: pulseAnim.interpolate({
+                                          inputRange: [0.6, 1],
+                                          outputRange: [1, 1.2]
+                                        })
+                                      }]
+                                    }
+                                  ]} />
+                                  <View style={styles.spiritGlow} />
+                                </View>
+
+                                {/* 2. Minimalist Status Info */}
+                                <View style={styles.pulseStatusContainer}>
+                                  <Text style={styles.pulseStatusLabel}>
+                                    {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
+                                  </Text>
+                                  <Text style={styles.pulseStatusMessage} numberOfLines={2}>
+                                    {displayedMessage || 'Inizializzazione ambiente...'}
+                                  </Text>
+                                  <Text style={{
+                                    color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
+                                    fontSize: 12,
+                                    fontFamily: 'SF-Pro-Text-Regular',
+                                    marginTop: 8,
+                                    textAlign: 'center'
+                                  }}>
+                                    {smoothProgress > 88
+                                      ? "Ultimi istanti..."
+                                      : isNextJsProject
+                                        ? (currentStepId === 'starting'
+                                          ? "Compilazione Next.js in corso... (2-5 min)"
+                                          : "Next.js: primo avvio richiede 3-5 minuti")
+                                        : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
+                                  </Text>
+                                </View>
+
+                                {/* 3. Integrated Mini Progress at the bottom of screen */}
+                                <View style={styles.miniProgressContainer}>
+                                  <View style={styles.miniProgressBarBase}>
+                                    <View style={[
+                                      styles.miniProgressBarActive,
+                                      {
+                                        width: `${smoothProgress}%`,
+                                        backgroundColor: AppColors.primary
+                                      }
+                                    ]} />
+                                    <View style={styles.miniProgressBarGlow} />
+                                  </View>
+                                  <Text style={styles.miniProgressText}>
+                                    {Math.round(smoothProgress)}%
+                                  </Text>
+                                </View>
+                              </>
+                            )}
+                          </View>
+
+                          {/* Side buttons */}
+                          <View style={styles.iphoneSideButton} />
+                          <View style={styles.iphoneVolumeUp} />
+                          <View style={styles.iphoneVolumeDown} />
+                        </View>
                       </View>
-
-                    </View>
+                    )}
                   </Animated.View>
                 </Reanimated.View>
               )}

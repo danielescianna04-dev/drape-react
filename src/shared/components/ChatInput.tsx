@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, S
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../theme/colors';
 import { IconButton } from './atoms';
 import * as ImagePicker from 'expo-image-picker';
@@ -52,6 +53,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
 
+  // Debug: Check if LiquidGlass is supported
+  console.log('[ChatInput] isLiquidGlassSupported:', isLiquidGlassSupported);
+
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (onToggleMode) {
       onToggleMode(mode);
@@ -99,146 +103,165 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const renderInputContent = () => (
+    <>
+      {/* Top Controls */}
+      {showTopBar && (
+        <View style={styles.topControls}>
+          {/* Mode Toggle */}
+          <View style={styles.modeToggleContainer}>
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                onPress={() => handleToggleMode('terminal')}
+                style={[
+                  styles.modeButton,
+                  isTerminalMode && styles.modeButtonActive,
+                  forcedMode === 'terminal' && styles.modeButtonForced
+                ]}
+              >
+                <Ionicons
+                  name="code-slash"
+                  size={14}
+                  color={isTerminalMode ? '#fff' : '#8A8A8A'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleToggleMode('ai')}
+                style={[
+                  styles.modeButton,
+                  !isTerminalMode && styles.modeButtonActive,
+                  forcedMode === 'ai' && styles.modeButtonForced
+                ]}
+              >
+                <Ionicons
+                  name="sparkles"
+                  size={14}
+                  color={!isTerminalMode ? '#fff' : '#8A8A8A'}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Model Selector */}
+          <TouchableOpacity style={styles.modelSelector} onPress={onModelPress}>
+            <Text style={styles.modelText}>{modelName}</Text>
+            <Ionicons name="chevron-down" size={12} color="#666" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.toolsButton}>
+            <Ionicons name="add" size={24} color="#8A8A8A" />
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Image Preview */}
+      {selectedImages.length > 0 && (
+        <View style={styles.imagePreviewContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewScroll}>
+            {selectedImages.map((image, index) => (
+              <View key={index} style={styles.imagePreviewWrapper}>
+                <Image source={{ uri: image.uri }} style={styles.imagePreview} />
+                <TouchableOpacity
+                  style={styles.imageRemoveButton}
+                  onPress={() => removeImage(index)}
+                >
+                  <Ionicons name="close-circle" size={20} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Main Input Row */}
+      <View style={styles.mainInputRow}>
+        {/* Left Accessory Button (e.g., inspect mode) */}
+        {leftAccessory && (
+          <View style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}>
+            <IconButton
+              iconName={leftAccessory.icon}
+              size={22}
+              color="#8A8A8A"
+              onPress={leftAccessory.onPress}
+              isActive={leftAccessory.isActive}
+              activeColor={AppColors.primary}
+              style={styles.iconButtonOverride}
+            />
+          </View>
+        )}
+
+        {/* Image Picker Button */}
+        <IconButton
+          iconName="image-outline"
+          size={24}
+          color={selectedImages.length > 0 ? AppColors.primary : "#8A8A8A"}
+          onPress={pickImage}
+          style={styles.toolsButton}
+        />
+
+        {/* Input Field */}
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#6E7681"
+          multiline
+          maxLength={1000}
+          onSubmitEditing={handleSend}
+          keyboardAppearance="dark"
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!disabled}
+        />
+
+        {/* Send Button */}
+        <TouchableOpacity
+          onPress={handleSend}
+          disabled={(!value.trim() && selectedImages.length === 0) || disabled || isExecuting}
+          style={styles.sendButton}
+          activeOpacity={0.7}
+        >
+          <View style={[
+            styles.sendButtonInner,
+            (value.trim() || selectedImages.length > 0) && !disabled && !isExecuting && styles.sendButtonActive
+          ]}>
+            <Ionicons
+              name="arrow-up"
+              size={18}
+              color={(value.trim() || selectedImages.length > 0) && !disabled && !isExecuting ? '#fff' : '#555'}
+            />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+
   return (
     <View style={styles.floatingContainer}>
       {/* Outer glow effect */}
       <View style={styles.glowEffect} />
 
-      <BlurView intensity={40} tint="dark" style={styles.blurWrapper}>
-        <LinearGradient
-          colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
-          style={styles.inputGradient}
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={{ borderRadius: 24, overflow: 'hidden' }}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
         >
-          {/* Top Controls */}
-          {showTopBar && (
-            <View style={styles.topControls}>
-              {/* Mode Toggle */}
-              <View style={styles.modeToggleContainer}>
-                <View style={styles.modeToggle}>
-                  <TouchableOpacity
-                    onPress={() => handleToggleMode('terminal')}
-                    style={[
-                      styles.modeButton,
-                      isTerminalMode && styles.modeButtonActive,
-                      forcedMode === 'terminal' && styles.modeButtonForced
-                    ]}
-                  >
-                    <Ionicons
-                      name="code-slash"
-                      size={14}
-                      color={isTerminalMode ? '#fff' : '#8A8A8A'}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => handleToggleMode('ai')}
-                    style={[
-                      styles.modeButton,
-                      !isTerminalMode && styles.modeButtonActive,
-                      forcedMode === 'ai' && styles.modeButtonForced
-                    ]}
-                  >
-                    <Ionicons
-                      name="sparkles"
-                      size={14}
-                      color={!isTerminalMode ? '#fff' : '#8A8A8A'}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Model Selector */}
-              <TouchableOpacity style={styles.modelSelector} onPress={onModelPress}>
-                <Text style={styles.modelText}>{modelName}</Text>
-                <Ionicons name="chevron-down" size={12} color="#666" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.toolsButton}>
-                <Ionicons name="add" size={24} color="#8A8A8A" />
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* Image Preview */}
-          {selectedImages.length > 0 && (
-            <View style={styles.imagePreviewContainer}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewScroll}>
-                {selectedImages.map((image, index) => (
-                  <View key={index} style={styles.imagePreviewWrapper}>
-                    <Image source={{ uri: image.uri }} style={styles.imagePreview} />
-                    <TouchableOpacity
-                      style={styles.imageRemoveButton}
-                      onPress={() => removeImage(index)}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Main Input Row */}
-          <View style={styles.mainInputRow}>
-            {/* Left Accessory Button (e.g., inspect mode) */}
-            {leftAccessory && (
-              <View style={[styles.accessoryButton, leftAccessory.isActive && styles.accessoryButtonActive]}>
-                <IconButton
-                  iconName={leftAccessory.icon}
-                  size={22}
-                  color="#8A8A8A"
-                  onPress={leftAccessory.onPress}
-                  isActive={leftAccessory.isActive}
-                  activeColor={AppColors.primary}
-                  style={styles.iconButtonOverride}
-                />
-              </View>
-            )}
-
-            {/* Image Picker Button */}
-            <IconButton
-              iconName="image-outline"
-              size={24}
-              color={selectedImages.length > 0 ? AppColors.primary : "#8A8A8A"}
-              onPress={pickImage}
-              style={styles.toolsButton}
-            />
-
-            {/* Input Field */}
-            <TextInput
-              style={styles.input}
-              value={value}
-              onChangeText={onChangeText}
-              placeholder={placeholder}
-              placeholderTextColor="#6E7681"
-              multiline
-              maxLength={1000}
-              onSubmitEditing={handleSend}
-              keyboardAppearance="dark"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!disabled}
-            />
-
-            {/* Send Button */}
-            <TouchableOpacity
-              onPress={handleSend}
-              disabled={(!value.trim() && selectedImages.length === 0) || disabled || isExecuting}
-              style={styles.sendButton}
-              activeOpacity={0.7}
-            >
-              <View style={[
-                styles.sendButtonInner,
-                (value.trim() || selectedImages.length > 0) && !disabled && !isExecuting && styles.sendButtonActive
-              ]}>
-                <Ionicons
-                  name="arrow-up"
-                  size={18}
-                  color={(value.trim() || selectedImages.length > 0) && !disabled && !isExecuting ? '#fff' : '#555'}
-                />
-              </View>
-            </TouchableOpacity>
+          <View style={styles.inputGradient}>
+            {renderInputContent()}
           </View>
-        </LinearGradient>
-      </BlurView>
+        </LiquidGlassView>
+      ) : (
+        <BlurView intensity={40} tint="dark" style={styles.blurWrapper}>
+          <LinearGradient
+            colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
+            style={styles.inputGradient}
+          >
+            {renderInputContent()}
+          </LinearGradient>
+        </BlurView>
+      )}
     </View>
   );
 };
@@ -272,6 +295,7 @@ const styles = StyleSheet.create({
   blurWrapper: {
     borderRadius: 24,
     overflow: 'hidden',
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     ...Platform.select({

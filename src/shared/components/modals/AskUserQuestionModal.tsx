@@ -1,9 +1,6 @@
-/**
- * AskUserQuestion Modal - Interactive question UI
- */
-
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 
 interface QuestionOption {
@@ -52,41 +49,59 @@ export const AskUserQuestionModal: React.FC<Props> = ({
         setAnswers({});
     };
 
-    return (
-        <Modal
-            visible={visible}
-            transparent
-            animationType="fade"
-            onRequestClose={onCancel}
-        >
-            <View style={styles.overlay}>
-                <View style={styles.modal}>
-                    <Text style={styles.title}>Agent has questions</Text>
+    const renderModalContent = () => (
+        <View style={styles.modalInner}>
+            <Text style={styles.title}>Agent has questions</Text>
 
-                    <ScrollView style={styles.questionsContainer}>
-                        {questions.map((q, qIndex) => (
-                            <View key={qIndex} style={styles.questionBlock}>
-                                <View style={styles.questionHeader}>
-                                    <Text style={styles.headerChip}>{q.header}</Text>
-                                </View>
-                                <Text style={styles.questionText}>{q.question}</Text>
+            <ScrollView style={styles.questionsContainer} showsVerticalScrollIndicator={false}>
+                {questions.map((q, qIndex) => (
+                    <View key={qIndex} style={styles.questionBlock}>
+                        <View style={styles.questionHeader}>
+                            <Text style={styles.headerChip}>{q.header}</Text>
+                        </View>
+                        <Text style={styles.questionText}>{q.question}</Text>
 
-                                <View style={styles.optionsContainer}>
-                                    {q.options.map((opt, oIndex) => {
-                                        const key = `question_${qIndex}`;
-                                        const isSelected = q.multiSelect
-                                            ? ((answers[key] as string[]) || []).includes(opt.label)
-                                            : answers[key] === opt.label;
+                        <View style={styles.optionsContainer}>
+                            {q.options.map((opt, oIndex) => {
+                                const key = `question_${qIndex}`;
+                                const isSelected = q.multiSelect
+                                    ? ((answers[key] as string[]) || []).includes(opt.label)
+                                    : answers[key] === opt.label;
 
-                                        return (
-                                            <TouchableOpacity
-                                                key={oIndex}
+                                return (
+                                    <TouchableOpacity
+                                        key={oIndex}
+                                        onPress={() => handleOptionSelect(qIndex, opt.label, q.multiSelect)}
+                                        activeOpacity={0.7}
+                                    >
+                                        {isLiquidGlassSupported ? (
+                                            <LiquidGlassView
                                                 style={[
                                                     styles.option,
-                                                    isSelected && styles.optionSelected
+                                                    isSelected && styles.optionSelected,
+                                                    { backgroundColor: isSelected ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.03)', overflow: 'hidden' }
                                                 ]}
-                                                onPress={() => handleOptionSelect(qIndex, opt.label, q.multiSelect)}
+                                                interactive={true}
+                                                effect="clear"
+                                                colorScheme="dark"
                                             >
+                                                <View style={{ padding: 12 }}>
+                                                    <Text style={[
+                                                        styles.optionLabel,
+                                                        isSelected && styles.optionLabelSelected
+                                                    ]}>
+                                                        {opt.label}
+                                                    </Text>
+                                                    <Text style={styles.optionDescription}>
+                                                        {opt.description}
+                                                    </Text>
+                                                </View>
+                                            </LiquidGlassView>
+                                        ) : (
+                                            <View style={[
+                                                styles.option,
+                                                isSelected && styles.optionSelected
+                                            ]}>
                                                 <Text style={[
                                                     styles.optionLabel,
                                                     isSelected && styles.optionLabelSelected
@@ -96,23 +111,49 @@ export const AskUserQuestionModal: React.FC<Props> = ({
                                                 <Text style={styles.optionDescription}>
                                                     {opt.description}
                                                 </Text>
-                                            </TouchableOpacity>
-                                        );
-                                    })}
-                                </View>
-                            </View>
-                        ))}
-                    </ScrollView>
-
-                    <View style={styles.actions}>
-                        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-                            <Text style={styles.cancelText}>Cancel</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-                            <Text style={styles.submitText}>Submit</Text>
-                        </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
                     </View>
-                </View>
+                ))}
+            </ScrollView>
+
+            <View style={styles.actions}>
+                <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+                    <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+                    <Text style={styles.submitText}>Submit</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+
+    return (
+        <Modal
+            visible={visible}
+            transparent
+            animationType="fade"
+            onRequestClose={onCancel}
+        >
+            <View style={styles.overlay}>
+                {isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                        style={[styles.modal, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                    >
+                        {renderModalContent()}
+                    </LiquidGlassView>
+                ) : (
+                    <View style={styles.modal}>
+                        {renderModalContent()}
+                    </View>
+                )}
             </View>
         </Modal>
     );
@@ -127,12 +168,15 @@ const styles = StyleSheet.create({
         padding: 20,
     },
     modal: {
-        backgroundColor: '#1a1a1a',
-        borderRadius: 16,
-        padding: 24,
         width: '100%',
         maxWidth: 500,
         maxHeight: '80%',
+        borderRadius: 24,
+    },
+    modalInner: {
+        backgroundColor: 'rgba(26, 26, 26, 0.4)',
+        padding: 24,
+        borderRadius: 24,
     },
     title: {
         color: '#fff',
@@ -161,18 +205,15 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     optionsContainer: {
-        gap: 8,
+        gap: 10,
     },
     option: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 8,
-        padding: 12,
     },
     optionSelected: {
         borderColor: AppColors.primary,
-        backgroundColor: 'rgba(139,92,246,0.1)',
     },
     optionLabel: {
         color: '#fff',
@@ -193,11 +234,12 @@ const styles = StyleSheet.create({
     },
     cancelButton: {
         flex: 1,
-        padding: 12,
-        borderRadius: 8,
+        padding: 14,
+        borderRadius: 12,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.2)',
         alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.05)',
     },
     cancelText: {
         color: '#fff',
@@ -206,8 +248,8 @@ const styles = StyleSheet.create({
     },
     submitButton: {
         flex: 1,
-        padding: 12,
-        borderRadius: 8,
+        padding: 14,
+        borderRadius: 12,
         backgroundColor: AppColors.primary,
         alignItems: 'center',
     },

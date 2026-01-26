@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { Button } from '../../../../shared/components/atoms/Button';
+import { Input } from '../../../../shared/components/atoms/Input';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { AppColors } from '../../../../shared/theme/colors';
@@ -290,63 +293,115 @@ export const EnvVarsView = ({ tab }: Props) => {
 
               {showAddForm && (
                 <Animated.View entering={FadeIn} style={styles.addForm}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Nome variabile (es. API_KEY)"
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    value={newKey}
-                    onChangeText={setNewKey}
-                    autoCapitalize="characters"
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Valore"
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    value={newValue}
-                    onChangeText={setNewValue}
-                    secureTextEntry
-                  />
-                  <TouchableOpacity style={styles.saveButton} onPress={handleAddVariable}>
-                    <Text style={styles.saveButtonText}>Aggiungi</Text>
-                  </TouchableOpacity>
+                  {isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                      style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    >
+                      <View style={{ padding: 16, gap: 12 }}>
+                        <Input
+                          placeholder="Nome variabile (es. API_KEY)"
+                          value={newKey}
+                          onChangeText={setNewKey}
+                          autoCapitalize="characters"
+                          style={{ marginBottom: 0 }}
+                        />
+                        <Input
+                          placeholder="Valore"
+                          value={newValue}
+                          onChangeText={setNewValue}
+                          secureTextEntry
+                          style={{ marginBottom: 0 }}
+                        />
+                        <Button
+                          label="Aggiungi"
+                          onPress={handleAddVariable}
+                          variant="primary"
+                        />
+                      </View>
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.addFormInner}>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Nome variabile (es. API_KEY)"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={newKey}
+                        onChangeText={setNewKey}
+                        autoCapitalize="characters"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Valore"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={newValue}
+                        onChangeText={setNewValue}
+                        secureTextEntry
+                      />
+                      <TouchableOpacity style={styles.saveButton} onPress={handleAddVariable}>
+                        <Text style={styles.saveButtonText}>Aggiungi</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </Animated.View>
               )}
 
               {envVars.length === 0 ? (
                 <Text style={styles.emptyText}>Nessuna variabile configurata</Text>
               ) : (
-                envVars.map((variable) => (
-                  <View key={variable.key} style={styles.variableItem}>
-                    <View style={styles.variableHeader}>
-                      <Text style={styles.variableKey} numberOfLines={1} ellipsizeMode="tail">{variable.key}</Text>
-                      <View style={styles.variableActions}>
-                        {variable.isSecret && (
+                envVars.map((variable) => {
+                  const variableContent = (
+                    <View style={styles.variableInner}>
+                      <View style={styles.variableHeader}>
+                        <Text style={styles.variableKey} numberOfLines={1} ellipsizeMode="tail">{variable.key}</Text>
+                        <View style={styles.variableActions}>
+                          {variable.isSecret && (
+                            <TouchableOpacity
+                              onPress={() => toggleSecretVisibility(variable.key)}
+                              style={styles.actionButton}
+                            >
+                              <Ionicons
+                                name={visibleSecrets.has(variable.key) ? 'eye-off' : 'eye'}
+                                size={18}
+                                color="rgba(255,255,255,0.5)"
+                              />
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
-                            onPress={() => toggleSecretVisibility(variable.key)}
+                            onPress={() => handleDeleteVariable(variable.key)}
                             style={styles.actionButton}
                           >
-                            <Ionicons
-                              name={visibleSecrets.has(variable.key) ? 'eye-off' : 'eye'}
-                              size={18}
-                              color="rgba(255,255,255,0.5)"
-                            />
+                            <Ionicons name="trash" size={18} color={AppColors.error} />
                           </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => handleDeleteVariable(variable.key)}
-                          style={styles.actionButton}
-                        >
-                          <Ionicons name="trash" size={18} color={AppColors.error} />
-                        </TouchableOpacity>
+                        </View>
                       </View>
+                      <Text style={styles.variableValue}>
+                        {variable.isSecret && !visibleSecrets.has(variable.key)
+                          ? '••••••••'
+                          : variable.value || '(vuoto)'}
+                      </Text>
                     </View>
-                    <Text style={styles.variableValue}>
-                      {variable.isSecret && !visibleSecrets.has(variable.key)
-                        ? '••••••••'
-                        : variable.value || '(vuoto)'}
-                    </Text>
-                  </View>
-                ))
+                  );
+
+                  return (
+                    <View key={variable.key} style={styles.variableItem}>
+                      {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                          style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
+                        >
+                          {variableContent}
+                        </LiquidGlassView>
+                      ) : (
+                        variableContent
+                      )}
+                    </View>
+                  );
+                })
               )}
             </View>
 
@@ -361,21 +416,40 @@ export const EnvVarsView = ({ tab }: Props) => {
                   <Text style={styles.aiCount}>{aiVariables.length}</Text>
                 </View>
 
-                {aiVariables.slice(0, 5).map((variable) => (
-                  <TouchableOpacity
-                    key={variable.key}
-                    style={styles.aiVariableItem}
-                    onPress={() => handleAddAIVariable(variable)}
-                  >
-                    <View style={styles.aiVariableContent}>
-                      <Text style={styles.aiVariableKey}>{variable.key}</Text>
-                      {variable.description && (
-                        <Text style={styles.aiVariableDesc}>{variable.description}</Text>
-                      )}
+                {aiVariables.slice(0, 5).map((variable) => {
+                  const aiContent = (
+                    <View style={styles.aiVariableInner}>
+                      <View style={styles.aiVariableContent}>
+                        <Text style={styles.aiVariableKey}>{variable.key}</Text>
+                        {variable.description && (
+                          <Text style={styles.aiVariableDesc}>{variable.description}</Text>
+                        )}
+                      </View>
+                      <Ionicons name="add-circle" size={24} color={AppColors.primary} />
                     </View>
-                    <Ionicons name="add-circle" size={24} color={AppColors.primary} />
-                  </TouchableOpacity>
-                ))}
+                  );
+
+                  return (
+                    <TouchableOpacity
+                      key={variable.key}
+                      style={styles.aiVariableItem}
+                      onPress={() => handleAddAIVariable(variable)}
+                    >
+                      {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                          style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
+                        >
+                          {aiContent}
+                        </LiquidGlassView>
+                      ) : (
+                        aiContent
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             )}
           </>
@@ -483,10 +557,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addForm: {
+    marginBottom: 16,
+    borderRadius: 12,
+  },
+  addFormInner: {
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
     gap: 12,
   },
   input: {
@@ -514,11 +591,13 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   variableItem: {
+    marginBottom: 12,
+    borderRadius: 12,
+  },
+  variableInner: {
     backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
-    overflow: 'hidden',
   },
   variableHeader: {
     flexDirection: 'row',
@@ -548,12 +627,15 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
   },
   aiVariableItem: {
+    marginBottom: 12,
+    borderRadius: 12,
+  },
+  aiVariableInner: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(155, 138, 255, 0.05)',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(155, 138, 255, 0.1)',
   },

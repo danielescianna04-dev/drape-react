@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -214,198 +215,294 @@ User Request: ${userMessage}`;
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.headerIcon}>
-            <Ionicons name="chatbubbles" size={20} color={AppColors.primary} />
-          </View>
-          <View>
-            <Text style={styles.headerTitle}>Agent Chat</Text>
-            <Text style={styles.headerSubtitle}>
-              {projectContext?.name || 'No project context'}
-            </Text>
-          </View>
-        </View>
-
-        {onClose && (
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={22} color={AppColors.white.w60} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Agent Mode Toggle */}
-      <View style={styles.modeSection}>
-        <Text style={styles.modeLabel}>Mode:</Text>
-        <View style={styles.modeToggle}>
-          <TouchableOpacity
-            onPress={() => setAgentMode('off')}
-            style={[
-              styles.modeButton,
-              agentMode === 'off' && styles.modeButtonActive
-            ]}
-          >
-            <Ionicons name="sparkles" size={14} color={agentMode === 'off' ? '#fff' : '#8A8A8A'} />
-            <Text style={[styles.modeText, agentMode === 'off' && styles.modeTextActive]}>
-              AI
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setAgentMode('fast')}
-            style={[
-              styles.modeButton,
-              agentMode === 'fast' && styles.modeButtonActive
-            ]}
-          >
-            <Ionicons name="flash" size={14} color={agentMode === 'fast' ? '#fff' : '#8A8A8A'} />
-            <Text style={[styles.modeText, agentMode === 'fast' && styles.modeTextActive]}>
-              Fast
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setAgentMode('planning')}
-            style={[
-              styles.modeButton,
-              agentMode === 'planning' && styles.modeButtonActive
-            ]}
-          >
-            <Ionicons name="list" size={14} color={agentMode === 'planning' ? '#fff' : '#8A8A8A'} />
-            <Text style={[styles.modeText, agentMode === 'planning' && styles.modeTextActive]}>
-              Plan
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Agent Mode Badge */}
-        {agentMode !== 'off' && (
-          <View style={styles.activeBadge}>
-            <View style={styles.activeDot} />
-            <Text style={styles.activeBadgeText}>
-              {agentMode === 'fast' ? 'Fast Mode' : 'Planning Mode'}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.divider} />
-
-      {/* Messages */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.messages}
-        contentContainerStyle={styles.messagesContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {messages.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="chatbubbles-outline" size={48} color={AppColors.white.w25} />
-            <Text style={styles.emptyText}>No messages yet</Text>
-            <Text style={styles.emptySubtext}>
-              {agentMode === 'off'
-                ? 'Start chatting with AI'
-                : `Agent mode: ${agentMode === 'fast' ? 'Fast execution' : 'Plan & execute'}`}
-            </Text>
-          </View>
-        ) : (
-          <>
-            {messages.map((message) => (
-              <View key={message.id} style={styles.messageCard}>
-                <View style={styles.messageHeader}>
-                  <View style={[
-                    styles.messageIcon,
-                    { backgroundColor: getMessageColor(message.type) + '20' }
-                  ]}>
-                    <Ionicons
-                      name={getMessageIcon(message.type)}
-                      size={16}
-                      color={getMessageColor(message.type)}
-                    />
-                  </View>
-                  <Text style={styles.messageType}>
-                    {message.type.charAt(0).toUpperCase() + message.type.slice(1)}
-                  </Text>
-                  <Text style={styles.messageTime}>
-                    {new Date(message.timestamp).toLocaleTimeString('it-IT', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </Text>
-                </View>
-
-                <Text style={styles.messageContent}>{message.content}</Text>
-
-                {message.filesCreated && message.filesCreated.length > 0 && (
-                  <View style={styles.filesSection}>
-                    <Text style={styles.filesLabel}>Files created:</Text>
-                    {message.filesCreated.map((file: string, index: number) => (
-                      <Text key={index} style={styles.fileName}>• {file}</Text>
-                    ))}
-                  </View>
-                )}
-
-                {message.filesModified && message.filesModified.length > 0 && (
-                  <View style={styles.filesSection}>
-                    <Text style={styles.filesLabel}>Files modified:</Text>
-                    {message.filesModified.map((file: string, index: number) => (
-                      <Text key={index} style={styles.fileName}>• {file}</Text>
-                    ))}
-                  </View>
-                )}
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[StyleSheet.absoluteFill, { backgroundColor: 'transparent' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        />
+      ) : null}
+      <View style={styles.containerInner}>
+        {/* Header */}
+        <View style={styles.header}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[StyleSheet.absoluteFill, { backgroundColor: 'transparent' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            />
+          ) : null}
+          <View style={styles.headerInner}>
+            <View style={styles.headerLeft}>
+              <View style={styles.headerIcon}>
+                <Ionicons name="chatbubbles" size={20} color={AppColors.primary} />
               </View>
-            ))}
+              <View>
+                <Text style={styles.headerTitle}>Agent Chat</Text>
+                <Text style={styles.headerSubtitle}>
+                  {projectContext?.name || 'No project context'}
+                </Text>
+              </View>
+            </View>
 
-            {/* Agent Progress (shown during execution) */}
-            {agentStream.state.status === 'running' && (
-              <View style={styles.agentProgressWrapper}>
-                <AgentProgress
-                  events={agentStream.state.events}
-                  status={agentStream.state.status}
-                  currentTool={agentStream.state.currentTool}
-                />
+            {onClose && (
+              <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color={AppColors.white.w60} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Agent Mode Toggle */}
+        <View style={styles.modeSection}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[StyleSheet.absoluteFill, { backgroundColor: 'transparent' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            />
+          ) : null}
+          <View style={styles.modeSectionInner}>
+            <Text style={styles.modeLabel}>Mode:</Text>
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                onPress={() => setAgentMode('off')}
+                style={[
+                  styles.modeButton,
+                  agentMode === 'off' && styles.modeButtonActive
+                ]}
+              >
+                <Ionicons name="sparkles" size={14} color={agentMode === 'off' ? '#fff' : '#8A8A8A'} />
+                <Text style={[styles.modeText, agentMode === 'off' && styles.modeTextActive]}>
+                  AI
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setAgentMode('fast')}
+                style={[
+                  styles.modeButton,
+                  agentMode === 'fast' && styles.modeButtonActive
+                ]}
+              >
+                <Ionicons name="flash" size={14} color={agentMode === 'fast' ? '#fff' : '#8A8A8A'} />
+                <Text style={[styles.modeText, agentMode === 'fast' && styles.modeTextActive]}>
+                  Fast
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setAgentMode('planning')}
+                style={[
+                  styles.modeButton,
+                  agentMode === 'planning' && styles.modeButtonActive
+                ]}
+              >
+                <Ionicons name="list" size={14} color={agentMode === 'planning' ? '#fff' : '#8A8A8A'} />
+                <Text style={[styles.modeText, agentMode === 'planning' && styles.modeTextActive]}>
+                  Plan
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Agent Mode Badge */}
+            {agentMode !== 'off' && (
+              <View style={styles.activeBadge}>
+                <View style={styles.activeDot} />
+                <Text style={styles.activeBadgeText}>
+                  {agentMode === 'fast' ? 'Fast Mode' : 'Planning Mode'}
+                </Text>
               </View>
             )}
-          </>
-        )}
-      </ScrollView>
+          </View>
+        </View>
 
-      {/* Input */}
-      <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={setInput}
-            placeholder={
-              agentMode === 'off'
-                ? 'Message AI...'
-                : agentMode === 'fast'
-                ? 'Tell agent what to do...'
-                : 'Describe task for planning...'
-            }
-            placeholderTextColor={AppColors.white.w40}
-            multiline
-            maxLength={1000}
-            keyboardAppearance="dark"
-          />
+        <View style={styles.divider} />
 
-          <TouchableOpacity
-            onPress={handleSend}
-            disabled={!input.trim() || agentStream.state.status === 'running'}
-            style={[
-              styles.sendButton,
-              (!input.trim() || agentStream.state.status === 'running') && styles.sendButtonDisabled
-            ]}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="arrow-up"
-              size={20}
-              color={input.trim() && agentStream.state.status !== 'running' ? '#fff' : '#555'}
-            />
-          </TouchableOpacity>
+        {/* Messages */}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.messages}
+          contentContainerStyle={styles.messagesContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="chatbubbles-outline" size={48} color={AppColors.white.w25} />
+              <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={styles.emptySubtext}>
+                {agentMode === 'off'
+                  ? 'Start chatting with AI'
+                  : `Agent mode: ${agentMode === 'fast' ? 'Fast execution' : 'Plan & execute'}`}
+              </Text>
+            </View>
+          ) : (
+            <>
+              {messages.map((message) => {
+                const messageContent = (
+                  <View style={styles.messageCardInner}>
+                    <View style={styles.messageHeader}>
+                      <View style={[
+                        styles.messageIconWrap,
+                        { backgroundColor: getMessageColor(message.type) + '20' }
+                      ]}>
+                        <Ionicons
+                          name={getMessageIcon(message.type)}
+                          size={16}
+                          color={getMessageColor(message.type)}
+                        />
+                      </View>
+                      <Text style={styles.messageType}>
+                        {message.type.charAt(0).toUpperCase() + message.type.slice(1)}
+                      </Text>
+                      <Text style={styles.messageTime}>
+                        {new Date(message.timestamp).toLocaleTimeString('it-IT', {
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.messageContent}>{message.content}</Text>
+
+                    {message.filesCreated && message.filesCreated.length > 0 && (
+                      <View style={styles.filesSection}>
+                        <Text style={styles.filesLabel}>Files created:</Text>
+                        {message.filesCreated.map((file: string, index: number) => (
+                          <Text key={index} style={styles.fileName}>• {file}</Text>
+                        ))}
+                      </View>
+                    )}
+
+                    {message.filesModified && message.filesModified.length > 0 && (
+                      <View style={styles.filesSection}>
+                        <Text style={styles.filesLabel}>Files modified:</Text>
+                        {message.filesModified.map((file: string, index: number) => (
+                          <Text key={index} style={styles.fileName}>• {file}</Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+
+                return (
+                  <View key={message.id} style={styles.messageCard}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        {messageContent}
+                      </LiquidGlassView>
+                    ) : (
+                      messageContent
+                    )}
+                  </View>
+                );
+              })}
+
+              {/* Agent Progress (shown during execution) */}
+              {agentStream.state.status === 'running' && (
+                <View style={styles.agentProgressWrapper}>
+                  <AgentProgress
+                    events={agentStream.state.events}
+                    status={agentStream.state.status}
+                    currentTool={agentStream.state.currentTool}
+                  />
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
+
+        {/* Input */}
+        <View style={styles.inputContainer}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[
+                styles.inputWrapper,
+                { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 0, paddingVertical: 0 }
+              ]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 12, paddingVertical: 8 }}>
+                <TextInput
+                  style={styles.input}
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder={
+                    agentMode === 'off'
+                      ? 'Message AI...'
+                      : agentMode === 'fast'
+                        ? 'Tell agent what to do...'
+                        : 'Describe task for planning...'
+                  }
+                  placeholderTextColor={AppColors.white.w40}
+                  multiline
+                  maxLength={1000}
+                  keyboardAppearance="dark"
+                />
+
+                <TouchableOpacity
+                  onPress={handleSend}
+                  disabled={!input.trim() || agentStream.state.status === 'running'}
+                  style={[
+                    styles.sendButton,
+                    (!input.trim() || agentStream.state.status === 'running') && styles.sendButtonDisabled
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="arrow-up"
+                    size={20}
+                    color={input.trim() && agentStream.state.status !== 'running' ? '#fff' : '#555'}
+                  />
+                </TouchableOpacity>
+              </View>
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={setInput}
+                placeholder={
+                  agentMode === 'off'
+                    ? 'Message AI...'
+                    : agentMode === 'fast'
+                      ? 'Tell agent what to do...'
+                      : 'Describe task for planning...'
+                }
+                placeholderTextColor={AppColors.white.w40}
+                multiline
+                maxLength={1000}
+                keyboardAppearance="dark"
+              />
+
+              <TouchableOpacity
+                onPress={handleSend}
+                disabled={!input.trim() || agentStream.state.status === 'running'}
+                style={[
+                  styles.sendButton,
+                  (!input.trim() || agentStream.state.status === 'running') && styles.sendButtonDisabled
+                ]}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="arrow-up"
+                  size={20}
+                  color={input.trim() && agentStream.state.status !== 'running' ? '#fff' : '#555'}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
 
@@ -424,15 +521,22 @@ User Request: ${userMessage}`;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.dark.background,
+    backgroundColor: 'transparent',
+  },
+  containerInner: {
+    flex: 1,
   },
   header: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  headerInner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: AppColors.dark.surface,
+    backgroundColor: 'rgba(26, 26, 26, 0.4)',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -468,9 +572,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modeSection: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  modeSectionInner: {
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: AppColors.dark.surface,
+    backgroundColor: 'rgba(26, 26, 26, 0.3)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -562,11 +670,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   messageCard: {
-    backgroundColor: AppColors.dark.surface,
     borderRadius: 12,
-    padding: 14,
     borderWidth: 1,
     borderColor: AppColors.white.w10,
+  },
+  messageCardInner: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    padding: 14,
+    borderRadius: 12,
   },
   messageHeader: {
     flexDirection: 'row',
@@ -574,7 +685,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  messageIcon: {
+  messageIconWrap: {
     width: 24,
     height: 24,
     borderRadius: 6,
@@ -623,19 +734,17 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     padding: 12,
-    backgroundColor: AppColors.dark.surface,
+    backgroundColor: 'rgba(10, 10, 10, 0.4)',
     borderTopWidth: 1,
-    borderTopColor: AppColors.white.w10,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: AppColors.dark.surfaceAlt,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: AppColors.white.w10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     gap: 8,
   },
   input: {

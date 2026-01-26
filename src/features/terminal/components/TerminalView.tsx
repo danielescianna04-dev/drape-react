@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
@@ -177,41 +178,156 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
     });
   };
 
+  const renderHeaderContent = () => (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <View style={styles.terminalIcon}>
+          <Ionicons name="terminal" size={18} color={AppColors.primary} />
+        </View>
+        <View style={styles.headerTexts}>
+          <Text style={styles.headerTitle}>Terminal</Text>
+          <View style={styles.workspaceRow}>
+            <View style={styles.workspaceDot} />
+            <Text style={styles.headerSubtitle}>
+              {currentWorkstation?.name || 'No workspace'}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.statusBadge}>
+        <View style={[styles.statusDot, isExecuting && styles.statusDotActive]} />
+        <Text style={styles.statusText}>
+          {isExecuting ? 'Running' : 'Ready'}
+        </Text>
+      </View>
+    </View>
+  );
+
+  const renderCardContent = (item: any) => (
+    <View style={{ flex: 1 }}>
+      {/* Header */}
+      <View style={styles.cardHeader}>
+        <View style={styles.typeIconContainer}>
+          <Ionicons
+            name={
+              item.type === TerminalItemType.COMMAND ? 'terminal' :
+                item.type === TerminalItemType.ERROR ? 'close-circle' :
+                  item.type === TerminalItemType.SYSTEM ? 'information-circle' : 'checkmark-circle'
+            }
+            size={16}
+            color={
+              item.type === TerminalItemType.COMMAND ? AppColors.primary :
+                item.type === TerminalItemType.ERROR ? AppColors.error :
+                  item.type === TerminalItemType.SYSTEM ? AppColors.terminal.yellow : AppColors.success
+            }
+          />
+          <Text style={[
+            styles.typeLabel,
+            item.type === TerminalItemType.COMMAND && styles.typeLabelCommand,
+            item.type === TerminalItemType.ERROR && styles.typeLabelError,
+            item.type === TerminalItemType.SYSTEM && styles.typeLabelSystem,
+            item.type === TerminalItemType.OUTPUT && styles.typeLabelOutput,
+          ]}>
+            {item.type === TerminalItemType.COMMAND ? 'COMMAND' :
+              item.type === TerminalItemType.ERROR ? 'ERROR' :
+                item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
+          </Text>
+        </View>
+
+        <View style={styles.headerRight}>
+          {item.source && (
+            <View style={[
+              styles.sourceBadge,
+              item.source === 'preview' && styles.sourceBadgePreview,
+              item.source === 'ai' && styles.sourceBadgeAI,
+              item.source === 'terminal' && styles.sourceBadgeTerminal,
+              item.source === 'backend' && styles.sourceBadgeBackend,
+            ]}>
+              <Ionicons
+                name={
+                  item.source === 'preview' ? 'phone-portrait-outline' :
+                    item.source === 'ai' ? 'sparkles' :
+                      item.source === 'terminal' ? 'terminal-outline' :
+                        item.source === 'backend' ? 'server-outline' : 'code-outline'
+                }
+                size={10}
+                color={AppColors.white.w60}
+              />
+              <Text style={styles.sourceText}>
+                {item.source === 'preview' ? 'Preview' :
+                  item.source === 'ai' ? 'AI' :
+                    item.source === 'terminal' ? 'Terminal' :
+                      item.source === 'backend' ? 'Backend' : item.source}
+              </Text>
+            </View>
+          )}
+          {item.timestamp && (
+            <Text style={styles.timestamp}>
+              {new Date(item.timestamp).toLocaleTimeString('it-IT', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              })}
+            </Text>
+          )}
+        </View>
+      </View>
+
+      {/* Content */}
+      <View style={styles.cardContent}>
+        <Text
+          style={[
+            styles.contentText,
+            item.type === TerminalItemType.ERROR && styles.errorText,
+            item.type === TerminalItemType.SYSTEM && styles.systemText,
+          ]}
+          selectable
+        >
+          {item.content}
+        </Text>
+      </View>
+
+      {/* Footer for commands with exit code */}
+      {item.type === TerminalItemType.COMMAND && item.exitCode !== undefined && (
+        <View style={styles.cardFooter}>
+          <View style={[
+            styles.exitCodeBadge,
+            item.exitCode === 0 ? styles.exitCodeSuccess : styles.exitCodeError
+          ]}>
+            <Text style={styles.exitCodeText}>
+              Exit Code: {item.exitCode}
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      {/* Header with gradient */}
+      {/* Header with glassy effect */}
       <View style={styles.headerContainer}>
-        <LinearGradient
-          colors={[AppColors.dark.backgroundAlt, 'rgba(10, 10, 15, 0.7)']}
-          style={styles.headerGradient}
-        >
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={styles.terminalIcon}>
-                <Ionicons name="terminal" size={18} color={AppColors.primary} />
-              </View>
-              <View style={styles.headerTexts}>
-                <Text style={styles.headerTitle}>Terminal</Text>
-                <View style={styles.workspaceRow}>
-                  <View style={styles.workspaceDot} />
-                  <Text style={styles.headerSubtitle}>
-                    {currentWorkstation?.name || 'No workspace'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View style={styles.statusBadge}>
-              <View style={[styles.statusDot, isExecuting && styles.statusDotActive]} />
-              <Text style={styles.statusText}>
-                {isExecuting ? 'Running' : 'Ready'}
-              </Text>
-            </View>
-          </View>
-        </LinearGradient>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[styles.headerGradient, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {renderHeaderContent()}
+          </LiquidGlassView>
+        ) : (
+          <LinearGradient
+            colors={[AppColors.dark.backgroundAlt, 'rgba(10, 10, 15, 0.7)']}
+            style={styles.headerGradient}
+          >
+            {renderHeaderContent()}
+          </LinearGradient>
+        )}
         <View style={styles.headerBorder} />
       </View>
 
@@ -243,108 +359,25 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
           <View style={styles.terminalList}>
             {terminalItems.map((item, index) => (
               <View key={item.id || index} style={styles.terminalCard}>
-                <LinearGradient
-                  colors={[AppColors.dark.surface, AppColors.dark.surfaceAlt]}
-                  style={styles.cardGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  {/* Header */}
-                  <View style={styles.cardHeader}>
-                    <View style={styles.typeIconContainer}>
-                      <Ionicons
-                        name={
-                          item.type === TerminalItemType.COMMAND ? 'terminal' :
-                            item.type === TerminalItemType.ERROR ? 'close-circle' :
-                              item.type === TerminalItemType.SYSTEM ? 'information-circle' : 'checkmark-circle'
-                        }
-                        size={16}
-                        color={
-                          item.type === TerminalItemType.COMMAND ? AppColors.primary :
-                            item.type === TerminalItemType.ERROR ? AppColors.error :
-                              item.type === TerminalItemType.SYSTEM ? AppColors.terminal.yellow : AppColors.success
-                        }
-                      />
-                      <Text style={[
-                        styles.typeLabel,
-                        item.type === TerminalItemType.COMMAND && styles.typeLabelCommand,
-                        item.type === TerminalItemType.ERROR && styles.typeLabelError,
-                        item.type === TerminalItemType.SYSTEM && styles.typeLabelSystem,
-                        item.type === TerminalItemType.OUTPUT && styles.typeLabelOutput,
-                      ]}>
-                        {item.type === TerminalItemType.COMMAND ? 'COMMAND' :
-                          item.type === TerminalItemType.ERROR ? 'ERROR' :
-                            item.type === TerminalItemType.SYSTEM ? 'SYSTEM' : 'OUTPUT'}
-                      </Text>
-                    </View>
-
-                    <View style={styles.headerRight}>
-                      {item.source && (
-                        <View style={[
-                          styles.sourceBadge,
-                          item.source === 'preview' && styles.sourceBadgePreview,
-                          item.source === 'ai' && styles.sourceBadgeAI,
-                          item.source === 'terminal' && styles.sourceBadgeTerminal,
-                          item.source === 'backend' && styles.sourceBadgeBackend,
-                        ]}>
-                          <Ionicons
-                            name={
-                              item.source === 'preview' ? 'phone-portrait-outline' :
-                                item.source === 'ai' ? 'sparkles' :
-                                  item.source === 'terminal' ? 'terminal-outline' :
-                                    item.source === 'backend' ? 'server-outline' : 'code-outline'
-                            }
-                            size={10}
-                            color={AppColors.white.w60}
-                          />
-                          <Text style={styles.sourceText}>
-                            {item.source === 'preview' ? 'Preview' :
-                              item.source === 'ai' ? 'AI' :
-                                item.source === 'terminal' ? 'Terminal' :
-                                  item.source === 'backend' ? 'Backend' : item.source}
-                          </Text>
-                        </View>
-                      )}
-                      {item.timestamp && (
-                        <Text style={styles.timestamp}>
-                          {new Date(item.timestamp).toLocaleTimeString('it-IT', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            second: '2-digit'
-                          })}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Content */}
-                  <View style={styles.cardContent}>
-                    <Text
-                      style={[
-                        styles.contentText,
-                        item.type === TerminalItemType.ERROR && styles.errorText,
-                        item.type === TerminalItemType.SYSTEM && styles.systemText,
-                      ]}
-                      selectable
-                    >
-                      {item.content}
-                    </Text>
-                  </View>
-
-                  {/* Footer for commands with exit code */}
-                  {item.type === TerminalItemType.COMMAND && item.exitCode !== undefined && (
-                    <View style={styles.cardFooter}>
-                      <View style={[
-                        styles.exitCodeBadge,
-                        item.exitCode === 0 ? styles.exitCodeSuccess : styles.exitCodeError
-                      ]}>
-                        <Text style={styles.exitCodeText}>
-                          Exit Code: {item.exitCode}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                </LinearGradient>
+                {isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={[styles.cardGradient, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  >
+                    {renderCardContent(item)}
+                  </LiquidGlassView>
+                ) : (
+                  <LinearGradient
+                    colors={[AppColors.dark.surface, AppColors.dark.surfaceAlt]}
+                    style={styles.cardGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    {renderCardContent(item)}
+                  </LinearGradient>
+                )}
               </View>
             ))}
           </View>

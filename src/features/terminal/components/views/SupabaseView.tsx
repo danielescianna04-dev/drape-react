@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { Button } from '../../../../shared/components/atoms/Button';
+import { Input } from '../../../../shared/components/atoms/Input';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
@@ -246,6 +249,109 @@ export const SupabaseView = ({ tab }: Props) => {
   // Top padding: safe area + TabBar height (38px)
   const topPadding = insets.top + 38;
 
+  const renderConnectForm = () => {
+    const formContent = (
+      <View style={styles.connectInner}>
+        <View style={styles.connectHeader}>
+          <Ionicons name="flash" size={32} color={SUPABASE_GREEN} />
+          <Text style={styles.connectTitle}>Connetti Supabase</Text>
+          <Text style={styles.connectSubtitle}>
+            Collega il tuo progetto Supabase per accedere a database, auth e storage
+          </Text>
+        </View>
+
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Project URL</Text>
+            <Input
+              placeholder="https://xxx.supabase.co"
+              value={config.projectUrl}
+              onChangeText={(text) => setConfig(prev => ({
+                ...prev,
+                projectUrl: text,
+                projectName: extractProjectName(text),
+              }))}
+              keyboardType="url"
+              style={{ marginBottom: 0 }}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Anon Key (public)</Text>
+            <Input
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+              value={config.anonKey}
+              onChangeText={(text) => setConfig(prev => ({ ...prev, anonKey: text }))}
+              secureTextEntry={!showKeys}
+              style={{ marginBottom: 0 }}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Service Key (opzionale)</Text>
+            <Input
+              placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+              value={config.serviceKey}
+              onChangeText={(text) => setConfig(prev => ({ ...prev, serviceKey: text }))}
+              secureTextEntry={!showKeys}
+              style={{ marginBottom: 0 }}
+            />
+            <Text style={styles.inputHint}>
+              Solo per operazioni admin (bypass RLS)
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.showKeysButton}
+            onPress={() => setShowKeys(!showKeys)}
+          >
+            <Ionicons
+              name={showKeys ? "eye" : "eye-off"}
+              size={16}
+              color="rgba(255,255,255,0.4)"
+            />
+            <Text style={styles.showKeysText}>
+              {showKeys ? 'Nascondi chiavi' : 'Mostra chiavi'}
+            </Text>
+          </TouchableOpacity>
+
+          <Button
+            label={isTesting ? "" : "Connetti"}
+            onPress={testConnection}
+            disabled={isTesting}
+            variant="primary"
+            style={{ marginTop: 8 }}
+          />
+
+          <TouchableOpacity
+            style={styles.helpLink}
+            onPress={() => Linking.openURL('https://supabase.com/docs/guides/getting-started')}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
+            <Text style={styles.helpLinkText}>Come trovo le credenziali?</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+
+    return (
+      <Animated.View entering={FadeIn.duration(300)} style={styles.connectCard}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {formContent}
+          </LiquidGlassView>
+        ) : (
+          formContent
+        )}
+      </Animated.View>
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: topPadding }]}>
       {isLoading ? (
@@ -259,142 +365,96 @@ export const SupabaseView = ({ tab }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Connect Form */}
-          <Animated.View entering={FadeIn.duration(300)} style={styles.connectCard}>
-            <View style={styles.connectHeader}>
-              <Ionicons name="flash" size={32} color={SUPABASE_GREEN} />
-              <Text style={styles.connectTitle}>Connetti Supabase</Text>
-              <Text style={styles.connectSubtitle}>
-                Collega il tuo progetto Supabase per accedere a database, auth e storage
-              </Text>
-            </View>
-
-            <View style={styles.form}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Project URL</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="https://xxx.supabase.co"
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  value={config.projectUrl}
-                  onChangeText={(text) => setConfig(prev => ({
-                    ...prev,
-                    projectUrl: text,
-                    projectName: extractProjectName(text),
-                  }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Anon Key (public)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  value={config.anonKey}
-                  onChangeText={(text) => setConfig(prev => ({ ...prev, anonKey: text }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry={!showKeys}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Service Key (opzionale)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..."
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  value={config.serviceKey}
-                  onChangeText={(text) => setConfig(prev => ({ ...prev, serviceKey: text }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry={!showKeys}
-                />
-                <Text style={styles.inputHint}>
-                  Solo per operazioni admin (bypass RLS)
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.showKeysButton}
-                onPress={() => setShowKeys(!showKeys)}
-              >
-                <Ionicons
-                  name={showKeys ? "eye" : "eye-off"}
-                  size={16}
-                  color="rgba(255,255,255,0.4)"
-                />
-                <Text style={styles.showKeysText}>
-                  {showKeys ? 'Nascondi chiavi' : 'Mostra chiavi'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.connectButton, isTesting && styles.connectButtonDisabled]}
-                onPress={testConnection}
-                disabled={isTesting}
-              >
-                {isTesting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="flash" size={18} color="#fff" />
-                    <Text style={styles.connectButtonText}>Connetti</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.helpLink}
-                onPress={() => Linking.openURL('https://supabase.com/docs/guides/getting-started')}
-              >
-                <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.helpLinkText}>Come trovo le credenziali?</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
+          {renderConnectForm()}
         </ScrollView>
       ) : (
         <View style={styles.connectedContainer}>
           {/* Project header */}
-          <View style={styles.projectHeader}>
-            <View style={styles.projectIconSmall}>
-              <Ionicons name="flash" size={16} color={SUPABASE_GREEN} />
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[styles.projectHeader, { backgroundColor: 'transparent' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <View style={styles.projectHeaderInner}>
+                <View style={styles.projectIconSmall}>
+                  <Ionicons name="flash" size={16} color={SUPABASE_GREEN} />
+                </View>
+                <Text style={styles.projectNameSmall} numberOfLines={1}>{config.projectName}</Text>
+                <TouchableOpacity onPress={openDashboard} style={styles.headerBtn}>
+                  <Ionicons name="open-outline" size={18} color="rgba(255,255,255,0.5)" />
+                </TouchableOpacity>
+              </View>
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.projectHeader}>
+              <View style={styles.projectIconSmall}>
+                <Ionicons name="flash" size={16} color={SUPABASE_GREEN} />
+              </View>
+              <Text style={styles.projectNameSmall} numberOfLines={1}>{config.projectName}</Text>
+              <TouchableOpacity onPress={openDashboard} style={styles.headerBtn}>
+                <Ionicons name="open-outline" size={18} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.projectNameSmall} numberOfLines={1}>{config.projectName}</Text>
-            <TouchableOpacity onPress={openDashboard} style={styles.headerBtn}>
-              <Ionicons name="open-outline" size={18} color="rgba(255,255,255,0.5)" />
-            </TouchableOpacity>
-          </View>
+          )}
 
           {/* Horizontal scrollable tabs */}
           <View style={styles.tabBar}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tabBarContent}
-            >
-              {tabItems.map((tabItem) => (
-                <TouchableOpacity
-                  key={tabItem.id}
-                  style={[styles.tabItem, activeSection === tabItem.id && styles.tabItemActive]}
-                  onPress={() => setActiveSection(tabItem.id)}
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={{ backgroundColor: 'transparent' }}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.tabBarContent}
                 >
-                  <Ionicons
-                    name={tabItem.icon as any}
-                    size={16}
-                    color={activeSection === tabItem.id ? SUPABASE_GREEN : 'rgba(255,255,255,0.5)'}
-                  />
-                  <Text style={[styles.tabLabel, activeSection === tabItem.id && styles.tabLabelActive]}>
-                    {tabItem.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                  {tabItems.map((tabItem) => (
+                    <TouchableOpacity
+                      key={tabItem.id}
+                      style={[styles.tabItem, activeSection === tabItem.id && styles.tabItemActive]}
+                      onPress={() => setActiveSection(tabItem.id)}
+                    >
+                      <Ionicons
+                        name={tabItem.icon as any}
+                        size={16}
+                        color={activeSection === tabItem.id ? SUPABASE_GREEN : 'rgba(255,255,255,0.5)'}
+                      />
+                      <Text style={[styles.tabLabel, activeSection === tabItem.id && styles.tabLabelActive]}>
+                        {tabItem.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </LiquidGlassView>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tabBarContent}
+              >
+                {tabItems.map((tabItem) => (
+                  <TouchableOpacity
+                    key={tabItem.id}
+                    style={[styles.tabItem, activeSection === tabItem.id && styles.tabItemActive]}
+                    onPress={() => setActiveSection(tabItem.id)}
+                  >
+                    <Ionicons
+                      name={tabItem.icon as any}
+                      size={16}
+                      color={activeSection === tabItem.id ? SUPABASE_GREEN : 'rgba(255,255,255,0.5)'}
+                    />
+                    <Text style={[styles.tabLabel, activeSection === tabItem.id && styles.tabLabelActive]}>
+                      {tabItem.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
           </View>
 
           {/* Content area */}
@@ -415,22 +475,41 @@ export const SupabaseView = ({ tab }: Props) => {
                   </View>
                 ) : !selectedTable ? (
                   <ScrollView showsVerticalScrollIndicator={false} style={styles.tablesList}>
-                    {tables.map((table) => (
-                      <TouchableOpacity
-                        key={table.name}
-                        style={styles.tableCard}
-                        onPress={() => fetchTableData(table.name)}
-                      >
-                        <View style={styles.tableCardIcon}>
-                          <Ionicons name="grid-outline" size={18} color={SUPABASE_GREEN} />
+                    {tables.map((table) => {
+                      const cardContent = (
+                        <View style={styles.tableCardInner}>
+                          <View style={styles.tableCardIcon}>
+                            <Ionicons name="grid-outline" size={18} color={SUPABASE_GREEN} />
+                          </View>
+                          <View style={styles.tableCardInfo}>
+                            <Text style={styles.tableCardName}>{table.name}</Text>
+                            <Text style={styles.tableCardRows}>{table.rowCount} rows</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
                         </View>
-                        <View style={styles.tableCardInfo}>
-                          <Text style={styles.tableCardName}>{table.name}</Text>
-                          <Text style={styles.tableCardRows}>{table.rowCount} rows</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-                      </TouchableOpacity>
-                    ))}
+                      );
+
+                      return (
+                        <TouchableOpacity
+                          key={table.name}
+                          style={styles.tableCard}
+                          onPress={() => fetchTableData(table.name)}
+                        >
+                          {isLiquidGlassSupported ? (
+                            <LiquidGlassView
+                              style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                              interactive={true}
+                              effect="clear"
+                              colorScheme="dark"
+                            >
+                              {cardContent}
+                            </LiquidGlassView>
+                          ) : (
+                            cardContent
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </ScrollView>
                 ) : (
                   <View style={styles.tableDataView}>
@@ -564,13 +643,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   connectCard: {
-    backgroundColor: '#1a1a1c',
     borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(62, 207, 142, 0.2)',
     width: '100%',
     maxWidth: 340,
+  },
+  connectInner: {
+    backgroundColor: 'rgba(26, 26, 28, 0.4)',
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(62, 207, 142, 0.2)',
   },
   connectHeader: {
     alignItems: 'center',
@@ -661,6 +743,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   projectHeader: {
+    backgroundColor: 'transparent',
+  },
+  projectHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -751,12 +836,15 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   tableCard: {
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  tableCardInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1c',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },

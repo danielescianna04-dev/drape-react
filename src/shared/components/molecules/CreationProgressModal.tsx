@@ -9,6 +9,7 @@ import {
     ScrollView,
     Easing
 } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -80,6 +81,121 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
         outputRange: ['0%', '100%'],
     });
 
+    const renderCardContent = () => (
+        <View style={styles.cardInner}>
+            {/* Header */}
+            <View style={styles.header}>
+                <View style={styles.iconWrapper}>
+                    <Ionicons name="code-slash" size={22} color={AppColors.primary} />
+                </View>
+                <View style={styles.headerText}>
+                    <Text style={styles.title}>Creazione progetto</Text>
+                    <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
+                </View>
+            </View>
+
+            {/* Terminal-like log */}
+            {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                    style={[styles.terminal, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                >
+                    <View style={styles.terminalHeader}>
+                        <View style={styles.terminalDots}>
+                            <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
+                            <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
+                            <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
+                        </View>
+                        <Text style={styles.terminalTitle}>output</Text>
+                    </View>
+                    <ScrollView
+                        ref={scrollRef}
+                        style={styles.terminalContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {activityLog.map((log, index) => (
+                            <View key={index} style={styles.logLine}>
+                                <Text style={styles.logPrefix}>{'>'}</Text>
+                                <Text
+                                    style={[
+                                        styles.logText,
+                                        index === activityLog.length - 1 && styles.logTextActive
+                                    ]}
+                                    numberOfLines={1}
+                                >
+                                    {log}
+                                </Text>
+                            </View>
+                        ))}
+                        {activityLog.length === 0 && (
+                            <View style={styles.logLine}>
+                                <Text style={styles.logPrefix}>{'>'}</Text>
+                                <Text style={styles.logText}>Avvio generazione...</Text>
+                            </View>
+                        )}
+                    </ScrollView>
+                </LiquidGlassView>
+            ) : (
+                <View style={styles.terminal}>
+                    <View style={styles.terminalHeader}>
+                        <View style={styles.terminalDots}>
+                            <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
+                            <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
+                            <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
+                        </View>
+                        <Text style={styles.terminalTitle}>output</Text>
+                    </View>
+                    <ScrollView
+                        ref={scrollRef}
+                        style={styles.terminalContent}
+                        showsVerticalScrollIndicator={false}
+                    >
+                        {activityLog.map((log, index) => (
+                            <View key={index} style={styles.logLine}>
+                                <Text style={styles.logPrefix}>{'>'}</Text>
+                                <Text
+                                    style={[
+                                        styles.logText,
+                                        index === activityLog.length - 1 && styles.logTextActive
+                                    ]}
+                                    numberOfLines={1}
+                                >
+                                    {log}
+                                </Text>
+                            </View>
+                        ))}
+                        {activityLog.length === 0 && (
+                            <View style={styles.logLine}>
+                                <Text style={styles.logPrefix}>{'>'}</Text>
+                                <Text style={styles.logText}>Avvio generazione...</Text>
+                            </View>
+                        )}
+                    </ScrollView>
+                </View>
+            )}
+
+            {/* Progress */}
+            <View style={styles.progressContainer}>
+                <View style={styles.progressInfo}>
+                    <Text style={styles.progressLabel}>Progresso</Text>
+                    <Text style={styles.progressValue}>{Math.round(progress)}%</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                    <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
+                        <LinearGradient
+                            colors={[AppColors.primary, '#A855F7']}
+                            style={StyleSheet.absoluteFill}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                        />
+                    </Animated.View>
+                </View>
+            </View>
+        </View>
+    );
+
     return (
         <Modal
             visible={visible}
@@ -90,73 +206,21 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             <View style={styles.container}>
                 <View style={styles.backdrop} />
 
-                <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <View style={styles.iconWrapper}>
-                            <Ionicons name="code-slash" size={22} color={AppColors.primary} />
-                        </View>
-                        <View style={styles.headerText}>
-                            <Text style={styles.title}>Creazione progetto</Text>
-                            <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
-                        </View>
-                    </View>
-
-                    {/* Terminal-like log */}
-                    <View style={styles.terminal}>
-                        <View style={styles.terminalHeader}>
-                            <View style={styles.terminalDots}>
-                                <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
-                                <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
-                                <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
-                            </View>
-                            <Text style={styles.terminalTitle}>output</Text>
-                        </View>
-                        <ScrollView
-                            ref={scrollRef}
-                            style={styles.terminalContent}
-                            showsVerticalScrollIndicator={false}
+                <Animated.View style={[styles.cardWrapper, { opacity: fadeAnim }]}>
+                    {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                            style={[styles.card, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                            interactive={true}
+                            effect="clear"
+                            colorScheme="dark"
                         >
-                            {activityLog.map((log, index) => (
-                                <View key={index} style={styles.logLine}>
-                                    <Text style={styles.logPrefix}>{'>'}</Text>
-                                    <Text
-                                        style={[
-                                            styles.logText,
-                                            index === activityLog.length - 1 && styles.logTextActive
-                                        ]}
-                                        numberOfLines={1}
-                                    >
-                                        {log}
-                                    </Text>
-                                </View>
-                            ))}
-                            {activityLog.length === 0 && (
-                                <View style={styles.logLine}>
-                                    <Text style={styles.logPrefix}>{'>'}</Text>
-                                    <Text style={styles.logText}>Avvio generazione...</Text>
-                                </View>
-                            )}
-                        </ScrollView>
-                    </View>
-
-                    {/* Progress */}
-                    <View style={styles.progressContainer}>
-                        <View style={styles.progressInfo}>
-                            <Text style={styles.progressLabel}>Progresso</Text>
-                            <Text style={styles.progressValue}>{Math.round(progress)}%</Text>
+                            {renderCardContent()}
+                        </LiquidGlassView>
+                    ) : (
+                        <View style={styles.card}>
+                            {renderCardContent()}
                         </View>
-                        <View style={styles.progressTrack}>
-                            <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
-                                <LinearGradient
-                                    colors={[AppColors.primary, '#A855F7']}
-                                    style={StyleSheet.absoluteFill}
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 1, y: 0 }}
-                                />
-                            </Animated.View>
-                        </View>
-                    </View>
+                    )}
                 </Animated.View>
             </View>
         </Modal>
@@ -174,14 +238,18 @@ const styles = StyleSheet.create({
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0, 0, 0, 0.85)',
     },
-    card: {
+    cardWrapper: {
         width: '100%',
         maxWidth: 380,
-        backgroundColor: '#1A1A2E',
-        borderRadius: 20,
-        overflow: 'hidden',
+    },
+    card: {
+        borderRadius: 24,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.08)',
+    },
+    cardInner: {
+        backgroundColor: 'rgba(26, 26, 46, 0.4)',
+        borderRadius: 24,
     },
     header: {
         flexDirection: 'row',
@@ -214,9 +282,7 @@ const styles = StyleSheet.create({
     },
     terminal: {
         margin: 16,
-        backgroundColor: '#0D0D14',
         borderRadius: 12,
-        overflow: 'hidden',
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
     },

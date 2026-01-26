@@ -436,9 +436,26 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       return (
         <View style={styles.resultsList}>
-          <Text style={styles.resultsCount}>
-            {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
-          </Text>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ backgroundColor: 'transparent' }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <View style={styles.resultsCountInner}>
+                <Text style={styles.resultsCountText}>
+                  {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
+                </Text>
+              </View>
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.resultsCount}>
+              <Text style={styles.resultsCountText}>
+                {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
+              </Text>
+            </View>
+          )}
 
           {Object.entries(resultsByFile).map(([filePath, results]) => {
             const { icon, color } = getFileIcon(filePath);
@@ -448,42 +465,80 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
               <View key={filePath} style={styles.fileResultGroup}>
                 {/* File header */}
                 <View style={styles.fileResultHeader}>
-                  <Ionicons name={icon as any} size={16} color={color} style={styles.resultFileIcon} />
-                  <Text style={styles.fileResultPath}>{filePath}</Text>
-                  <View style={styles.resultCountBadge}>
-                    <Text style={styles.resultCountText}>{results.length}</Text>
-                  </View>
+                  {isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                      style={{ backgroundColor: 'transparent' }}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    >
+                      <View style={styles.fileResultHeaderInner}>
+                        <Ionicons name={icon as any} size={16} color={color} style={styles.resultFileIcon} />
+                        <Text style={styles.fileResultPath}>{filePath}</Text>
+                        <View style={styles.resultCountBadge}>
+                          <Text style={styles.resultCountText}>{results.length}</Text>
+                        </View>
+                      </View>
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.fileResultHeaderInner}>
+                      <Ionicons name={icon as any} size={16} color={color} style={styles.resultFileIcon} />
+                      <Text style={styles.fileResultPath}>{filePath}</Text>
+                      <View style={styles.resultCountBadge}>
+                        <Text style={styles.resultCountText}>{results.length}</Text>
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 {/* Line matches */}
-                {results.map((result, index) => (
-                  <TouchableOpacity
-                    key={`${filePath}-${result.line}-${index}`}
-                    style={styles.resultItem}
-                    onPress={() => {
-                      const tabId = `file-${projectId}-${filePath}`;
-                      addTab({
-                        id: tabId,
-                        type: 'file',
-                        title: fileName,
-                        data: {
-                          filePath,
-                          projectId,
-                          repositoryUrl,
-                          userId: 'anonymous',
-                          highlightLine: result.line,
-                        }
-                      });
-                      onFileSelect(filePath);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.lineNumber}>{result.line}</Text>
-                    <Text style={styles.resultContent} numberOfLines={2}>
-                      {result.content}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {results.map((result, index) => {
+                  const itemContent = (
+                    <View style={styles.resultItemInner}>
+                      <Text style={styles.lineNumber}>{result.line}</Text>
+                      <Text style={styles.resultContent} numberOfLines={2}>
+                        {result.content}
+                      </Text>
+                    </View>
+                  );
+
+                  return (
+                    <TouchableOpacity
+                      key={`${filePath}-${result.line}-${index}`}
+                      style={styles.resultItem}
+                      onPress={() => {
+                        const tabId = `file-${projectId}-${filePath}`;
+                        addTab({
+                          id: tabId,
+                          type: 'file',
+                          title: fileName,
+                          data: {
+                            filePath,
+                            projectId,
+                            repositoryUrl,
+                            userId: 'anonymous',
+                            highlightLine: result.line,
+                          }
+                        });
+                        onFileSelect(filePath);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                          style={{ backgroundColor: 'transparent' }}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
+                        >
+                          {itemContent}
+                        </LiquidGlassView>
+                      ) : (
+                        itemContent
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             );
           })}
@@ -704,25 +759,32 @@ const styles = StyleSheet.create({
     color: AppColors.white.w50,
   },
   resultsCount: {
-    fontSize: 12,
-    color: AppColors.white.w60,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     backgroundColor: AppColors.primaryAlpha.a10,
     borderBottomWidth: 1,
     borderBottomColor: AppColors.white.w04,
+  },
+  resultsCountInner: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(139, 92, 246, 0.05)',
+  },
+  resultsCountText: {
+    fontSize: 12,
+    color: AppColors.white.w60,
   },
   fileResultGroup: {
     marginBottom: 12,
   },
   fileResultHeader: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppColors.white.w04,
+  },
+  fileResultHeaderInner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: AppColors.white.w04,
-    borderBottomWidth: 1,
-    borderBottomColor: AppColors.white.w04,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
   resultFileIcon: {
     marginRight: 8,
@@ -747,11 +809,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   resultItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: AppColors.white.w04,
+  },
+  resultItemInner: {
     flexDirection: 'row',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: AppColors.white.w04,
+    backgroundColor: 'transparent',
   },
   lineNumber: {
     fontSize: 11,

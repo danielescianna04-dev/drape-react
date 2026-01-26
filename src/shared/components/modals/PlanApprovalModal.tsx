@@ -8,6 +8,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 
 interface PlanStep {
@@ -41,6 +42,111 @@ export const PlanApprovalModal: React.FC<Props> = ({
 }) => {
   if (!plan && !planContent) return null;
 
+  const renderModalContent = () => (
+    <>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <View style={styles.iconContainer}>
+            <Ionicons name="list-outline" size={22} color={AppColors.primary} />
+          </View>
+          <Text style={styles.title}>Execution Plan</Text>
+        </View>
+        <TouchableOpacity onPress={onReject} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color={AppColors.white.w60} />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.divider} />
+
+      {/* Plan Content */}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={true}
+      >
+        {plan && (
+          <>
+            {/* Plan Title */}
+            <Text style={styles.planTitle}>{plan.title}</Text>
+
+            {/* Plan Metadata */}
+            <View style={styles.metadata}>
+              {plan.estimated_files && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="document-text-outline" size={14} color={AppColors.white.w60} />
+                  <Text style={styles.metadataText}>
+                    {plan.estimated_files} file{plan.estimated_files !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+              )}
+              {plan.technologies && plan.technologies.length > 0 && (
+                <View style={styles.metadataItem}>
+                  <Ionicons name="code-outline" size={14} color={AppColors.white.w60} />
+                  <Text style={styles.metadataText}>
+                    {plan.technologies.join(', ')}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Steps */}
+            <View style={styles.stepsContainer}>
+              {plan.steps.map((step, index) => (
+                <View key={index} style={styles.stepCard}>
+                  <View style={styles.stepHeader}>
+                    <View style={styles.stepNumber}>
+                      <Text style={styles.stepNumberText}>{step.step}</Text>
+                    </View>
+                    <Text style={styles.stepAction}>{step.action}</Text>
+                  </View>
+
+                  <Text style={styles.stepDescription}>{step.description}</Text>
+
+                  {step.files && step.files.length > 0 && (
+                    <View style={styles.filesContainer}>
+                      <Text style={styles.filesLabel}>Files:</Text>
+                      {step.files.map((file, fileIndex) => (
+                        <View key={fileIndex} style={styles.fileItem}>
+                          <Ionicons name="document-outline" size={12} color={AppColors.primary} />
+                          <Text style={styles.fileName}>{file}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {planContent && !plan && (
+          <Text style={styles.planContentText}>{planContent}</Text>
+        )}
+      </ScrollView>
+
+      {/* Actions */}
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.button, styles.rejectButton]}
+          onPress={onReject}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="close-circle-outline" size={20} color={AppColors.error} />
+          <Text style={[styles.buttonText, styles.rejectButtonText]}>Reject</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, styles.approveButton]}
+          onPress={onApprove}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+          <Text style={[styles.buttonText, styles.approveButtonText]}>Approve & Execute</Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -49,115 +155,34 @@ export const PlanApprovalModal: React.FC<Props> = ({
       onRequestClose={onReject}
     >
       <View style={styles.overlay}>
-        <BlurView intensity={30} tint="dark" style={styles.blurOverlay}>
-          <View style={styles.modalContainer}>
-            <LinearGradient
-              colors={['rgba(20, 20, 25, 0.98)', 'rgba(15, 15, 20, 0.98)']}
-              style={styles.modalGradient}
+        {isLiquidGlassSupported ? (
+          <View style={[styles.blurOverlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+            <LiquidGlassView
+              style={[
+                styles.modalContainer,
+                { backgroundColor: 'transparent', overflow: 'hidden' }
+              ]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
             >
-              {/* Header */}
-              <View style={styles.header}>
-                <View style={styles.headerLeft}>
-                  <View style={styles.iconContainer}>
-                    <Ionicons name="list-outline" size={22} color={AppColors.primary} />
-                  </View>
-                  <Text style={styles.title}>Execution Plan</Text>
-                </View>
-                <TouchableOpacity onPress={onReject} style={styles.closeButton}>
-                  <Ionicons name="close" size={24} color={AppColors.white.w60} />
-                </TouchableOpacity>
+              <View style={{ flex: 1, backgroundColor: 'rgba(20, 20, 25, 0.4)' }}>
+                {renderModalContent()}
               </View>
-
-              <View style={styles.divider} />
-
-              {/* Plan Content */}
-              <ScrollView
-                style={styles.content}
-                showsVerticalScrollIndicator={true}
-              >
-                {plan && (
-                  <>
-                    {/* Plan Title */}
-                    <Text style={styles.planTitle}>{plan.title}</Text>
-
-                    {/* Plan Metadata */}
-                    <View style={styles.metadata}>
-                      {plan.estimated_files && (
-                        <View style={styles.metadataItem}>
-                          <Ionicons name="document-text-outline" size={14} color={AppColors.white.w60} />
-                          <Text style={styles.metadataText}>
-                            {plan.estimated_files} file{plan.estimated_files !== 1 ? 's' : ''}
-                          </Text>
-                        </View>
-                      )}
-                      {plan.technologies && plan.technologies.length > 0 && (
-                        <View style={styles.metadataItem}>
-                          <Ionicons name="code-outline" size={14} color={AppColors.white.w60} />
-                          <Text style={styles.metadataText}>
-                            {plan.technologies.join(', ')}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-
-                    {/* Steps */}
-                    <View style={styles.stepsContainer}>
-                      {plan.steps.map((step, index) => (
-                        <View key={index} style={styles.stepCard}>
-                          <View style={styles.stepHeader}>
-                            <View style={styles.stepNumber}>
-                              <Text style={styles.stepNumberText}>{step.step}</Text>
-                            </View>
-                            <Text style={styles.stepAction}>{step.action}</Text>
-                          </View>
-
-                          <Text style={styles.stepDescription}>{step.description}</Text>
-
-                          {step.files && step.files.length > 0 && (
-                            <View style={styles.filesContainer}>
-                              <Text style={styles.filesLabel}>Files:</Text>
-                              {step.files.map((file, fileIndex) => (
-                                <View key={fileIndex} style={styles.fileItem}>
-                                  <Ionicons name="document-outline" size={12} color={AppColors.primary} />
-                                  <Text style={styles.fileName}>{file}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  </>
-                )}
-
-                {planContent && !plan && (
-                  <Text style={styles.planContentText}>{planContent}</Text>
-                )}
-              </ScrollView>
-
-              {/* Actions */}
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  style={[styles.button, styles.rejectButton]}
-                  onPress={onReject}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="close-circle-outline" size={20} color={AppColors.error} />
-                  <Text style={[styles.buttonText, styles.rejectButtonText]}>Reject</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.button, styles.approveButton]}
-                  onPress={onApprove}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                  <Text style={[styles.buttonText, styles.approveButtonText]}>Approve & Execute</Text>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
+            </LiquidGlassView>
           </View>
-        </BlurView>
+        ) : (
+          <BlurView intensity={30} tint="dark" style={styles.blurOverlay}>
+            <View style={styles.modalContainer}>
+              <LinearGradient
+                colors={['rgba(20, 20, 25, 0.98)', 'rgba(15, 15, 20, 0.98)']}
+                style={styles.modalGradient}
+              >
+                {renderModalContent()}
+              </LinearGradient>
+            </View>
+          </BlurView>
+        )}
       </View>
     </Modal>
   );

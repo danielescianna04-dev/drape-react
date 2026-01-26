@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, ScrollView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface BashCommandCardProps {
   /** Command input text */
@@ -22,64 +23,100 @@ export const BashCommandCard: React.FC<BashCommandCardProps> = ({
 }) => {
   const [isModalVisible, setIsModalVisible] = useState(false);
 
-  return (
+  const renderCardContent = () => (
     <>
-      <View style={[styles.card, hasError && styles.cardError]}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Bash</Text>
-          <TouchableOpacity
-            onPress={() => setIsModalVisible(true)}
-            style={styles.expandButton}
-          >
-            <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
-          </TouchableOpacity>
+      <View style={styles.header}>
+        <Text style={styles.title}>Bash</Text>
+        <TouchableOpacity
+          onPress={() => setIsModalVisible(true)}
+          style={styles.expandButton}
+        >
+          <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.content}>
+        <View style={styles.row}>
+          <Text style={styles.label}>IN</Text>
+          <Text style={styles.input} numberOfLines={2}>
+            {command}
+          </Text>
         </View>
-        <View style={styles.content}>
-          <View style={styles.row}>
-            <Text style={styles.label}>IN</Text>
-            <Text style={styles.input} numberOfLines={2}>
-              {command}
-            </Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.row}>
-            <Text style={styles.label}>OUT</Text>
-            <Text style={styles.output} numberOfLines={3}>
-              {output}
-            </Text>
-          </View>
+        <View style={styles.divider} />
+        <View style={styles.row}>
+          <Text style={styles.label}>OUT</Text>
+          <Text style={styles.output} numberOfLines={3}>
+            {output}
+          </Text>
         </View>
       </View>
+    </>
+  );
+
+  const renderModalContent = () => (
+    <View style={{ flex: 1 }}>
+      <View style={styles.modalHeader}>
+        <Text style={styles.modalTitle}>Bash Output</Text>
+        <TouchableOpacity
+          onPress={() => setIsModalVisible(false)}
+          style={styles.closeButton}
+        >
+          <Ionicons name="close" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
+      <ScrollView style={styles.modalContent}>
+        <View style={styles.modalSection}>
+          <Text style={styles.modalLabel}>INPUT</Text>
+          <Text style={styles.modalInput}>{command}</Text>
+        </View>
+        <View style={styles.modalDivider} />
+        <View style={styles.modalSection}>
+          <Text style={styles.modalLabel}>OUTPUT</Text>
+          <Text style={styles.modalOutput}>{output}</Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+
+  return (
+    <>
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[styles.card, hasError && styles.cardError, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          {renderCardContent()}
+        </LiquidGlassView>
+      ) : (
+        <View style={[styles.card, hasError && styles.cardError]}>
+          {renderCardContent()}
+        </View>
+      )}
 
       {/* Full screen modal */}
       <Modal
         visible={isModalVisible}
         animationType="slide"
-        transparent={false}
+        transparent={isLiquidGlassSupported}
         onRequestClose={() => setIsModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Bash Output</Text>
-            <TouchableOpacity
-              onPress={() => setIsModalVisible(false)}
-              style={styles.closeButton}
+        {isLiquidGlassSupported ? (
+          <View style={styles.modalOverlay}>
+            <LiquidGlassView
+              style={styles.modalGlassContainer}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
             >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
+              {renderModalContent()}
+            </LiquidGlassView>
           </View>
-          <ScrollView style={styles.modalContent}>
-            <View style={styles.modalSection}>
-              <Text style={styles.modalLabel}>INPUT</Text>
-              <Text style={styles.modalInput}>{command}</Text>
-            </View>
-            <View style={styles.modalDivider} />
-            <View style={styles.modalSection}>
-              <Text style={styles.modalLabel}>OUTPUT</Text>
-              <Text style={styles.modalOutput}>{output}</Text>
-            </View>
-          </ScrollView>
-        </View>
+        ) : (
+          <View style={styles.modalContainer}>
+            {renderModalContent()}
+          </View>
+        )}
       </Modal>
     </>
   );
@@ -154,6 +191,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0a',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalGlassContainer: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -161,7 +206,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     paddingTop: 60,
-    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    backgroundColor: 'rgba(20, 20, 20, 0.4)',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -183,7 +228,7 @@ const styles = StyleSheet.create({
   modalLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'rgba(255,255,255,0.5)',
     marginBottom: 12,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },

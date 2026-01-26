@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
@@ -349,74 +350,137 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   // Debug: log render state
   console.log('📂 Sidebar RENDER - selectedProjectId:', selectedProjectId, 'currentWorkstation:', currentWorkstation?.id);
 
+  const renderSidebarContent = () => (
+    <>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Files</Text>
+        <IconButton
+          iconName="close"
+          size={20}
+          color={AppColors.white.w40}
+          onPress={handleClose}
+          accessibilityLabel="Chiudi sidebar"
+        />
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ flexGrow: 1 }}
+        nestedScrollEnabled={true}
+      >
+        {selectedProjectId ? (
+          <View style={styles.fileExplorerContainer}>
+            <FileExplorer
+              projectId={selectedProjectId}
+              repositoryUrl={selectedRepoUrl}
+              onFileSelect={(path) => {
+                addTab({
+                  id: `file-${selectedProjectId}-${path}`,
+                  type: 'file',
+                  title: path.split('/').pop() || 'File',
+                  data: {
+                    projectId: selectedProjectId,
+                    filePath: path,
+                    repositoryUrl: selectedRepoUrl,
+                  }
+                });
+                onClose();
+              }}
+              onAuthRequired={(repoUrl) => {
+                console.log('🔐 FileExplorer requires auth for:', repoUrl);
+                setPendingRepoUrl(repoUrl);
+                setShowAuthModal(true);
+              }}
+            />
+          </View>
+        ) : (
+          <EmptyState
+            icon="folder-open-outline"
+            title="Nessun progetto aperto"
+            subtitle="Apri un progetto dalla Home per vedere i file"
+          />
+        )}
+      </ScrollView>
+
+      {/* Bottom close button */}
+      <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
+        <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
+        <Text style={styles.bottomCloseText}>Chiudi</Text>
+      </TouchableOpacity>
+    </>
+  );
+
+  const renderDeleteModalContent = () => (
+    <View style={styles.deleteModalInner}>
+      <View style={styles.deleteModalHeader}>
+        <Ionicons
+          name={deleteWarning?.hasChanges ? "warning" : "trash"}
+          size={32}
+          color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
+        />
+        <Text style={styles.deleteModalTitle}>
+          Elimina "{deleteTarget?.name}"?
+        </Text>
+      </View>
+
+      {isCheckingGit ? (
+        <View style={styles.deleteModalLoading}>
+          <ActivityIndicator size="small" color={AppColors.primary} />
+          <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
+        </View>
+      ) : (
+        <Text style={[
+          styles.deleteModalMessage,
+          deleteWarning?.hasChanges && styles.deleteModalWarning
+        ]}>
+          {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
+        </Text>
+      )}
+
+      {deleteWarning?.hasChanges && !isCheckingGit && (
+        <Text style={styles.deleteModalSubWarning}>
+          Queste modifiche andranno perse se non le salvi prima su Git.
+        </Text>
+      )}
+
+      <View style={styles.deleteModalButtons}>
+        <TouchableOpacity
+          style={styles.deleteModalCancelBtn}
+          onPress={() => {
+            setShowDeleteModal(false);
+            setDeleteTarget(null);
+            setDeleteWarning(null);
+          }}
+        >
+          <Text style={styles.deleteModalCancelText}>Annulla</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.deleteModalDeleteBtn,
+            deleteWarning?.hasChanges && styles.deleteModalDeleteBtnDanger
+          ]}
+          onPress={confirmDelete}
+          disabled={isCheckingGit}
+        >
+          <Text style={styles.deleteModalDeleteText}>
+            {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <>
-      <View
-        style={[
-          styles.container
-        ]}
-      >
+      <View style={styles.container}>
         <View style={StyleSheet.absoluteFill}>
           <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }} />
         </View>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Files</Text>
-          <IconButton
-            iconName="close"
-            size={20}
-            color={AppColors.white.w40}
-            onPress={handleClose}
-            accessibilityLabel="Chiudi sidebar"
-          />
-        </View>
-
-        <ScrollView
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
-          bounces={true}
-          scrollEventThrottle={16}
-          contentContainerStyle={{ flexGrow: 1 }}
-          nestedScrollEnabled={true}
-        >
-          {selectedProjectId ? (
-            <View style={styles.fileExplorerContainer}>
-              <FileExplorer
-                projectId={selectedProjectId}
-                repositoryUrl={selectedRepoUrl}
-                onFileSelect={(path) => {
-                  addTab({
-                    id: `file-${selectedProjectId}-${path}`,
-                    type: 'file',
-                    title: path.split('/').pop() || 'File',
-                    data: {
-                      projectId: selectedProjectId,
-                      filePath: path,
-                      repositoryUrl: selectedRepoUrl,
-                    }
-                  });
-                  onClose();
-                }}
-                onAuthRequired={(repoUrl) => {
-                  console.log('🔐 FileExplorer requires auth for:', repoUrl);
-                  setPendingRepoUrl(repoUrl);
-                  setShowAuthModal(true);
-                }}
-              />
-            </View>
-          ) : (
-            <EmptyState
-              icon="folder-open-outline"
-              title="Nessun progetto aperto"
-              subtitle="Apri un progetto dalla Home per vedere i file"
-            />
-          )}
-        </ScrollView>
-
-        {/* Bottom close button */}
-        <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.bottomCloseText}>Chiudi</Text>
-        </TouchableOpacity>
+        {renderSidebarContent()}
       </View>
 
       {/* Delete Confirmation Modal */}
@@ -427,64 +491,20 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         onRequestClose={() => setShowDeleteModal(false)}
       >
         <View style={styles.deleteModalOverlay}>
-          <View style={styles.deleteModalContent}>
-            <View style={styles.deleteModalHeader}>
-              <Ionicons
-                name={deleteWarning?.hasChanges ? "warning" : "trash"}
-                size={32}
-                color={deleteWarning?.hasChanges ? "#FF6B6B" : AppColors.primary}
-              />
-              <Text style={styles.deleteModalTitle}>
-                Elimina "{deleteTarget?.name}"?
-              </Text>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[styles.deleteModalContent, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              {renderDeleteModalContent()}
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.deleteModalContent}>
+              {renderDeleteModalContent()}
             </View>
-
-            {isCheckingGit ? (
-              <View style={styles.deleteModalLoading}>
-                <ActivityIndicator size="small" color={AppColors.primary} />
-                <Text style={styles.deleteModalLoadingText}>Controllo modifiche Git...</Text>
-              </View>
-            ) : (
-              <Text style={[
-                styles.deleteModalMessage,
-                deleteWarning?.hasChanges && styles.deleteModalWarning
-              ]}>
-                {deleteWarning?.message || 'Questa azione eliminerà il progetto e tutti i file locali.'}
-              </Text>
-            )}
-
-            {deleteWarning?.hasChanges && !isCheckingGit && (
-              <Text style={styles.deleteModalSubWarning}>
-                Queste modifiche andranno perse se non le salvi prima su Git.
-              </Text>
-            )}
-
-            <View style={styles.deleteModalButtons}>
-              <TouchableOpacity
-                style={styles.deleteModalCancelBtn}
-                onPress={() => {
-                  setShowDeleteModal(false);
-                  setDeleteTarget(null);
-                  setDeleteWarning(null);
-                }}
-              >
-                <Text style={styles.deleteModalCancelText}>Annulla</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.deleteModalDeleteBtn,
-                  deleteWarning?.hasChanges && styles.deleteModalDeleteBtnDanger
-                ]}
-                onPress={confirmDelete}
-                disabled={isCheckingGit}
-              >
-                <Text style={styles.deleteModalDeleteText}>
-                  {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          )}
         </View>
       </Modal>
 

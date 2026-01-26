@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,32 +48,72 @@ export const BrowserView = ({ tab }: Props) => {
     { name: 'MDN', url: 'https://developer.mozilla.org', icon: 'book' },
   ];
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
-      {/* Browser Header */}
-      <View style={styles.header}>
-        <View style={styles.navigationButtons}>
-          <TouchableOpacity
-            style={[styles.navButton, !canGoBack && styles.navButtonDisabled]}
-            onPress={handleBack}
-            disabled={!canGoBack}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={20} color={canGoBack ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.navButton, !canGoForward && styles.navButtonDisabled]}
-            onPress={handleForward}
-            disabled={!canGoForward}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-forward" size={20} color={canGoForward ? '#FFFFFF' : 'rgba(255, 255, 255, 0.3)'} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.navButton} onPress={handleRefresh} activeOpacity={0.7}>
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <View style={styles.navigationButtons}>
+        {['arrow-back', 'arrow-forward', 'refresh'].map((icon, idx) => {
+          const disabled = (icon === 'arrow-back' && !canGoBack) || (icon === 'arrow-forward' && !canGoForward);
+          const onPress = icon === 'arrow-back' ? handleBack : icon === 'arrow-forward' ? handleForward : handleRefresh;
 
+          const btnContent = (
+            <View style={styles.navButtonInner}>
+              <Ionicons
+                name={icon as any}
+                size={20}
+                color={disabled ? 'rgba(255, 255, 255, 0.2)' : '#FFFFFF'}
+              />
+            </View>
+          );
+
+          return (
+            <TouchableOpacity
+              key={idx}
+              style={[styles.navButton, disabled && styles.navButtonDisabled]}
+              onPress={onPress}
+              disabled={disabled}
+              activeOpacity={0.7}
+            >
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                >
+                  {btnContent}
+                </LiquidGlassView>
+              ) : (
+                btnContent
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[styles.urlBar, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          <View style={styles.urlBarInner}>
+            <Ionicons name="lock-closed" size={16} color="#00D084" style={styles.lockIcon} />
+            <TextInput
+              style={styles.urlInput}
+              value={url}
+              onChangeText={setUrl}
+              onSubmitEditing={handleNavigate}
+              placeholder="Inserisci URL o cerca..."
+              placeholderTextColor="rgba(255, 255, 255, 0.4)"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="go"
+            />
+            {loading && <ActivityIndicator size="small" color={AppColors.primary} />}
+          </View>
+        </LiquidGlassView>
+      ) : (
         <View style={styles.urlBar}>
           <Ionicons name="lock-closed" size={16} color="#00D084" style={styles.lockIcon} />
           <TextInput
@@ -88,15 +129,40 @@ export const BrowserView = ({ tab }: Props) => {
           />
           {loading && <ActivityIndicator size="small" color={AppColors.primary} />}
         </View>
+      )}
 
-        <TouchableOpacity style={styles.menuButton} activeOpacity={0.7}>
-          <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.7)" />
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity style={styles.menuButton} activeOpacity={0.7}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <View style={styles.navButtonInner}>
+              <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.7)" />
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.navButtonInner}>
+            <Ionicons name="ellipsis-vertical" size={20} color="rgba(255, 255, 255, 0.7)" />
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
 
-      {/* Quick Links */}
-      <View style={styles.quickLinks}>
-        {quickLinks.map((link) => (
+  const renderQuickLinks = () => (
+    <View style={styles.quickLinks}>
+      {quickLinks.map((link) => {
+        const linkContent = (
+          <View style={styles.quickLinkInner}>
+            <Ionicons name={link.icon as any} size={18} color={AppColors.primary} />
+            <Text style={styles.quickLinkText}>{link.name}</Text>
+          </View>
+        );
+
+        return (
           <TouchableOpacity
             key={link.name}
             style={styles.quickLink}
@@ -106,18 +172,38 @@ export const BrowserView = ({ tab }: Props) => {
             }}
             activeOpacity={0.7}
           >
-            <LinearGradient
-              colors={['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)']}
-              style={styles.quickLinkGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Ionicons name={link.icon as any} size={18} color={AppColors.primary} />
-              <Text style={styles.quickLinkText}>{link.name}</Text>
-            </LinearGradient>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                {linkContent}
+              </LiquidGlassView>
+            ) : (
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)']}
+                style={styles.quickLinkGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                {linkContent}
+              </LinearGradient>
+            )}
           </TouchableOpacity>
-        ))}
-      </View>
+        );
+      })}
+    </View>
+  );
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
+      {/* Browser Header */}
+      {renderHeader()}
+
+      {/* Quick Links */}
+      {renderQuickLinks()}
 
       {/* WebView */}
       <View style={styles.webViewContainer}>
@@ -161,6 +247,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
+  },
+  navButtonInner: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -171,6 +262,10 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   urlBar: {
+    flex: 1,
+    borderRadius: 10,
+  },
+  urlBarInner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -195,11 +290,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   quickLinks: {
     flexDirection: 'row',
@@ -212,7 +302,18 @@ const styles = StyleSheet.create({
   quickLink: {
     flex: 1,
     borderRadius: 8,
-    overflow: 'hidden',
+  },
+  quickLinkInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
   },
   quickLinkGradient: {
     flexDirection: 'row',

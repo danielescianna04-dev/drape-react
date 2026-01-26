@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, TextI
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, interpolate, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { AppColors } from '../../../../shared/theme/colors';
@@ -126,20 +127,214 @@ export const PreviewView = ({ tab }: Props) => {
   const dimensions = getDeviceDimensions();
   const scale = Math.min(1, (SCREEN_WIDTH - 80) / dimensions.width);
 
-  const renderChatMessage = ({ item }: { item: ChatMessage }) => (
-    <View style={[styles.messageContainer, item.isUser ? styles.userMessage : styles.aiMessage]}>
-      {!item.isUser && (
-        <View style={styles.aiAvatar}>
-          <Ionicons name="sparkles" size={14} color={AppColors.primary} />
-        </View>
-      )}
-      <View style={[styles.messageBubble, item.isUser ? styles.userBubble : styles.aiBubble]}>
+  const renderChatMessage = ({ item }: { item: ChatMessage }) => {
+    const bubbleContent = (
+      <View style={styles.messageInner}>
         <Text style={[styles.messageText, item.isUser ? styles.userMessageText : styles.aiMessageText]}>
           {item.text}
         </Text>
       </View>
+    );
+
+    return (
+      <View style={[styles.messageContainer, item.isUser ? styles.userMessage : styles.aiMessage]}>
+        {!item.isUser && (
+          <View style={styles.aiAvatar}>
+            <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+          </View>
+        )}
+        <View style={[styles.messageBubble, item.isUser ? styles.userBubble : styles.aiBubble]}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              {bubbleContent}
+            </LiquidGlassView>
+          ) : (
+            bubbleContent
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const renderToolbar = () => (
+    <View style={styles.toolbar}>
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[StyleSheet.absoluteFill, { backgroundColor: 'transparent' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        />
+      ) : null}
+      <View style={styles.toolbarInner}>
+        <View style={styles.deviceSelector}>
+          {(['mobile', 'tablet', 'desktop'] as const).map((type) => {
+            const isActive = device === type;
+            const icon = type === 'mobile' ? 'phone-portrait' : type === 'tablet' ? 'tablet-portrait' : 'desktop';
+            const label = type.charAt(0).toUpperCase() + type.slice(1);
+
+            const btnContent = (
+              <View style={[styles.deviceButtonInner, isActive && styles.deviceButtonActive]}>
+                <Ionicons name={icon as any} size={18} color={isActive ? AppColors.primary : '#6E6E73'} />
+                <Text style={[styles.deviceButtonText, isActive && styles.deviceButtonTextActive]}>{label}</Text>
+              </View>
+            );
+
+            return (
+              <TouchableOpacity
+                key={type}
+                style={styles.deviceButton}
+                onPress={() => setDevice(type)}
+                activeOpacity={0.7}
+              >
+                {isActive && isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                ) : null}
+                {btnContent}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <View style={styles.toolbarActions}>
+          {[
+            { icon: 'phone-portrait', active: orientation === 'landscape', onPress: () => setOrientation(orientation === 'portrait' ? 'landscape' : 'portrait'), rotate: orientation === 'landscape' ? '90deg' : '0deg' },
+            { icon: 'grid-outline', active: showGrid, onPress: () => setShowGrid(!showGrid) },
+            { icon: 'refresh', active: false, onPress: () => { } },
+            { icon: 'ellipsis-horizontal', active: false, onPress: () => { } },
+          ].map((tool, idx) => {
+            const btnContent = (
+              <View style={[styles.toolButtonInner, tool.active && styles.toolButtonActive]}>
+                <Ionicons
+                  name={tool.icon as any}
+                  size={18}
+                  color={tool.active ? AppColors.primary : '#6E6E73'}
+                  style={tool.rotate ? { transform: [{ rotate: tool.rotate }] } : undefined}
+                />
+              </View>
+            );
+
+            return (
+              <TouchableOpacity
+                key={idx}
+                style={styles.toolButton}
+                onPress={tool.onPress}
+                activeOpacity={0.7}
+              >
+                {tool.active && isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                ) : null}
+                {btnContent}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
     </View>
   );
+
+  const renderChatContainer = () => {
+    const chatContent = (
+      <View style={styles.chatInner}>
+        <View style={styles.chatHeader}>
+          <Ionicons name="chatbubbles" size={18} color={AppColors.primary} />
+          <Text style={styles.chatHeaderText}>Chiedi modifiche all'AI</Text>
+        </View>
+
+        <FlatList
+          data={chatMessages}
+          renderItem={renderChatMessage}
+          keyExtractor={item => item.id}
+          style={styles.chatMessages}
+          contentContainerStyle={styles.chatMessagesContent}
+          inverted={false}
+        />
+
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.chatInputContainer}>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={[styles.chatInputWrapper, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                <View style={styles.chatInputInner}>
+                  <TextInput
+                    style={styles.chatInput}
+                    placeholder="Descrivi le modifiche..."
+                    placeholderTextColor="#666"
+                    value={inputText}
+                    onChangeText={setInputText}
+                    multiline
+                    maxLength={500}
+                  />
+                  <TouchableOpacity
+                    style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                    onPress={handleSendMessage}
+                    disabled={!inputText.trim()}
+                  >
+                    <Ionicons name="send" size={18} color={inputText.trim() ? '#fff' : '#666'} />
+                  </TouchableOpacity>
+                </View>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.chatInputInner}>
+                <TextInput
+                  style={styles.chatInput}
+                  placeholder="Descrivi le modifiche..."
+                  placeholderTextColor="#666"
+                  value={inputText}
+                  onChangeText={setInputText}
+                  multiline
+                  maxLength={500}
+                />
+                <TouchableOpacity
+                  style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                  onPress={handleSendMessage}
+                  disabled={!inputText.trim()}
+                >
+                  <Ionicons name="send" size={18} color={inputText.trim() ? '#fff' : '#666'} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    );
+
+    return (
+      <Animated.View style={[styles.chatContainer, chatAnimatedStyle]}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {chatContent}
+          </LiquidGlassView>
+        ) : (
+          chatContent
+        )}
+      </Animated.View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -157,66 +352,7 @@ export const PreviewView = ({ tab }: Props) => {
       )}
 
       {/* Toolbar - hidden in design mode */}
-      {!designMode && (
-        <View style={styles.toolbar}>
-          <View style={styles.deviceSelector}>
-            <TouchableOpacity
-              style={[styles.deviceButton, device === 'mobile' && styles.deviceButtonActive]}
-              onPress={() => setDevice('mobile')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="phone-portrait" size={18} color={device === 'mobile' ? AppColors.primary : '#6E6E73'} />
-              <Text style={[styles.deviceButtonText, device === 'mobile' && styles.deviceButtonTextActive]}>Mobile</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.deviceButton, device === 'tablet' && styles.deviceButtonActive]}
-              onPress={() => setDevice('tablet')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="tablet-portrait" size={18} color={device === 'tablet' ? AppColors.primary : '#6E6E73'} />
-              <Text style={[styles.deviceButtonText, device === 'tablet' && styles.deviceButtonTextActive]}>Tablet</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.deviceButton, device === 'desktop' && styles.deviceButtonActive]}
-              onPress={() => setDevice('desktop')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="desktop" size={18} color={device === 'desktop' ? AppColors.primary : '#6E6E73'} />
-              <Text style={[styles.deviceButtonText, device === 'desktop' && styles.deviceButtonTextActive]}>Desktop</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.toolbarActions}>
-            <TouchableOpacity
-              style={[styles.toolButton, orientation === 'landscape' && styles.toolButtonActive]}
-              onPress={() => setOrientation(orientation === 'portrait' ? 'landscape' : 'portrait')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="phone-portrait" size={18} color="#6E6E73" style={{
-                transform: [{ rotate: orientation === 'landscape' ? '90deg' : '0deg' }]
-              }} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.toolButton, showGrid && styles.toolButtonActive]}
-              onPress={() => setShowGrid(!showGrid)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="grid-outline" size={18} color="#6E6E73" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.toolButton} activeOpacity={0.7}>
-              <Ionicons name="refresh" size={18} color="#6E6E73" />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.toolButton} activeOpacity={0.7}>
-              <Ionicons name="ellipsis-horizontal" size={18} color="#6E6E73" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      {!designMode && renderToolbar()}
 
       {/* Preview Info - hidden in design mode */}
       {!designMode && (
@@ -299,44 +435,7 @@ export const PreviewView = ({ tab }: Props) => {
       </GestureDetector>
 
       {/* Chat Interface - shown in design mode */}
-      {designMode && (
-        <Animated.View style={[styles.chatContainer, chatAnimatedStyle]}>
-          <View style={styles.chatHeader}>
-            <Ionicons name="chatbubbles" size={18} color={AppColors.primary} />
-            <Text style={styles.chatHeaderText}>Chiedi modifiche all'AI</Text>
-          </View>
-
-          <FlatList
-            data={chatMessages}
-            renderItem={renderChatMessage}
-            keyExtractor={item => item.id}
-            style={styles.chatMessages}
-            contentContainerStyle={styles.chatMessagesContent}
-            inverted={false}
-          />
-
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-            <View style={styles.chatInputContainer}>
-              <TextInput
-                style={styles.chatInput}
-                placeholder="Descrivi le modifiche che vuoi..."
-                placeholderTextColor="#666"
-                value={inputText}
-                onChangeText={setInputText}
-                multiline
-                maxLength={500}
-              />
-              <TouchableOpacity
-                style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-                onPress={handleSendMessage}
-                disabled={!inputText.trim()}
-              >
-                <Ionicons name="send" size={18} color={inputText.trim() ? '#fff' : '#666'} />
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </Animated.View>
-      )}
+      {designMode && renderChatContainer()}
     </View>
   );
 };
@@ -403,10 +502,14 @@ const styles = StyleSheet.create({
   // Chat styles
   chatContainer: {
     flex: 0.5,
-    backgroundColor: '#1a1a1a',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    overflow: 'hidden',
+  },
+  chatInner: {
+    flex: 1,
+    backgroundColor: 'rgba(26, 26, 26, 0.4)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   chatHeader: {
     flexDirection: 'row',
@@ -450,9 +553,11 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '75%',
+    borderRadius: 16,
+  },
+  messageInner: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 16,
   },
   userBubble: {
     backgroundColor: AppColors.primary,
@@ -473,65 +578,79 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   chatInputContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(10, 10, 10, 0.4)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  chatInputWrapper: {
+    borderRadius: 20,
+  },
+  chatInputInner: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#0a0a0a',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 20,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   chatInput: {
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     color: '#fff',
     fontSize: 14,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: AppColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 2,
+    marginRight: 2,
   },
   sendButtonDisabled: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   toolbar: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  toolbarInner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(26, 26, 26, 0.4)',
   },
   deviceSelector: {
     flexDirection: 'row',
     gap: 6,
   },
   deviceButton: {
+    borderRadius: 8,
+  },
+  deviceButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   deviceButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderColor: 'rgba(139, 124, 246, 0.4)',
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   deviceButtonText: {
     fontSize: 12,
@@ -546,18 +665,21 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   toolButton: {
+    borderRadius: 8,
+  },
+  toolButtonInner: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   toolButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    borderColor: 'rgba(139, 124, 246, 0.4)',
+    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    borderColor: 'rgba(139, 124, 246, 0.3)',
   },
   infoBar: {
     flexDirection: 'row',

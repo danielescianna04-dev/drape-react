@@ -2,8 +2,9 @@ import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import React, { useState, useEffect } from 'react';
-import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import axios from 'axios';
 
@@ -274,21 +275,40 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     </>
   );
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.modal}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={24} color="rgba(255, 255, 255, 0.6)" />
-            </TouchableOpacity>
-          </View>
-
-          {step === 'options' && renderOptions()}
-          {step === 'pat' && renderPatInput()}
-          {step === 'device-flow' && renderDeviceFlow()}
-        </View>
+  const renderContent = () => (
+    <View style={styles.modalInner}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="rgba(255, 255, 255, 0.6)" />
+        </TouchableOpacity>
       </View>
+
+      {step === 'options' && renderOptions()}
+      {step === 'pat' && renderPatInput()}
+      {step === 'device-flow' && renderDeviceFlow()}
+    </View>
+  );
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={styles.modalWrapper} onPress={e => e.stopPropagation()}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[styles.modal, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              {renderContent()}
+            </LiquidGlassView>
+          ) : (
+            <View style={styles.modal}>
+              {renderContent()}
+            </View>
+          )}
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };
@@ -301,14 +321,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  modal: {
+  modalWrapper: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#121212',
-    borderRadius: 20,
-    padding: 24,
+  },
+  modal: {
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalInner: {
+    padding: 24,
+    backgroundColor: 'rgba(26, 26, 26, 0.4)',
+    borderRadius: 24,
   },
   header: {
     flexDirection: 'row',

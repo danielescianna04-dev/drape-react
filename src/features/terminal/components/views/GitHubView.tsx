@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { Button } from '../../../../shared/components/atoms/Button';
+import { Input } from '../../../../shared/components/atoms/Input';
 import { AppColors } from '../../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/git/gitAccountService';
@@ -424,126 +427,144 @@ export const GitHubView = ({ tab }: Props) => {
   const repoInfo = getRepoInfo();
 
   // Compact header with account selector
-  const renderHeader = () => (
-    <View style={styles.compactHeader}>
-      <View style={styles.headerRow}>
-        <View style={styles.repoInfo}>
-          <Ionicons name="git-branch" size={18} color={AppColors.primary} />
-          <View style={styles.repoTextContainer}>
-            <Text style={styles.repoName} numberOfLines={1}>{projectName}</Text>
-            {repoInfo && (
-              <Text style={styles.repoPath} numberOfLines={1}>{repoInfo.owner}/{repoInfo.repo}</Text>
+  const renderHeader = () => {
+    const headerContent = (
+      <View style={styles.headerInner}>
+        <View style={styles.headerRow}>
+          <View style={styles.repoInfo}>
+            <Ionicons name="git-branch" size={18} color={AppColors.primary} />
+            <View style={styles.repoTextContainer}>
+              <Text style={styles.repoName} numberOfLines={1}>{projectName}</Text>
+              {repoInfo && (
+                <Text style={styles.repoPath} numberOfLines={1}>{repoInfo.owner}/{repoInfo.repo}</Text>
+              )}
+            </View>
+          </View>
+
+          {/* Account Selector */}
+          <TouchableOpacity
+            style={styles.accountSelector}
+            onPress={() => setShowAccountPicker(true)}
+          >
+            {linkedAccount ? (
+              <>
+                {linkedAccount.avatarUrl ? (
+                  <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.accountAvatar} />
+                ) : (
+                  <View style={[styles.accountAvatar, styles.accountAvatarPlaceholder]}>
+                    <Ionicons name="person" size={12} color="#fff" />
+                  </View>
+                )}
+                <Text style={styles.accountName} numberOfLines={1}>{linkedAccount.username}</Text>
+                {permissionStatus === 'checking' ? (
+                  <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 4 }} />
+                ) : permissionStatus === 'write' ? (
+                  <View style={styles.permBadgeWrite}>
+                    <Ionicons name="checkmark" size={10} color="#00D084" />
+                  </View>
+                ) : permissionStatus === 'read' ? (
+                  <View style={styles.permBadgeRead}>
+                    <Ionicons name="eye" size={10} color="#f59e0b" />
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Ionicons name="person-add-outline" size={14} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.accountPlaceholder}>Collega account</Text>
+              </>
             )}
+            <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Branch and Actions Row */}
+        <View style={styles.actionsRow}>
+          <View style={styles.branchPill}>
+            <Ionicons name="git-branch" size={12} color={AppColors.primary} />
+            <Text style={styles.branchText}>{currentBranch}</Text>
+          </View>
+
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              style={[styles.actionBtn, actionLoading === 'fetch' && styles.actionBtnLoading]}
+              onPress={() => handleGitAction('fetch')}
+              disabled={!!actionLoading || !linkedAccount}
+            >
+              {actionLoading === 'fetch' ? (
+                <ActivityIndicator size="small" color={AppColors.primary} />
+              ) : (
+                <Ionicons name="cloud-download-outline" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, actionLoading === 'pull' && styles.actionBtnLoading]}
+              onPress={() => handleGitAction('pull')}
+              disabled={!!actionLoading || !linkedAccount}
+            >
+              {actionLoading === 'pull' ? (
+                <ActivityIndicator size="small" color={AppColors.primary} />
+              ) : (
+                <Ionicons name="arrow-down" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.pushBtn, actionLoading === 'push' && styles.actionBtnLoading]}
+              onPress={() => handleGitAction('push')}
+              disabled={!!actionLoading || !linkedAccount || permissionStatus !== 'write'}
+            >
+              {actionLoading === 'push' ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="arrow-up" size={14} color={linkedAccount && permissionStatus === 'write' ? '#fff' : 'rgba(255,255,255,0.3)'} />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Account Selector */}
-        <TouchableOpacity
-          style={styles.accountSelector}
-          onPress={() => setShowAccountPicker(true)}
-        >
-          {linkedAccount ? (
-            <>
-              {linkedAccount.avatarUrl ? (
-                <Image source={{ uri: linkedAccount.avatarUrl }} style={styles.accountAvatar} />
-              ) : (
-                <View style={[styles.accountAvatar, styles.accountAvatarPlaceholder]}>
-                  <Ionicons name="person" size={12} color="#fff" />
-                </View>
-              )}
-              <Text style={styles.accountName} numberOfLines={1}>{linkedAccount.username}</Text>
-              {permissionStatus === 'checking' ? (
-                <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 4 }} />
-              ) : permissionStatus === 'write' ? (
-                <View style={styles.permBadgeWrite}>
-                  <Ionicons name="checkmark" size={10} color="#00D084" />
-                </View>
-              ) : permissionStatus === 'read' ? (
-                <View style={styles.permBadgeRead}>
-                  <Ionicons name="eye" size={10} color="#f59e0b" />
-                </View>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <Ionicons name="person-add-outline" size={14} color="rgba(255,255,255,0.5)" />
-              <Text style={styles.accountPlaceholder}>Collega account</Text>
-            </>
-          )}
-          <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Branch and Actions Row */}
-      <View style={styles.actionsRow}>
-        <View style={styles.branchPill}>
-          <Ionicons name="git-branch" size={12} color={AppColors.primary} />
-          <Text style={styles.branchText}>{currentBranch}</Text>
-        </View>
-
-        <View style={styles.actionButtons}>
-          <TouchableOpacity
-            style={[styles.actionBtn, actionLoading === 'fetch' && styles.actionBtnLoading]}
-            onPress={() => handleGitAction('fetch')}
-            disabled={!!actionLoading || !linkedAccount}
-          >
-            {actionLoading === 'fetch' ? (
-              <ActivityIndicator size="small" color={AppColors.primary} />
-            ) : (
-              <Ionicons name="cloud-download-outline" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, actionLoading === 'pull' && styles.actionBtnLoading]}
-            onPress={() => handleGitAction('pull')}
-            disabled={!!actionLoading || !linkedAccount}
-          >
-            {actionLoading === 'pull' ? (
-              <ActivityIndicator size="small" color={AppColors.primary} />
-            ) : (
-              <Ionicons name="arrow-down" size={14} color={linkedAccount ? '#fff' : 'rgba(255,255,255,0.3)'} />
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, styles.pushBtn, actionLoading === 'push' && styles.actionBtnLoading]}
-            onPress={() => handleGitAction('push')}
-            disabled={!!actionLoading || !linkedAccount || permissionStatus !== 'write'}
-          >
-            {actionLoading === 'push' ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="arrow-up" size={14} color={linkedAccount && permissionStatus === 'write' ? '#fff' : 'rgba(255,255,255,0.3)'} />
-            )}
-          </TouchableOpacity>
+        {/* Tabs - inline */}
+        <View style={styles.tabsRow}>
+          {[
+            { key: 'commits', label: 'Commits' },
+            { key: 'branches', label: 'Branch' },
+            { key: 'changes', label: 'Changes' },
+          ].map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.tabItem, activeSection === item.key && styles.tabItemActive]}
+              onPress={() => setActiveSection(item.key as any)}
+            >
+              <Text style={[styles.tabText, activeSection === item.key && styles.tabTextActive]}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
+    );
 
-      {/* Tabs - inline */}
-      <View style={styles.tabsRow}>
-        {[
-          { key: 'commits', label: 'Commits' },
-          { key: 'branches', label: 'Branch' },
-          { key: 'changes', label: 'Changes' },
-        ].map((item) => (
-          <TouchableOpacity
-            key={item.key}
-            style={[styles.tabItem, activeSection === item.key && styles.tabItemActive]}
-            onPress={() => setActiveSection(item.key as any)}
+    return (
+      <View style={styles.compactHeader}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
           >
-            <Text style={[styles.tabText, activeSection === item.key && styles.tabTextActive]}>
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+            {headerContent}
+          </LiquidGlassView>
+        ) : (
+          headerContent
+        )}
       </View>
-    </View>
-  );
+    );
+  };
 
   // Account picker modal
-  const renderAccountPicker = () => (
-    <View style={styles.pickerOverlay}>
-      <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowAccountPicker(false)} />
-      <View style={styles.pickerCard}>
+  const renderAccountPicker = () => {
+    const pickerContent = (
+      <View style={styles.pickerInner}>
         <View style={styles.pickerHeader}>
           <Text style={styles.pickerTitle}>Seleziona Account</Text>
           <TouchableOpacity onPress={() => setShowAccountPicker(false)}>
@@ -605,8 +626,28 @@ export const GitHubView = ({ tab }: Props) => {
           </TouchableOpacity>
         </ScrollView>
       </View>
-    </View>
-  );
+    );
+
+    return (
+      <View style={styles.pickerOverlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowAccountPicker(false)} />
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[styles.pickerCard, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {pickerContent}
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.pickerCard}>
+            {pickerContent}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   // Handle opening commit in browser
   const handleOpenCommit = (url?: string) => {
@@ -631,63 +672,82 @@ export const GitHubView = ({ tab }: Props) => {
       ) : (
         <>
           <Text style={styles.sectionTitle}>{commits.length} commit</Text>
-          {commits.map((commit, index) => (
-            <TouchableOpacity
-              key={commit.hash}
-              style={styles.commitRow}
-              activeOpacity={0.7}
-              onPress={() => handleOpenCommit(commit.url)}
-            >
-              {/* Graph line */}
-              <View style={styles.graphColumn}>
-                <View style={[styles.graphLine, index === 0 && styles.graphLineFirst]} />
-                <View style={[styles.graphDot, commit.isHead && styles.graphDotHead]} />
-                {index < commits.length - 1 && <View style={styles.graphLine} />}
+          {commits.map((commit, index) => {
+            const commitContent = (
+              <View style={styles.commitRowInner}>
+                {/* Graph line */}
+                <View style={styles.graphColumn}>
+                  <View style={[styles.graphLine, index === 0 && styles.graphLineFirst]} />
+                  <View style={[styles.graphDot, commit.isHead && styles.graphDotHead]} />
+                  {index < commits.length - 1 && <View style={styles.graphLine} />}
+                </View>
+
+                {/* Avatar */}
+                {commit.authorAvatar ? (
+                  <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatar} />
+                ) : (
+                  <View style={[styles.commitAvatar, styles.commitAvatarPlaceholder]}>
+                    <Text style={styles.commitAvatarText}>
+                      {commit.author.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Commit info */}
+                <View style={styles.commitInfo}>
+                  <View style={styles.commitHeader}>
+                    <Text style={styles.commitMessage} numberOfLines={2}>{commit.message.split('\n')[0]}</Text>
+                  </View>
+                  <View style={styles.commitMeta}>
+                    <Text style={styles.commitHash}>{commit.shortHash}</Text>
+                    <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
+                    <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
+                  </View>
+                  {/* Badges row */}
+                  <View style={styles.commitBadges}>
+                    {commit.isHead && (
+                      <View style={styles.headBadge}>
+                        <Text style={styles.headBadgeText}>HEAD</Text>
+                      </View>
+                    )}
+                    {commit.branch && (
+                      <View style={styles.branchBadge}>
+                        <Ionicons name="git-branch" size={10} color={AppColors.primary} />
+                        <Text style={styles.branchBadgeText}>{commit.branch}</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {/* Open icon */}
+                {commit.url && (
+                  <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.2)" style={{ marginLeft: 8 }} />
+                )}
               </View>
+            );
 
-              {/* Avatar */}
-              {commit.authorAvatar ? (
-                <Image source={{ uri: commit.authorAvatar }} style={styles.commitAvatar} />
-              ) : (
-                <View style={[styles.commitAvatar, styles.commitAvatarPlaceholder]}>
-                  <Text style={styles.commitAvatarText}>
-                    {commit.author.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-              )}
-
-              {/* Commit info */}
-              <View style={styles.commitInfo}>
-                <View style={styles.commitHeader}>
-                  <Text style={styles.commitMessage} numberOfLines={2}>{commit.message.split('\n')[0]}</Text>
-                </View>
-                <View style={styles.commitMeta}>
-                  <Text style={styles.commitHash}>{commit.shortHash}</Text>
-                  <Text style={styles.commitAuthor}>{commit.authorLogin || commit.author}</Text>
-                  <Text style={styles.commitDate}>{formatDate(commit.date)}</Text>
-                </View>
-                {/* Badges row */}
-                <View style={styles.commitBadges}>
-                  {commit.isHead && (
-                    <View style={styles.headBadge}>
-                      <Text style={styles.headBadgeText}>HEAD</Text>
-                    </View>
-                  )}
-                  {commit.branch && (
-                    <View style={styles.branchBadge}>
-                      <Ionicons name="git-branch" size={10} color={AppColors.primary} />
-                      <Text style={styles.branchBadgeText}>{commit.branch}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* Open icon */}
-              {commit.url && (
-                <Ionicons name="open-outline" size={14} color="rgba(255,255,255,0.2)" style={{ marginLeft: 8 }} />
-              )}
-            </TouchableOpacity>
-          ))}
+            return (
+              <TouchableOpacity
+                key={commit.hash}
+                style={styles.commitRow}
+                activeOpacity={0.7}
+                onPress={() => handleOpenCommit(commit.url)}
+              >
+                {isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={{ backgroundColor: 'transparent', borderRadius: 10, overflow: 'hidden' }}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  >
+                    {commitContent}
+                  </LiquidGlassView>
+                ) : (
+                  commitContent
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </>
       )}
     </View>
@@ -697,48 +757,86 @@ export const GitHubView = ({ tab }: Props) => {
   const renderBranches = () => (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Local Branches</Text>
-      {branches.filter(b => !b.isRemote).map((branch) => (
-        <TouchableOpacity key={branch.name} style={styles.branchRow}>
-          <View style={styles.branchRowLeft}>
-            <Ionicons
-              name={branch.isCurrent ? 'radio-button-on' : 'radio-button-off'}
-              size={16}
-              color={branch.isCurrent ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-            />
-            <Text style={[styles.branchRowName, branch.isCurrent && styles.branchRowNameActive]}>
-              {branch.name}
-            </Text>
-          </View>
-          {(branch.ahead !== undefined || branch.behind !== undefined) && (
-            <View style={styles.branchRowStats}>
-              {branch.ahead !== undefined && branch.ahead > 0 && (
-                <View style={styles.statBadge}>
-                  <Ionicons name="arrow-up" size={10} color="#00D084" />
-                  <Text style={styles.statBadgeTextGreen}>{branch.ahead}</Text>
-                </View>
-              )}
-              {branch.behind !== undefined && branch.behind > 0 && (
-                <View style={styles.statBadge}>
-                  <Ionicons name="arrow-down" size={10} color="#FF6B6B" />
-                  <Text style={styles.statBadgeTextRed}>{branch.behind}</Text>
-                </View>
-              )}
+      {branches.filter(b => !b.isRemote).map((branch) => {
+        const branchContent = (
+          <View style={styles.branchRowInner}>
+            <View style={styles.branchRowLeft}>
+              <Ionicons
+                name={branch.isCurrent ? 'radio-button-on' : 'radio-button-off'}
+                size={16}
+                color={branch.isCurrent ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+              />
+              <Text style={[styles.branchRowName, branch.isCurrent && styles.branchRowNameActive]}>
+                {branch.name}
+              </Text>
             </View>
-          )}
-        </TouchableOpacity>
-      ))}
+            {(branch.ahead !== undefined || branch.behind !== undefined) && (
+              <View style={styles.branchRowStats}>
+                {branch.ahead !== undefined && branch.ahead > 0 && (
+                  <View style={styles.statBadge}>
+                    <Ionicons name="arrow-up" size={10} color="#00D084" />
+                    <Text style={styles.statBadgeTextGreen}>{branch.ahead}</Text>
+                  </View>
+                )}
+                {branch.behind !== undefined && branch.behind > 0 && (
+                  <View style={styles.statBadge}>
+                    <Ionicons name="arrow-down" size={10} color="#FF6B6B" />
+                    <Text style={styles.statBadgeTextRed}>{branch.behind}</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        );
+
+        return (
+          <TouchableOpacity key={branch.name} style={styles.branchRow}>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                {branchContent}
+              </LiquidGlassView>
+            ) : (
+              branchContent
+            )}
+          </TouchableOpacity>
+        );
+      })}
 
       {branches.some(b => b.isRemote) && (
         <>
           <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Remote Branches</Text>
-          {branches.filter(b => b.isRemote).map((branch) => (
-            <TouchableOpacity key={branch.name} style={styles.branchRow}>
-              <View style={styles.branchRowLeft}>
-                <Ionicons name="cloud-outline" size={16} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.branchRowName}>{branch.name}</Text>
+          {branches.filter(b => b.isRemote).map((branch) => {
+            const remoteContent = (
+              <View style={styles.branchRowInner}>
+                <View style={styles.branchRowLeft}>
+                  <Ionicons name="cloud-outline" size={16} color="rgba(255,255,255,0.4)" />
+                  <Text style={styles.branchRowName}>{branch.name}</Text>
+                </View>
               </View>
-            </TouchableOpacity>
-          ))}
+            );
+
+            return (
+              <TouchableOpacity key={branch.name} style={styles.branchRow}>
+                {isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  >
+                    {remoteContent}
+                  </LiquidGlassView>
+                ) : (
+                  remoteContent
+                )}
+              </TouchableOpacity>
+            );
+          })}
         </>
       )}
     </View>
@@ -754,32 +852,20 @@ export const GitHubView = ({ tab }: Props) => {
         <View style={styles.commitSection}>
           <Text style={styles.sectionTitle}>Crea Commit</Text>
           <View style={styles.commitInputContainer}>
-            <TextInput
-              style={styles.commitInput}
-              placeholder="Messaggio di commit..."
-              placeholderTextColor="rgba(255,255,255,0.3)"
+            <Input
               value={commitMessage}
               onChangeText={setCommitMessage}
+              placeholder="Messaggio di commit..."
               multiline
               numberOfLines={2}
+              style={{ marginBottom: 10 }}
             />
-            <TouchableOpacity
-              style={[
-                styles.commitButton,
-                (!commitMessage.trim() || actionLoading === 'commit') && styles.commitButtonDisabled
-              ]}
+            <Button
+              label={actionLoading === 'commit' ? "" : "Commit"}
               onPress={handleCommit}
               disabled={!commitMessage.trim() || actionLoading === 'commit'}
-            >
-              {actionLoading === 'commit' ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="git-commit" size={16} color="#fff" />
-                  <Text style={styles.commitButtonText}>Commit</Text>
-                </>
-              )}
-            </TouchableOpacity>
+              variant="primary"
+            />
           </View>
         </View>
       )}
@@ -789,14 +875,32 @@ export const GitHubView = ({ tab }: Props) => {
           {gitStatus.staged.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>Staged Changes ({gitStatus.staged.length})</Text>
-              {gitStatus.staged.map((file) => (
-                <View key={file} style={styles.fileRow}>
-                  <View style={styles.fileStatusBadge}>
-                    <Text style={styles.fileStatusText}>S</Text>
+              {gitStatus.staged.map((file) => {
+                const fileContent = (
+                  <View style={styles.fileRowInner}>
+                    <View style={styles.fileStatusBadge}>
+                      <Text style={styles.fileStatusText}>S</Text>
+                    </View>
+                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
                   </View>
-                  <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                </View>
-              ))}
+                );
+                return (
+                  <View key={file} style={styles.fileRow}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        {fileContent}
+                      </LiquidGlassView>
+                    ) : (
+                      fileContent
+                    )}
+                  </View>
+                );
+              })}
             </>
           )}
 
@@ -805,14 +909,32 @@ export const GitHubView = ({ tab }: Props) => {
               <Text style={[styles.sectionTitle, gitStatus.staged.length > 0 && { marginTop: 20 }]}>
                 Modified ({gitStatus.modified.length})
               </Text>
-              {gitStatus.modified.map((file) => (
-                <View key={file} style={styles.fileRow}>
-                  <View style={[styles.fileStatusBadge, styles.fileStatusModified]}>
-                    <Text style={styles.fileStatusText}>M</Text>
+              {gitStatus.modified.map((file) => {
+                const fileContent = (
+                  <View style={styles.fileRowInner}>
+                    <View style={[styles.fileStatusBadge, styles.fileStatusModified]}>
+                      <Text style={styles.fileStatusText}>M</Text>
+                    </View>
+                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
                   </View>
-                  <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                </View>
-              ))}
+                );
+                return (
+                  <View key={file} style={styles.fileRow}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        {fileContent}
+                      </LiquidGlassView>
+                    ) : (
+                      fileContent
+                    )}
+                  </View>
+                );
+              })}
             </>
           )}
 
@@ -821,14 +943,32 @@ export const GitHubView = ({ tab }: Props) => {
               <Text style={[styles.sectionTitle, { marginTop: 20 }]}>
                 Untracked ({gitStatus.untracked.length})
               </Text>
-              {gitStatus.untracked.map((file) => (
-                <View key={file} style={styles.fileRow}>
-                  <View style={[styles.fileStatusBadge, styles.fileStatusUntracked]}>
-                    <Text style={styles.fileStatusText}>?</Text>
+              {gitStatus.untracked.map((file) => {
+                const fileContent = (
+                  <View style={styles.fileRowInner}>
+                    <View style={[styles.fileStatusBadge, styles.fileStatusUntracked]}>
+                      <Text style={styles.fileStatusText}>?</Text>
+                    </View>
+                    <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
                   </View>
-                  <Text style={styles.fileName} numberOfLines={1}>{file}</Text>
-                </View>
-              ))}
+                );
+                return (
+                  <View key={file} style={styles.fileRow}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={{ backgroundColor: 'transparent', borderRadius: 8, overflow: 'hidden' }}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        {fileContent}
+                      </LiquidGlassView>
+                    ) : (
+                      fileContent
+                    )}
+                  </View>
+                );
+              })}
             </>
           )}
 
@@ -958,9 +1098,12 @@ const styles = StyleSheet.create({
   },
   // Compact Header
   compactHeader: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
+    backgroundColor: 'transparent',
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  headerInner: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
   },
   headerRow: {
     flexDirection: 'row',
@@ -1126,7 +1269,10 @@ const styles = StyleSheet.create({
   pickerCard: {
     width: '85%',
     maxHeight: '60%',
-    backgroundColor: '#1a1a1c',
+    borderRadius: 16,
+  },
+  pickerInner: {
+    backgroundColor: 'rgba(26, 26, 28, 0.4)',
     borderRadius: 16,
     overflow: 'hidden',
   },
@@ -1215,14 +1361,16 @@ const styles = StyleSheet.create({
   },
   // Commit row (Fork-style)
   commitRow: {
+    marginBottom: 4,
+    borderRadius: 10,
+    marginHorizontal: -4,
+  },
+  commitRowInner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 4,
     paddingVertical: 8,
     paddingRight: 12,
     backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: 10,
-    marginHorizontal: -4,
     paddingHorizontal: 4,
   },
   graphColumn: {
@@ -1336,14 +1484,16 @@ const styles = StyleSheet.create({
   },
   // Branch row
   branchRow: {
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  branchRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 12,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-    marginBottom: 6,
   },
   branchRowLeft: {
     flexDirection: 'row',
@@ -1391,45 +1541,17 @@ const styles = StyleSheet.create({
   commitInputContainer: {
     gap: 10,
   },
-  commitInput: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 10,
-    padding: 12,
-    color: '#fff',
-    fontSize: 14,
-    minHeight: 60,
-    textAlignVertical: 'top',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  commitButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: AppColors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-  },
-  commitButtonDisabled: {
-    backgroundColor: 'rgba(139, 124, 246, 0.3)',
-    opacity: 0.6,
-  },
-  commitButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
   // File row
   fileRow: {
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  fileRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
     paddingHorizontal: 12,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 8,
-    marginBottom: 6,
     gap: 10,
   },
   fileStatusBadge: {
@@ -1513,10 +1635,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
   },
-  accountMeta: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
-  },
   unlinkBtn: {
     width: 36,
     height: 36,
@@ -1557,58 +1675,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: AppColors.primary,
-  },
-  // Account picker
-  pickerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  pickerCard: {
-    width: '100%',
-    maxHeight: '60%',
-    backgroundColor: '#1a1a1c',
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  pickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  pickerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  pickerList: {
-    maxHeight: 280,
-  },
-  pickerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  pickerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
-  },
-  pickerItemText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#fff',
   },
 });

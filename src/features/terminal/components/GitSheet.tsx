@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, Dimensions, Pressable, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { Button } from '../../../shared/components/atoms/Button';
+import { Input } from '../../../shared/components/atoms/Input';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
@@ -578,6 +581,28 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     return dateObj.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   };
 
+  const SheetContainer = ({ children }: { children: React.ReactNode }) => {
+    if (isLiquidGlassSupported) {
+      return (
+        <LiquidGlassView
+          style={[styles.modalContainer, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          <Pressable style={{ flex: 1 }} onPress={() => { }}>
+            {children}
+          </Pressable>
+        </LiquidGlassView>
+      );
+    }
+    return (
+      <Pressable style={styles.modalContainer} onPress={() => { }}>
+        {children}
+      </Pressable>
+    );
+  };
+
   const repoUrl = currentWorkstation?.repositoryUrl || currentWorkstation?.githubUrl;
   const repoName = repoUrl ? repoUrl.split('/').pop()?.replace('.git', '') : 'Repository';
   const repoOwner = repoUrl ? repoUrl.split('/').slice(-2, -1)[0] : '';
@@ -592,7 +617,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       statusBarTranslucent
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.modalContainer} onPress={() => { }}>
+        <SheetContainer>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -895,14 +920,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           {/* Commit Section - Fixed Footer (only in Changes tab with changes) */}
           {activeSection === 'changes' && allChangedFiles.length > 0 && (
             <View style={styles.commitSection}>
-              <TextInput
-                style={styles.commitInput}
-                placeholder="Messaggio di commit..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
+              <Input
                 value={commitMessage}
                 onChangeText={setCommitMessage}
+                placeholder="Messaggio di commit..."
                 multiline
                 numberOfLines={2}
+                style={{ marginBottom: 12 }}
               />
               <View style={styles.commitActions}>
                 <TouchableOpacity
@@ -945,7 +969,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.4)" />
             </TouchableOpacity>
           )}
-        </Pressable>
+        </SheetContainer>
       </Pressable>
 
       <AddGitAccountModal

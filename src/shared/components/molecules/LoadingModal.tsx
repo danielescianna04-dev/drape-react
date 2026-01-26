@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet, Modal } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 
 interface Props {
@@ -8,6 +9,13 @@ interface Props {
 }
 
 export const LoadingModal = ({ visible, message = 'Loading...' }: Props) => {
+    const renderContent = () => (
+        <>
+            <ActivityIndicator size="large" color={AppColors.primary} style={styles.spinner} />
+            <Text style={styles.message}>{message}</Text>
+        </>
+    );
+
     return (
         <Modal
             visible={visible}
@@ -16,10 +24,22 @@ export const LoadingModal = ({ visible, message = 'Loading...' }: Props) => {
             statusBarTranslucent={true}
         >
             <View style={styles.container}>
-                <View style={styles.content}>
-                    <ActivityIndicator size="large" color={AppColors.primary} style={styles.spinner} />
-                    <Text style={styles.message}>{message}</Text>
-                </View>
+                {isLiquidGlassSupported ? (
+                    <LiquidGlassView 
+                        style={styles.glassContent}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                    >
+                        <View style={styles.innerContent}>
+                            {renderContent()}
+                        </View>
+                    </LiquidGlassView>
+                ) : (
+                    <View style={styles.content}>
+                        {renderContent()}
+                    </View>
+                )}
             </View>
         </Modal>
     );
@@ -36,7 +56,7 @@ const styles = StyleSheet.create({
     content: {
         backgroundColor: AppColors.dark.surfaceAlt,
         padding: 24,
-        borderRadius: 16,
+        borderRadius: 24,
         alignItems: 'center',
         minWidth: 200,
         borderWidth: 1,
@@ -49,6 +69,16 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.30,
         shadowRadius: 4.65,
         elevation: 8,
+    },
+    glassContent: {
+        minWidth: 200,
+        borderRadius: 24,
+        overflow: 'hidden',
+    },
+    innerContent: {
+        padding: 24,
+        alignItems: 'center',
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
     },
     spinner: {
         marginBottom: 16,

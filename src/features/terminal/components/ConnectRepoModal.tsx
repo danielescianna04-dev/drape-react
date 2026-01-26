@@ -13,8 +13,11 @@ import {
   Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
+import { Button } from '../../../shared/components/atoms/Button';
+import { Input } from '../../../shared/components/atoms/Input';
 import { githubService, GitHubRepository } from '../../../core/github/githubService';
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
@@ -223,6 +226,185 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
 
   if (!visible) return null;
 
+  const renderModalContent = () => (
+    <View style={styles.modalInner}>
+      {/* Header */}
+      <View style={styles.header}>
+        <View style={styles.headerIcon}>
+          <Ionicons name="logo-github" size={22} color="#fff" />
+        </View>
+        <Text style={styles.headerTitle}>Connetti a GitHub</Text>
+        <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+          <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Account selector */}
+      {gitAccounts.length === 0 ? (
+        <View style={styles.noAccountContainer}>
+          <Ionicons name="person-outline" size={32} color="rgba(255,255,255,0.3)" />
+          <Text style={styles.noAccountText}>Nessun account GitHub collegato</Text>
+          <Text style={styles.noAccountSubtext}>
+            Vai nelle impostazioni per aggiungere un account GitHub
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Account badge */}
+          <View style={styles.accountBadge}>
+            <Ionicons name="person-circle-outline" size={16} color={AppColors.primary} />
+            <Text style={styles.accountBadgeText}>{selectedAccount?.username}</Text>
+          </View>
+
+          {/* Tabs */}
+          <View style={styles.tabs}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'create' && styles.tabActive]}
+              onPress={() => setActiveTab('create')}
+            >
+              <Ionicons
+                name="add-circle-outline"
+                size={16}
+                color={activeTab === 'create' ? '#fff' : 'rgba(255,255,255,0.5)'}
+              />
+              <Text style={[styles.tabText, activeTab === 'create' && styles.tabTextActive]}>
+                Crea nuovo
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'existing' && styles.tabActive]}
+              onPress={() => setActiveTab('existing')}
+            >
+              <Ionicons
+                name="folder-outline"
+                size={16}
+                color={activeTab === 'existing' ? '#fff' : 'rgba(255,255,255,0.5)'}
+              />
+              <Text style={[styles.tabText, activeTab === 'existing' && styles.tabTextActive]}>
+                Esistente
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Content */}
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {activeTab === 'create' ? (
+              <View style={styles.createForm}>
+                <Text style={styles.label}>Nome repository</Text>
+                <Input
+                  value={repoName}
+                  onChangeText={setRepoName}
+                  placeholder="my-awesome-project"
+                  style={{ marginBottom: 4 }}
+                />
+
+                <Text style={styles.label}>Descrizione (opzionale)</Text>
+                <Input
+                  value={description}
+                  onChangeText={setDescription}
+                  placeholder="Descrizione del progetto..."
+                  multiline
+                  numberOfLines={2}
+                  style={{ marginBottom: 4 }}
+                />
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchInfo}>
+                    <Ionicons
+                      name={isPrivate ? 'lock-closed' : 'globe-outline'}
+                      size={18}
+                      color={isPrivate ? '#f59e0b' : '#22c55e'}
+                    />
+                    <View>
+                      <Text style={styles.switchLabel}>
+                        {isPrivate ? 'Repository privato' : 'Repository pubblico'}
+                      </Text>
+                      <Text style={styles.switchHint}>
+                        {isPrivate
+                          ? 'Solo tu puoi vedere questo repository'
+                          : 'Visibile a tutti su GitHub'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isPrivate}
+                    onValueChange={setIsPrivate}
+                    trackColor={{ false: 'rgba(255,255,255,0.2)', true: `${AppColors.primary}50` }}
+                    thumbColor={isPrivate ? AppColors.primary : '#f4f3f4'}
+                  />
+                </View>
+
+                <Button
+                  label={loading ? "" : "Crea e Collega"}
+                  onPress={handleCreateRepo}
+                  disabled={loading || !repoName.trim()}
+                  variant="primary"
+                  style={{ marginTop: 16 }}
+                />
+              </View>
+            ) : (
+              <View style={styles.existingList}>
+                <Input
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Cerca repository..."
+                  style={{ marginBottom: 8 }}
+                />
+
+                {reposLoading ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={AppColors.primary} />
+                  </View>
+                ) : filteredRepos.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="folder-open-outline" size={40} color="rgba(255,255,255,0.2)" />
+                    <Text style={styles.emptyText}>
+                      {searchQuery ? 'Nessun repository trovato' : 'Nessun repository disponibile'}
+                    </Text>
+                  </View>
+                ) : (
+                  filteredRepos.map((repo) => (
+                    <TouchableOpacity
+                      key={repo.id}
+                      style={styles.repoItem}
+                      onPress={() => handleSelectRepo(repo)}
+                      disabled={loading}
+                    >
+                      <View style={styles.repoIcon}>
+                        <Ionicons
+                          name={repo.isPrivate ? 'lock-closed' : 'globe-outline'}
+                          size={16}
+                          color={repo.isPrivate ? '#f59e0b' : '#22c55e'}
+                        />
+                      </View>
+                      <View style={styles.repoInfo}>
+                        <Text style={styles.repoName}>{repo.name}</Text>
+                        {repo.description && (
+                          <Text style={styles.repoDescription} numberOfLines={1}>
+                            {repo.description}
+                          </Text>
+                        )}
+                        <View style={styles.repoMeta}>
+                          {repo.language && (
+                            <Text style={styles.repoLanguage}>{repo.language}</Text>
+                          )}
+                          <Text style={styles.repoStars}>
+                            <Ionicons name="star" size={10} color="rgba(255,255,255,0.4)" /> {repo.stars}
+                          </Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
+                    </TouchableOpacity>
+                  ))
+                )}
+              </View>
+            )}
+          </ScrollView>
+        </>
+      )}
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -238,195 +420,23 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
-          style={styles.container}
+          style={[styles.container, { backgroundColor: 'transparent' }]}
           entering={SlideInDown.duration(300)}
           exiting={SlideOutDown.duration(200)}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerIcon}>
-              <Ionicons name="logo-github" size={22} color="#fff" />
-            </View>
-            <Text style={styles.headerTitle}>Connetti a GitHub</Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Account selector */}
-          {gitAccounts.length === 0 ? (
-            <View style={styles.noAccountContainer}>
-              <Ionicons name="person-outline" size={32} color="rgba(255,255,255,0.3)" />
-              <Text style={styles.noAccountText}>Nessun account GitHub collegato</Text>
-              <Text style={styles.noAccountSubtext}>
-                Vai nelle impostazioni per aggiungere un account GitHub
-              </Text>
-            </View>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ flex: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              {renderModalContent()}
+            </LiquidGlassView>
           ) : (
-            <>
-              {/* Account badge */}
-              <View style={styles.accountBadge}>
-                <Ionicons name="person-circle-outline" size={16} color={AppColors.primary} />
-                <Text style={styles.accountBadgeText}>{selectedAccount?.username}</Text>
-              </View>
-
-              {/* Tabs */}
-              <View style={styles.tabs}>
-                <TouchableOpacity
-                  style={[styles.tab, activeTab === 'create' && styles.tabActive]}
-                  onPress={() => setActiveTab('create')}
-                >
-                  <Ionicons
-                    name="add-circle-outline"
-                    size={16}
-                    color={activeTab === 'create' ? '#fff' : 'rgba(255,255,255,0.5)'}
-                  />
-                  <Text style={[styles.tabText, activeTab === 'create' && styles.tabTextActive]}>
-                    Crea nuovo
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.tab, activeTab === 'existing' && styles.tabActive]}
-                  onPress={() => setActiveTab('existing')}
-                >
-                  <Ionicons
-                    name="folder-outline"
-                    size={16}
-                    color={activeTab === 'existing' ? '#fff' : 'rgba(255,255,255,0.5)'}
-                  />
-                  <Text style={[styles.tabText, activeTab === 'existing' && styles.tabTextActive]}>
-                    Esistente
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Content */}
-              <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {activeTab === 'create' ? (
-                  <View style={styles.createForm}>
-                    <Text style={styles.label}>Nome repository</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={repoName}
-                      onChangeText={setRepoName}
-                      placeholder="my-awesome-project"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-
-                    <Text style={styles.label}>Descrizione (opzionale)</Text>
-                    <TextInput
-                      style={[styles.input, styles.inputMultiline]}
-                      value={description}
-                      onChangeText={setDescription}
-                      placeholder="Descrizione del progetto..."
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      multiline
-                      numberOfLines={2}
-                    />
-
-                    <View style={styles.switchRow}>
-                      <View style={styles.switchInfo}>
-                        <Ionicons
-                          name={isPrivate ? 'lock-closed' : 'globe-outline'}
-                          size={18}
-                          color={isPrivate ? '#f59e0b' : '#22c55e'}
-                        />
-                        <View>
-                          <Text style={styles.switchLabel}>
-                            {isPrivate ? 'Repository privato' : 'Repository pubblico'}
-                          </Text>
-                          <Text style={styles.switchHint}>
-                            {isPrivate
-                              ? 'Solo tu puoi vedere questo repository'
-                              : 'Visibile a tutti su GitHub'}
-                          </Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={isPrivate}
-                        onValueChange={setIsPrivate}
-                        trackColor={{ false: 'rgba(255,255,255,0.2)', true: `${AppColors.primary}50` }}
-                        thumbColor={isPrivate ? AppColors.primary : '#f4f3f4'}
-                      />
-                    </View>
-
-                    <TouchableOpacity
-                      style={[styles.createBtn, loading && styles.createBtnDisabled]}
-                      onPress={handleCreateRepo}
-                      disabled={loading || !repoName.trim()}
-                    >
-                      {loading ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <>
-                          <Ionicons name="rocket-outline" size={18} color="#fff" />
-                          <Text style={styles.createBtnText}>Crea e Collega</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View style={styles.existingList}>
-                    <TextInput
-                      style={styles.searchInput}
-                      value={searchQuery}
-                      onChangeText={setSearchQuery}
-                      placeholder="Cerca repository..."
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-
-                    {reposLoading ? (
-                      <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="large" color={AppColors.primary} />
-                      </View>
-                    ) : filteredRepos.length === 0 ? (
-                      <View style={styles.emptyContainer}>
-                        <Ionicons name="folder-open-outline" size={40} color="rgba(255,255,255,0.2)" />
-                        <Text style={styles.emptyText}>
-                          {searchQuery ? 'Nessun repository trovato' : 'Nessun repository disponibile'}
-                        </Text>
-                      </View>
-                    ) : (
-                      filteredRepos.map((repo) => (
-                        <TouchableOpacity
-                          key={repo.id}
-                          style={styles.repoItem}
-                          onPress={() => handleSelectRepo(repo)}
-                          disabled={loading}
-                        >
-                          <View style={styles.repoIcon}>
-                            <Ionicons
-                              name={repo.isPrivate ? 'lock-closed' : 'globe-outline'}
-                              size={16}
-                              color={repo.isPrivate ? '#f59e0b' : '#22c55e'}
-                            />
-                          </View>
-                          <View style={styles.repoInfo}>
-                            <Text style={styles.repoName}>{repo.name}</Text>
-                            {repo.description && (
-                              <Text style={styles.repoDescription} numberOfLines={1}>
-                                {repo.description}
-                              </Text>
-                            )}
-                            <View style={styles.repoMeta}>
-                              {repo.language && (
-                                <Text style={styles.repoLanguage}>{repo.language}</Text>
-                              )}
-                              <Text style={styles.repoStars}>
-                                <Ionicons name="star" size={10} color="rgba(255,255,255,0.4)" /> {repo.stars}
-                              </Text>
-                            </View>
-                          </View>
-                          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
-                        </TouchableOpacity>
-                      ))
-                    )}
-                  </View>
-                )}
-              </ScrollView>
-            </>
+            <View style={[styles.container, { backgroundColor: '#151517' }]}>
+              {renderModalContent()}
+            </View>
           )}
         </Animated.View>
       </Animated.View>
@@ -441,11 +451,17 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: '#151517',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    width: '100%',
     maxHeight: '85%',
     minHeight: 400,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  modalInner: {
+    flex: 1,
+    backgroundColor: 'rgba(21, 21, 23, 0.4)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
   },
   header: {
     flexDirection: 'row',

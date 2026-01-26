@@ -12,6 +12,8 @@ import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
+import { Button } from '../../shared/components/atoms/Button';
+import { Input } from '../../shared/components/atoms/Input';
 import { GitCommitsScreen } from '../settings/GitCommitsScreen';
 import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import { ProjectLoadingOverlay } from '../../shared/components/molecules/ProjectLoadingOverlay';
@@ -1353,33 +1355,69 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style={styles.renameModalBackdrop}
           onPress={() => setShowRenameModal(false)}
         >
-          <Pressable style={styles.renameModalContent} onPress={() => { }}>
-            <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
-            <TextInput
-              style={styles.renameInput}
-              value={newProjectName}
-              onChangeText={setNewProjectName}
-              placeholder="Nome progetto"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              autoFocus
-              selectTextOnFocus
-            />
-            <View style={styles.renameModalActions}>
-              <TouchableOpacity
-                style={styles.renameModalCancel}
-                onPress={() => setShowRenameModal(false)}
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ borderRadius: 24, overflow: 'hidden', width: '100%', maxWidth: 340 }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <Pressable 
+                style={{ padding: 24, backgroundColor: 'rgba(255,255,255,0.05)' }} 
+                onPress={() => { }}
               >
-                <Text style={styles.renameModalCancelText}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.renameModalConfirm, !newProjectName.trim() && styles.renameModalConfirmDisabled]}
-                onPress={handleConfirmRename}
-                disabled={!newProjectName.trim()}
-              >
-                <Text style={styles.renameModalConfirmText}>Conferma</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
+                <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
+                <Input
+                  value={newProjectName}
+                  onChangeText={setNewProjectName}
+                  placeholder="Nome progetto"
+                  autoFocus
+                  style={{ marginBottom: 20 }}
+                />
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <Button
+                    label="Annulla"
+                    onPress={() => setShowRenameModal(false)}
+                    variant="ghost"
+                    style={{ flex: 1 }}
+                  />
+                  <Button
+                    label="Conferma"
+                    onPress={handleConfirmRename}
+                    variant="primary"
+                    disabled={!newProjectName.trim()}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              </Pressable>
+            </LiquidGlassView>
+          ) : (
+            <Pressable style={styles.renameModalContent} onPress={() => { }}>
+              <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
+              <Input
+                value={newProjectName}
+                onChangeText={setNewProjectName}
+                placeholder="Nome progetto"
+                autoFocus
+                style={{ marginBottom: 20 }}
+              />
+              <View style={styles.renameModalActions}>
+                <Button
+                  label="Annulla"
+                  onPress={() => setShowRenameModal(false)}
+                  variant="ghost"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  label="Conferma"
+                  onPress={handleConfirmRename}
+                  variant="primary"
+                  disabled={!newProjectName.trim()}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </Pressable>
+          )}
         </Pressable>
       </Modal>
 

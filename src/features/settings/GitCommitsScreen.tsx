@@ -12,6 +12,7 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { githubService, GitHubCommit } from '../../core/github/githubService';
 import { gitAccountService } from '../../core/git/gitAccountService';
@@ -132,13 +133,8 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
     const firstLine = commit.message.split('\n')[0];
     const hasMoreLines = commit.message.includes('\n');
 
-    return (
-      <TouchableOpacity
-        key={commit.sha}
-        style={[styles.commitCard, isExpanded && styles.commitCardExpanded]}
-        onPress={() => handleCommitPress(commit)}
-        activeOpacity={0.7}
-      >
+    const cardContent = (
+      <View style={styles.cardInner}>
         {commit.author.avatar_url ? (
           <Image source={{ uri: commit.author.avatar_url }} style={styles.avatar} />
         ) : (
@@ -179,6 +175,28 @@ export const GitCommitsScreen = ({ repositoryUrl, onClose }: Props) => {
           size={16}
           color="rgba(255,255,255,0.3)"
         />
+      </View>
+    );
+
+    return (
+      <TouchableOpacity
+        key={commit.sha}
+        style={[styles.commitCard, isExpanded && styles.commitCardExpanded]}
+        onPress={() => handleCommitPress(commit)}
+        activeOpacity={0.7}
+      >
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 14, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {cardContent}
+          </LiquidGlassView>
+        ) : (
+          cardContent
+        )}
       </TouchableOpacity>
     );
   };
@@ -324,19 +342,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   commitCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
     marginBottom: 8,
-    backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'transparent',
   },
+  cardInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
+  },
   commitCardExpanded: {
     borderColor: `${AppColors.primary}30`,
-    backgroundColor: `${AppColors.primary}08`,
   },
   avatar: {
     width: 40,

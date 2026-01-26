@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { Button } from '../../../../shared/components/atoms/Button';
+import { Input } from '../../../../shared/components/atoms/Input';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
@@ -197,6 +200,95 @@ export const FigmaView = ({ tab }: Props) => {
     );
   };
 
+  const renderConnectForm = () => {
+    const formContent = (
+      <View style={styles.connectInner}>
+        <View style={styles.connectHeader}>
+          <View style={styles.figmaLogoLarge}>
+            <FigmaLogo size={32} />
+          </View>
+          <Text style={styles.connectTitle}>Connetti Figma</Text>
+          <Text style={styles.connectSubtitle}>
+            Collega il tuo account Figma per sincronizzare design tokens e assets
+          </Text>
+        </View>
+
+        <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Personal Access Token</Text>
+            <Input
+              placeholder="figd_xxxxx..."
+              value={config.accessToken}
+              onChangeText={(text) => setConfig(prev => ({ ...prev, accessToken: text }))}
+              secureTextEntry={!showToken}
+              style={{ marginBottom: 0 }}
+            />
+            <TouchableOpacity
+              style={styles.showTokenButton}
+              onPress={() => setShowToken(!showToken)}
+            >
+              <Ionicons
+                name={showToken ? "eye" : "eye-off"}
+                size={16}
+                color="rgba(255,255,255,0.4)"
+              />
+              <Text style={styles.showTokenText}>
+                {showToken ? 'Nascondi' : 'Mostra'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>File URL (opzionale)</Text>
+            <Input
+              placeholder="https://www.figma.com/file/..."
+              value={config.fileUrl}
+              onChangeText={(text) => setConfig(prev => ({ ...prev, fileUrl: text }))}
+              keyboardType="url"
+              style={{ marginBottom: 0 }}
+            />
+            <Text style={styles.inputHint}>
+              Collega un file specifico per export rapido
+            </Text>
+          </View>
+
+          <Button
+            label={isTesting ? "" : "Connetti"}
+            onPress={testConnection}
+            disabled={isTesting}
+            variant="primary"
+            style={{ marginTop: 8 }}
+          />
+
+          <TouchableOpacity
+            style={styles.helpLink}
+            onPress={() => Linking.openURL('https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens')}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
+            <Text style={styles.helpLinkText}>Come creo un token?</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+
+    return (
+      <Animated.View entering={FadeIn.duration(300)} style={styles.connectCard}>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={{ backgroundColor: 'transparent', borderRadius: 16, overflow: 'hidden' }}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            {formContent}
+          </LiquidGlassView>
+        ) : (
+          formContent
+        )}
+      </Animated.View>
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + 40 }]}>
       {isLoading ? (
@@ -210,87 +302,7 @@ export const FigmaView = ({ tab }: Props) => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Connect Form */}
-          <Animated.View entering={FadeIn.duration(300)} style={styles.connectCard}>
-            <View style={styles.connectHeader}>
-              <View style={styles.figmaLogoLarge}>
-                <FigmaLogo size={32} />
-              </View>
-              <Text style={styles.connectTitle}>Connetti Figma</Text>
-              <Text style={styles.connectSubtitle}>
-                Collega il tuo account Figma per sincronizzare design tokens e assets
-              </Text>
-            </View>
-
-            <View style={styles.form}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Personal Access Token</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="figd_xxxxx..."
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  value={config.accessToken}
-                  onChangeText={(text) => setConfig(prev => ({ ...prev, accessToken: text }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry={!showToken}
-                />
-                <TouchableOpacity
-                  style={styles.showTokenButton}
-                  onPress={() => setShowToken(!showToken)}
-                >
-                  <Ionicons
-                    name={showToken ? "eye" : "eye-off"}
-                    size={16}
-                    color="rgba(255,255,255,0.4)"
-                  />
-                  <Text style={styles.showTokenText}>
-                    {showToken ? 'Nascondi' : 'Mostra'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>File URL (opzionale)</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="https://www.figma.com/file/..."
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  value={config.fileUrl}
-                  onChangeText={(text) => setConfig(prev => ({ ...prev, fileUrl: text }))}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="url"
-                />
-                <Text style={styles.inputHint}>
-                  Collega un file specifico per export rapido
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.connectButton, isTesting && styles.connectButtonDisabled]}
-                onPress={testConnection}
-                disabled={isTesting}
-              >
-                {isTesting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="color-palette" size={18} color="#fff" />
-                    <Text style={styles.connectButtonText}>Connetti</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.helpLink}
-                onPress={() => Linking.openURL('https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens')}
-              >
-                <Ionicons name="help-circle-outline" size={16} color="rgba(255,255,255,0.4)" />
-                <Text style={styles.helpLinkText}>Come creo un token?</Text>
-              </TouchableOpacity>
-            </View>
-          </Animated.View>
+          {renderConnectForm()}
         </ScrollView>
       ) : (
         <ScrollView
@@ -299,80 +311,96 @@ export const FigmaView = ({ tab }: Props) => {
           showsVerticalScrollIndicator={false}
         >
           {/* Connected State */}
-          <Animated.View entering={FadeIn.duration(300)}>
+          <Animated.View entering={FadeIn.duration(300)} style={{ width: '100%' }}>
             {/* File Info */}
             <View style={styles.fileCard}>
-              <View style={styles.fileHeader}>
-                <View style={styles.fileIconContainer}>
-                  <Ionicons name="document" size={24} color={FIGMA_PURPLE} />
-                </View>
-                <View style={styles.fileInfo}>
-                  <Text style={styles.fileName}>
-                    {config.fileName || 'File Figma'}
-                  </Text>
-                  {config.fileKey && (
-                    <Text style={styles.fileKey} numberOfLines={1}>
-                      {config.fileKey}
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={{ backgroundColor: 'transparent', borderRadius: 12, overflow: 'hidden' }}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                >
+                  <View style={styles.fileHeader}>
+                    <View style={styles.fileIconContainer}>
+                      <Ionicons name="document" size={24} color={FIGMA_PURPLE} />
+                    </View>
+                    <View style={styles.fileInfo}>
+                      <Text style={styles.fileName}>
+                        {config.fileName || 'File Figma'}
+                      </Text>
+                      {config.fileKey && (
+                        <Text style={styles.fileKey} numberOfLines={1}>
+                          {config.fileKey}
+                        </Text>
+                      )}
+                    </View>
+                    <TouchableOpacity onPress={openFigmaFile} style={styles.openBtn}>
+                      <Ionicons name="open-outline" size={20} color="rgba(255,255,255,0.5)" />
+                    </TouchableOpacity>
+                  </View>
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.fileHeader}>
+                  <View style={styles.fileIconContainer}>
+                    <Ionicons name="document" size={24} color={FIGMA_PURPLE} />
+                  </View>
+                  <View style={styles.fileInfo}>
+                    <Text style={styles.fileName}>
+                      {config.fileName || 'File Figma'}
                     </Text>
-                  )}
+                    {config.fileKey && (
+                      <Text style={styles.fileKey} numberOfLines={1}>
+                        {config.fileKey}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={openFigmaFile}>
+                    <Ionicons name="open-outline" size={20} color="rgba(255,255,255,0.5)" />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity onPress={openFigmaFile}>
-                  <Ionicons name="open-outline" size={20} color="rgba(255,255,255,0.5)" />
-                </TouchableOpacity>
-              </View>
+              )}
             </View>
 
             {/* Quick Actions */}
             <Text style={styles.sectionTitle}>Azioni</Text>
             <View style={styles.actionsList}>
-              <TouchableOpacity style={styles.actionRow} onPress={openFigmaFile}>
-                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(162, 89, 255, 0.15)' }]}>
-                  <Ionicons name="open-outline" size={18} color={FIGMA_PURPLE} />
-                </View>
-                <View style={styles.actionInfo}>
-                  <Text style={styles.actionTitle}>Apri in Figma</Text>
-                  <Text style={styles.actionDesc}>Apri il file nel browser</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
+              {[
+                { title: 'Apri in Figma', desc: 'Apri il file nel browser', icon: 'open-outline', color: FIGMA_PURPLE, onPress: openFigmaFile },
+                { title: 'Export Design Tokens', desc: 'Colori, font, spacing in theme.ts', icon: 'color-wand-outline', color: FIGMA_PURPLE, onPress: exportDesignTokens },
+                { title: 'Download Assets', desc: 'Icone e immagini in assets/', icon: 'download-outline', color: '#3B82F6', onPress: downloadAssets },
+                { title: 'Inspect Componenti', desc: 'Visualizza struttura del design', icon: 'layers-outline', color: '#10B981', onPress: () => Alert.alert('Coming Soon', 'Inspect componenti in sviluppo') },
+              ].map((action, idx) => {
+                const actionContent = (
+                  <View style={styles.actionRowInner}>
+                    <View style={[styles.actionIconSmall, { backgroundColor: `${action.color}20` }]}>
+                      <Ionicons name={action.icon as any} size={18} color={action.color} />
+                    </View>
+                    <View style={styles.actionInfo}>
+                      <Text style={styles.actionTitle}>{action.title}</Text>
+                      <Text style={styles.actionDesc}>{action.desc}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
+                  </View>
+                );
 
-              <TouchableOpacity style={styles.actionRow} onPress={exportDesignTokens}>
-                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(162, 89, 255, 0.15)' }]}>
-                  <Ionicons name="color-wand-outline" size={18} color={FIGMA_PURPLE} />
-                </View>
-                <View style={styles.actionInfo}>
-                  <Text style={styles.actionTitle}>Export Design Tokens</Text>
-                  <Text style={styles.actionDesc}>Colori, font, spacing in theme.ts</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.actionRow} onPress={downloadAssets}>
-                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
-                  <Ionicons name="download-outline" size={18} color="#3B82F6" />
-                </View>
-                <View style={styles.actionInfo}>
-                  <Text style={styles.actionTitle}>Download Assets</Text>
-                  <Text style={styles.actionDesc}>Icone e immagini in assets/</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionRow}
-                onPress={() => {
-                  Alert.alert('Coming Soon', 'Inspect componenti in sviluppo');
-                }}
-              >
-                <View style={[styles.actionIconSmall, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                  <Ionicons name="layers-outline" size={18} color="#10B981" />
-                </View>
-                <View style={styles.actionInfo}>
-                  <Text style={styles.actionTitle}>Inspect Componenti</Text>
-                  <Text style={styles.actionDesc}>Visualizza struttura del design</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.3)" />
-              </TouchableOpacity>
+                return (
+                  <TouchableOpacity key={idx} style={styles.actionRow} onPress={action.onPress}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={{ backgroundColor: 'transparent' }}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      >
+                        {actionContent}
+                      </LiquidGlassView>
+                    ) : (
+                      actionContent
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {/* Change File */}
@@ -464,13 +492,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   connectCard: {
-    backgroundColor: '#1a1a1c',
     borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(162, 89, 255, 0.2)',
     width: '100%',
     maxWidth: 400,
+  },
+  connectInner: {
+    backgroundColor: 'rgba(26, 26, 28, 0.4)',
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(162, 89, 255, 0.2)',
   },
   connectHeader: {
     alignItems: 'center',
@@ -557,16 +588,17 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.4)',
   },
   fileCard: {
-    backgroundColor: 'rgba(162, 89, 255, 0.08)',
     borderRadius: 12,
-    padding: 16,
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(162, 89, 255, 0.15)',
   },
   fileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(162, 89, 255, 0.08)',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(162, 89, 255, 0.15)',
   },
   fileIconContainer: {
     width: 44,
@@ -591,6 +623,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontFamily: 'monospace',
   },
+  openBtn: {
+    padding: 4,
+  },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '600',
@@ -598,6 +633,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
+    alignSelf: 'flex-start',
   },
   actionsList: {
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -606,13 +642,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
+    width: '100%',
   },
   actionRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  actionRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.04)',
   },
   actionIconSmall: {
     width: 36,
@@ -657,6 +696,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(239, 68, 68, 0.3)',
     backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    width: '100%',
   },
   disconnectText: {
     fontSize: 14,

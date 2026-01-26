@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { useAuthStore } from '../../core/auth/authStore';
@@ -562,38 +563,84 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       </View>
 
       <View style={styles.inputSection}>
-        <Pressable
-          style={[styles.inputContainer, inputFocused && styles.inputContainerFocused]}
-          onPress={() => inputRef.current?.focus()}
-        >
-          <Ionicons
-            name="cube-outline"
-            size={22}
-            color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-            style={styles.inputIcon}
-          />
-          <TextInput
-            ref={inputRef}
-            style={styles.textInput}
-            placeholder="Nome del progetto"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            value={projectName}
-            onChangeText={setProjectName}
-            onFocus={() => setInputFocused(true)}
-            onBlur={() => setInputFocused(false)}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="next"
-            keyboardAppearance="dark"
-          />
-          {projectName.length > 0 && (
-            <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
-              <View style={styles.clearBtnInner}>
-                <Ionicons name="close" size={12} color="#fff" />
-              </View>
-            </TouchableOpacity>
-          )}
-        </Pressable>
+        {isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[
+              styles.inputContainer,
+              inputFocused && styles.inputContainerFocused,
+              { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 0 }
+            ]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <Pressable
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}
+              onPress={() => inputRef.current?.focus()}
+            >
+              <Ionicons
+                name="cube-outline"
+                size={22}
+                color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                ref={inputRef}
+                style={styles.textInput}
+                placeholder="Nome del progetto"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={projectName}
+                onChangeText={setProjectName}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                keyboardAppearance="dark"
+              />
+              {projectName.length > 0 && (
+                <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
+                  <View style={styles.clearBtnInner}>
+                    <Ionicons name="close" size={12} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              )}
+            </Pressable>
+          </LiquidGlassView>
+        ) : (
+          <Pressable
+            style={[styles.inputContainer, inputFocused && styles.inputContainerFocused]}
+            onPress={() => inputRef.current?.focus()}
+          >
+            <Ionicons
+              name="cube-outline"
+              size={22}
+              color={inputFocused ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+              style={styles.inputIcon}
+            />
+            <TextInput
+              ref={inputRef}
+              style={styles.textInput}
+              placeholder="Nome del progetto"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={projectName}
+              onChangeText={setProjectName}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+              keyboardAppearance="dark"
+            />
+            {projectName.length > 0 && (
+              <TouchableOpacity onPress={() => setProjectName('')} style={styles.clearBtn}>
+                <View style={styles.clearBtnInner}>
+                  <Ionicons name="close" size={12} color="#fff" />
+                </View>
+              </TouchableOpacity>
+            )}
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.inputSection}>

@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated as RNAnimated, ScrollView, Keyboard } from 'react-native';
 import Animated, { useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -81,6 +82,72 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
     }
   };
 
+  const renderTabList = () => (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.scrollView}
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="always"
+    >
+      {tabs.map((tab, index) => {
+        const isActive = tab.id === activeTabId;
+        const isFirstTab = index === 0;
+        const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
+
+        return (
+          <RNAnimated.View
+            key={tab.id}
+            style={[
+              styles.tabWrapper,
+              { transform: [{ scale }] }
+            ]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                isActive && styles.tabActive,
+                isActive && isFirstTab && styles.tabActiveFirst
+              ]}
+              onPress={() => handleTabPress(tab.id)}
+              activeOpacity={0.7}
+            >
+              {isActive && isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={StyleSheet.absoluteFill}
+                  interactive={true}
+                  effect="clear"
+                  colorScheme="dark"
+                />
+              ) : null}
+              <View style={styles.tabContentInner}>
+                <Ionicons
+                  name={getTabIcon(tab.type)}
+                  size={14}
+                  color={isActive ? AppColors.primary : AppColors.icon.muted}
+                />
+                <Text
+                  style={[styles.tabTitle, isActive && styles.tabTitleActive]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {tab.title}
+                </Text>
+                <TouchableOpacity
+                  onPress={(e) => handleRemoveTab(tab.id, e)}
+                  style={styles.closeButton}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={14} color={AppColors.icon.muted} />
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </RNAnimated.View>
+        );
+      })}
+    </ScrollView>
+  );
+
   return (
     <Animated.View style={[styles.container, tabBarAnimatedStyle]}>
       <RNAnimated.View style={[
@@ -97,59 +164,7 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
           }]
         }
       ]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="always"
-        >
-          {tabs.map((tab, index) => {
-            const isActive = tab.id === activeTabId;
-            const isFirstTab = index === 0;
-            const scale = scaleAnims[tab.id] || new RNAnimated.Value(1);
-
-            return (
-              <RNAnimated.View
-                key={tab.id}
-                style={[
-                  styles.tabWrapper,
-                  { transform: [{ scale }] }
-                ]}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.tab,
-                    isActive && styles.tabActive,
-                    isActive && isFirstTab && styles.tabActiveFirst
-                  ]}
-                  onPress={() => handleTabPress(tab.id)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={getTabIcon(tab.type)}
-                    size={14}
-                    color={isActive ? AppColors.primary : AppColors.icon.muted}
-                  />
-                  <Text
-                    style={[styles.tabTitle, isActive && styles.tabTitleActive]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {tab.title}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={(e) => handleRemoveTab(tab.id, e)}
-                    style={styles.closeButton}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="close" size={14} color={AppColors.icon.muted} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              </RNAnimated.View>
-            );
-          })}
-        </ScrollView>
+        {renderTabList()}
       </RNAnimated.View>
     </Animated.View>
   );
@@ -190,9 +205,16 @@ const styles = StyleSheet.create({
     gap: 6,
     minWidth: 100,
     maxWidth: 170,
+    overflow: 'hidden',
+  },
+  tabContentInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
   },
   tabActive: {
-    backgroundColor: AppColors.primaryAlpha.a15,
+    backgroundColor: 'rgba(139, 124, 246, 0.1)',
   },
   tabActiveFirst: {
     borderBottomLeftRadius: 12,

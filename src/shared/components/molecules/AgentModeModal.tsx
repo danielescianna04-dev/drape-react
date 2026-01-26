@@ -1,8 +1,3 @@
-/**
- * AgentModeModal Component
- * Modal to select between Fast and Planning modes
- */
-
 import React from 'react';
 import {
     View,
@@ -13,6 +8,7 @@ import {
     Dimensions,
     Pressable,
 } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -25,38 +21,71 @@ interface Props {
 const { width } = Dimensions.get('window');
 
 export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode }) => {
-    return (
-        <Modal
-            visible={visible}
-            transparent={true}
-            animationType="fade"
-            statusBarTranslucent={true}
-            onRequestClose={onClose}
-        >
-            <Pressable style={styles.container} onPress={onClose}>
-                <View style={styles.backdrop} />
+    const renderContent = () => (
+        <View style={styles.modalInner}>
+            {/* Header */}
+            <View style={styles.header}>
+                <Text style={styles.title}>Seleziona Modalità</Text>
+                <TouchableOpacity
+                    onPress={onClose}
+                    style={styles.closeButton}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                    <Ionicons name="close" size={24} color={AppColors.white.w60} />
+                </TouchableOpacity>
+            </View>
 
-                <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-                    {/* Header */}
-                    <View style={styles.header}>
-                        <Text style={styles.title}>Seleziona Modalità</Text>
-                        <TouchableOpacity
-                            onPress={onClose}
-                            style={styles.closeButton}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            {/* Mode Cards */}
+            <View style={styles.cardsContainer}>
+                {/* Fast Mode Card */}
+                <TouchableOpacity
+                    onPress={() => onSelectMode('fast')}
+                    activeOpacity={0.7}
+                >
+                    {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                            style={[styles.modeCard, { backgroundColor: 'rgba(139, 92, 246, 0.1)', overflow: 'hidden' }]}
+                            interactive={true}
+                            effect="clear"
+                            colorScheme="dark"
                         >
-                            <Ionicons name="close" size={24} color={AppColors.white.w60} />
-                        </TouchableOpacity>
-                    </View>
+                            <View style={{ padding: 16 }}>
+                                <View style={styles.cardHeader}>
+                                    <View style={[styles.iconContainer, styles.iconContainerFast]}>
+                                        <Ionicons name="flash" size={24} color={AppColors.primary} />
+                                    </View>
+                                    <View style={styles.recommendedBadge}>
+                                        <Text style={styles.recommendedText}>Consigliato</Text>
+                                    </View>
+                                </View>
 
-                    {/* Mode Cards */}
-                    <View style={styles.cardsContainer}>
-                        {/* Fast Mode Card */}
-                        <TouchableOpacity
-                            style={styles.modeCard}
-                            onPress={() => onSelectMode('fast')}
-                            activeOpacity={0.7}
-                        >
+                                <Text style={styles.modeTitle}>Esecuzione Rapida</Text>
+                                <Text style={styles.modeDescription}>
+                                    Genera subito il codice e corregge eventuali errori in tempo reale
+                                </Text>
+
+                                <View style={styles.features}>
+                                    <View style={styles.feature}>
+                                        <Ionicons
+                                            name="checkmark-circle"
+                                            size={16}
+                                            color={AppColors.primary}
+                                        />
+                                        <Text style={styles.featureText}>Veloce</Text>
+                                    </View>
+                                    <View style={styles.feature}>
+                                        <Ionicons
+                                            name="checkmark-circle"
+                                            size={16}
+                                            color={AppColors.primary}
+                                        />
+                                        <Text style={styles.featureText}>Auto-correzione</Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </LiquidGlassView>
+                    ) : (
+                        <View style={styles.modeCard}>
                             <View style={styles.cardHeader}>
                                 <View style={[styles.iconContainer, styles.iconContainerFast]}>
                                     <Ionicons name="flash" size={24} color={AppColors.primary} />
@@ -89,14 +118,60 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                     <Text style={styles.featureText}>Auto-correzione</Text>
                                 </View>
                             </View>
-                        </TouchableOpacity>
+                        </View>
+                    )}
+                </TouchableOpacity>
 
-                        {/* Planning Mode Card */}
-                        <TouchableOpacity
-                            style={styles.modeCard}
-                            onPress={() => onSelectMode('planning')}
-                            activeOpacity={0.7}
+                {/* Planning Mode Card */}
+                <TouchableOpacity
+                    onPress={() => onSelectMode('planning')}
+                    activeOpacity={0.7}
+                >
+                    {isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                            style={[styles.modeCard, { backgroundColor: 'rgba(255, 255, 255, 0.03)', overflow: 'hidden' }]}
+                            interactive={true}
+                            effect="clear"
+                            colorScheme="dark"
                         >
+                            <View style={{ padding: 16 }}>
+                                <View style={styles.cardHeader}>
+                                    <View style={[styles.iconContainer, styles.iconContainerPlanning]}>
+                                        <Ionicons
+                                            name="clipboard-outline"
+                                            size={24}
+                                            color={AppColors.white.w70}
+                                        />
+                                    </View>
+                                </View>
+
+                                <Text style={styles.modeTitle}>Pianificazione</Text>
+                                <Text style={styles.modeDescription}>
+                                    Crea un piano dettagliato e attendi la tua approvazione prima di procedere
+                                </Text>
+
+                                <View style={styles.features}>
+                                    <View style={styles.feature}>
+                                        <Ionicons
+                                            name="checkmark-circle"
+                                            size={16}
+                                            color={AppColors.white.w40}
+                                        />
+                                        <Text style={styles.featureText}>Controllo totale</Text>
+                                    </View>
+                                    <View style={styles.feature}>
+                                        <Ionicons
+                                            name="checkmark-circle"
+                                            size={16}
+                                            color={AppColors.white.w40}
+                                        />
+                                        <Text style={styles.featureText}>Piano dettagliato</Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </LiquidGlassView>
+                    ) : (
+                        <View style={styles.modeCard}>
                             <View style={styles.cardHeader}>
                                 <View style={[styles.iconContainer, styles.iconContainerPlanning]}>
                                     <Ionicons
@@ -130,9 +205,38 @@ export const AgentModeModal: React.FC<Props> = ({ visible, onClose, onSelectMode
                                     <Text style={styles.featureText}>Piano dettagliato</Text>
                                 </View>
                             </View>
-                        </TouchableOpacity>
-                    </View>
-                </Pressable>
+                        </View>
+                    )}
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+
+    return (
+        <Modal
+            visible={visible}
+            transparent={true}
+            animationType="fade"
+            statusBarTranslucent={true}
+            onRequestClose={onClose}
+        >
+            <Pressable style={styles.container} onPress={onClose}>
+                <View style={styles.backdrop} />
+
+                {isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                        style={[styles.modalContent, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                    >
+                        {renderContent()}
+                    </LiquidGlassView>
+                ) : (
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                        {renderContent()}
+                    </Pressable>
+                )}
             </Pressable>
         </Modal>
     );
@@ -151,16 +255,12 @@ const styles = StyleSheet.create({
     modalContent: {
         width: width * 0.9,
         maxWidth: 500,
-        backgroundColor: AppColors.dark.surface,
-        borderRadius: 20,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: AppColors.white.w10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 20,
-        elevation: 10,
+        borderRadius: 24,
+    },
+    modalInner: {
+        padding: 24,
+        backgroundColor: 'rgba(26, 26, 26, 0.4)',
+        borderRadius: 24,
     },
     header: {
         flexDirection: 'row',
@@ -177,12 +277,10 @@ const styles = StyleSheet.create({
         padding: 4,
     },
     cardsContainer: {
-        gap: 12,
+        gap: 16,
     },
     modeCard: {
-        backgroundColor: AppColors.dark.surfaceVariant,
-        borderRadius: 16,
-        padding: 16,
+        borderRadius: 20,
         borderWidth: 1,
         borderColor: AppColors.white.w10,
     },

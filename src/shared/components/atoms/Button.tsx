@@ -1,5 +1,6 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, View } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface ButtonProps {
   /** Button label text */
@@ -16,6 +17,8 @@ interface ButtonProps {
   labelStyle?: TextStyle;
   /** Accessibility label */
   accessibilityLabel?: string;
+  /** Whether to force disable glass effect */
+  noGlass?: boolean;
 }
 
 /**
@@ -30,6 +33,7 @@ export const Button: React.FC<ButtonProps> = ({
   style,
   labelStyle,
   accessibilityLabel,
+  noGlass = false,
 }) => {
   const getButtonStyle = () => {
     switch (variant) {
@@ -57,14 +61,59 @@ export const Button: React.FC<ButtonProps> = ({
     }
   };
 
+  const buttonStyle = [
+    styles.button,
+    getButtonStyle(),
+    disabled && styles.disabledButton,
+    style,
+  ];
+
+  // If Liquid Glass is supported and not disabled
+  if (isLiquidGlassSupported && !noGlass && variant !== 'ghost') {
+    // Flatten styles to extract border radius if present, otherwise default to 12
+    const flattenedStyle = StyleSheet.flatten(buttonStyle);
+    const borderRadius = (flattenedStyle.borderRadius as number) || 12;
+    
+    // For glass effect, we want the container to be the glass view
+    // and the button inside to be transparent or semi-transparent
+    return (
+      <LiquidGlassView
+        style={[
+          buttonStyle,
+          { 
+            backgroundColor: 'transparent', // Let glass handle background
+            overflow: 'hidden',
+            borderRadius 
+          }
+        ]}
+        interactive={true}
+        effect="clear"
+        colorScheme="dark"
+      >
+        <TouchableOpacity
+          style={[
+            styles.innerButton,
+            { 
+              backgroundColor: variant === 'primary' ? 'rgba(139, 124, 246, 0.6)' : 'rgba(255, 255, 255, 0.1)' 
+            }
+          ]}
+          onPress={onPress}
+          disabled={disabled}
+          accessibilityLabel={accessibilityLabel || label}
+          accessibilityRole="button"
+          accessibilityState={{ disabled }}
+        >
+          <Text style={[getLabelStyle(), disabled && styles.disabledLabel, labelStyle]}>
+            {label}
+          </Text>
+        </TouchableOpacity>
+      </LiquidGlassView>
+    );
+  }
+
   return (
     <TouchableOpacity
-      style={[
-        styles.button,
-        getButtonStyle(),
-        disabled && styles.disabledButton,
-        style,
-      ]}
+      style={buttonStyle}
       onPress={onPress}
       disabled={disabled}
       accessibilityLabel={accessibilityLabel || label}
@@ -85,6 +134,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  innerButton: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   primaryButton: {
     backgroundColor: '#8B7CF6',

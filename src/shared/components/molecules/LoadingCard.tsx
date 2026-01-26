@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 interface LoadingCardProps {
   /** Card title (e.g., "Git Clone", "Processing") */
@@ -30,8 +31,8 @@ export const LoadingCard: React.FC<LoadingCardProps> = ({
     }
   }, [showDots]);
 
-  return (
-    <View style={styles.card}>
+  const renderContent = () => (
+    <>
       <View style={styles.header}>
         <Text style={styles.title}>{title}</Text>
       </View>
@@ -44,6 +45,25 @@ export const LoadingCard: React.FC<LoadingCardProps> = ({
           </Text>
         </View>
       </View>
+    </>
+  );
+
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView
+        style={[styles.card, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+        interactive={true}
+        effect="clear"
+        colorScheme="dark"
+      >
+        {renderContent()}
+      </LiquidGlassView>
+    );
+  }
+
+  return (
+    <View style={styles.card}>
+      {renderContent()}
     </View>
   );
 };

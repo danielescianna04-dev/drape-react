@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -147,134 +148,184 @@ export const ChatPanel = ({ onClose }: Props) => {
   return (
     <>
       <View style={styles.container}>
-        {/* Upgrade CTA for Free Users */}
-        {!isGoUser && (
-          <TouchableOpacity
-            style={styles.upgradeBtnContainer}
-            onPress={() => {
-              onClose();
-              useNavigationStore.getState().navigateTo('plans');
-            }}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={['#2C2C2E', '#1C1C1E']}
-              style={styles.upgradeBtn}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <View style={styles.upgradeLeft}>
-                <View style={styles.flashIconBg}>
-                  <Ionicons name="flash" size={12} color="#9B8AFF" />
-                </View>
-                <View>
-                  <Text style={styles.upgradeTitle}>Passa a GO</Text>
-                  <Text style={styles.upgradeSubtitle}>Modelli AI avanzati e altro</Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.2)" />
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
 
-        {/* New Chat Button - ChatGPT style */}
-        <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
-          <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
-          <Text style={styles.newChatText}>Nuova chat</Text>
-        </TouchableOpacity>
+        <View style={styles.containerInner}>
 
-        {/* Search */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
-          <TextInput
-            style={styles.searchInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Cerca nelle chat..."
-            placeholderTextColor="rgba(255,255,255,0.4)"
-          />
-        </View>
 
-        {/* Chat List */}
-        <ScrollView
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.contentContainer}
-        >
-          {filteredChats.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
-              <Text style={styles.emptyText}>
-                {searchQuery ? 'Nessun risultato' : 'Nessuna chat'}
-              </Text>
+          {/* New Chat Button - ChatGPT style */}
+          <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
+            {isLiquidGlassSupported && (
+              <LiquidGlassView
+                style={[StyleSheet.absoluteFill, { borderRadius: 24, overflow: 'hidden' }]}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              />
+            )}
+            <View style={styles.newChatButtonInner}>
+              <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.newChatText}>Nuova chat</Text>
             </View>
-          ) : (
-            <>
-              {/* Today section */}
-              <Text style={styles.sectionTitle}>Recenti</Text>
-              {filteredChats.map((chat) => (
-                <View key={chat.id} style={styles.chatItemWrapper}>
-                  {renamingChatId === chat.id ? (
-                    <View style={styles.renameContainer}>
-                      <TextInput
-                        style={styles.renameInput}
-                        value={renamingValue}
-                        onChangeText={setRenamingValue}
-                        onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                        autoFocus
-                        placeholder="Nome chat"
-                        placeholderTextColor="rgba(255,255,255,0.4)"
-                      />
-                      <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                        <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                        <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.chatItem}
-                      onPress={() => handleSelectChat(chat)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="chatbubble-outline" size={16} color="rgba(255,255,255,0.5)" />
-                      <Text style={styles.chatTitle} numberOfLines={1}>{chat.title}</Text>
-                      <TouchableOpacity
-                        onPress={() => handleMenuToggle(chat.id)}
-                        style={styles.menuButton}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
-                      </TouchableOpacity>
-                    </TouchableOpacity>
-                  )}
+          </TouchableOpacity>
 
-                  {/* Dropdown menu */}
-                  {openMenuId === chat.id && (
-                    <View style={styles.dropdown}>
-                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
-                        <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.dropdownText}>Rinomina</Text>
-                      </TouchableOpacity>
-                      <View style={styles.dropdownDivider} />
-                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
-                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                        <Text style={[styles.dropdownText, { color: '#ef4444' }]}>Elimina</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+          {/* Search */}
+          <View style={{ marginHorizontal: 12, marginBottom: 12 }}>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={[
+                  styles.searchContainer,
+                  { marginHorizontal: 0, marginBottom: 0, backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 8 }
+                ]}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
+                  <TextInput
+                    style={styles.searchInput}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Cerca nelle chat..."
+                    placeholderTextColor="rgba(255,255,255,0.4)"
+                  />
                 </View>
-              ))}
-            </>
-          )}
-        </ScrollView>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={15} color="rgba(255,255,255,0.4)" />
+                <TextInput
+                  style={styles.searchInput}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Cerca nelle chat..."
+                  placeholderTextColor="rgba(255,255,255,0.4)"
+                />
+              </View>
+            )}
+          </View>
 
-        {/* Bottom close button */}
-        <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
-          <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
-          <Text style={styles.bottomCloseText}>Chiudi</Text>
-        </TouchableOpacity>
+          {/* Chat List */}
+          <ScrollView
+            style={styles.content}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.contentContainer}
+          >
+            {filteredChats.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
+                <Text style={styles.emptyText}>
+                  {searchQuery ? 'Nessun risultato' : 'Nessuna chat'}
+                </Text>
+              </View>
+            ) : (
+              <>
+                {/* Today section */}
+                <Text style={styles.sectionTitle}>Recenti</Text>
+                {filteredChats.map((chat) => (
+                  <View key={chat.id} style={styles.chatItemWrapper}>
+                    {renamingChatId === chat.id ? (
+                      isLiquidGlassSupported ? (
+                        <LiquidGlassView
+                          style={[
+                            styles.renameContainer,
+                            { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 }
+                          ]}
+                          interactive={true}
+                          effect="clear"
+                          colorScheme="dark"
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <TextInput
+                              style={styles.renameInput}
+                              value={renamingValue}
+                              onChangeText={setRenamingValue}
+                              onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                              autoFocus
+                              placeholder="Nome chat"
+                              placeholderTextColor="rgba(255,255,255,0.4)"
+                            />
+                            <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                              <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                              <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                            </TouchableOpacity>
+                          </View>
+                        </LiquidGlassView>
+                      ) : (
+                        <View style={styles.renameContainer}>
+                          <TextInput
+                            style={styles.renameInput}
+                            value={renamingValue}
+                            onChangeText={setRenamingValue}
+                            onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                            autoFocus
+                            placeholder="Nome chat"
+                            placeholderTextColor="rgba(255,255,255,0.4)"
+                          />
+                          <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                            <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                            <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                          </TouchableOpacity>
+                        </View>
+                      )
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.chatItem}
+                        onPress={() => handleSelectChat(chat)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="chatbubble-outline" size={16} color="rgba(255,255,255,0.5)" />
+                        <Text style={styles.chatTitle} numberOfLines={1}>{chat.title}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleMenuToggle(chat.id)}
+                          style={styles.menuButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Dropdown menu */}
+                    {openMenuId === chat.id && (
+                      <View style={styles.dropdown}>
+                        {isLiquidGlassSupported ? (
+                          <LiquidGlassView
+                            style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+                            interactive={true}
+                            effect="clear"
+                            colorScheme="dark"
+                          />
+                        ) : null}
+                        <View style={styles.dropdownInner}>
+                          <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
+                            <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
+                            <Text style={styles.dropdownText}>Rinomina</Text>
+                          </TouchableOpacity>
+                          <View style={styles.dropdownDivider} />
+                          <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
+                            <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                            <Text style={[styles.dropdownText, { color: '#ef4444' }]}>Elimina</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </>
+            )}
+          </ScrollView>
+
+          {/* Bottom close button */}
+          <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
+            <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
+            <Text style={styles.bottomCloseText}>Chiudi</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </>
   );
@@ -288,26 +339,32 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '55%',
     maxWidth: 220,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: AppColors.dark.backgroundAlt,
     zIndex: 1000,
-    paddingTop: 54,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 12,
     elevation: 20,
   },
+  containerInner: {
+    flex: 1,
+    paddingTop: 54,
+  },
   newChatButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginHorizontal: 12,
     marginBottom: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
+  },
+  newChatButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.02)',
   },
   newChatText: {
     fontSize: 14,
@@ -322,7 +379,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 8,
+    borderRadius: 24,
     gap: 8,
   },
   searchInput: {
@@ -381,9 +438,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 4,
-    backgroundColor: '#2a2a2a',
+    backgroundColor: 'transparent',
     borderRadius: 8,
-    overflow: 'hidden',
     zIndex: 1000,
     minWidth: 140,
     borderWidth: 1,
@@ -393,6 +449,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
+  },
+  dropdownInner: {
+    backgroundColor: 'rgba(42, 42, 42, 0.4)',
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   dropdownItem: {
     flexDirection: 'row',
