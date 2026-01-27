@@ -70,7 +70,7 @@ const tutorialSteps = [
 const GlassWrapper = ({ children, style }: { children: React.ReactNode; style?: any }) => {
   if (isLiquidGlassSupported) {
     return (
-      <LiquidGlassView style={[{ borderRadius: 16, overflow: 'hidden' }, style]} interactive={true} effect="clear" colorScheme="dark">
+      <LiquidGlassView style={[{ borderRadius: 16, overflow: 'hidden' }, style]} interactive={true} effect="regular" colorScheme="dark">
         {children}
       </LiquidGlassView>
     );
@@ -146,11 +146,16 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const currentProgressRef = useRef(0);
+  const [focusKey, setFocusKey] = useState(0);
 
   // Reload projects when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       // Leggi dallo store al momento dell'esecuzione (non dalla closure)
+      // Trigger refresh with slight delay to allow transition to complete
+      const timer = setTimeout(() => {
+        setFocusKey(k => k + 1);
+      }, 100);
       const cachedData = useTerminalStore.getState().workstations;
       const hasCachedData = cachedData.length > 0;
       console.log('🏠 [Home] useFocusEffect triggered - hasCachedData:', hasCachedData);
@@ -173,6 +178,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         console.log('🏠 [Home] No cache - showing skeleton');
         loadRecentProjects(false);
       }
+      return () => clearTimeout(timer);
     }, [])
   );
 
@@ -922,7 +928,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </TouchableOpacity>
 
             {/* Import from GitHub */}
-            <GlassWrapper style={[styles.actionCard, styles.actionCardGlass]}>
+            <GlassWrapper key={`import-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
               <TouchableOpacity
                 style={styles.actionCardInner}
                 activeOpacity={0.8}
@@ -935,7 +941,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </GlassWrapper>
 
             {/* Open File */}
-            <GlassWrapper style={[styles.actionCard, styles.actionCardGlass]}>
+            <GlassWrapper key={`file-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
               <TouchableOpacity
                 style={styles.actionCardInner}
                 activeOpacity={0.8}
@@ -951,7 +957,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
         {/* Upgrade CTA - only show for free users */}
         {currentPlan === 'free' && showUpgradeCta && (
-          <GlassWrapper style={styles.upgradeCtaGlass}>
+          <GlassWrapper key={`upgrade-${focusKey}`} style={styles.upgradeCtaGlass}>
             <TouchableOpacity
               style={styles.upgradeCta}
               activeOpacity={0.9}
@@ -1008,7 +1014,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 const langColor = getLanguageColor(project.language);
                 const repoInfo = getRepoInfo(project.repositoryUrl || project.githubUrl);
                 return (
-                  <GlassWrapper key={project.id} style={styles.projectCardGlass}>
+                  <GlassWrapper key={`${project.id}-${focusKey}`} style={styles.projectCardGlass}>
                     <TouchableOpacity
                       style={styles.projectCard}
                       activeOpacity={0.7}
@@ -1041,14 +1047,16 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 );
               })}
               {/* See All Button */}
-              <TouchableOpacity
-                style={styles.seeAllButton}
-                activeOpacity={0.7}
-                onPress={onMyProjects}
-              >
-                <Text style={styles.seeAllButtonText}>Vedi tutti</Text>
-                <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.6)" />
-              </TouchableOpacity>
+              <GlassWrapper key={`seeall-${focusKey}`} style={{ borderRadius: 100, overflow: 'hidden', alignSelf: 'center', marginTop: 32 }}>
+                <TouchableOpacity
+                  style={[styles.seeAllButton, { marginTop: 0, backgroundColor: 'rgba(255,255,255,0.1)' }]}
+                  activeOpacity={0.7}
+                  onPress={onMyProjects}
+                >
+                  <Text style={styles.seeAllButtonText}>Vedi tutti</Text>
+                  <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
+              </GlassWrapper>
             </>
           ) : (
             <View style={styles.emptyState}>
@@ -1079,7 +1087,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             ]}
           >
             {isLiquidGlassSupported ? (
-              <LiquidGlassView style={styles.sheetLiquidGlass} interactive={true} effect="clear" colorScheme="dark">
+              <LiquidGlassView key={`sheet-${focusKey}`} style={styles.sheetLiquidGlass} interactive={true} effect="regular" colorScheme="dark">
                 <View style={styles.sheetContent}>
                   <View style={styles.sheetHandle}>
                     <View style={styles.sheetHandleBar} />
@@ -1362,8 +1370,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               effect="clear"
               colorScheme="dark"
             >
-              <Pressable 
-                style={{ padding: 24, backgroundColor: 'rgba(255,255,255,0.05)' }} 
+              <Pressable
+                style={{ padding: 24, backgroundColor: 'rgba(255,255,255,0.05)' }}
                 onPress={() => { }}
               >
                 <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
@@ -1619,7 +1627,7 @@ const styles = StyleSheet.create({
     padding: 14,
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(20,20,22,0.9)',
+    backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 14,
   },
   actionCardTitle: {
@@ -1659,7 +1667,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 14,
-    backgroundColor: 'rgba(20,20,22,0.9)',
+    backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 14,
   },
   projectIcon: {
@@ -2032,7 +2040,7 @@ const styles = StyleSheet.create({
   },
   upgradeCta: {
     borderRadius: 14,
-    backgroundColor: 'rgba(20,20,22,0.9)',
+    backgroundColor: 'rgba(20,20,22,0.5)',
     paddingVertical: 14,
     paddingHorizontal: 16,
     position: 'relative',

@@ -81,11 +81,12 @@ interface SettingItemProps {
   onPress?: () => void;
   rightElement?: React.ReactNode;
   showChevron?: boolean;
+  isLast?: boolean;
 }
 
-const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, showChevron = true }: SettingItemProps) => (
+const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, showChevron = true, isLast }: SettingItemProps) => (
   <TouchableOpacity
-    style={styles.settingItem}
+    style={[styles.settingItem, isLast && { borderBottomWidth: 0 }]}
     onPress={onPress}
     activeOpacity={onPress ? 0.7 : 1}
     disabled={!onPress}
@@ -232,7 +233,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
     const providerColor = providerConfig?.color || '#888';
 
     return (
-      <View key={account.id} style={styles.accountCard}>
+      <View key={account.id} style={[styles.accountCard, accounts.indexOf(account) === accounts.length - 1 && { borderBottomWidth: 0 }]}>
         {account.avatarUrl ? (
           <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
         ) : (
@@ -722,7 +723,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
           onPress={onClose}
         >
           {isLiquidGlassSupported ? (
-            <LiquidGlassView style={styles.backButtonGlass} interactive={true} effect="clear" colorScheme="dark">
+            <LiquidGlassView
+              key={loading ? 'loading-back' : 'loaded-back'}
+              style={styles.backButtonGlass}
+              interactive={true}
+              effect="regular"
+              colorScheme="dark"
+            >
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </LiquidGlassView>
           ) : (
@@ -742,7 +749,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
       >
         {/* User Profile Section */}
         {user && (
-          <GlassCard style={styles.profileBlur}>
+          <GlassCard style={styles.profileBlur} key={loading ? 'loading-profile' : 'loaded-profile'}>
             <View style={styles.profileSection}>
               <View style={styles.profileAvatarContainer}>
                 <LinearGradient
@@ -810,7 +817,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
         {/* Abbonamento & Utilizzo Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Abbonamento & Utilizzo</Text>
-          <GlassCard>
+          <GlassCard key={loading ? 'loading-sub' : 'loaded-sub'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="card-outline"
@@ -825,6 +832,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 title="Budget AI"
                 subtitle={budgetStatus ? `€${budgetStatus.usage.spentEur.toFixed(2)} / €${budgetStatus.plan.monthlyBudgetEur.toFixed(2)} (${budgetStatus.usage.percentUsed}% usato)` : 'Caricamento...'}
                 onPress={() => setShowResourceUsage(true)}
+                isLast
               />
             </View>
           </GlassCard>
@@ -833,7 +841,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
         {/* Aspetto Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Aspetto</Text>
-          <GlassCard>
+          <GlassCard key={loading ? 'loading-app' : 'loaded-app'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="moon-outline"
@@ -851,6 +859,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                     style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
                   />
                 }
+                isLast
               />
             </View>
           </GlassCard>
@@ -859,7 +868,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
         {/* Notifiche Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notifiche</Text>
-          <GlassCard>
+          <GlassCard key={loading ? 'loading-notif' : 'loaded-notif'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="notifications-outline"
@@ -877,6 +886,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                     style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
                   />
                 }
+                isLast
               />
             </View>
           </GlassCard>
@@ -885,7 +895,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
         {/* Info Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informazioni</Text>
-          <GlassCard>
+          <GlassCard key={loading ? 'loading-info' : 'loaded-info'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="information-circle-outline"
@@ -905,6 +915,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 iconColor="#94A3B8"
                 title="Privacy Policy"
                 onPress={() => Linking.openURL('https://drape.app/privacy')}
+                isLast
               />
             </View>
           </GlassCard>
@@ -912,7 +923,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
 
         {/* Danger Zone */}
         <View style={styles.section}>
-          <GlassCard>
+          <GlassCard key={loading ? 'loading-danger' : 'loaded-danger'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="log-out-outline"
@@ -933,6 +944,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                   },
                 ])}
                 showChevron={false}
+                isLast
               />
             </View>
           </GlassCard>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, Dimensions, Pressable, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { BlurView } from 'expo-blur';
 import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
 import { AppColors } from '../../../shared/theme/colors';
@@ -115,7 +116,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         setLoading(false);
 
         // Refresh in background silently
-        loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch(() => {});
+        loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch(() => { });
         return;
       }
 
@@ -616,6 +617,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       onRequestClose={onClose}
       statusBarTranslucent
     >
+      <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable style={styles.backdrop} onPress={onClose}>
         <SheetContainer>
           {/* Header */}
@@ -1058,7 +1060,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,

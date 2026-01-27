@@ -439,7 +439,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             </View>
           </LiquidGlassView>
         ) : (
-          <View style={styles.searchContainer}>
+          <View style={[styles.searchContainer, styles.searchInner]}>
             <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
             <TextInput
               style={styles.searchInput}
@@ -619,7 +619,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   searchContainer: {
-    borderRadius: 14,
+    borderRadius: 100,
   },
   searchInner: {
     flexDirection: 'row',
@@ -630,6 +630,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 100,
   },
   searchInput: {
     flex: 1,
