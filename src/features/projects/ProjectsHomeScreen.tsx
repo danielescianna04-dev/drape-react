@@ -341,13 +341,16 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     setLoadingStep('Preparazione');
     setIsLoadingProject(true);
 
-    // Release previous project's VM when switching (instant release)
+    // Release previous project's VM when switching (with grace period)
     const { currentWorkstation } = useTerminalStore.getState();
     if (currentWorkstation && currentWorkstation.id !== project.id) {
       console.log('🔄 [Home] Switching project - releasing VM for previous project:', currentWorkstation.id);
 
-      // Release VM immediately (don't wait)
-      fetch(`${config.apiUrl}/fly/release`, {
+      // Show "Freeing resources" step
+      await animateProgressTo(8, 'Liberando risorse...', 500);
+
+      // Release VM and wait for grace period (2 seconds for process kill + cleanup)
+      await fetch(`${config.apiUrl}/fly/release`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId: currentWorkstation.id }),
@@ -360,6 +363,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       }).catch(err => {
         console.error('❌ [Home] Release error:', err.message);
       });
+
+      // Wait for the 2-second grace period (process kill + resource cleanup)
+      await animateProgressTo(12, 'Liberando risorse...', 2000);
+      console.log('✅ [Home] Grace period complete - VM resources freed');
     }
 
     const repoUrl = project.repositoryUrl || project.githubUrl;
@@ -377,7 +384,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     if (hasCachedFiles && existingMachineId) {
       console.log('⚡ [Home] Cache hit! Opening project immediately');
 
-      // Animate to 100% and wait
+      // Animate from current progress (12% after grace period) to 100%
       await animateProgressTo(100, 'Apertura...', 400);
 
       // Brief pause
@@ -463,23 +470,34 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     if (repoUrl && !existingMachineId) {
       try {
         console.log('🔥 [Home] Starting VM warmup (blocking)...');
-        animateProgressTo(15, 'Allocazione VM', 800);
+        // Start from 12% (after grace period) to 25%
+        animateProgressTo(25, 'Allocazione VM', 1200);
 
         const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl).catch(() => null);
         const token = tokenData?.token || null;
 
-        // Animate to 60% over ~20 seconds (duration of clone operation)
-        animateProgressTo(60, 'Sincronizzazione file', 18000);
+        // Smoothly animate to 55% over the file sync + git init (~18s total)
+        // File sync is fast (400ms) but git init + detection takes ~15-17s more
+        animateProgressTo(55, 'Sincronizzazione file', 16000);
 
-        const response = await fetch(`${config.apiUrl}/fly/clone`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workstationId: project.id,
-            repositoryUrl: repoUrl,
-            githubToken: token,
-          }),
-        });
+        // Create abort controller with 2-minute timeout for large repos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes
+
+        try {
+          var response = await fetch(`${config.apiUrl}/fly/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workstationId: project.id,
+              repositoryUrl: repoUrl,
+              githubToken: token,
+            }),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
 
         const data = await response.json();
 
@@ -503,6 +521,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         vmCompleted = true;
       } catch (e: any) {
         console.warn('⚠️ [Home] VM warmup error:', e.message);
+        // Handle timeout errors
+        if (e.name === 'AbortError') {
+          throw new Error('Clone timeout - il repository è troppo grande. Riprova.');
+        }
         // Re-throw pool exhausted errors to show to user
         if (e.message.includes('riprova') || e.message.includes('richieste')) {
           throw e;
@@ -1774,6 +1796,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   sheetContent: {
     paddingBottom: 40,
