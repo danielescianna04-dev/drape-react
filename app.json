@@ -2,7 +2,7 @@
   "expo": {
     "name": "drape-react",
     "slug": "drape-react",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
         "NSPhotoLibraryAddUsageDescription": "L'app necessita di salvare immagini nella tua galleria.",
-        "NSCameraUsageDescription": "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat."
+        "NSCameraUsageDescription": "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -28,7 +29,16 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -56,6 +66,14 @@
           "ios": {
             "useFrameworks": "static"
           }
+        }
+      ],
+      "./plugins/withLiveActivity.js",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#9B8AFF"
         }
       ]
     ]

@@ -1,6 +1,6 @@
 {
   "name": "drape-react",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "main": "index.ts",
   "scripts": {
     "setup": "node setup.js",
@@ -48,6 +48,7 @@
     "expo-linking": "~8.0.11",
     "expo-liquid-glass-view": "^0.1.9",
     "expo-media-library": "^18.2.1",
+    "expo-notifications": "~0.32.16",
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
     "expo-web-browser": "~15.0.10",
