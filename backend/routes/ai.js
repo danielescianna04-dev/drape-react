@@ -256,7 +256,8 @@ router.post('/chat', asyncHandler(async (req, res) => {
         projectId,
         repositoryUrl, selectedModel = DEFAULT_AI_MODEL,
         context: userContext,
-        username
+        username,
+        userId
     } = req.body;
 
     if (!prompt) {
@@ -499,6 +500,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
         console.log(`📈 [AI] Tracking total usage: ${totalInputTokens} in, ${totalOutputTokens} out`);
         metricsService.trackAIUsage({
             projectId: effectiveProjectId || 'global',
+            userId: userId || null,
             model: selectedModel,
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,

@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
+import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
@@ -126,6 +127,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
   const { user, logout } = useAuthStore();
   const [darkMode, setDarkMode] = useState(true);
   const [notifications, setNotifications] = useState(true);
+  const [notifOperations, setNotifOperations] = useState(true);
+  const [notifGithub, setNotifGithub] = useState(true);
+  const [notifReengagement, setNotifReengagement] = useState(true);
+
+  const updateNotifPreference = (key: string, value: boolean) => {
+    const prefs = {
+      operations: key === 'operations' ? value : notifOperations,
+      github: key === 'github' ? value : notifGithub,
+      reengagement: key === 'reengagement' ? value : notifReengagement,
+    };
+    if (user?.uid) {
+      pushNotificationService.updatePreferences(user.uid, prefs).catch(() => {});
+    }
+  };
 
   const [accounts, setAccounts] = useState<GitAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,8 +186,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
       setStatusLoading(true);
       const { apiUrl } = getSystemConfig().backend;
 
-      // Fetch system status
-      const response = await fetch(`${apiUrl}/stats/system-status`);
+      // Fetch system status (per-user)
+      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}&planId=${encodeURIComponent(currentPlan)}`);
       const data = await response.json();
       setSystemStatus(data);
 
@@ -880,6 +895,57 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                   <Switch
                     value={notifications}
                     onValueChange={setNotifications}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                    thumbColor="#fff"
+                    ios_backgroundColor="rgba(255,255,255,0.05)"
+                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+                  />
+                }
+              />
+              <SettingItem
+                icon="build-outline"
+                iconColor="#34D399"
+                title="Operazioni completate"
+                subtitle="Clone, creazione progetto"
+                showChevron={false}
+                rightElement={
+                  <Switch
+                    value={notifOperations}
+                    onValueChange={(v) => { setNotifOperations(v); updateNotifPreference('operations', v); }}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                    thumbColor="#fff"
+                    ios_backgroundColor="rgba(255,255,255,0.05)"
+                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+                  />
+                }
+              />
+              <SettingItem
+                icon="logo-github"
+                iconColor="#A78BFA"
+                title="Attivita' GitHub"
+                subtitle="Commit, PR sui tuoi repo"
+                showChevron={false}
+                rightElement={
+                  <Switch
+                    value={notifGithub}
+                    onValueChange={(v) => { setNotifGithub(v); updateNotifPreference('github', v); }}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
+                    thumbColor="#fff"
+                    ios_backgroundColor="rgba(255,255,255,0.05)"
+                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+                  />
+                }
+              />
+              <SettingItem
+                icon="time-outline"
+                iconColor="#60A5FA"
+                title="Promemoria"
+                subtitle="Ricordami di tornare su Drape"
+                showChevron={false}
+                rightElement={
+                  <Switch
+                    value={notifReengagement}
+                    onValueChange={(v) => { setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
                     trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
                     thumbColor="#fff"
                     ios_backgroundColor="rgba(255,255,255,0.05)"

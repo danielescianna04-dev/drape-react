@@ -461,7 +461,8 @@ class AgentLoop {
                         input.model || this.selectedModel,
                         this.projectId,
                         input.run_in_background || false,
-                        null
+                        null,
+                        this.userId
                     );
 
                     // Consume the generator and collect result
@@ -737,7 +738,7 @@ class AgentLoop {
                                 metricsService.trackAIUsage({
                                     projectId: this.projectId || 'agent',
                                     userId: this.userId, // Track per-user spending
-                                    model: modelId,
+                                    model: this.selectedModel, // Use AI_MODELS key, not provider modelId
                                     inputTokens,
                                     outputTokens,
                                     cachedTokens: chunk.usage.cachedTokens || 0

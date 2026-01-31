@@ -328,25 +328,49 @@ class MetricsService {
     /**
      * Get real usage stats for the dashboard
      */
-    async getSystemStatus() {
-        console.log(`📊 [Metrics] getSystemStatus called - initialized: ${this.initialized}, hasDb: ${!!this.db}`);
+    async getSystemStatus(userId = null, planId = 'free') {
+        console.log(`📊 [Metrics] getSystemStatus called - userId: ${userId}, planId: ${planId}, initialized: ${this.initialized}, hasDb: ${!!this.db}`);
+
+        const { getPlan } = require('../utils/plans');
+        const plan = getPlan(planId);
 
         // Always try to get VM pool stats (works without Firebase)
         let poolStats = { workers: { allocated: 0 } };
+        let userPreviewsCount = 0;
         try {
             const vmPoolManager = require('./vm-pool-manager');
             poolStats = vmPoolManager.getStats();
-            console.log(`📊 [Metrics] VM Pool: ${poolStats.workers?.allocated || 0} allocated, ${poolStats.workers?.available || 0} available`);
+
+            // Count previews (allocated VMs) for this specific user
+            if (userId) {
+                const pool = vmPoolManager.pool || [];
+                // Get user's project IDs from allocated VMs
+                // allocatedTo is a projectId - we need to match against user's projects
+                const userAllocated = pool.filter(vm => vm.allocatedTo && vm.allocatedTo !== 'RESERVED');
+
+                if (this.db) {
+                    try {
+                        const userProjectsSnapshot = await this.db.collection('user_projects')
+                            .where('userId', '==', userId)
+                            .get();
+                        const userProjectIds = new Set(userProjectsSnapshot.docs.map(d => d.id));
+                        userPreviewsCount = userAllocated.filter(vm => userProjectIds.has(vm.allocatedTo)).length;
+                    } catch (e) {
+                        console.warn(`⚠️ [Metrics] Could not match user previews: ${e.message}`);
+                    }
+                }
+            } else {
+                userPreviewsCount = poolStats.workers?.allocated || 0;
+            }
         } catch (e) {
             console.warn(`⚠️ [Metrics] Could not get VM pool stats: ${e.message}`);
         }
 
         if (!this.initialized || !this.db) {
             console.log(`📊 [Metrics] Using fallback stats (Firebase not ready)`);
-            // Return partial stats with VM pool data
-            const stats = this._getFallbackStats();
-            stats.previews.active = poolStats.workers?.allocated || 0;
-            stats.previews.percent = Math.min(100, Math.round((stats.previews.active / 10) * 100));
+            const stats = this._getFallbackStats(plan);
+            stats.previews.active = userPreviewsCount;
+            stats.previews.percent = Math.min(100, Math.round((userPreviewsCount / stats.previews.limit) * 100));
             return stats;
         }
 
@@ -366,20 +390,24 @@ class MetricsService {
                 hourlyData.push(dailyData[`hourly_${h}`] || 0);
             }
 
-            // Extract workers allocated (active previews) from poolStats fetched at top
-            const activePreviewsCount = poolStats.workers?.allocated || 0;
-
-            // Get total projects (real count from DB) - use user_projects collection
+            // Get user's project count (filtered by userId)
             let totalProjects = 0;
             try {
-                const projectsSnapshot = await this.db.collection('user_projects').get();
-                totalProjects = projectsSnapshot.size;
+                if (userId) {
+                    const projectsSnapshot = await this.db.collection('user_projects')
+                        .where('userId', '==', userId)
+                        .get();
+                    totalProjects = projectsSnapshot.size;
+                } else {
+                    const projectsSnapshot = await this.db.collection('user_projects').get();
+                    totalProjects = projectsSnapshot.size;
+                }
             } catch (e) {
                 console.warn(`⚠️ [Metrics] Could not count projects: ${e.message}`);
             }
 
             const totalTokens = (dailyData.totalInputTokens || 0) + (dailyData.totalOutputTokens || 0);
-            const tokenLimit = 1000000; // 1M hardcoded for now (could be per-plan)
+            const tokenLimit = 1000000;
 
             // Get monthly search usage
             const currentMonth = today.substring(0, 7);
@@ -392,11 +420,12 @@ class MetricsService {
                 console.warn(`⚠️ [Metrics] Could not get search stats: ${e.message}`);
             }
 
+            // Use plan limits instead of hardcoded values
             const searchLimit = 20;
-            const projectsLimit = 5;
-            const previewsLimit = 10;
+            const projectsLimit = plan.maxProjects === Infinity ? 999 : plan.maxProjects;
+            const previewsLimit = projectsLimit; // previews limit matches projects
 
-            console.log(`📊 [Metrics] Stats: tokens=${totalTokens}, previews=${activePreviewsCount}, projects=${totalProjects}, searches=${totalSearches}`);
+            console.log(`📊 [Metrics] Stats (user=${userId}): previews=${userPreviewsCount}/${previewsLimit}, projects=${totalProjects}/${projectsLimit}`);
 
             return {
                 tokens: {
@@ -406,9 +435,9 @@ class MetricsService {
                     hourly: hourlyData
                 },
                 previews: {
-                    active: activePreviewsCount,
+                    active: userPreviewsCount,
                     limit: previewsLimit,
-                    percent: Math.min(100, Math.round((activePreviewsCount / previewsLimit) * 100))
+                    percent: Math.min(100, Math.round((userPreviewsCount / previewsLimit) * 100))
                 },
                 projects: {
                     active: totalProjects,
@@ -423,15 +452,16 @@ class MetricsService {
             };
         } catch (e) {
             console.error(`❌ [Metrics] Failed to get system status: ${e.message}`);
-            return this._getFallbackStats();
+            return this._getFallbackStats(plan);
         }
     }
 
-    _getFallbackStats() {
+    _getFallbackStats(plan = null) {
+        const projectsLimit = plan ? (plan.maxProjects === Infinity ? 999 : plan.maxProjects) : 5;
         return {
             tokens: { used: 0, limit: 1000000, percent: 0, hourly: new Array(24).fill(0) },
-            previews: { active: 0, limit: 10, percent: 0 },
-            projects: { active: 0, limit: 5, percent: 0 },
+            previews: { active: 0, limit: projectsLimit, percent: 0 },
+            projects: { active: 0, limit: projectsLimit, percent: 0 },
             search: { used: 0, limit: 20, percent: 0 }
         };
     }

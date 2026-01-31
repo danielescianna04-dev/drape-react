@@ -10,10 +10,11 @@ const { grepSearch } = require('./tools/grep');
 const metricsService = require('./metrics-service');
 
 class SubAgentLoop {
-    constructor(agentType, projectId, parentContext = null) {
+    constructor(agentType, projectId, parentContext = null, userId = null) {
         this.agentType = agentType;
         this.projectId = projectId;
         this.parentContext = parentContext;
+        this.userId = userId;
         this.iteration = 0;
         this.maxIterations = 50;
         this.isComplete = false;
@@ -211,7 +212,8 @@ Guidelines:
                             if (inputTokens > 0 || outputTokens > 0) {
                                 metricsService.trackAIUsage({
                                     projectId: this.projectId || 'sub-agent',
-                                    model: modelId,
+                                    userId: this.userId,
+                                    model: model, // Use AI_MODELS key, not provider modelId
                                     inputTokens,
                                     outputTokens,
                                     cachedTokens: chunk.usage.cachedTokens || 0

@@ -6,7 +6,9 @@
  */
 
 // AI Model Pricing (USD per 1M tokens)
+// Keys MUST match the model names used in AI_MODELS (constants.js)
 const AI_PRICING = {
+    // Gemini models
     'gemini-3-flash': {
         input: 0.10,      // $0.10 per 1M input tokens
         output: 0.40,     // $0.40 per 1M output tokens
@@ -17,15 +19,62 @@ const AI_PRICING = {
         output: 5.00,
         cachedInput: 0.3125
     },
+    'gemini-2.5-flash': {
+        input: 0.15,
+        output: 0.60,
+        cachedInput: 0.04
+    },
+    'gemini-2.5-flash-image': {
+        input: 0.15,
+        output: 0.60,
+        cachedInput: 0.04
+    },
+    'gemini-exp-1206': {
+        input: 0.15,
+        output: 0.60,
+        cachedInput: 0.04
+    },
+    'gemini-2.0-flash-thinking': {
+        input: 0.15,
+        output: 0.60,
+        cachedInput: 0.04
+    },
+    // Claude models
     'claude-sonnet-4': {
         input: 3.00,
         output: 15.00,
         cachedInput: 0.30  // 90% discount on cached
     },
-    'claude-opus-4': {
+    'claude-4-5-sonnet': {
+        input: 3.00,
+        output: 15.00,
+        cachedInput: 0.30
+    },
+    'claude-3.5-sonnet': {
+        input: 3.00,
+        output: 15.00,
+        cachedInput: 0.30
+    },
+    'claude-4-5-opus': {
         input: 15.00,
         output: 75.00,
         cachedInput: 1.50  // 90% discount on cached
+    },
+    'claude-3.5-haiku': {
+        input: 0.80,
+        output: 4.00,
+        cachedInput: 0.08
+    },
+    // Groq models (free tier, minimal cost tracking)
+    'llama-3.3-70b': {
+        input: 0.59,
+        output: 0.79,
+        cachedInput: 0.15
+    },
+    'llama-3.1-8b': {
+        input: 0.05,
+        output: 0.08,
+        cachedInput: 0.01
     }
 };
 

@@ -2297,6 +2297,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             workstationId: currentWorkstation?.id,
             projectId: currentWorkstation?.projectId || currentWorkstation?.id,
             repositoryUrl: currentWorkstation?.githubUrl || currentWorkstation?.repositoryUrl,
+            // Include userId for budget tracking
+            userId: useTerminalStore.getState().userId || null,
             // Include username for multi-user context
             username: (useTerminalStore.getState().userId || 'anonymous').split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase(),
             context: currentWorkstation ? {

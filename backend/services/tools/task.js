@@ -43,7 +43,7 @@ const AGENT_TYPES = {
  * @param {string} resume - Agent ID to resume (not implemented yet)
  * @returns {AsyncGenerator} Stream of sub-agent events
  */
-async function* launchSubAgent(subagentType, prompt, description, model = DEFAULT_AI_MODEL, projectId, runInBackground = false, resume = null) {
+async function* launchSubAgent(subagentType, prompt, description, model = DEFAULT_AI_MODEL, projectId, runInBackground = false, resume = null, userId = null) {
     // Validate agent type
     if (!AGENT_TYPES[subagentType]) {
         throw new Error(`Unknown sub-agent type: ${subagentType}. Available types: ${Object.keys(AGENT_TYPES).join(', ')}`);
@@ -59,7 +59,7 @@ async function* launchSubAgent(subagentType, prompt, description, model = DEFAUL
     }
 
     // Create and run sub-agent
-    const subAgent = new SubAgentLoop(subagentType, projectId);
+    const subAgent = new SubAgentLoop(subagentType, projectId, null, userId);
 
     yield {
         type: 'task_start',

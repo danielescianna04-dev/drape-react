@@ -13,7 +13,8 @@ const metricsService = require('../services/metrics-service');
  * Get real-time system allocation and token usage
  */
 router.get('/system-status', asyncHandler(async (req, res) => {
-    const status = await metricsService.getSystemStatus();
+    const { userId, planId } = req.query;
+    const status = await metricsService.getSystemStatus(userId || null, planId || 'free');
     res.json(status);
 }));
 
