@@ -4,8 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useFileHistoryStore, FileModification } from '../../../core/history/fileHistoryStore';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { config } from '../../../config/config';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
+const API_URL = config.apiUrl;
 
 interface UndoRedoBarProps {
   projectId: string;

@@ -7,6 +7,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 import axios from 'axios';
+import { config } from '../../../config/config';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { ChatInput } from '../../../shared/components/ChatInput';
 
@@ -108,7 +109,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
 
     try {
       const response = await axios.post(
-        `${process.env.EXPO_PUBLIC_API_URL}/terminal/execute`,
+        `${config.apiUrl}/terminal/execute`,
         {
           command: command,
           workstationId: currentWorkstation?.id

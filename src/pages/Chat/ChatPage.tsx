@@ -23,6 +23,7 @@ import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
 import { useAuthStore } from '../../core/auth/authStore';
+import { config } from '../../config/config';
 
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
@@ -1848,7 +1849,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       if (shouldExecuteCommand) {
         // Terminal mode - execute command
         const response = await axios.post(
-          `${process.env.EXPO_PUBLIC_API_URL}/terminal/execute`,
+          `${config.apiUrl}/terminal/execute`,
           {
             command: userMessage,
             workstationId: currentWorkstation?.id
@@ -1878,7 +1879,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
 
-          xhr.open('POST', `${process.env.EXPO_PUBLIC_API_URL}/ai/chat`);
+          xhr.open('POST', `${config.apiUrl}/ai/chat`);
           xhr.setRequestHeader('Content-Type', 'application/json');
           xhr.timeout = 60000; // 60 second timeout
 

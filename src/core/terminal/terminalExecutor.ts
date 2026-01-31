@@ -1,8 +1,9 @@
 import axios from 'axios';
+import { config } from '../../config/config';
 import { logCommand, logOutput, logError } from './terminalLogger';
 import { TerminalSource } from '../../shared/types';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8080';
+const API_URL = config.apiUrl;
 
 export interface CommandResult {
   output: string;

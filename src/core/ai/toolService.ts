@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { config } from '../../config/config';
 import { useFileCacheStore } from '../cache/fileCacheStore';
 
 export interface ToolCall {
@@ -7,7 +8,7 @@ export interface ToolCall {
 }
 
 export class ToolService {
-  private static API_URL = process.env.EXPO_PUBLIC_API_URL;
+  private static API_URL = config.apiUrl;
 
   /**
    * Remove tool call syntax from AI response text

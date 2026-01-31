@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { config } from '../../config/config';
 
 const GITHUB_CLIENT_ID = 'Ov23likDO7phRcPUBcrk';
 const GITHUB_API_BASE = 'https://api.github.com';
@@ -8,7 +9,7 @@ const TOKEN_KEY = 'github_token';
 const USER_KEY = 'github_user';
 
 // Backend proxy URL
-const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const BACKEND_URL = config.apiUrl;
 
 export interface GitHubRepository {
   id: string;

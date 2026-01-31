@@ -1,5 +1,5 @@
 // Google Cloud Run configuration
-const PRODUCTION_URL = 'https://drape-ai-backend-xxxxx-uc.a.run.app';
+const PRODUCTION_URL = 'https://drape-ai-backend-74904913373.europe-west1.run.app';
 
 // Auto-detect local IP from Metro bundler or environment
 const getLocalIP = (): string => {
@@ -79,7 +79,8 @@ const LOCAL_WS_URL = `ws://${LOCAL_IP}:3000`;
 // Coder (workspace) URL
 const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'http://drape.info';
 
-const isProduction = process.env.EXPO_PUBLIC_ENV === 'production';
+// @ts-ignore - __DEV__ is a React Native global (false in release builds)
+const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || (typeof __DEV__ !== 'undefined' && !__DEV__);
 
 export const config = {
   // Backend URLs

@@ -26,10 +26,12 @@ import { useAuthStore } from '../../core/auth/authStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 import { DescriptionInput } from './DescriptionInput';
+import { liveActivityService } from '../../core/services/liveActivityService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal';
+import { config } from '../../config/config';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -153,6 +155,16 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   async function handleAgentComplete(result: any) {
     console.log('[CreateProject] Agent completed:', result);
 
+    // End Live Activity with success + notification
+    const pName = result.projectName || projectName.trim();
+    if (liveActivityService.isActivityActive()) {
+      liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+    }
+    liveActivityService.sendNotification(
+      'Progetto creato!',
+      `${pName} e' pronto`
+    ).catch(() => {});
+
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
@@ -160,7 +172,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       }
 
       // Save agent context to backend
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = config.apiUrl;
       await fetch(`${apiUrl}/agent/save-context`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -222,6 +234,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   // Agent error callback
   function handleAgentError(error: string) {
     console.error('[CreateProject] Agent error:', error);
+    liveActivityService.endPreviewActivity().catch(() => {});
     Alert.alert('Errore', `Impossibile creare il progetto: ${error}`);
     setIsCreating(false);
     resetStream();
@@ -296,7 +309,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       // Don't re-analyze if we already have a selection or if description hasn't changed enough?
       // For now, always analyze to give fresh recommendation
 
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = config.apiUrl;
       const response = await fetch(`${apiUrl}/ai/recommend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -350,6 +363,13 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
     setAgentMode(mode);
     setIsCreating(true);
 
+    // Start Live Activity (Dynamic Island)
+    liveActivityService.startPreviewActivity(projectName.trim(), {
+      remainingSeconds: 180,
+      currentStep: 'Creazione con AI...',
+      progress: 0,
+    }, 'create').catch(() => {});
+
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
@@ -358,7 +378,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         return;
       }
 
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = config.apiUrl;
 
       // Create project first to get projectId
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
@@ -388,6 +408,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       await startStream(projectId, mode, prompt);
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
+      liveActivityService.endPreviewActivity().catch(() => {});
       Alert.alert('Errore', 'Impossibile avviare l\'agente. Riprova.');
       setIsCreating(false);
       resetStream();
@@ -399,6 +420,13 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
     setIsCreating(true);
     setCreationTask({ status: 'running', progress: 0, message: 'Starting...', step: 'Initializing' });
 
+    // Start Live Activity (Dynamic Island)
+    liveActivityService.startPreviewActivity(projectName.trim(), {
+      remainingSeconds: 120,
+      currentStep: 'Creazione progetto...',
+      progress: 0,
+    }, 'create').catch(() => {});
+
     try {
       const userId = useAuthStore.getState().user?.uid;
       if (!userId) {
@@ -408,7 +436,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
         return;
       }
 
-      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+      const apiUrl = config.apiUrl;
 
       // 1. Start Task
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
@@ -471,6 +499,15 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
               step: task.step
             });
 
+            // Update Live Activity (Dynamic Island)
+            if (task.status === 'running') {
+              liveActivityService.updatePreviewActivity({
+                remainingSeconds: Math.max(0, Math.round(120 * (1 - (task.progress || 0) / 100))),
+                currentStep: task.step || task.message || 'Creazione...',
+                progress: (task.progress || 0) / 100,
+              }).catch(() => {});
+            }
+
             if (task.status === 'completed') {
               if (pollIntervalRef.current) {
                 clearInterval(pollIntervalRef.current);
@@ -497,6 +534,16 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
               console.log('📦 [CreateProject] Workstation files:', workstation.files);
 
+              // End Live Activity with success + notification
+              const pName = task.result.projectName || projectName.trim();
+              if (liveActivityService.isActivityActive()) {
+                liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+              }
+              liveActivityService.sendNotification(
+                'Progetto creato!',
+                `${pName} e' pronto`
+              ).catch(() => {});
+
               // Short delay to show 100%
               setTimeout(() => {
                 setIsCreating(false);
@@ -509,6 +556,8 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
                 clearInterval(pollIntervalRef.current);
                 pollIntervalRef.current = null;
               }
+              // End Live Activity on failure
+              liveActivityService.endPreviewActivity().catch(() => {});
               throw new Error(task.error || 'Creation failed');
             }
           }
@@ -525,6 +574,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             }
             setIsCreating(false);
             setCreationTask(null);
+            liveActivityService.endPreviewActivity().catch(() => {});
             Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
           }
         }
@@ -532,6 +582,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
 
     } catch (error) {
       console.error('Error creating project:', error);
+      liveActivityService.endPreviewActivity().catch(() => {});
       Alert.alert('Errore', 'Impossibile creare il progetto. Riprova.');
       setIsCreating(false);
       setCreationTask(null);

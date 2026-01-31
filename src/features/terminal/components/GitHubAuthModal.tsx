@@ -7,10 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import axios from 'axios';
+import { config } from '../../../config/config';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = config.apiUrl;
 const GITHUB_CLIENT_ID = process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23likDO7phRcPUBcrk';
 
 interface Props {

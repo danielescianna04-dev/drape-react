@@ -21,10 +21,11 @@ import { useGitAuthStore } from '../../../core/github/gitAuthStore';
 import { githubTokenService } from '../../../core/github/githubTokenService';
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { config } from '../../../config/config';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = config.apiUrl;
 const GITHUB_CLIENT_ID = process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23likDO7phRcPUBcrk';
 
 type AuthStep = 'select-account' | 'options' | 'pat' | 'device-flow';

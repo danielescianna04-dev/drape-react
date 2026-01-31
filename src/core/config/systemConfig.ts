@@ -1,3 +1,5 @@
+import { config } from '../../config/config';
+
 // LIVELLO 1: Credenziali Sistema (da GitHub Secrets al build)
 // Queste sono iniettate durante il build e permettono all'app di funzionare
 
@@ -46,8 +48,8 @@ export const getSystemConfig = (): SystemConfig => {
       clientId: process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'dev-client-id',
     },
     backend: {
-      apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000',
-      wsUrl: process.env.EXPO_PUBLIC_WS_URL || 'ws://localhost:3000',
+      apiUrl: config.apiUrl,
+      wsUrl: config.wsUrl,
     }
   };
 };

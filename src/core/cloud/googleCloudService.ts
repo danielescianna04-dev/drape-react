@@ -1,6 +1,8 @@
+import { config } from '../../config/config';
+
 // Simplified Google Cloud service for React Native
 class GoogleCloudService {
-  private apiUrl = process.env.EXPO_PUBLIC_API_URL;
+  private apiUrl = config.apiUrl;
 
   async saveProject(projectId: string, files: any) {
     try {

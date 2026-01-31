@@ -8,6 +8,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Keyboa
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { config } from '../../../config/config';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -45,7 +46,7 @@ export const AgentChatPanel = ({ onClose, projectId }: Props) => {
 
       try {
         const response = await axios.get(
-          `${process.env.EXPO_PUBLIC_API_URL}/agent/context/${pid}`
+          `${config.apiUrl}/agent/context/${pid}`
         );
         if (response.data.success) {
           setProjectContext(response.data.context);
