@@ -66,6 +66,8 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   // DISABLED: React Native doesn't support fetch streaming (response.body.getReader())
   // TODO: Implement EventSource polyfill for SSE support
   const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [projectLimit, setProjectLimit] = useState(3);
 
   // Agent stream hook
   const {
@@ -453,6 +455,14 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
+        if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
+          setProjectLimit(result.limits?.maxProjects || 3);
+          setShowUpgradeModal(true);
+          setIsCreating(false);
+          setCreationTask(null);
+          liveActivityService.endPreviewActivity().catch(() => {});
+          return;
+        }
         throw new Error(result.error || 'Failed to start project creation');
       }
 
@@ -983,6 +993,89 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
           step={creationTask?.step}
         />
       )}
+      {/* Upgrade Modal */}
+      <Modal
+        visible={showUpgradeModal}
+        transparent={true}
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={() => setShowUpgradeModal(false)}
+      >
+        <View style={styles.upgradeModalOverlay}>
+          <View style={styles.upgradeModalCard}>
+            {/* Glow effect */}
+            <LinearGradient
+              colors={['rgba(139, 92, 246, 0.15)', 'rgba(59, 130, 246, 0.05)', 'transparent']}
+              style={styles.upgradeModalGlow}
+            />
+
+            {/* Icon */}
+            <View style={styles.upgradeIconWrapper}>
+              <LinearGradient
+                colors={[AppColors.primary, '#9333EA', '#6366F1']}
+                style={styles.upgradeIconGradient}
+              >
+                <Ionicons name="rocket" size={32} color="#fff" />
+              </LinearGradient>
+            </View>
+
+            {/* Title */}
+            <Text style={styles.upgradeTitle}>Limite raggiunto</Text>
+            <Text style={styles.upgradeSubtitle}>
+              Hai raggiunto il massimo di {projectLimit} progetti con il piano Free.{'\n'}
+              Passa a <Text style={styles.upgradeHighlight}>Go</Text> per creare progetti illimitati.
+            </Text>
+
+            {/* Features */}
+            <View style={styles.upgradeFeatures}>
+              {[
+                { icon: 'infinite', text: 'Progetti illimitati' },
+                { icon: 'flash', text: 'AI pi\u00f9 veloce e potente' },
+                { icon: 'cloud-upload', text: 'Deploy automatico' },
+              ].map((f, i) => (
+                <View key={i} style={styles.upgradeFeatureRow}>
+                  <LinearGradient
+                    colors={[AppColors.primary, '#9333EA']}
+                    style={styles.upgradeFeatureIcon}
+                  >
+                    <Ionicons name={f.icon as any} size={14} color="#fff" />
+                  </LinearGradient>
+                  <Text style={styles.upgradeFeatureText}>{f.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* CTA */}
+            <TouchableOpacity
+              style={styles.upgradeCta}
+              activeOpacity={0.85}
+              onPress={() => {
+                setShowUpgradeModal(false);
+                // Navigate to settings/upgrade
+                onBack();
+              }}
+            >
+              <LinearGradient
+                colors={[AppColors.primary, '#9333EA']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.upgradeCtaGradient}
+              >
+                <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+                <Text style={styles.upgradeCtaText}>Passa a Go</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            {/* Dismiss */}
+            <TouchableOpacity
+              style={styles.upgradeDismiss}
+              onPress={() => setShowUpgradeModal(false)}
+            >
+              <Text style={styles.upgradeDismissText}>Non ora</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View >
   );
 };
@@ -1463,5 +1556,110 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
+  },
+
+  // Upgrade Modal
+  upgradeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  upgradeModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#1A1A2E',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+    overflow: 'hidden',
+  },
+  upgradeModalGlow: {
+    position: 'absolute',
+    top: -60,
+    left: -60,
+    right: -60,
+    height: 200,
+    borderRadius: 100,
+  },
+  upgradeIconWrapper: {
+    marginBottom: 20,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+  },
+  upgradeIconGradient: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  upgradeTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 10,
+  },
+  upgradeSubtitle: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  upgradeHighlight: {
+    color: AppColors.primary,
+    fontWeight: '700',
+  },
+  upgradeFeatures: {
+    width: '100%',
+    marginBottom: 28,
+    gap: 14,
+  },
+  upgradeFeatureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  upgradeFeatureIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  upgradeFeatureText: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+  },
+  upgradeCta: {
+    width: '100%',
+    marginBottom: 14,
+  },
+  upgradeCtaGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  upgradeCtaText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  upgradeDismiss: {
+    paddingVertical: 8,
+  },
+  upgradeDismissText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
 });
