@@ -12,6 +12,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
 import { SettingsScreen } from './src/features/settings/SettingsScreen';
+import { OnboardingPlansScreen } from './src/features/onboarding/OnboardingPlansScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
@@ -32,6 +33,7 @@ import { NetworkConfigProvider } from './src/providers/NetworkConfigProvider';
 import { migrateGitAccounts } from './src/core/migrations/migrateGitAccounts';
 import { config } from './src/config/config';
 import { useCloneStatusStore } from './src/core/clone/cloneStatusStore';
+import { liveActivityService } from './src/core/services/liveActivityService';
 import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
@@ -39,7 +41,7 @@ import { useNavigationStore } from './src/core/navigation/navigationStore';
 
 console.log('App.tsx loaded');
 
-type Screen = 'splash' | 'auth' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
@@ -68,15 +70,25 @@ export default function App() {
   // Initialize auth listener on app start
   useEffect(() => {
     initialize();
+
+    // Richiedi permesso notifiche push all'avvio (non-blocking)
+    liveActivityService.requestNotificationPermission().catch(() => {});
   }, []);
 
-  // Navigate to home when user logs in
+  const { isNewUser } = useAuthStore();
+
+  // Navigate to onboarding or home when user logs in
   useEffect(() => {
     if (isInitialized && user && currentScreen === 'auth') {
-      console.log('🔐 [App] User authenticated, navigating to home');
-      setCurrentScreen('home');
+      if (isNewUser) {
+        console.log('🔐 [App] New user, showing onboarding');
+        setCurrentScreen('onboarding');
+      } else {
+        console.log('🔐 [App] User authenticated, navigating to home');
+        setCurrentScreen('home');
+      }
     }
-  }, [user, isInitialized, currentScreen]);
+  }, [user, isInitialized, currentScreen, isNewUser]);
 
   // Listen to navigation store for cross-component navigation
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
@@ -228,6 +240,12 @@ export default function App() {
         content: `✓ Repository cloned successfully: ${repoName}`,
         timestamp: new Date(),
       });
+
+      // End Live Activity with success + notification (if active from handleImportRepo)
+      if (liveActivityService.isActivityActive()) {
+        liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+        liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+      }
     } catch (err: any) {
       updateTerminalItemsByType(tabId, 'loading', {
         type: 'system',
@@ -272,7 +290,14 @@ export default function App() {
             content: `✓ Repository cloned successfully: ${repoName}`,
             timestamp: new Date(),
           });
+
+          // End Live Activity with success + notification
+          if (liveActivityService.isActivityActive()) {
+            liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+          }
         } catch (authErr: any) {
+          liveActivityService.endPreviewActivity().catch(() => {});
           // Only show error if user didn't just cancel
           if (authErr.message !== 'User cancelled') {
             addTerminalItemToStore(tabId, {
@@ -387,6 +412,13 @@ export default function App() {
       const owner = match ? match[1] : 'unknown';
       const repoName = url.split('/').pop()?.replace('.git', '') || 'repository';
 
+      // Start Live Activity (Dynamic Island)
+      liveActivityService.startPreviewActivity(repoName, {
+        remainingSeconds: 90,
+        currentStep: 'Clonazione repository...',
+        progress: 0,
+      }, 'clone').catch(() => {});
+
       console.log('📥 [handleImportRepo] userId:', userId, 'owner:', owner, 'repoName:', repoName);
 
       // Check if a project with this repo already exists (unless forceCopy is true)
@@ -466,6 +498,12 @@ export default function App() {
                     content: `✓ Repository cloned successfully: ${repoName}`,
                     timestamp: new Date(),
                   });
+
+                  // End Live Activity with success + notification
+                  if (liveActivityService.isActivityActive()) {
+                    liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+                  }
+                  liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
                 } catch (err: any) {
                   updateTerminalItemsByType(currentTab.id, 'loading', {
                     type: 'system',
@@ -503,7 +541,14 @@ export default function App() {
                         content: `✓ Repository cloned successfully: ${repoName}`,
                         timestamp: new Date(),
                       });
+
+                      // End Live Activity with success + notification
+                      if (liveActivityService.isActivityActive()) {
+                        liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+                      }
+                      liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
                     } catch (authErr: any) {
+                      liveActivityService.endPreviewActivity().catch(() => {});
                       if (authErr.message !== 'User cancelled') {
                         addTerminalItemToStore(currentTab.id, {
                           id: `error-${Date.now()}`,
@@ -732,6 +777,12 @@ export default function App() {
               content: `✓ Repository cloned successfully: ${repoName}`,
               timestamp: new Date(),
             });
+
+            // End Live Activity with success + notification
+            if (liveActivityService.isActivityActive()) {
+              liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+            }
+            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
           } catch (err: any) {
             updateTerminalItemsByType(currentTab.id, 'loading', {
               type: 'system',
@@ -741,6 +792,13 @@ export default function App() {
             // Check if it's an auth error - silently show popup (NO error message)
             const isAuthError = err.requiresAuth || err.response?.status === 401;
             if (isAuthError) {
+              // Update Live Activity step
+              liveActivityService.updatePreviewActivity({
+                remainingSeconds: 60,
+                currentStep: 'Autenticazione...',
+                progress: 0.3,
+              }).catch(() => {});
+
               try {
                 const token = await requestGitAuth(
                   `Repository privato. Autenticazione richiesta per "${repoName}"`,
@@ -754,6 +812,13 @@ export default function App() {
                   content: 'Ritentando con nuove credenziali...',
                   timestamp: new Date(),
                 });
+
+                // Update Live Activity
+                liveActivityService.updatePreviewActivity({
+                  remainingSeconds: 45,
+                  currentStep: 'Clonazione con credenziali...',
+                  progress: 0.5,
+                }).catch(() => {});
 
                 // Retry clone with new token
                 await workstationService.getWorkstationFiles(workstation.projectId, url, token);
@@ -773,7 +838,14 @@ export default function App() {
                   content: `✓ Repository cloned successfully: ${repoName}`,
                   timestamp: new Date(),
                 });
+
+                // End Live Activity with success + notification
+                if (liveActivityService.isActivityActive()) {
+                  liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
+                }
+                liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
               } catch (authErr: any) {
+                liveActivityService.endPreviewActivity().catch(() => {});
                 // Only show error if user didn't just cancel
                 if (authErr.message !== 'User cancelled') {
                   addTerminalItemToStore(currentTab.id, {
@@ -793,6 +865,7 @@ export default function App() {
                 }
               }
             } else {
+              liveActivityService.endPreviewActivity().catch(() => {});
               addTerminalItemToStore(currentTab.id, {
                 id: `error-${Date.now()}`,
                 type: 'error',
@@ -804,6 +877,7 @@ export default function App() {
         }
       }, 100);
     } catch (error: any) {
+      liveActivityService.endPreviewActivity().catch(() => {});
       setIsImporting(false);
       setLoadingMessage(''); // Clear loading on error
 
@@ -880,6 +954,24 @@ export default function App() {
     );
   }
 
+  if (currentScreen === 'onboarding' && user) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+          <OnboardingPlansScreen
+            displayName={user.displayName || ''}
+            onSelectPlan={(plan) => {
+              console.log('📋 [App] User selected plan:', plan);
+              useAuthStore.setState({ isNewUser: false });
+              setCurrentScreen('home');
+            }}
+          />
+          <StatusBar style="light" />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
   // Show loading if auth not initialized
   if (!isInitialized) {
     return (
@@ -918,12 +1010,14 @@ export default function App() {
                         const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
                         // Check if we're switching to a DIFFERENT project
+                        // Only consider it the same project if the workstation ID matches exactly
                         const currentWorkstation = useTerminalStore.getState().currentWorkstation;
-                        const isSameProject = currentWorkstation?.id === workstation.id ||
-                          currentWorkstation?.projectId === workstation.projectId;
+                        const isSameProject = currentWorkstation?.id === workstation.id;
 
                         console.log('🚀 [onOpenProject-Home] Opening project:', workstation.name,
-                          'isSameProject:', isSameProject);
+                          'isSameProject:', isSameProject,
+                          'currentId:', currentWorkstation?.id,
+                          'newId:', workstation.id);
 
                         // NAVIGATE IMMEDIATELY - auth/clone happens in background
                         // Only clear terminal items when switching to a DIFFERENT project
@@ -1167,12 +1261,14 @@ export default function App() {
                       const githubUrl = workstation.githubUrl || workstation.repositoryUrl;
 
                       // Check if we're switching to a DIFFERENT project
+                      // Only consider it the same project if the workstation ID matches exactly
                       const currentWorkstation = useTerminalStore.getState().currentWorkstation;
-                      const isSameProject = currentWorkstation?.id === workstation.id ||
-                        currentWorkstation?.projectId === workstation.projectId;
+                      const isSameProject = currentWorkstation?.id === workstation.id;
 
                       console.log('🚀 [onOpenProject-All] Opening project:', workstation.name,
-                        'isSameProject:', isSameProject);
+                        'isSameProject:', isSameProject,
+                        'currentId:', currentWorkstation?.id,
+                        'newId:', workstation.id);
 
                       // NAVIGATE IMMEDIATELY - auth/clone happens in background
                       // Only clear terminal items when switching to a DIFFERENT project

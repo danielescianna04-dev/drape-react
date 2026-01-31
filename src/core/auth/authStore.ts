@@ -19,6 +19,7 @@ import { useTabStore } from '../tabs/tabStore';
 import { gitAccountService } from '../git/gitAccountService';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
+import { pushNotificationService } from '../services/pushNotificationService';
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
@@ -36,6 +37,7 @@ interface AuthState {
   user: DrapeUser | null;
   isLoading: boolean;
   isInitialized: boolean;
+  isNewUser: boolean;
   error: string | null;
 
   // Actions
@@ -62,6 +64,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: false,
   isInitialized: false,
+  isNewUser: false,
   error: null,
 
   initialize: () => {
@@ -110,6 +113,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         gitAccountService.syncFromFirebase(firebaseUser.uid).catch(err => {
           console.warn('⚠️ Could not sync Git accounts:', err);
         });
+
+        // Initialize push notifications (non-blocking)
+        pushNotificationService.initialize(firebaseUser.uid).catch(() => {});
       } else {
         set({ user: null, isInitialized: true, isLoading: false });
         useTerminalStore.setState({ userId: null });
@@ -205,7 +211,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const drapeUser = mapFirebaseUser(userCredential.user);
       drapeUser.displayName = displayName; // Override since it wasn't updated in time
 
-      set({ user: drapeUser, isLoading: false });
+      set({ user: drapeUser, isLoading: false, isNewUser: true });
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore (new user has no projects yet)
@@ -262,6 +268,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         currentProject: null,
         currentWorkstationId: null
       });
+
+      // Unregister push notifications
+      await pushNotificationService.unregisterToken().catch(() => {});
 
       // Sign out from Firebase
       await signOut(auth);
@@ -330,14 +339,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      set({ user: drapeUser, isLoading: false });
+      const isNew = !userDoc.exists();
+      set({ user: drapeUser, isLoading: false, isNewUser: isNew });
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore and reload user's projects
       useProjectStore.getState().setUserId(userCredential.user.uid);
-      useProjectStore.getState().loadUserProjects();
+      if (isNew) {
+        useProjectStore.setState({ projects: [] });
+      } else {
+        useProjectStore.getState().loadUserProjects();
+      }
 
-      console.log('✅ [AuthStore] Google sign in successful:', drapeUser.email);
+      console.log('✅ [AuthStore] Google sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
       console.error('❌ [AuthStore] Google sign in error:', error);
       const errorMessage = 'Errore durante l\'accesso con Google';
@@ -414,14 +428,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }, { merge: true });
       }
 
-      set({ user: drapeUser, isLoading: false });
+      const isNew = !userDoc.exists();
+      set({ user: drapeUser, isLoading: false, isNewUser: isNew });
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
       // Update projectStore and reload user's projects
       useProjectStore.getState().setUserId(userCredential.user.uid);
-      useProjectStore.getState().loadUserProjects();
+      if (isNew) {
+        useProjectStore.setState({ projects: [] });
+      } else {
+        useProjectStore.getState().loadUserProjects();
+      }
 
-      console.log('✅ [AuthStore] Apple sign in successful:', drapeUser.email);
+      console.log('✅ [AuthStore] Apple sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
       console.error('❌ [AuthStore] Apple sign in error:', error);
 
