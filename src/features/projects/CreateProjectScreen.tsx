@@ -67,7 +67,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
   // TODO: Implement EventSource polyfill for SSE support
   const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-  const [projectLimit, setProjectLimit] = useState(3);
+  const [projectLimit, setProjectLimit] = useState(2);
 
   // Agent stream hook
   const {
@@ -1023,15 +1023,15 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
             <Text style={styles.upgradeTitle}>Limite raggiunto</Text>
             <Text style={styles.upgradeSubtitle}>
               Hai raggiunto il massimo di {projectLimit} progetti con il piano Free.{'\n'}
-              Passa a <Text style={styles.upgradeHighlight}>Go</Text> per creare progetti illimitati.
+              Passa a <Text style={styles.upgradeHighlight}>Go</Text> per crearne fino a 5.
             </Text>
 
             {/* Features */}
             <View style={styles.upgradeFeatures}>
               {[
-                { icon: 'infinite', text: 'Progetti illimitati' },
+                { icon: 'folder-open', text: 'Fino a 5 progetti' },
+                { icon: 'eye', text: 'Fino a 20 preview/mese' },
                 { icon: 'flash', text: 'AI pi\u00f9 veloce e potente' },
-                { icon: 'cloud-upload', text: 'Deploy automatico' },
               ].map((f, i) => (
                 <View key={i} style={styles.upgradeFeatureRow}>
                   <LinearGradient
