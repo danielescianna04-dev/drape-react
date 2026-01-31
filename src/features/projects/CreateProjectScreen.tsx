@@ -1031,7 +1031,7 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
               {[
                 { icon: 'folder-open', text: 'Fino a 5 progetti' },
                 { icon: 'eye', text: 'Fino a 20 preview/mese' },
-                { icon: 'flash', text: 'AI pi\u00f9 veloce e potente' },
+                { icon: 'sparkles', text: 'Budget AI raddoppiato' },
               ].map((f, i) => (
                 <View key={i} style={styles.upgradeFeatureRow}>
                   <LinearGradient
