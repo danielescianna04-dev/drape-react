@@ -5,6 +5,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { config } from '../config/config';
+import { useTerminalStore } from '../core/terminal/terminalStore';
+import { useAuthStore } from '../core/auth/authStore';
 
 export interface AgentEvent {
   type: 'start' | 'iteration_start' | 'thinking' | 'tool_start' | 'tool_complete' |
@@ -135,7 +137,12 @@ export const useAgentStream = () => {
         reject(new Error('Request timeout'));
       };
 
-      xhr.send(JSON.stringify({ prompt, projectId }));
+      xhr.send(JSON.stringify({
+        prompt,
+        projectId,
+        userId: useTerminalStore.getState().userId || null,
+        userPlan: useAuthStore.getState().user?.plan || 'free',
+      }));
     });
   }, []);
 
@@ -223,7 +230,12 @@ export const useAgentStream = () => {
         reject(new Error('Request timeout'));
       };
 
-      xhr.send(JSON.stringify({ prompt, projectId }));
+      xhr.send(JSON.stringify({
+        prompt,
+        projectId,
+        userId: useTerminalStore.getState().userId || null,
+        userPlan: useAuthStore.getState().user?.plan || 'free',
+      }));
     });
   }, []);
 
@@ -314,7 +326,11 @@ export const useAgentStream = () => {
         reject(new Error('Request timeout'));
       };
 
-      xhr.send(JSON.stringify({ projectId }));
+      xhr.send(JSON.stringify({
+        projectId,
+        userId: useTerminalStore.getState().userId || null,
+        userPlan: useAuthStore.getState().user?.plan || 'free',
+      }));
     });
   }, []);
 

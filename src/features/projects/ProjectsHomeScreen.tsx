@@ -24,6 +24,7 @@ import { config } from '../../config/config';
 import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
+import { liveActivityService } from '../../core/services/liveActivityService';
 
 interface Props {
   onCreateProject: () => void;
@@ -204,6 +205,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     return new Promise((resolve) => {
       setLoadingStep(step);
 
+      // Update Live Activity with new step
+      liveActivityService.updatePreviewActivity({
+        remainingSeconds: Math.max(0, Math.round(60 * (1 - targetProgress / 100))),
+        currentStep: step,
+        progress: targetProgress / 100,
+      }).catch(() => {});
+
       // Clear any existing timer
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
@@ -331,6 +339,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   // Handle opening a project - prefetch EVERYTHING then open
   const handleProjectOpen = async (project: any) => {
+   try {
     const startTime = Date.now();
     console.log('🚀 [Home] Opening project:', project.name);
 
@@ -340,6 +349,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     setLoadingProgress(5);
     setLoadingStep('Preparazione');
     setIsLoadingProject(true);
+
+    // Start Live Activity (Dynamic Island)
+    liveActivityService.startPreviewActivity(project.name, {
+      remainingSeconds: 60,
+      currentStep: 'Preparazione...',
+      progress: 0.05,
+    }, 'open').catch(() => {});
 
     // Release previous project's VM when switching (with grace period)
     const { currentWorkstation } = useTerminalStore.getState();
@@ -381,11 +397,19 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const { projectMachineIds } = useTerminalStore.getState();
     const existingMachineId = projectMachineIds[project.id];
 
-    if (hasCachedFiles && existingMachineId) {
-      console.log('⚡ [Home] Cache hit! Opening project immediately');
+    // Only reuse VM if it's the EXACT same workstation (not just same project/repo)
+    const isSameWorkstation = currentWorkstation?.id === project.id;
+
+    if (hasCachedFiles && existingMachineId && isSameWorkstation) {
+      console.log('⚡ [Home] Cache hit! Opening same workstation immediately');
 
       // Animate from current progress (12% after grace period) to 100%
       await animateProgressTo(100, 'Apertura...', 400);
+
+      // End Live Activity with success
+      if (liveActivityService.isActivityActive()) {
+        liveActivityService.endWithSuccess(project.name, 'Aperto!').catch(() => {});
+      }
 
       // Brief pause
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -530,9 +554,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           throw e;
         }
       }
-    } else if (existingMachineId) {
-      console.log(`✨ [Home] Skipping VM warmup - project already has active VM: ${existingMachineId}`);
+    } else if (existingMachineId && isSameWorkstation) {
+      console.log(`✨ [Home] Skipping VM warmup - same workstation already has active VM: ${existingMachineId}`);
       vmCompleted = true;
+    } else if (existingMachineId && !isSameWorkstation) {
+      console.log(`🔄 [Home] Different workstation - will allocate new VM (existing: ${existingMachineId})`);
     }
 
     // 2 & 3. Git Data + Files Prefetch (in parallel) - only if VM completed
@@ -636,6 +662,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     // Animate to completion and WAIT for it
     await animateProgressTo(100, 'Apertura...', 800);
 
+    // End Live Activity with success
+    if (liveActivityService.isActivityActive()) {
+      liveActivityService.endWithSuccess(project.name, 'Aperto!').catch(() => {});
+    }
+
     // Brief pause at 100%
     await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -651,6 +682,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setLoadingProgress(0);
       setLoadingStep('');
     }, 300);
+   } catch (error: any) {
+    console.error('❌ [Home] handleProjectOpen error:', error.message);
+    liveActivityService.endPreviewActivity().catch(() => {});
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    setIsLoadingProject(false);
+    setLoadingProjectName('');
+    currentProgressRef.current = 0;
+    setLoadingProgress(0);
+    setLoadingStep('');
+    Alert.alert('Errore', error.message || 'Impossibile aprire il progetto');
+   }
   };
 
   const handleOpenMenu = (project: any) => {

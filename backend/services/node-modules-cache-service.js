@@ -25,7 +25,7 @@ class NodeModulesCacheService {
     }
 
     /**
-     * Calcola hash univoco da package.json + lockfile
+     * Calcola hash univoco da package.json + lockfile + package manager
      * @param {string} projectId - Project ID
      * @returns {Promise<string>} Hash MD5
      */
@@ -41,22 +41,31 @@ class NodeModulesCacheService {
                 throw new Error('package.json not found');
             }
 
-            // Leggi lockfile (se esiste)
+            // Rileva package manager e leggi lockfile
             let lockContent = '';
-            const lockfiles = ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock'];
-            for (const lockfile of lockfiles) {
-                const lockResult = await storageService.readFile(projectId, lockfile);
+            let packageManager = 'npm'; // default
+            const lockfiles = [
+                { file: 'pnpm-lock.yaml', pm: 'pnpm' },
+                { file: 'package-lock.json', pm: 'npm' },
+                { file: 'yarn.lock', pm: 'yarn' }
+            ];
+
+            for (const { file, pm } of lockfiles) {
+                const lockResult = await storageService.readFile(projectId, file);
                 if (lockResult.success) {
                     lockContent = lockResult.content;
+                    packageManager = pm;
+                    console.log(`   📦 [Cache] Detected package manager: ${packageManager}`);
                     break;
                 }
             }
 
-            // Combina e calcola hash
-            const combined = pkgResult.content + lockContent;
+            // CRITICAL: Include package manager in hash to prevent cross-contamination
+            // Different package managers create incompatible node_modules structures
+            const combined = `PM:${packageManager}\n${pkgResult.content}\n${lockContent}`;
             const hash = crypto.createHash('md5').update(combined).digest('hex');
 
-            console.log(`   🔑 [Cache] Hash calcolato: ${hash}`);
+            console.log(`   🔑 [Cache] Hash calcolato: ${hash} (${packageManager})`);
             return hash;
 
         } catch (error) {
@@ -121,12 +130,13 @@ class NodeModulesCacheService {
             console.log(`   📦 [Cache] Creating tarball on VM...`);
             const tarballPath = `/home/coder/project/node_modules_cache_${hash}.tar.gz`;
 
+            // Use fast compression (gzip -1) for 2-3x faster extraction
             const createTarCmd = `
                 cd /home/coder/project && \
-                tar -czf ${tarballPath} node_modules/ 2>/dev/null || echo "tar failed"
+                tar -cf - node_modules/ 2>/dev/null | gzip -1 > ${tarballPath} || echo "tar failed"
             `.trim();
 
-            await flyService.exec(vmAgentUrl, createTarCmd, '/home/coder', machineId, 180000);
+            await flyService.exec(vmAgentUrl, createTarCmd, '/home/coder', machineId, 300000);
 
             // 4. Verifica tarball creato
             const checkCmd = `ls -lh ${tarballPath} 2>/dev/null || echo "not found"`;
@@ -140,49 +150,40 @@ class NodeModulesCacheService {
             const size = sizeMatch ? sizeMatch[1] : 'unknown';
             console.log(`   ✅ [Cache] Tarball created: ${size}`);
 
-            // 5. Download tarball dalla VM al backend usando base64
-            console.log(`   📥 [Cache] Downloading tarball from VM...`);
-            const localPath = path.join(this.tempDir, `${hash}.tar.gz`);
-
-            // Crea temp dir se non esiste
-            if (!fs.existsSync(this.tempDir)) {
-                fs.mkdirSync(this.tempDir, { recursive: true });
-            }
-
-            // Download via exec + base64 (chunked per file grandi)
-            const chunkSize = 10 * 1024 * 1024; // 10MB chunks
-            const base64Cmd = `base64 < ${tarballPath}`;
-            const result = await flyService.exec(vmAgentUrl, base64Cmd, '/home/coder', machineId, 300000, true);
-
-            if (!result.stdout) {
-                throw new Error('Failed to read tarball from VM');
-            }
-
-            // Decode base64 and write to file
-            const buffer = Buffer.from(result.stdout, 'base64');
-            fs.writeFileSync(localPath, buffer);
-
-            const stats = fs.statSync(localPath);
-            console.log(`   ✅ [Cache] Downloaded: ${(stats.size / 1024 / 1024).toFixed(1)}MB`);
-
-            // 6. Upload a Firebase Storage
-            console.log(`   ☁️ [Cache] Uploading to Firebase Storage...`);
+            // 5. Genera signed URL per upload diretto dalla VM
+            console.log(`   🔗 [Cache] Generating signed URL for upload...`);
             const fileName = `${this.cachePrefix}${hash}.tar.gz`;
-            await bucket.upload(localPath, {
-                destination: fileName,
-                metadata: {
-                    contentType: 'application/gzip',
-                    metadata: {
-                        projectId,
-                        hash,
-                        createdAt: new Date().toISOString(),
-                        size: stats.size
-                    }
-                }
+            const file = bucket.file(fileName);
+
+            // Signed URL per upload, valido 15 minuti
+            const [signedUrl] = await file.getSignedUrl({
+                action: 'write',
+                expires: Date.now() + 15 * 60 * 1000, // 15 min
+                contentType: 'application/gzip',
             });
 
-            // 7. Cleanup
-            fs.unlinkSync(localPath);
+            console.log(`   ✅ [Cache] Signed URL generated`);
+
+            // 6. La VM carica direttamente su Firebase Storage via curl
+            console.log(`   ☁️ [Cache] VM uploading to Firebase Storage...`);
+            const uploadCmd = `curl -X PUT -H "Content-Type: application/gzip" --data-binary @${tarballPath} "${signedUrl}" && echo "UPLOAD_SUCCESS"`;
+
+            const uploadResult = await flyService.exec(
+                vmAgentUrl,
+                uploadCmd,
+                '/home/coder',
+                machineId,
+                300000, // 5 min timeout per upload
+                true
+            );
+
+            if (!uploadResult?.stdout?.includes('UPLOAD_SUCCESS')) {
+                throw new Error(`VM upload failed: ${uploadResult?.stderr || uploadResult?.stdout || 'unknown error'}`);
+            }
+
+            console.log(`   ✅ [Cache] Uploaded to Firebase Storage`);
+
+            // 7. Cleanup tarball su VM
             await flyService.exec(vmAgentUrl, `rm -f ${tarballPath}`, '/home/coder', machineId, 10000, true);
 
             const elapsed = Date.now() - startTime;
@@ -191,7 +192,7 @@ class NodeModulesCacheService {
             return {
                 success: true,
                 hash,
-                size: stats.size,
+                size: size, // size from tarball check (e.g., "38M")
                 elapsed,
                 cached: true
             };
@@ -231,66 +232,157 @@ class NodeModulesCacheService {
                 return { success: false, error: 'Cache not found' };
             }
 
-            // 2. Download da Firebase Storage
-            console.log(`   📥 [Cache] Downloading from Firebase Storage...`);
-            const fileName = `${this.cachePrefix}${hash}.tar.gz`;
-            const localPath = path.join(this.tempDir, `${hash}.tar.gz`);
+            // 1.5. TIER 3: VM-to-VM direct transfer (10-20x faster than TIER 2)
+            // Try to find another VM in the pool that has this hash cached
+            const vmPoolManager = require('./vm-pool-manager');
+            const pool = vmPoolManager.pool || [];
 
-            if (!fs.existsSync(this.tempDir)) {
-                fs.mkdirSync(this.tempDir, { recursive: true });
-            }
-
-            await bucket.file(fileName).download({ destination: localPath });
-
-            const stats = fs.statSync(localPath);
-            console.log(`   ✅ [Cache] Downloaded: ${(stats.size / 1024 / 1024).toFixed(1)}MB`);
-
-            // 3. Upload tarball alla VM
-            console.log(`   📤 [Cache] Uploading to VM...`);
-            const vmTarballPath = `/tmp/node_modules_restore_${hash}.tar.gz`;
-
-            // Usa curl per upload (più efficiente per file grandi)
-            const uploadScript = `
-                cat > ${vmTarballPath}
-            `.trim();
-
-            const tarballContent = fs.readFileSync(localPath);
-
-            // Upload via exec con stdin
-            await flyService.exec(
-                vmAgentUrl,
-                uploadScript,
-                '/home/coder',
-                machineId,
-                120000,
-                false,
-                tarballContent.toString('base64')
+            // Find a running VM with the same hash (not the current VM)
+            const sourceVM = pool.find(vm =>
+                !vm.isCacheMaster &&
+                !vm.stopped &&
+                vm.machineId !== machineId &&
+                vm.nodeModulesHash === hash
             );
 
-            console.log(`   ✅ [Cache] Uploaded to VM`);
+            if (sourceVM) {
+                console.log(`   🚀 [TIER 3] Found VM ${sourceVM.machineId} with matching hash, using direct VM-to-VM transfer`);
 
-            // 4. Estrai tarball su VM
-            console.log(`   📦 [Cache] Extracting on VM...`);
-            const extractCmd = `
-                cd /home/coder/project && \
-                rm -rf node_modules && \
-                tar -xzf ${vmTarballPath} && \
-                rm -f ${vmTarballPath} && \
-                chown -R coder:coder node_modules
-            `.trim();
+                try {
+                    const axios = require('axios');
+                    const response = await axios.post('http://localhost:3000/api/cache-copy', {
+                        workerMachineId: machineId,
+                        sourceMachineId: sourceVM.machineId,
+                        type: 'node_modules'
+                    }, {
+                        timeout: 300000 // 5 minutes
+                    });
 
-            await flyService.exec(vmAgentUrl, extractCmd, '/home/coder', machineId, 180000);
-
-            // 5. Verifica estrazione
-            const verifyCmd = `test -d /home/coder/project/node_modules && echo "success" || echo "failed"`;
-            const verifyResult = await flyService.exec(vmAgentUrl, verifyCmd, '/home/coder', machineId, 10000, true);
-
-            if (!verifyResult.stdout.includes('success')) {
-                throw new Error('Extraction verification failed');
+                    if (response.data.success) {
+                        console.log(`   ✅ [TIER 3] VM-to-VM transfer completed: ${response.data.finalSizeMB}MB in ${response.data.elapsed}ms`);
+                        return {
+                            success: true,
+                            tier: 3,
+                            elapsed: response.data.elapsed,
+                            sizeMB: response.data.finalSizeMB
+                        };
+                    }
+                } catch (tier3Error) {
+                    console.warn(`   ⚠️ [TIER 3] VM-to-VM transfer failed: ${tier3Error.message}, falling back to TIER 2.5`);
+                }
+            } else {
+                console.log(`   ℹ️ [TIER 3] No VM with matching hash found, using TIER 2.5 (Firebase Storage)`);
             }
 
-            // 6. Cleanup locale
-            fs.unlinkSync(localPath);
+            // FALLBACK: TIER 2.5 - Firebase Storage with streaming extraction
+            // 2. Genera signed URL per download diretto dalla VM
+            console.log(`   🔗 [Cache] Generating signed URL...`);
+            const fileName = `${this.cachePrefix}${hash}.tar.gz`;
+            const file = bucket.file(fileName);
+
+            // Signed URL valido per 15 minuti
+            const [signedUrl] = await file.getSignedUrl({
+                action: 'read',
+                expires: Date.now() + 15 * 60 * 1000, // 15 min
+            });
+
+            console.log(`   ✅ [Cache] Signed URL generated`);
+
+            // Get file size to understand download time
+            const [metadata] = await file.getMetadata();
+            const fileSizeMB = Math.round(metadata.size / 1024 / 1024);
+            console.log(`   📦 [Cache] File size: ${fileSizeMB}MB (${metadata.size} bytes)`);
+
+            // 3. TIER 2.5: Streaming extraction - download + extract in parallel (save 20-30s)
+            console.log(`   🚀 [Cache] Streaming download + extraction (TIER 2.5)...`);
+
+            // Prepara directory
+            const prepareCmd = `mkdir -p /home/coder/project && cd /home/coder/project && rm -rf node_modules 2>&1 && echo "PREP_OK"`;
+            const prepResult = await flyService.exec(vmAgentUrl, prepareCmd, '/home/coder', machineId, 60000, true);
+            console.log(`   📋 [Cache] Prepare result:`, prepResult?.stdout?.trim() || 'no output');
+
+            // Stream download directly to tar extraction in BACKGROUND (avoids timeout + saves time)
+            // This pipes curl output directly to tar, so extraction starts while downloading
+            const streamExtractCmd = `cd /home/coder/project && (curl -sL "${signedUrl}" | tar -xzf - > /tmp/tar_extract.log 2>&1; echo "DONE" > /tmp/tar_extract.done) & echo "EXTRACTION_STARTED"`;
+            console.log(`   📝 [Cache DEBUG] About to execute streaming extraction command...`);
+            const startResult = await flyService.exec(vmAgentUrl, streamExtractCmd, '/home/coder', machineId, 90000, true);
+            console.log(`   📝 [Cache DEBUG] Stream command returned:`, startResult?.stdout?.substring(0, 100));
+
+            if (!startResult?.stdout?.includes('EXTRACTION_STARTED')) {
+                console.error(`   ❌ [Cache DEBUG] EXTRACTION_STARTED not found in output!`);
+                throw new Error(`Failed to start tar extraction: ${startResult?.stdout || startResult?.stderr || 'unknown'}`);
+            }
+            console.log(`   🚀 [Cache] Tar extraction started in background`);
+
+            // Poll per completamento (max 5 minuti)
+            const maxWaitMs = 300000; // 5 min
+            const pollIntervalMs = 3000; // 3 sec
+            const startWait = Date.now();
+            let extractionComplete = false;
+            let lastLogLine = '';
+            let lastSize = 0;
+
+            while (Date.now() - startWait < maxWaitMs) {
+                await new Promise(r => setTimeout(r, pollIntervalMs));
+
+                // Check if extraction is done
+                const checkDone = await flyService.exec(vmAgentUrl,
+                    `test -f /tmp/tar_extract.done && cat /tmp/tar_extract.done || echo "PENDING"`,
+                    '/home/coder', machineId, 5000, true);
+
+                if (checkDone?.stdout?.includes('DONE')) {
+                    extractionComplete = true;
+                    const totalTime = Math.round((Date.now() - startWait)/1000);
+                    const avgSpeedMBps = fileSizeMB / totalTime;
+                    console.log(`   ✅ [Cache] Tar extraction completed after ${totalTime}s (avg ${avgSpeedMBps.toFixed(1)} MB/s)`);
+                    break;
+                }
+
+                // Show progress every 10 seconds with download speed
+                const elapsed = Math.round((Date.now() - startWait) / 1000);
+                if (elapsed % 10 === 0 && elapsed > 0) {
+                    // Check current size of node_modules to estimate download progress
+                    const sizeCheck = await flyService.exec(vmAgentUrl,
+                        `du -sm /home/coder/project/node_modules 2>/dev/null | cut -f1 || echo "0"`,
+                        '/home/coder', machineId, 5000, true);
+                    const currentSizeMB = parseInt(sizeCheck?.stdout?.trim() || '0');
+                    const deltaMB = currentSizeMB - lastSize;
+                    const speedMBps = deltaMB / (pollIntervalMs * (10 / 3) / 1000); // MB per second over last 10s
+                    lastSize = currentSizeMB;
+
+                    console.log(`   ⏳ [Cache] Extracting... ${elapsed}s - ${currentSizeMB}MB/${fileSizeMB}MB (${speedMBps.toFixed(1)} MB/s)`);
+                }
+            }
+
+            if (!extractionComplete) {
+                // Check log for errors
+                const logResult = await flyService.exec(vmAgentUrl,
+                    `cat /tmp/tar_extract.log 2>/dev/null | tail -20 || echo "no log"`,
+                    '/home/coder', machineId, 5000, true);
+                console.error(`   ❌ [Cache] Tar extraction timed out. Log:`, logResult?.stdout?.substring(0, 500));
+                throw new Error('Tar extraction timed out after 5 minutes');
+            }
+
+            // Check for extraction errors in log
+            const tarLog = await flyService.exec(vmAgentUrl,
+                `cat /tmp/tar_extract.log 2>/dev/null || echo ""`,
+                '/home/coder', machineId, 5000, true);
+            if (tarLog?.stdout && tarLog.stdout.includes('error')) {
+                console.warn(`   ⚠️ [Cache] Tar had some warnings:`, tarLog.stdout.substring(0, 200));
+            }
+
+            // Cleanup temp files and permissions (no tarball to remove with streaming)
+            const cleanupCmd = `rm -f /tmp/tar_extract.log /tmp/tar_extract.done && (chown -R coder:coder /home/coder/project/node_modules 2>/dev/null || true) && echo "CLEANUP_OK"`;
+            await flyService.exec(vmAgentUrl, cleanupCmd, '/home/coder', machineId, 60000, true);
+
+            // 5. Verifica estrazione
+            const verifyCmd = `ls -la /home/coder/project/node_modules 2>&1 | head -5; test -d /home/coder/project/node_modules && echo "VERIFY_SUCCESS" || echo "VERIFY_FAILED"`;
+            const verifyResult = await flyService.exec(vmAgentUrl, verifyCmd, '/home/coder', machineId, 10000, true);
+            console.log(`   🔍 [Cache] Verify result:`, verifyResult?.stdout?.substring(0, 200));
+
+            if (!verifyResult?.stdout?.includes('VERIFY_SUCCESS')) {
+                throw new Error(`Extraction verification failed: ${verifyResult?.stdout || 'node_modules not found'}`);
+            }
 
             const elapsed = Date.now() - startTime;
             console.log(`   ✅ [Cache] Restored in ${elapsed}ms`);

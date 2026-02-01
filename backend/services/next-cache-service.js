@@ -72,6 +72,7 @@ class NextCacheService {
 
     /**
      * Salva .next cache su Firebase Storage
+     * Usa signed URLs per upload diretto dalla VM (evita base64 truncation)
      * @param {string} projectId - Project ID
      * @param {string} vmAgentUrl - VM agent URL
      * @param {string} machineId - Fly machine ID
@@ -105,14 +106,14 @@ class NextCacheService {
             console.log(`   📦 [NextCache] Creating tarball on VM...`);
             const tarballPath = `/tmp/next_cache_${projectId}.tar.gz`;
 
-            // Exclude large unnecessary files
+            // Exclude large unnecessary files, use fast compression (gzip -1) for 2-3x faster extraction
             const createTarCmd = `
                 cd /home/coder/project && \
-                tar -czf ${tarballPath} \
+                tar -cf - \
                     --exclude='.next/cache/webpack' \
                     --exclude='.next/cache/fetch-cache' \
                     --exclude='.next/trace' \
-                    .next/ 2>/dev/null || echo "tar failed"
+                    .next/ 2>/dev/null | gzip -1 > ${tarballPath} || echo "tar failed"
             `.trim();
 
             await flyService.exec(vmAgentUrl, createTarCmd, '/home/coder', machineId, 120000);
@@ -128,49 +129,50 @@ class NextCacheService {
             const tarballSize = sizeResult.stdout.trim();
             console.log(`   ✅ [NextCache] Tarball created: ${tarballSize}`);
 
-            // 4. Download tarball from VM
-            console.log(`   📥 [NextCache] Downloading from VM...`);
-
-            if (!fs.existsSync(this.tempDir)) {
-                fs.mkdirSync(this.tempDir, { recursive: true });
-            }
-
-            const localPath = path.join(this.tempDir, `${projectId}.tar.gz`);
-
-            // Download via base64
-            const base64Cmd = `base64 < ${tarballPath}`;
-            const result = await flyService.exec(vmAgentUrl, base64Cmd, '/home/coder', machineId, 300000, true);
-
-            if (!result.stdout) {
-                throw new Error('Failed to read tarball from VM');
-            }
-
-            const buffer = Buffer.from(result.stdout, 'base64');
-            fs.writeFileSync(localPath, buffer);
-
-            const stats = fs.statSync(localPath);
-            console.log(`   ✅ [NextCache] Downloaded: ${(stats.size / 1024 / 1024).toFixed(1)}MB`);
-
-            // 5. Upload to Firebase Storage
-            console.log(`   ☁️ [NextCache] Uploading to Firebase Storage...`);
+            // 4. Generate signed URL for upload
+            console.log(`   🔗 [NextCache] Generating signed URL for upload...`);
             const fileName = this.getCacheKey(projectId);
+            const file = bucket.file(fileName);
 
-            await bucket.upload(localPath, {
-                destination: fileName,
-                metadata: {
-                    contentType: 'application/gzip',
-                    metadata: {
-                        projectId,
-                        createdAt: new Date().toISOString(),
-                        originalSize: folderSize,
-                        compressedSize: stats.size
-                    }
-                }
+            // Signed URL per upload, valido 15 minuti
+            const [signedUrl] = await file.getSignedUrl({
+                action: 'write',
+                expires: Date.now() + 15 * 60 * 1000, // 15 min
+                contentType: 'application/gzip',
             });
 
-            // 6. Cleanup
-            fs.unlinkSync(localPath);
+            console.log(`   ✅ [NextCache] Signed URL generated`);
+
+            // 5. VM uploads directly to Firebase Storage via curl
+            console.log(`   ☁️ [NextCache] VM uploading to Firebase Storage...`);
+            const uploadCmd = `curl -X PUT -H "Content-Type: application/gzip" --data-binary @${tarballPath} "${signedUrl}" && echo "UPLOAD_SUCCESS"`;
+
+            const uploadResult = await flyService.exec(
+                vmAgentUrl,
+                uploadCmd,
+                '/home/coder',
+                machineId,
+                300000, // 5 min timeout per upload
+                true
+            );
+
+            if (!uploadResult?.stdout?.includes('UPLOAD_SUCCESS')) {
+                throw new Error(`VM upload failed: ${uploadResult?.stderr || uploadResult?.stdout || 'unknown error'}`);
+            }
+
+            console.log(`   ✅ [NextCache] Uploaded to Firebase Storage`);
+
+            // 6. Cleanup tarball on VM
             await flyService.exec(vmAgentUrl, `rm -f ${tarballPath}`, '/home/coder', machineId, 10000, true);
+
+            // TIER 2.6: Save source hash after successful save (enables persistent .next)
+            try {
+                const hashCmd = `cd /home/coder/project && (find app src pages components public styles -type f 2>/dev/null | sort | xargs -r stat -c '%Y %n' 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none") > .next-source-hash`;
+                await flyService.exec(vmAgentUrl, hashCmd, '/home/coder', machineId, 10000, true);
+                console.log(`   💾 [NextCache] Saved source hash for persistent cache`);
+            } catch (hashError) {
+                console.log(`   ⚠️ [NextCache] Failed to save source hash: ${hashError.message}`);
+            }
 
             const elapsed = Date.now() - startTime;
             console.log(`   ✅ [NextCache] Saved in ${elapsed}ms`);
@@ -178,7 +180,7 @@ class NextCacheService {
             return {
                 success: true,
                 projectId,
-                size: stats.size,
+                size: tarballSize,
                 elapsed
             };
 
@@ -193,6 +195,7 @@ class NextCacheService {
 
     /**
      * Ripristina .next cache dalla storage
+     * Usa signed URLs per download diretto dalla VM (evita base64 truncation)
      * @param {string} projectId - Project ID
      * @param {string} vmAgentUrl - VM agent URL
      * @param {string} machineId - Fly machine ID
@@ -217,54 +220,93 @@ class NextCacheService {
                 return { success: false, error: 'Cache not found' };
             }
 
-            // 2. Download from Firebase Storage
-            console.log(`   📥 [NextCache] Downloading from Firebase Storage...`);
+            // 2. Generate signed URL for direct download from VM
+            console.log(`   🔗 [NextCache] Generating signed URL for download...`);
             const fileName = this.getCacheKey(projectId);
+            const file = bucket.file(fileName);
 
-            if (!fs.existsSync(this.tempDir)) {
-                fs.mkdirSync(this.tempDir, { recursive: true });
+            // Signed URL valido per 15 minuti
+            const [signedUrl] = await file.getSignedUrl({
+                action: 'read',
+                expires: Date.now() + 15 * 60 * 1000, // 15 min
+            });
+
+            console.log(`   ✅ [NextCache] Signed URL generated`);
+
+            // 3. TIER 2.5: Streaming extraction - download + extract in parallel (save 20-30s)
+            console.log(`   🚀 [NextCache] Streaming download + extraction (TIER 2.5)...`);
+
+            // Prepare directory
+            const prepareCmd = `cd /home/coder/project && rm -rf .next 2>&1 && echo "PREP_OK"`;
+            const prepResult = await flyService.exec(vmAgentUrl, prepareCmd, '/home/coder', machineId, 30000, true);
+            console.log(`   📋 [NextCache] Prepare result:`, prepResult?.stdout?.trim() || 'no output');
+
+            // Stream download directly to tar extraction in BACKGROUND (avoids timeout + saves time)
+            // This pipes curl output directly to tar, so extraction starts while downloading
+            const streamExtractCmd = `cd /home/coder/project && (curl -sL "${signedUrl}" | tar -xzf - > /tmp/tar_next_extract.log 2>&1; echo "DONE" > /tmp/tar_next_extract.done) & echo "EXTRACTION_STARTED"`;
+            const startResult = await flyService.exec(vmAgentUrl, streamExtractCmd, '/home/coder', machineId, 30000, true);
+
+            if (!startResult?.stdout?.includes('EXTRACTION_STARTED')) {
+                throw new Error(`Failed to start tar extraction: ${startResult?.stdout || startResult?.stderr || 'unknown'}`);
+            }
+            console.log(`   🚀 [NextCache] Tar extraction started in background`);
+
+            // Poll per completamento (max 3 minuti - .next è più piccolo di node_modules)
+            const maxWaitMs = 180000; // 3 min
+            const pollIntervalMs = 2000; // 2 sec
+            const startWait = Date.now();
+            let extractionComplete = false;
+
+            while (Date.now() - startWait < maxWaitMs) {
+                await new Promise(r => setTimeout(r, pollIntervalMs));
+
+                // Check if extraction is done
+                const checkDone = await flyService.exec(vmAgentUrl,
+                    `test -f /tmp/tar_next_extract.done && cat /tmp/tar_next_extract.done || echo "PENDING"`,
+                    '/home/coder', machineId, 5000, true);
+
+                if (checkDone?.stdout?.includes('DONE')) {
+                    extractionComplete = true;
+                    console.log(`   ✅ [NextCache] Tar extraction completed after ${Math.round((Date.now() - startWait)/1000)}s`);
+                    break;
+                }
+
+                // Show progress every 10 seconds
+                const elapsed = Math.round((Date.now() - startWait) / 1000);
+                if (elapsed % 10 === 0 && elapsed > 0) {
+                    console.log(`   ⏳ [NextCache] Extracting... (${elapsed}s)`);
+                }
             }
 
-            const localPath = path.join(this.tempDir, `${projectId}.tar.gz`);
-            await bucket.file(fileName).download({ destination: localPath });
+            if (!extractionComplete) {
+                const logResult = await flyService.exec(vmAgentUrl,
+                    `cat /tmp/tar_next_extract.log 2>/dev/null | tail -10 || echo "no log"`,
+                    '/home/coder', machineId, 5000, true);
+                console.error(`   ❌ [NextCache] Tar extraction timed out. Log:`, logResult?.stdout?.substring(0, 300));
+                throw new Error('Tar extraction timed out after 3 minutes');
+            }
 
-            const stats = fs.statSync(localPath);
-            console.log(`   ✅ [NextCache] Downloaded: ${(stats.size / 1024 / 1024).toFixed(1)}MB`);
-
-            // 3. Upload to VM and extract
-            console.log(`   📤 [NextCache] Uploading to VM...`);
-            const vmTarballPath = `/tmp/next_restore_${projectId}.tar.gz`;
-
-            // Read file and convert to base64
-            const tarballContent = fs.readFileSync(localPath);
-            const base64Content = tarballContent.toString('base64');
-
-            // Write via echo and base64 decode
-            const uploadCmd = `echo '${base64Content}' | base64 -d > ${vmTarballPath}`;
-            await flyService.exec(vmAgentUrl, uploadCmd, '/home/coder', machineId, 180000);
-
-            // 4. Extract tarball
-            console.log(`   📦 [NextCache] Extracting on VM...`);
-            const extractCmd = `
-                cd /home/coder/project && \
-                rm -rf .next && \
-                tar -xzf ${vmTarballPath} && \
-                rm -f ${vmTarballPath} && \
-                chown -R coder:coder .next
-            `.trim();
-
-            await flyService.exec(vmAgentUrl, extractCmd, '/home/coder', machineId, 120000);
+            // Cleanup temp files and permissions (no tarball to remove with streaming)
+            const cleanupCmd = `rm -f /tmp/tar_next_extract.log /tmp/tar_next_extract.done && (chown -R coder:coder /home/coder/project/.next 2>/dev/null || true) && echo "CLEANUP_OK"`;
+            await flyService.exec(vmAgentUrl, cleanupCmd, '/home/coder', machineId, 30000, true);
 
             // 5. Verify extraction
-            const verifyCmd = `test -d /home/coder/project/.next && echo "success" || echo "failed"`;
+            const verifyCmd = `ls -la /home/coder/project/.next 2>&1 | head -5; test -d /home/coder/project/.next && echo "VERIFY_SUCCESS" || echo "VERIFY_FAILED"`;
             const verifyResult = await flyService.exec(vmAgentUrl, verifyCmd, '/home/coder', machineId, 10000, true);
+            console.log(`   🔍 [NextCache] Verify result:`, verifyResult?.stdout?.substring(0, 200));
 
-            if (!verifyResult.stdout.includes('success')) {
-                throw new Error('Extraction verification failed');
+            if (!verifyResult?.stdout?.includes('VERIFY_SUCCESS')) {
+                throw new Error(`Extraction verification failed: ${verifyResult?.stdout || '.next not found'}`);
             }
 
-            // 6. Cleanup local
-            fs.unlinkSync(localPath);
+            // TIER 2.6: Save source hash after successful restore (enables persistent .next)
+            try {
+                const hashCmd = `cd /home/coder/project && (find app src pages components public styles -type f 2>/dev/null | sort | xargs -r stat -c '%Y %n' 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none") > .next-source-hash`;
+                await flyService.exec(vmAgentUrl, hashCmd, '/home/coder', machineId, 10000, true);
+                console.log(`   💾 [NextCache] Saved source hash for persistent cache`);
+            } catch (hashError) {
+                console.log(`   ⚠️ [NextCache] Failed to save source hash: ${hashError.message}`);
+            }
 
             const elapsed = Date.now() - startTime;
             console.log(`   ✅ [NextCache] Restored in ${elapsed}ms`);

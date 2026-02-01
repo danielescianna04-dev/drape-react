@@ -3,7 +3,6 @@
  * Monitors VM file changes and broadcasts via WebSocket
  */
 
-const chokidar = require('chokidar');
 const flyService = require('./fly-service');
 
 class FileWatcherService {

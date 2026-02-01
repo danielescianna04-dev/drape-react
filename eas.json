@@ -15,13 +15,18 @@
       }
     },
     "production": {
+      "node": "20.11.0",
+      "env": {
+        "EXPO_PUBLIC_ENV": "production"
+      },
       "android": {
         "buildType": "apk",
         "credentialsSource": "remote"
       },
       "ios": {
         "buildConfiguration": "Release",
-        "credentialsSource": "remote"
+        "credentialsSource": "remote",
+        "image": "latest"
       }
     }
   },

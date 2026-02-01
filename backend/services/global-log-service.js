@@ -61,11 +61,18 @@ class GlobalLogService {
      * Add log entry and broadcast to listeners
      */
     _addLog(level, args) {
+        const message = this._formatArgs(args);
+
+        // FILTER: Skip EPIPE socket errors to prevent log spam
+        if (message.includes('Socket error') && message.includes('EPIPE')) {
+            return; // Don't log, don't broadcast
+        }
+
         const entry = {
             id: ++this.sequence,
             timestamp: Date.now(),
             level,
-            message: this._formatArgs(args)
+            message
         };
 
         this.logs.push(entry);

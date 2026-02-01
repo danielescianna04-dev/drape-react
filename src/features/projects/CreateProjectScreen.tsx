@@ -38,6 +38,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 interface Props {
   onBack: () => void;
   onCreate: (projectData: any) => void;
+  onOpenPlans?: () => void;
 }
 
 const languages = [
@@ -47,7 +48,7 @@ const languages = [
   { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
 ];
 
-export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
+export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
@@ -397,6 +398,13 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
+        if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
+          setProjectLimit(result.limits?.maxProjects || 3);
+          setShowUpgradeModal(true);
+          setIsCreating(false);
+          liveActivityService.endPreviewActivity().catch(() => {});
+          return;
+        }
         throw new Error(result.error || 'Failed to start project creation');
       }
 
@@ -453,9 +461,12 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
       });
 
       const result = await response.json();
+      console.log('🔍 [CreateProject] Response status:', response.status, 'result:', JSON.stringify(result));
 
       if (!response.ok || !result.success) {
+        console.log('🔍 [CreateProject] Error detected, result.error:', result.error);
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
+          console.log('🔍 [CreateProject] Showing upgrade modal!');
           setProjectLimit(result.limits?.maxProjects || 3);
           setShowUpgradeModal(true);
           setIsCreating(false);
@@ -993,89 +1004,77 @@ export const CreateProjectScreen = ({ onBack, onCreate }: Props) => {
           step={creationTask?.step}
         />
       )}
-      {/* Upgrade Modal */}
-      <Modal
-        visible={showUpgradeModal}
-        transparent={true}
-        animationType="fade"
-        statusBarTranslucent={true}
-        onRequestClose={() => setShowUpgradeModal(false)}
-      >
-        <View style={styles.upgradeModalOverlay}>
-          <View style={styles.upgradeModalCard}>
-            {/* Glow effect */}
-            <LinearGradient
-              colors={['rgba(139, 92, 246, 0.15)', 'rgba(59, 130, 246, 0.05)', 'transparent']}
-              style={styles.upgradeModalGlow}
-            />
-
-            {/* Icon */}
-            <View style={styles.upgradeIconWrapper}>
+      {/* Upgrade Overlay (absolute positioned, no native Modal) */}
+      {showUpgradeModal && (
+        <View style={styles.upgradeOverlay}>
+          <View style={styles.upgradeModalOverlay}>
+            <View style={styles.upgradeModalCard}>
               <LinearGradient
-                colors={[AppColors.primary, '#9333EA', '#6366F1']}
-                style={styles.upgradeIconGradient}
+                colors={['rgba(139, 92, 246, 0.15)', 'rgba(59, 130, 246, 0.05)', 'transparent']}
+                style={styles.upgradeModalGlow}
+              />
+              <View style={styles.upgradeIconWrapper}>
+                <LinearGradient
+                  colors={[AppColors.primary, '#9333EA', '#6366F1']}
+                  style={styles.upgradeIconGradient}
+                >
+                  <Ionicons name="rocket" size={32} color="#fff" />
+                </LinearGradient>
+              </View>
+              <Text style={styles.upgradeTitle}>Limite raggiunto</Text>
+              <Text style={styles.upgradeSubtitle}>
+                Hai raggiunto il massimo di {projectLimit} progetti con il piano Free.{'\n'}
+                Passa a <Text style={styles.upgradeHighlight}>Go</Text> per crearne fino a 5.
+              </Text>
+              <View style={styles.upgradeFeatures}>
+                {[
+                  { icon: 'folder-open', text: '5 progetti + 3 clonati' },
+                  { icon: 'eye', text: 'Fino a 20 preview/mese' },
+                  { icon: 'sparkles', text: 'Budget AI raddoppiato' },
+                ].map((f, i) => (
+                  <View key={i} style={styles.upgradeFeatureRow}>
+                    <LinearGradient
+                      colors={[AppColors.primary, '#9333EA']}
+                      style={styles.upgradeFeatureIcon}
+                    >
+                      <Ionicons name={f.icon as any} size={14} color="#fff" />
+                    </LinearGradient>
+                    <Text style={styles.upgradeFeatureText}>{f.text}</Text>
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={styles.upgradeCta}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setShowUpgradeModal(false);
+                  if (onOpenPlans) {
+                    onOpenPlans();
+                  } else {
+                    onBack();
+                  }
+                }}
               >
-                <Ionicons name="rocket" size={32} color="#fff" />
-              </LinearGradient>
-            </View>
-
-            {/* Title */}
-            <Text style={styles.upgradeTitle}>Limite raggiunto</Text>
-            <Text style={styles.upgradeSubtitle}>
-              Hai raggiunto il massimo di {projectLimit} progetti con il piano Free.{'\n'}
-              Passa a <Text style={styles.upgradeHighlight}>Go</Text> per crearne fino a 5.
-            </Text>
-
-            {/* Features */}
-            <View style={styles.upgradeFeatures}>
-              {[
-                { icon: 'folder-open', text: 'Fino a 5 progetti' },
-                { icon: 'eye', text: 'Fino a 20 preview/mese' },
-                { icon: 'sparkles', text: 'Budget AI raddoppiato' },
-              ].map((f, i) => (
-                <View key={i} style={styles.upgradeFeatureRow}>
-                  <LinearGradient
-                    colors={[AppColors.primary, '#9333EA']}
-                    style={styles.upgradeFeatureIcon}
-                  >
-                    <Ionicons name={f.icon as any} size={14} color="#fff" />
-                  </LinearGradient>
-                  <Text style={styles.upgradeFeatureText}>{f.text}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* CTA */}
-            <TouchableOpacity
-              style={styles.upgradeCta}
-              activeOpacity={0.85}
-              onPress={() => {
-                setShowUpgradeModal(false);
-                // Navigate to settings/upgrade
-                onBack();
-              }}
-            >
-              <LinearGradient
-                colors={[AppColors.primary, '#9333EA']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.upgradeCtaGradient}
+                <LinearGradient
+                  colors={[AppColors.primary, '#9333EA']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.upgradeCtaGradient}
+                >
+                  <Ionicons name="arrow-up-circle" size={20} color="#fff" />
+                  <Text style={styles.upgradeCtaText}>Passa a Go</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.upgradeDismiss}
+                onPress={() => setShowUpgradeModal(false)}
               >
-                <Ionicons name="arrow-up-circle" size={20} color="#fff" />
-                <Text style={styles.upgradeCtaText}>Passa a Go</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Dismiss */}
-            <TouchableOpacity
-              style={styles.upgradeDismiss}
-              onPress={() => setShowUpgradeModal(false)}
-            >
-              <Text style={styles.upgradeDismissText}>Non ora</Text>
-            </TouchableOpacity>
+                <Text style={styles.upgradeDismissText}>Non ora</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </Modal>
+      )}
     </View >
   );
 };
@@ -1558,6 +1557,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // Upgrade Overlay (absolute fullscreen)
+  upgradeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
+  },
   // Upgrade Modal
   upgradeModalOverlay: {
     flex: 1,

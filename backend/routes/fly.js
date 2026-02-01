@@ -120,7 +120,7 @@ router.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
  * Create a new project by cloning a repository
  */
 router.post('/project/create', asyncHandler(async (req, res) => {
-    const { projectId, repositoryUrl, githubToken } = req.body;
+    const { projectId, repositoryUrl, githubToken, userId } = req.body;
     const startTime = Date.now();
 
     console.log(`\n🚀 [Fly] Creating project: ${projectId}`);
@@ -130,26 +130,61 @@ router.post('/project/create', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'projectId is required' });
     }
 
-    let filesCount = 0;
-    let result = null;
+    // Track project creation for auto-scaling burst detection
+    const vmPoolManager = require('../services/vm-pool-manager');
+    vmPoolManager.trackProjectCreation(projectId);
 
-    // Clone repository if provided
-    if (repositoryUrl) {
-        result = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
-        filesCount = result.filesCount;
+    try {
+        let filesCount = 0;
+        let result = null;
+
+        // Clone repository if provided
+        if (repositoryUrl) {
+            result = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
+            filesCount = result.filesCount;
+
+            // ULTRA OPTIMIZED: Start background warming immediately after clone
+            // This parallelizes install with user navigation, achieving 30-60s head start
+            setImmediate(async () => {
+                try {
+                    console.log(`🚀 [Parallel Opt] Starting proactive warming for ${projectId} (post-clone)...`);
+                    await orchestrator.prewarmProjectServer(projectId);
+                    console.log(`✅ [Parallel Opt] Background warming completed for ${projectId}`);
+                } catch (e) {
+                    console.warn(`⚠️ [Parallel Opt] Background warming failed for ${projectId}: ${e.message}`);
+                }
+            });
+        }
+
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ [Fly] Project created in ${elapsed}ms`);
+
+        // Send push notification if userId provided
+        if (userId && repositoryUrl) {
+            const notificationService = require('../services/notification-service');
+            const repoName = repositoryUrl.split('/').pop()?.replace('.git', '') || 'repository';
+            notificationService.sendToUser(userId, {
+                title: 'Progetto pronto!',
+                body: `Il clone di ${repoName} e' completato.`,
+                type: 'clone_complete',
+            }, {
+                projectId,
+                action: 'open_project',
+            }).catch(err => console.warn('[Notify] Clone notification failed:', err.message));
+        }
+
+        res.json({
+            success: true,
+            projectId,
+            filesCount,
+            files: (result && result.files) ? result.files.map(f => typeof f === 'string' ? f : f.path) : [],
+            timing: { totalMs: elapsed },
+            architecture: 'holy-grail'
+        });
+    } finally {
+        // Remove project from creation tracking (creation finished)
+        vmPoolManager.removeProjectCreation(projectId);
     }
-
-    const elapsed = Date.now() - startTime;
-    console.log(`✅ [Fly] Project created in ${elapsed}ms`);
-
-    res.json({
-        success: true,
-        projectId,
-        filesCount,
-        files: (result && result.files) ? result.files.map(f => typeof f === 'string' ? f : f.path) : [],
-        timing: { totalMs: elapsed },
-        architecture: 'holy-grail'
-    });
 }));
 
 /**
@@ -168,6 +203,11 @@ router.get('/project/:id/files', asyncHandler(async (req, res) => {
     // This is useful for retries or if the initial creation didn't clone
     if ((!result.files || result.files.length === 0) && repositoryUrl) {
         console.log(`📦 [Fly] Project empty, attempting auto-clone from: ${repositoryUrl}`);
+
+        // Track auto-clone for burst detection
+        const vmPoolManager = require('../services/vm-pool-manager');
+        vmPoolManager.trackProjectCreation(projectId);
+
         try {
             const cloneResult = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
             if (cloneResult.success) {
@@ -178,6 +218,9 @@ router.get('/project/:id/files', asyncHandler(async (req, res) => {
             console.error(`❌ [Fly] Auto-clone failed:`, cloneError.message);
             // If it's an auth error, propagate it
             if (cloneError.statusCode === 401) throw cloneError;
+        } finally {
+            // Remove from tracking after clone attempt
+            vmPoolManager.removeProjectCreation(projectId);
         }
     }
 
@@ -358,6 +401,18 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'projectId is required' });
     }
 
+    // CRITICAL: Set cookie BEFORE SSE headers to fix WebSocket HMR
+    // Check if we have an existing session with machineId
+    const existingSession = await redisService.getVMSession(projectId);
+    if (existingSession && existingSession.machineId) {
+        console.log(`🍪 [Preview] Setting cookie early: ${existingSession.machineId}`);
+        res.cookie('drape_vm_id', existingSession.machineId, {
+            httpOnly: false,
+            sameSite: 'Lax',
+            path: '/'
+        });
+    }
+
     // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -390,10 +445,33 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
     try {
         // FAST PATH: Check if dev server is already running
         // This happens when user re-opens a project that was recently used
-        const existingSession = await redisService.getVMSession(projectId);
+        // Note: existingSession is already fetched above for cookie setting
         if (existingSession && existingSession.machineId && existingSession.agentUrl) {
             try {
                 console.log(`🔍 [Fly] Checking if dev server already running for ${projectId}...`);
+
+                // CRITICAL: Verify the VM has the correct project before using Fast Path
+                // Read .drape-project-id file to check which project is on this VM
+                console.log(`🔍 [Fly] Verifying project ID on VM...`);
+                const flyService = require('../services/fly-service');
+                const projectIdCheck = await flyService.exec(
+                    existingSession.agentUrl,
+                    'cat /home/coder/project/.drape-project-id 2>/dev/null || echo ""',
+                    '/home/coder',
+                    existingSession.machineId,
+                    3000,
+                    true
+                );
+                const vmProjectId = projectIdCheck.stdout?.trim() || '';
+
+                if (vmProjectId !== projectId) {
+                    console.log(`⚠️ [Fly] VM has different project! VM: "${vmProjectId}", Requested: "${projectId}"`);
+                    console.log(`   ℹ️ [Fly] Cannot use Fast Path - need to setup new project`);
+                    throw new Error('Project mismatch - Fast Path not available');
+                }
+
+                console.log(`✅ [Fly] Project ID matches: ${vmProjectId}`);
+
                 const axios = require('axios');
                 const healthResponse = await axios.get(existingSession.agentUrl, {
                     timeout: 3000,
@@ -402,7 +480,8 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
                 });
 
                 // Dev server is already running!
-                if ((healthResponse.status >= 200 && healthResponse.status < 400) || healthResponse.status === 404) {
+                // IMPORTANT: 404 means server is NOT running, only accept 200-399 for Fast Path
+                if (healthResponse.status >= 200 && healthResponse.status < 400) {
                     console.log(`✅ [Fly] Dev server already running (${healthResponse.status}) - FAST PATH`);
 
                     // Get cached project info
@@ -412,6 +491,8 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
                     const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
                     const host = req.headers.host;
                     const gatewayPreviewUrl = `${protocol}://${host}`;
+
+                    // Cookie already set above (before SSE headers)
 
                     // Send quick ready event
                     sendStep('ready', 'Preview pronta!', {
@@ -485,6 +566,10 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         const elapsed = Date.now() - startTime;
         console.log(`✅ [Fly] Preview ready in ${elapsed}ms (Routed via Gateway: ${gatewayPreviewUrl})`);
 
+        // Cookie already set at the beginning (before SSE headers) - DO NOT set again here
+        // as it would cause "Cannot set headers after they are sent to the client" error
+        console.log(`🍪 [Preview] Cookie already set early for machineId: ${result.machineId}`);
+
         // Track metrics (Phase 3.1)
 
         metricsService.trackPreviewCreation({
@@ -500,7 +585,7 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         // Send final result
         console.log(`   [4/5] Ready!`);
         console.log(`   Preview URL: ${gatewayPreviewUrl}`);
-        console.log(`   🔑 machineId: ${result.machineId} (client must call /session to set cookie)`);
+        console.log(`   🔑 machineId: ${result.machineId} (cookie set, WebSocket ready)`);
         sendStep('ready', 'Preview pronta!', {
             success: true,
             previewUrl: gatewayPreviewUrl,
@@ -1023,7 +1108,12 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         });
 
         proxyRes.on('error', (err) => {
-            console.error(`📺 [Fly] Proxy stream error:`, err.message);
+            // "aborted" is normal when client disconnects - don't log as error
+            if (err.message === 'aborted' || err.code === 'ECONNRESET') {
+                console.log(`📺 [Fly] Stream closed (client disconnected): ${err.message}`);
+            } else {
+                console.error(`📺 [Fly] Proxy stream error:`, err.message);
+            }
             try {
                 if (!res.destroyed && !res.writableEnded) res.end();
             } catch (e) { /* ignore */ }

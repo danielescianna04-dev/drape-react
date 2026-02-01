@@ -3063,7 +3063,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                                     ? 'yarn install --prefer-offline --ignore-scripts'
                                     : 'npm install --prefer-offline --ignore-scripts';
 
-                                await flyService.exec(agentUrl, symlinkCmd, '/home/coder/project', machineId, 30000, true);
+                                await flyService.exec(agentUrl, symlinkCmd, '/home/coder/project', machineId, 120000, true);
                                 console.log(`   ✅ [Setup] Bin symlinks recreated with ${pkgManager}`);
                             } catch (symlinkError) {
                                 console.log(`   ⚠️ [Setup] Failed to recreate symlinks: ${symlinkError.message}`);
@@ -3134,24 +3134,31 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
             const filesResult = await this.listFiles(projectId);
             const fileNames = filesResult.files.map(f => f.path);
 
-
-
+            // CRITICAL: Detect ACTUAL package manager from lockfile to prevent cache cross-contamination
+            // Using wrong PM creates incompatible node_modules structure (npm flat vs pnpm symlinks)
             let installCmd;
-            let pkgManager = 'pnpm'; // HOLY GRAIL: pnpm is now MANDATORY for all projects (faster + global store)
-            // CI=true prevents pnpm from asking for TTY confirmation when removing/replacing node_modules
-            // CRITICAL: Pass --store-dir directly to pnpm install (more reliable than pnpm config set)
-            // This ensures pnpm uses the prewarmed cache immediately without config persistence issues
-            // HOLY GRAIL: Use --offline first to force using ONLY cached packages (no network = fast)
-            // If cache is missing something, the install script has automatic fallback to --prefer-offline
-            installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store --offline';
+            let pkgManager = 'npm'; // default to npm (most compatible)
 
             if (fileNames.includes('pnpm-lock.yaml')) {
-                installCmd += ' --frozen-lockfile';
-                console.log('   ⚡ Using pnpm --offline with fallback (detected pnpm-lock.yaml)');
-            } else if (fileNames.includes('yarn.lock') || fileNames.includes('package-lock.json')) {
-                console.log(`   ⚡ Using pnpm --offline with fallback (converted from ${fileNames.includes('yarn.lock') ? 'yarn' : 'npm'})`);
+                pkgManager = 'pnpm';
+                // CI=true prevents pnpm from asking for TTY confirmation
+                // Use mega-cache for pnpm projects
+                installCmd = 'mkdir -p /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir /home/coder/volumes/pnpm-store --prefer-offline --network-concurrency=64 --child-concurrency=10 --no-optional';
+                console.log('   ⚡ Using pnpm --prefer-offline (detected pnpm-lock.yaml)');
+            } else if (fileNames.includes('yarn.lock')) {
+                pkgManager = 'yarn';
+                installCmd = 'yarn install --prefer-offline --network-concurrency 64';
+                console.log('   ⚡ Using yarn --prefer-offline (detected yarn.lock)');
+            } else if (fileNames.includes('package-lock.json')) {
+                pkgManager = 'npm';
+                // Use npm with legacy-peer-deps for maximum compatibility
+                installCmd = 'npm install --prefer-offline --legacy-peer-deps';
+                console.log('   ⚡ Using npm --legacy-peer-deps (detected package-lock.json)');
             } else {
-                console.log('   ⚡ Using pnpm --offline with fallback (default - leverages global store)');
+                // No lockfile - default to npm (most compatible, no symlinks)
+                pkgManager = 'npm';
+                installCmd = 'npm install --prefer-offline --legacy-peer-deps';
+                console.log('   ⚡ Using npm --legacy-peer-deps (no lockfile - default to npm for compatibility)');
             }
 
             // Note: build cache disabled (Fly.io supports only 1 volume per machine)
@@ -3259,12 +3266,30 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                 if (nodeModulesExists) {
                     console.log(`   📦 node_modules exists with ${packageCount} packages`);
 
-                    // node_modules exists, check if package.json changed
+                    // node_modules exists, check if package.json OR package manager changed
                     const packageJson = await this.readFile(projectId, 'package.json');
                     if (packageJson.success) {
-                        // Calculate hash of current package.json
+                        // Detect package manager from lockfile
+                        let packageManager = 'npm'; // default
+                        const lockfiles = [
+                            { file: 'pnpm-lock.yaml', pm: 'pnpm' },
+                            { file: 'package-lock.json', pm: 'npm' },
+                            { file: 'yarn.lock', pm: 'yarn' }
+                        ];
+
+                        for (const { file, pm } of lockfiles) {
+                            const lockResult = await this.readFile(projectId, file);
+                            if (lockResult.success) {
+                                packageManager = pm;
+                                break;
+                            }
+                        }
+
+                        // CRITICAL: Include package manager in hash to prevent cross-contamination
                         const crypto = require('crypto');
-                        const currentHash = crypto.createHash('md5').update(packageJson.content).digest('hex');
+                        const currentHash = crypto.createHash('md5')
+                            .update(`PM:${packageManager}\n${packageJson.content}`)
+                            .digest('hex');
 
                         // Get stored hash from VM
                         const storedHashResult = await flyService.exec(
@@ -3279,15 +3304,15 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                         const storedHash = storedHashResult.stdout?.trim();
 
                         if (storedHash === currentHash) {
-                            console.log(`   ⚡ package.json unchanged (hash: ${currentHash.substring(0, 8)}...) - SKIPPING install`);
+                            console.log(`   ⚡ package.json unchanged (hash: ${currentHash.substring(0, 8)}..., ${packageManager}) - SKIPPING install`);
                             shouldInstall = false;
                         } else {
                             if (storedHash) {
-                                console.log(`   🔄 package.json CHANGED (${storedHash.substring(0, 8)}... → ${currentHash.substring(0, 8)}...) - running install`);
+                                console.log(`   🔄 package.json or PM CHANGED (${storedHash.substring(0, 8)}... → ${currentHash.substring(0, 8)}..., ${packageManager}) - running install`);
                             } else {
-                                console.log(`   🆕 First install for this project - running install`);
+                                console.log(`   🆕 First install for this project (${packageManager}) - running install`);
                             }
-                            // Store the new hash after install
+                            // Store the new hash (with PM) after install
                             installCmd = `${installCmd} && echo "${currentHash}" > .package-json-hash`;
                         }
                     } else {
@@ -3453,24 +3478,18 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                     // Create install script on VM (avoids complex shell escaping)
                     const installScript = `/home/coder/install.sh`;
-                    // FIXED: Wrap in subshell () to capture ALL output, not just last command
-                    // HOLY GRAIL: Fallback strategy - try --offline first (fast), fallback to --prefer-offline if cache misses
-                    const offlineInstallCmd = fullInstallCmd;
-                    const onlineInstallCmd = fullInstallCmd.replace(/--offline/g, '--prefer-offline');
+                    // OPTIMIZED: Using --prefer-offline directly (no fallback needed)
+                    // --prefer-offline uses cache when available, downloads only missing packages
                     const scriptContent = `#!/bin/bash
 cd /home/coder/project
-echo "🚀 Attempting --offline install (using cache only)..."
-(${offlineInstallCmd}) > ${installLog} 2>&1
-OFFLINE_EXIT=$?
-if [ $OFFLINE_EXIT -ne 0 ]; then
-    echo "" >> ${installLog}
-    echo "⚠️ --offline failed (exit $OFFLINE_EXIT), retrying with --prefer-offline to fetch missing packages..." >> ${installLog}
-    echo "🌐 Fallback: running --prefer-offline install..."
-    (${onlineInstallCmd}) >> ${installLog} 2>&1
-    echo $? > ${installMarker}
+echo "🚀 Running ${pkgManager} install (--prefer-offline)..."
+(${fullInstallCmd}) > ${installLog} 2>&1
+INSTALL_EXIT=$?
+echo $INSTALL_EXIT > ${installMarker}
+if [ $INSTALL_EXIT -eq 0 ]; then
+    echo "✅ Install succeeded!" >> ${installLog}
 else
-    echo "✅ --offline install succeeded!" >> ${installLog}
-    echo 0 > ${installMarker}
+    echo "❌ Install failed with exit code $INSTALL_EXIT" >> ${installLog}
 fi`;
 
                     console.log(`\n   📝 [DEBUG] INSTALL SCRIPT CONTENT:\n${'─'.repeat(40)}\n${scriptContent}\n${'─'.repeat(40)}`);
@@ -3548,8 +3567,9 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     }
 
                     // TIER 3.12: Deduplicate dependencies to reduce node_modules size
-                    console.log(`\n   🔄 [Optimization] Running dedupe to remove duplicate packages...`);
-                    try {
+                    // TEMPORARILY DISABLED - causing timeouts on large projects
+                    console.log(`\n   ⏭️ [Optimization] Skipping dedupe (temporarily disabled for performance)`);
+                    /* try {
                         const dedupeCmd = pkgManager === 'pnpm'
                             ? 'cd /home/coder/project && pnpm dedupe --store-dir /home/coder/volumes/pnpm-store'
                             : 'cd /home/coder/project && npm dedupe';
@@ -3559,7 +3579,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     } catch (dedupeErr) {
                         // Non-fatal - continue even if dedupe fails
                         console.log(`   ⚠️ [Optimization] Dedupe failed: ${dedupeErr.message}`);
-                    }
+                    } */
 
                     // === DEBUG: Show install.log output ===
                     console.log(`\n   📋 [DEBUG] INSTALL.LOG (last 50 lines):`);

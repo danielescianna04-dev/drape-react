@@ -1,25 +1,41 @@
 /**
  * VM Pool Manager - Maintains warm VM pool for instant preview creation
  *
- * Performance Impact:
- * - Cold start: ~38s (VM creation + image pull + boot)
- * - Pool allocation: ~0.5s (instant allocation from pool)
- * - 75x faster for first preview!
+ * Pool Strategy (Cost-Optimized):
+ * - 20 total VMs in pool (warmed with pnpm cache)
+ * - 5 VMs always RUNNING for instant allocation (~$60/mo)
+ * - 15 VMs STOPPED as backup (~$4.50/mo)
+ * - When VM allocated → restart a stopped VM to maintain 5 running
+ * - When user idle 15min → VM goes to stopped state
  *
- * Cost: ~$50-75/month for 5 warm VMs (affordable for production)
+ * Performance:
+ * - Running VM allocation: ~0.5s (instant!)
+ * - Stopped VM restart: ~15-20s (acceptable fallback)
+ *
+ * Cost: ~$65/month for 20-VM pool
  */
 
 const flyService = require('./fly-service');
 
 class VMPoolManager {
     constructor() {
-        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, prewarmed: false, isCacheMaster: false, stopped: false, stoppedAt: null }
+        this.pool = []; // { machineId, agentUrl, createdAt, allocatedTo: null, allocatedAt: null, prewarmed: false, isCacheMaster: false, stopped: false, stoppedAt: null }
 
-        // Dynamic pool sizing for scalability
-        this.BASE_POOL_SIZE = 3; // Minimum worker VMs
-        this.MAX_POOL_SIZE = 15; // Maximum worker VMs (safety limit)
+        // Pool sizing configuration
+        this.TOTAL_POOL_SIZE = 23; // Total VMs in pool (running + stopped) - increased from 20
+        this.MIN_RUNNING_VMS = 15;  // Always keep this many running for instant allocation (launch ready)
+        this.MAX_POOL_SIZE = 50;   // Safety limit (can expand beyond pool dynamically)
         this.CACHE_MASTERS_COUNT = 1; // Dedicated cache master VMs
         this.activeUsers = 0; // Tracked from sessions
+
+        // Auto-scaling watermark configuration
+        this.WATERMARK_STEP = 3; // Every 3 allocated VMs
+        this.WATERMARK_ADD = 5;  // Add 5 running VMs
+
+        // Burst detection configuration
+        this.BURST_THRESHOLD = 10; // If >10 projects creating/cloning simultaneously
+        this.burstMode = false;
+        this.projectsCreating = new Map(); // Track projects being created (projectId -> timestamp)
 
         // Persistent volume for Cache Master (survives restarts!)
         this.CACHE_VOLUME_ID = 'vol_45lp07o8k6oq38qr'; // 5GB in fra region
@@ -31,9 +47,134 @@ class VMPoolManager {
         ]);
         this.CACHE_MASTER_NAME_PATTERN = /^ws-cache-/; // Match all cache master names
 
-        this.MAX_VM_AGE_MS = 30 * 60 * 1000; // 30 min max age (cost optimization)
-        this.VM_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 min idle timeout (for session pooling)
+        this.VM_IDLE_TIMEOUT_MS = 20 * 60 * 1000; // 20 min idle → stop VM (cost savings)
         this.isInitialized = false;
+    }
+
+    /**
+     * Track project creation/cloning for burst detection
+     * @param {string} projectId - Project ID being created
+     */
+    trackProjectCreation(projectId) {
+        this.projectsCreating.set(projectId, Date.now());
+        console.log(`📊 [Auto-Scale] Tracking project creation: ${projectId} (${this.projectsCreating.size} creating)`);
+
+        // Check if we should enter burst mode
+        this.checkBurstMode();
+    }
+
+    /**
+     * Remove project from creation tracking
+     * @param {string} projectId - Project ID that finished creating
+     */
+    removeProjectCreation(projectId) {
+        this.projectsCreating.delete(projectId);
+        console.log(`📊 [Auto-Scale] Project creation finished: ${projectId} (${this.projectsCreating.size} creating)`);
+
+        // Re-check burst mode
+        this.checkBurstMode();
+    }
+
+    /**
+     * Check if we should enter burst mode (>10 projects creating)
+     * Burst mode = pre-start ALL 23 VMs to handle the load
+     */
+    checkBurstMode() {
+        const shouldEnterBurst = this.projectsCreating.size >= this.BURST_THRESHOLD;
+
+        if (shouldEnterBurst && !this.burstMode) {
+            console.log(`🚀 [BURST MODE] ${this.projectsCreating.size} projects creating (>= ${this.BURST_THRESHOLD}) - starting ALL VMs!`);
+            this.burstMode = true;
+
+            // Trigger immediate pool scaling to start all VMs
+            this.scaleToTarget(this.TOTAL_POOL_SIZE).catch(e => {
+                console.warn(`⚠️ [BURST MODE] Failed to scale: ${e.message}`);
+            });
+        } else if (!shouldEnterBurst && this.burstMode) {
+            console.log(`📉 [BURST MODE] Exiting burst mode (${this.projectsCreating.size} projects creating < ${this.BURST_THRESHOLD})`);
+            this.burstMode = false;
+        }
+    }
+
+    /**
+     * Calculate target number of running VMs based on current allocation
+     * Uses watermark system: MIN_RUNNING_VMS + (allocatedCount / WATERMARK_STEP) * WATERMARK_ADD
+     */
+    calculateTargetRunningVMs() {
+        const workers = this.pool.filter(vm => !vm.isCacheMaster);
+        const allocatedCount = workers.filter(vm => vm.allocatedTo).length;
+
+        // Burst mode: start all VMs
+        if (this.burstMode) {
+            return this.TOTAL_POOL_SIZE;
+        }
+
+        // Watermark scaling: every 3 allocated → +5 running
+        const watermarkBonus = Math.floor(allocatedCount / this.WATERMARK_STEP) * this.WATERMARK_ADD;
+        const targetRunning = Math.min(
+            this.MIN_RUNNING_VMS + watermarkBonus,
+            this.TOTAL_POOL_SIZE
+        );
+
+        console.log(`📊 [Auto-Scale] Allocated: ${allocatedCount}, Target running: ${targetRunning} (base: ${this.MIN_RUNNING_VMS} + watermark: ${watermarkBonus})`);
+
+        return targetRunning;
+    }
+
+    /**
+     * Scale pool to target number of running VMs
+     * @param {number} targetRunning - Target number of running VMs
+     */
+    async scaleToTarget(targetRunning) {
+        const workers = this.pool.filter(vm => !vm.isCacheMaster);
+        const currentRunning = workers.filter(vm => !vm.stopped).length;
+        const stoppedAvailable = workers.filter(vm => vm.stopped && !vm.allocatedTo);
+
+        const needed = targetRunning - currentRunning;
+
+        if (needed <= 0) {
+            console.log(`✅ [Auto-Scale] Already at target: ${currentRunning}/${targetRunning} running`);
+            return;
+        }
+
+        console.log(`🔄 [Auto-Scale] Scaling up: need ${needed} more VMs (current: ${currentRunning}, target: ${targetRunning})`);
+
+        // PHASE 1: Restart stopped VMs first (faster than creating new)
+        const toRestart = Math.min(needed, stoppedAvailable.length);
+        if (toRestart > 0) {
+            console.log(`🔄 [Auto-Scale] Restarting ${toRestart} stopped VMs...`);
+
+            const restartPromises = [];
+            for (let i = 0; i < toRestart; i++) {
+                restartPromises.push(this.restartStoppedVM(stoppedAvailable[i]));
+            }
+
+            const results = await Promise.allSettled(restartPromises);
+            const restarted = results.filter(r => r.status === 'fulfilled' && r.value).length;
+            console.log(`✅ [Auto-Scale] Restarted ${restarted}/${toRestart} VMs`);
+        }
+
+        // PHASE 2: Create new VMs if pool exhausted
+        const stillNeeded = needed - toRestart;
+        if (stillNeeded > 0) {
+            const currentTotal = workers.length;
+            const canCreate = Math.min(stillNeeded, this.MAX_POOL_SIZE - currentTotal);
+
+            if (canCreate > 0) {
+                console.log(`🏗️ [Auto-Scale] Creating ${canCreate} new VMs (pool: ${currentTotal}/${this.MAX_POOL_SIZE})...`);
+
+                const createPromises = [];
+                for (let i = 0; i < canCreate; i++) {
+                    createPromises.push(this.createWarmVM(false));
+                }
+
+                const results = await Promise.allSettled(createPromises);
+                const created = results.filter(r => r.status === 'fulfilled').length;
+                console.log(`✅ [Auto-Scale] Created ${created}/${canCreate} new VMs`);
+            } else if (stillNeeded > 0) {
+                console.warn(`⚠️ [Auto-Scale] Pool at MAX_POOL_SIZE (${this.MAX_POOL_SIZE}), cannot create ${stillNeeded} more VMs`);
+            }
+        }
     }
 
     /**
@@ -67,6 +208,39 @@ class VMPoolManager {
     }
 
     /**
+     * Quick cache check for allocation (faster, 3s timeout)
+     * Returns true if VM has >500MB cache (enough for most projects)
+     */
+    async quickCacheCheck(machineId) {
+        try {
+            const axios = require('axios');
+            const agentUrl = 'https://drape-workspaces.fly.dev';
+
+            const checkResult = await axios.post(`${agentUrl}/exec`, {
+                command: 'du -sb /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1 || echo "0"',
+                cwd: '/home/coder'
+            }, {
+                timeout: 3000, // Fast timeout for allocation
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+
+            const bytes = parseInt(checkResult.data?.stdout?.trim() || '0', 10);
+            const sizeMB = Math.round(bytes / 1024 / 1024);
+            // Accept 500MB+ as "has cache" for quick check (enough for most React projects)
+            const hasCache = bytes > 500 * 1024 * 1024;
+
+            if (hasCache) {
+                console.log(`   ✅ [Quick Check] VM ${machineId} has ${sizeMB}MB cache`);
+            }
+            return hasCache;
+        } catch (e) {
+            // Timeout or error = assume no cache (safer)
+            console.warn(`   ⚠️ [Quick Check] VM ${machineId}: ${e.message}`);
+            return false;
+        }
+    }
+
+    /**
      * Check if a machine should NEVER be destroyed (hardened protection)
      * @param {string} machineId - Machine ID to check
      * @param {string} machineName - Machine name (optional, for pattern matching)
@@ -96,12 +270,17 @@ class VMPoolManager {
     }
 
     /**
-     * Calculate dynamic pool size based on active users
+     * Calculate target pool size (total VMs including stopped)
      */
     calculateTargetPoolSize() {
-        // Scale: 30% of active users (rounded up), clamped to min/max
-        const dynamicSize = Math.ceil(this.activeUsers * 0.3);
-        return Math.max(this.BASE_POOL_SIZE, Math.min(dynamicSize, this.MAX_POOL_SIZE));
+        return this.TOTAL_POOL_SIZE;
+    }
+
+    /**
+     * Calculate how many VMs should be kept running
+     */
+    calculateMinRunningVMs() {
+        return this.MIN_RUNNING_VMS;
     }
 
     /**
@@ -109,7 +288,7 @@ class VMPoolManager {
      */
     updateActiveUsers(count) {
         this.activeUsers = count;
-        console.log(`📊 [VM Pool] Active users: ${count}, Target pool: ${this.calculateTargetPoolSize()}`);
+        console.log(`📊 [VM Pool] Active users: ${count}, Pool: ${this.TOTAL_POOL_SIZE} total, ${this.MIN_RUNNING_VMS} running`);
     }
 
     /**
@@ -165,7 +344,8 @@ class VMPoolManager {
                         prewarmed: prewarmed,
                         cacheReady: prewarmed, // If has cache, it's ready for allocation
                         isCacheMaster: isCacheMaster,
-                        image: vm.config?.image || flyService.DRAPE_IMAGE
+                        image: vm.config?.image || flyService.DRAPE_IMAGE,
+                        stopped: vm.state !== 'started' // Track if VM is stopped
                     };
                 });
 
@@ -205,41 +385,70 @@ class VMPoolManager {
      */
     async allocateVM(projectId) {
         // CRITICAL: Never allocate cache masters to projects - they're reserved for cache copying only
-        // PRIORITY 1: Try to get prewarmed worker VM first (has npm cache ready, running)
-        let pooledVM = this.pool.find(vm =>
+
+        // Get all candidate VMs (running, not allocated, not cache master, not in grace period)
+        const now = Date.now();
+        const runningCandidates = this.pool.filter(vm =>
             !vm.allocatedTo &&
-            !vm.stopped && // Must be running
-            vm.prewarmed &&
-            vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
-            !vm.isCacheMaster
+            !vm.stopped &&
+            !vm.isCacheMaster &&
+            (!vm.gracePeriodEnds || now > vm.gracePeriodEnds) // Respect grace period after release
         );
 
-        // PRIORITY 2: If no prewarmed worker VM, fallback to any available RUNNING worker VM WITH cache ready
-        if (!pooledVM) {
-            pooledVM = this.pool.find(vm =>
-                !vm.allocatedTo &&
-                !vm.stopped && // Must be running
-                vm.cacheReady === true && // MUST have cache fully downloaded (1GB+)
-                !vm.isCacheMaster
-            );
-        }
+        // Sort by cache readiness: prewarmed+cacheReady first, then cacheReady, then others
+        runningCandidates.sort((a, b) => {
+            const scoreA = (a.prewarmed ? 2 : 0) + (a.cacheReady ? 1 : 0);
+            const scoreB = (b.prewarmed ? 2 : 0) + (b.cacheReady ? 1 : 0);
+            return scoreB - scoreA;
+        });
 
-        // PRIORITY 3: If still no VM, accept VMs still downloading cache (slower but better than failing)
-        if (!pooledVM) {
-            const downloadingVMs = this.pool.filter(vm => !vm.allocatedTo && vm.cacheReady === false && !vm.isCacheMaster && !vm.stopped);
-            if (downloadingVMs.length > 0) {
-                console.log(`⏳ [VM Pool] ${downloadingVMs.length} VMs still downloading cache, using one anyway (slower startup)`);
-                pooledVM = downloadingVMs[0];
+        // Try each candidate, verify it actually has cache before allocating
+        let pooledVM = null;
+        let vmWithoutCache = null; // Fallback: first VM without cache
+        for (const candidate of runningCandidates) {
+            // Quick cache verification (only for top candidates)
+            const hasCache = await this.quickCacheCheck(candidate.machineId);
+            if (hasCache) {
+                pooledVM = candidate;
+                console.log(`✅ [VM Pool] Found VM with verified cache: ${candidate.machineId}`);
+                break;
+            } else {
+                console.log(`⚠️ [VM Pool] VM ${candidate.machineId} has no cache, will try others first...`);
+                // Mark as not cache ready so we don't try again
+                candidate.cacheReady = false;
+                // Save first VM without cache as fallback (but keep searching for one WITH cache)
+                if (!vmWithoutCache) {
+                    vmWithoutCache = candidate;
+                }
             }
         }
 
-        // PRIORITY 4 (NEW): Try stopped VMs as last resort (need restart ~5-10s)
+        // If we found a VM WITH cache, use it immediately
+        // If not, use VM without cache and copy cache in background (user waits, but at least we tried other VMs first)
+        if (!pooledVM && vmWithoutCache) {
+            console.log(`⚠️ [VM Pool] No running VMs with cache, using ${vmWithoutCache.machineId} and copying cache now (~2-3min)...`);
+            try {
+                await this.ensureCacheOnVM(vmWithoutCache.machineId);
+                pooledVM = vmWithoutCache;
+                console.log(`✅ [VM Pool] Cache copied to VM ${vmWithoutCache.machineId}, using it now`);
+            } catch (e) {
+                console.warn(`⚠️ Cache copy failed for ${vmWithoutCache.machineId}: ${e.message}`);
+            }
+        }
+
+        // FALLBACK: If no running VM with cache, try stopped VMs (they likely have cache)
         if (!pooledVM) {
-            const stoppedVMs = this.pool.filter(vm => !vm.allocatedTo && vm.stopped && !vm.isCacheMaster);
+            const stoppedVMs = this.pool.filter(vm => !vm.allocatedTo && vm.stopped && !vm.isCacheMaster && vm.cacheReady !== false);
             if (stoppedVMs.length > 0) {
-                console.log(`🔄 [VM Pool] No running VMs available, using stopped VM (will restart ~5-10s)`);
+                console.log(`🔄 [VM Pool] No running VMs with cache, using stopped VM (will restart ~10-15s)`);
                 pooledVM = stoppedVMs[0];
             }
+        }
+
+        // LAST RESORT: Use any running VM even without cache
+        if (!pooledVM && runningCandidates.length > 0) {
+            console.log(`⚠️ [VM Pool] No VMs with cache available, using VM without cache (slower ~2-3min)`);
+            pooledVM = runningCandidates[0];
         }
 
         // Log if VMs exist but aren't ready (helps debugging)
@@ -280,6 +489,14 @@ class VMPoolManager {
                         pooledVM.stopped = false;
                         pooledVM.stoppedAt = null;
                         console.log(`✅ [VM Pool] VM ${pooledVM.machineId} restarted successfully`);
+
+                        // Check if VM has cache, copy from cache master if missing (WAIT for completion)
+                        try {
+                            await this.ensureCacheOnVM(pooledVM.machineId);
+                            console.log(`✅ [VM Pool] Cache ready on VM ${pooledVM.machineId}`);
+                        } catch (e) {
+                            console.warn(`⚠️ [VM Pool] Cache check failed for ${pooledVM.machineId}: ${e.message}`);
+                        }
                     } catch (startErr) {
                         console.warn(`⚠️ [VM Pool] Failed to restart ${pooledVM.machineId}: ${startErr.message}, removing from pool`);
                         this.pool = this.pool.filter(v => v.machineId !== pooledVM.machineId);
@@ -348,6 +565,23 @@ class VMPoolManager {
     }
 
     /**
+     * Get VM state from pool
+     * @param {string} machineId - Machine ID to check
+     * @returns {Object|null} VM state object or null if not found
+     */
+    getVMState(machineId) {
+        return this.pool.find(v => v.machineId === machineId) || null;
+    }
+
+    /**
+     * Get Cache Master VM with prewarmed cache
+     * @returns {Object|null} Cache Master VM or null if not available
+     */
+    getCacheMaster() {
+        return this.pool.find(vm => vm.isCacheMaster && vm.prewarmed) || null;
+    }
+
+    /**
      * Release a VM back to the pool (for reuse)
      * @param {string} machineId - Machine ID to release
      * @param {boolean} keepNodeModules - Whether to keep node_modules (default: true)
@@ -360,21 +594,42 @@ class VMPoolManager {
             return;
         }
 
-        // Mark as available
+        // OPTIMIZATION: Kill dev server immediately to free resources
+        // This prevents VM from being "busy" when quickly re-allocated to another project
+        console.log(`🔪 [VM Pool] Killing dev server on ${machineId} before release...`);
+        const killStart = Date.now();
+        try {
+            // Kill process on port 3000 specifically (more reliable than pkill)
+            // Using lsof to find PID and kill it - this is more targeted than pkill -9 node
+            const killCmd = 'lsof -ti:3000 | xargs -r kill -9 2>/dev/null || fuser -k 3000/tcp 2>/dev/null || true';
+            await flyService.exec(vm.agentUrl, killCmd, '/home/coder', machineId, 3000);
+            const killTime = Date.now() - killStart;
+            console.log(`✅ [VM Pool] Dev server killed in ${killTime}ms`);
+        } catch (e) {
+            console.warn(`⚠️ [VM Pool] Kill failed (${e.message}), continuing anyway`);
+        }
+
+        // Mark as available and track release time for idle timeout
         vm.allocatedTo = null;
         vm.allocatedAt = null;
+        vm.lastReleasedAt = Date.now(); // Track when VM became idle (for 15min timeout)
+
+        // Add grace period: VM can't be re-allocated for 2 seconds after release
+        // This gives time for the kill to complete and resources to be freed
+        vm.gracePeriodEnds = Date.now() + 2000; // 2 second grace period
+        console.log(`⏳ [VM Pool] Grace period: VM ${machineId} available for re-allocation in 2s`);
 
         // Clean up project folder but preserve node_modules for speed (Phase 2.3)
         if (keepNodeModules) {
             try {
                 const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
                 await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', machineId);
-                console.log(`🧹 [VM Pool] Released VM ${machineId} (node_modules preserved)`);
+                console.log(`🧹 [VM Pool] Released VM ${machineId} (node_modules preserved, will stop after 15min idle)`);
             } catch (e) {
                 console.warn(`⚠️ [VM Pool] Cleanup failed for ${machineId}: ${e.message}`);
             }
         } else {
-            console.log(`♻️ [VM Pool] Released VM ${machineId} (will be cleaned on next use)`);
+            console.log(`♻️ [VM Pool] Released VM ${machineId} (will be cleaned on next use, stops after 15min idle)`);
         }
     }
 
@@ -414,6 +669,78 @@ class VMPoolManager {
     }
 
     /**
+     * Ensure ALL running VMs have cache (universal cache requirement)
+     * This is critical for launch traffic - all 23 VMs must be cache-ready
+     */
+    async ensureUniversalCache() {
+        const cacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+        if (!cacheMaster) {
+            console.log(`⏳ [Universal Cache] No cache master available yet, will retry later`);
+            return;
+        }
+
+        // Get all running workers (allocated or not)
+        const runningWorkers = this.pool.filter(vm =>
+            !vm.isCacheMaster &&
+            !vm.stopped
+        );
+
+        if (runningWorkers.length === 0) {
+            return;
+        }
+
+        console.log(`🔍 [Universal Cache] Checking ${runningWorkers.length} running VMs for cache...`);
+
+        // Check and fix cache on all running VMs in parallel (fast verification)
+        const verifyPromises = runningWorkers.map(async (worker) => {
+            try {
+                // Skip if already verified as cache-ready
+                if (worker.cacheReady === true && worker.prewarmed === true) {
+                    return;
+                }
+
+                // Quick cache check
+                const hasCache = await this.quickCacheCheck(worker.machineId);
+
+                if (hasCache) {
+                    worker.cacheReady = true;
+                    worker.prewarmed = true;
+                    console.log(`   ✅ VM ${worker.machineId} has cache`);
+                } else {
+                    console.log(`   ⚠️ VM ${worker.machineId} missing cache, marking for repair`);
+                    worker.cacheReady = false;
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ Failed to check cache for ${worker.machineId}: ${e.message}`);
+            }
+        });
+
+        await Promise.allSettled(verifyPromises);
+
+        // Get VMs that need cache repair
+        const needsRepair = runningWorkers.filter(vm => vm.cacheReady === false);
+
+        if (needsRepair.length > 0) {
+            console.log(`🔧 [Universal Cache] Repairing cache on ${needsRepair.length} VMs (background process)...`);
+
+            // Repair in background (don't block replenishment)
+            setImmediate(async () => {
+                for (const worker of needsRepair) {
+                    try {
+                        console.log(`   🔧 Copying cache to VM ${worker.machineId}...`);
+                        await this.ensureCacheOnVM(worker.machineId);
+                        console.log(`   ✅ VM ${worker.machineId} cache repaired`);
+                    } catch (e) {
+                        console.warn(`   ⚠️ Failed to repair ${worker.machineId}: ${e.message}`);
+                    }
+                }
+            });
+        } else {
+            console.log(`✅ [Universal Cache] All ${runningWorkers.length} running VMs have cache`);
+        }
+    }
+
+    /**
      * Ensure adopted workers have pnpm cache (copy from cache master if missing)
      * This fixes the case where workers are adopted but don't have the cache
      */
@@ -425,7 +752,8 @@ class VMPoolManager {
         }
 
         // Get unallocated workers that might need cache
-        const workers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo);
+        // Only try to copy cache to RUNNING workers (stopped VMs would timeout trying to start)
+        const workers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo && !vm.stopped);
         if (workers.length === 0) {
             return;
         }
@@ -472,28 +800,129 @@ class VMPoolManager {
                     headers: { 'Fly-Force-Instance-Id': worker.machineId }
                 });
 
-                // Download cache from cache master via internal network
-                const cacheUrl = `http://${cacheMaster.machineId}.vm.drape-workspaces.internal:13338`;
-                const downloadCmd = `curl --max-time 600 -sS "${cacheUrl}/download?type=pnpm" -o /tmp/cache.tar.gz 2>&1 && tar -xzf /tmp/cache.tar.gz -C /home/coder/volumes/ 2>&1 && rm /tmp/cache.tar.gz && echo "CACHE_COPY_SUCCESS" || echo "CACHE_COPY_FAILED: curl exit code=$?"`;
+                // TIER 3: Direct VM-to-VM transfer via /api/cache-copy
+                // Worker downloads directly from cache master (no backend proxy)
+                console.log(`   🚀 [TIER 3] Direct VM-to-VM cache transfer...`);
 
-                const downloadResult = await axios.post(`${agentUrl}/exec`, {
-                    command: downloadCmd,
-                    cwd: '/home/coder',
-                    timeout: 600000 // 10 min exec timeout for large cache
+                const copyResponse = await axios.post('http://localhost:3000/api/cache-copy', {
+                    workerMachineId: worker.machineId,
+                    cacheMasterMachineId: cacheMaster.machineId
                 }, {
-                    timeout: 650000, // HTTP timeout slightly longer than exec timeout
-                    headers: { 'Fly-Force-Instance-Id': worker.machineId }
+                    timeout: 180000 // 3 minutes
                 });
 
+                if (!copyResponse.data.success) {
+                    throw new Error(`Cache copy failed: ${copyResponse.data.message}`);
+                }
+
+                const sizeMB = copyResponse.data.finalSizeMB;
+                console.log(`   ✅ [TIER 3] Transferred ${sizeMB}MB via direct VM-to-VM`);
+
                 const elapsed = Date.now() - startTime;
-                // Debug: log full response to understand failures
-                console.log(`   📋 [Cache DEBUG] Response: stdout='${downloadResult.data?.stdout?.slice(0,200)}' stderr='${downloadResult.data?.stderr?.slice(0,200)}' exitCode=${downloadResult.data?.exitCode}`);
-                const result = downloadResult.data?.stdout?.trim() || 'unknown';
-                console.log(`   ${result === 'CACHE_COPY_SUCCESS' ? '✅' : '⚠️'} Cache copy completed in ${elapsed}ms: ${result}`);
+                console.log(`   ✅ [TIER 3] Cache copy completed: ${sizeMB}MB in ${elapsed}ms`);
 
             } catch (e) {
                 console.warn(`   ⚠️ Failed to check/copy cache for ${worker.machineId}: ${e.message}`);
             }
+        }
+    }
+
+    /**
+     * Ensure a single VM has cache (copy from cache master if missing)
+     * Called when a stopped VM is restarted during allocation
+     */
+    async ensureCacheOnVM(machineId) {
+        const cacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+        if (!cacheMaster) {
+            console.log(`⏳ [Cache] No cache master available for VM ${machineId}`);
+            return;
+        }
+
+        const axios = require('axios');
+        const agentUrl = 'https://drape-workspaces.fly.dev';
+
+        try {
+            // Check if VM already has cache
+            const checkResult = await axios.post(`${agentUrl}/exec`, {
+                command: 'du -s /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1',
+                cwd: '/home/coder'
+            }, {
+                timeout: 10000,
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+
+            const cacheSize = parseInt(checkResult.data?.stdout?.trim() || '0');
+
+            if (cacheSize > 100000) { // > 100MB means cache exists
+                console.log(`✅ [Cache] VM ${machineId} already has cache (${Math.round(cacheSize/1024)}MB)`);
+                return;
+            }
+
+            // Copy cache from cache master
+            console.log(`📦 [Cache] VM ${machineId} missing cache, copying from cache master...`);
+            const startTime = Date.now();
+
+            // Setup cache directory structure
+            const setupCmd = `mkdir -p /home/coder/volumes/pnpm-store && mkdir -p /home/coder/.local/share/pnpm && ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store`;
+            await axios.post(`${agentUrl}/exec`, {
+                command: setupCmd,
+                cwd: '/home/coder'
+            }, {
+                timeout: 10000,
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+
+            // TIER 3: Direct VM-to-VM cache transfer (avoids backend proxy limits)
+            console.log(`   🚀 [TIER 3] Direct VM-to-VM cache transfer...`);
+
+            // Worker VM downloads directly from Cache Master using Fly's internal network
+            // Download endpoint now serves gzip (universal compatibility)
+            const directTransferCmd = `mkdir -p /home/coder/volumes/pnpm-store && ` +
+                                     `curl -sS -H "Fly-Force-Instance-Id: ${cacheMaster.machineId}" ` +
+                                     `"${agentUrl}/download?type=pnpm" | ` +
+                                     `tar -xzf - -C /home/coder/volumes/pnpm-store 2>&1`;
+
+            console.log(`   Executing direct download on worker VM (gzip streaming)...`);
+
+            const execResponse = await axios.post(`${agentUrl}/exec`, {
+                command: directTransferCmd,
+                cwd: '/home/coder',
+                timeout: 900000 // 15 minutes for large cache (~4.8GB)
+            }, {
+                timeout: 930000, // 15.5 minutes total
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+
+            if (execResponse.data.exitCode !== 0) {
+                throw new Error(`Transfer failed: ${execResponse.data.stderr || execResponse.data.stdout}`);
+            }
+
+            console.log(`   ✅ Direct transfer completed`);
+
+            // Verify cache was copied
+            const verifyResult = await axios.post(`${agentUrl}/exec`, {
+                command: 'du -sb /home/coder/volumes/pnpm-store 2>/dev/null | cut -f1 || echo "0"',
+                cwd: '/home/coder'
+            }, {
+                timeout: 10000,
+                headers: { 'Fly-Force-Instance-Id': machineId }
+            });
+            const finalBytes = parseInt(verifyResult.data?.stdout?.trim() || '0', 10);
+            const finalMB = Math.round(finalBytes / 1024 / 1024);
+            const elapsed = Date.now() - startTime;
+            const success = finalBytes > 500 * 1024 * 1024; // >500MB = acceptable
+
+            console.log(`${success ? '✅' : '⚠️'} [Cache] VM ${machineId}: ${finalMB}MB copied in ${elapsed}ms`);
+
+            // Update pool entry
+            const poolEntry = this.pool.find(v => v.machineId === machineId);
+            if (poolEntry && success) {
+                poolEntry.cacheReady = true;
+                poolEntry.prewarmed = finalBytes > 1000 * 1024 * 1024; // >1GB = fully prewarmed
+            }
+
+        } catch (e) {
+            console.warn(`⚠️ [Cache] Failed to ensure cache on VM ${machineId}: ${e.message}`);
         }
     }
 
@@ -548,41 +977,73 @@ class VMPoolManager {
     }
 
     /**
-     * Replenish the pool to target size (dynamic based on active users)
+     * Replenish the pool:
+     * 1. Ensure cache masters exist
+     * 2. Ensure pool has TOTAL_POOL_SIZE VMs (running + stopped)
+     * 3. Scale running VMs based on auto-scaling watermark
      */
     async replenishPool() {
         // PHASE 1: Ensure we have cache masters first (critical for performance)
         await this.ensureCacheMasters();
 
-        // PHASE 2: Replenish worker VMs
-        // Count only worker VMs (exclude cache masters from pool size calculation)
-        const workerVMs = this.pool.filter(vm => !vm.isCacheMaster);
-        const availableWorkers = workerVMs.filter(vm => !vm.allocatedTo);
-        const targetSize = this.calculateTargetPoolSize();
-        const needed = targetSize - availableWorkers.length;
+        // PHASE 2: Ensure pool has TOTAL_POOL_SIZE VMs total (running + stopped)
+        const workers = this.pool.filter(vm => !vm.isCacheMaster);
+        const totalWorkers = workers.length;
+        const runningWorkers = workers.filter(vm => !vm.stopped);
+        const stoppedWorkers = workers.filter(vm => vm.stopped);
 
-        if (needed <= 0) {
-            return; // Pool is full
+        console.log(`📊 [VM Pool] Status: ${runningWorkers.length} running, ${stoppedWorkers.length} stopped, ${totalWorkers} total (target: ${this.TOTAL_POOL_SIZE})`);
+
+        // Create new VMs if pool is below TOTAL_POOL_SIZE
+        const newVMsNeeded = this.TOTAL_POOL_SIZE - totalWorkers;
+        if (newVMsNeeded > 0) {
+            console.log(`🏊 [VM Pool] Creating ${newVMsNeeded} new VMs to reach pool size ${this.TOTAL_POOL_SIZE}...`);
+
+            const createPromises = [];
+            for (let i = 0; i < newVMsNeeded; i++) {
+                createPromises.push(this.createWarmVM(false)); // false = not a cache master
+            }
+
+            const results = await Promise.allSettled(createPromises);
+            const successful = results.filter(r => r.status === 'fulfilled').length;
+            const failed = results.filter(r => r.status === 'rejected').length;
+
+            if (successful > 0) {
+                console.log(`✅ [VM Pool] Added ${successful} warm VMs to pool`);
+            }
+            if (failed > 0) {
+                console.warn(`⚠️ [VM Pool] Failed to create ${failed} VMs`);
+            }
         }
 
-        console.log(`🏊 [VM Pool] Replenishing pool (need ${needed} more worker VMs, target: ${targetSize})...`);
+        // PHASE 3: Auto-scaling - calculate target running VMs and scale to target
+        const targetRunning = this.calculateTargetRunningVMs();
+        await this.scaleToTarget(targetRunning);
 
-        // Create VMs in parallel
-        const createPromises = [];
-        for (let i = 0; i < needed; i++) {
-            createPromises.push(this.createWarmVM(false)); // false = not a cache master
-        }
+        // PHASE 4: Ensure all running VMs have cache (universal cache requirement)
+        await this.ensureUniversalCache();
+    }
 
-        const results = await Promise.allSettled(createPromises);
+    /**
+     * Restart a stopped VM
+     */
+    async restartStoppedVM(vm) {
+        try {
+            console.log(`   🔄 Restarting VM ${vm.machineId}...`);
+            await flyService.startMachine(vm.machineId);
+            await flyService.waitForMachine(vm.machineId, 15000, 30000);
+            vm.stopped = false;
+            vm.stoppedAt = null;
+            vm.lastReleasedAt = Date.now(); // Reset idle timer
+            console.log(`   ✅ VM ${vm.machineId} restarted`);
 
-        const successful = results.filter(r => r.status === 'fulfilled').length;
-        const failed = results.filter(r => r.status === 'rejected').length;
+            // Ensure VM has cache after restart
+            await this.ensureCacheOnVM(vm.machineId);
 
-        if (successful > 0) {
-            console.log(`✅ [VM Pool] Added ${successful} warm VMs to pool`);
-        }
-        if (failed > 0) {
-            console.warn(`⚠️ [VM Pool] Failed to create ${failed} VMs`);
+            return true;
+        } catch (e) {
+            console.warn(`   ⚠️ Failed to restart VM ${vm.machineId}: ${e.message}`);
+            return false;
         }
     }
 
@@ -964,6 +1425,62 @@ PKGJSON
     }
 
     /**
+     * Repair VMs that are running but don't have cache
+     * This runs every 5 minutes and fixes VMs that failed cache download
+     */
+    async repairVMsWithoutCache() {
+        const cacheMaster = this.pool.find(vm => vm.isCacheMaster && vm.prewarmed);
+        if (!cacheMaster) {
+            return; // No cache master available
+        }
+
+        // Find running workers without cache (cacheReady = false)
+        const workersNeedingRepair = this.pool.filter(vm =>
+            !vm.isCacheMaster &&
+            !vm.stopped &&
+            !vm.allocatedTo &&
+            vm.cacheReady === false
+        );
+
+        if (workersNeedingRepair.length === 0) {
+            return;
+        }
+
+        console.log(`🔧 [Cache Repair] Found ${workersNeedingRepair.length} VMs needing cache repair`);
+
+        for (const worker of workersNeedingRepair) {
+            try {
+                // Check current cache size
+                const { hasCache, sizeMB } = await this.checkVMHasCache(worker.machineId);
+
+                if (hasCache) {
+                    console.log(`   ✅ VM ${worker.machineId} now has ${sizeMB}MB cache (marking ready)`);
+                    worker.cacheReady = true;
+                    worker.prewarmed = sizeMB > 1000; // >1GB = fully prewarmed
+                    continue;
+                }
+
+                console.log(`   🔧 Repairing VM ${worker.machineId} (current: ${sizeMB}MB)...`);
+
+                // Try to copy cache
+                await this.ensureCacheOnVM(worker.machineId);
+
+                // Verify after copy
+                const afterCheck = await this.checkVMHasCache(worker.machineId);
+                if (afterCheck.hasCache) {
+                    console.log(`   ✅ VM ${worker.machineId} repaired: ${afterCheck.sizeMB}MB cache`);
+                    worker.cacheReady = true;
+                    worker.prewarmed = afterCheck.sizeMB > 1000;
+                } else {
+                    console.log(`   ⚠️ VM ${worker.machineId} repair failed: ${afterCheck.sizeMB}MB`);
+                }
+            } catch (e) {
+                console.warn(`   ⚠️ Failed to repair VM ${worker.machineId}: ${e.message}`);
+            }
+        }
+    }
+
+    /**
      * Start the pool replenisher (runs every 2 minutes)
      */
     startPoolReplenisher() {
@@ -987,6 +1504,13 @@ PKGJSON
                 console.warn(`⚠️ [VM Pool] Metrics tracking failed: ${e.message}`);
             });
         }, 2 * 60 * 1000);
+
+        // Cache repair job every 5 minutes (separate from replenish to avoid conflicts)
+        setInterval(() => {
+            this.repairVMsWithoutCache().catch(e => {
+                console.warn(`⚠️ [VM Pool] Cache repair failed: ${e.message}`);
+            });
+        }, 5 * 60 * 1000);
     }
 
     /**
@@ -1094,7 +1618,9 @@ PKGJSON
                             allocatedTo: null,
                             allocatedAt: null,
                             prewarmed: false, // Not prewarmed - will be fallback choice
-                            cacheReady: true, // Allow selection - allocateVM will restart if stopped
+                            cacheReady: true, // Has cache on volume from previous use
+                            stopped: orphan.state !== 'started', // Track stopped state for allocateVM priority
+                            stoppedAt: orphan.state !== 'started' ? Date.now() : null,
                             isCacheMaster: false,
                             image: orphan.config?.image || flyService.DRAPE_IMAGE
                         });
@@ -1125,8 +1651,21 @@ PKGJSON
                             console.warn(`   ⚠️ Failed to stop orphan ${orphan.id}: ${e.message}`);
                         }
                     } else {
-                        // Already stopped - just skip (it's already cheap at ~$0.30/mo)
-                        console.log(`   💤 Orphan VM ${orphan.id} already stopped (age: ${ageMinutesOrphan}min, cost: ~$0.30/mo) - skipping`);
+                        // Already stopped - adopt it! It has cache and can be restarted on demand
+                        console.log(`   💤 Adopting stopped orphan VM ${orphan.id} (age: ${ageMinutesOrphan}min, cost: ~$0.30/mo)`);
+                        this.pool.push({
+                            machineId: orphan.id,
+                            agentUrl: 'https://drape-workspaces.fly.dev',
+                            createdAt: Date.parse(orphan.created_at) || Date.now(),
+                            allocatedTo: null,
+                            allocatedAt: null,
+                            prewarmed: false,
+                            cacheReady: true, // Has cache on volume from previous use
+                            stopped: true,
+                            stoppedAt: Date.now(),
+                            isCacheMaster: false,
+                            image: orphan.config?.image || flyService.DRAPE_IMAGE
+                        });
                     }
                 }
             }
@@ -1134,24 +1673,31 @@ PKGJSON
             console.warn(`   ⚠️ Failed to check for orphan VMs: ${e.message}`);
         }
 
-        // PHASE 2: Clean up old VMs in our pool
-        // Count available workers BEFORE cleanup
-        const availableWorkers = this.pool.filter(vm => !vm.isCacheMaster && !vm.allocatedTo);
-        const targetSize = this.calculateTargetPoolSize();
+        // PHASE 2: Stop idle VMs while keeping MIN_RUNNING_VMS running
+        const workers = this.pool.filter(vm => !vm.isCacheMaster);
+        const runningWorkers = workers.filter(vm => !vm.stopped && !vm.allocatedTo);
+        const allocatedWorkers = workers.filter(vm => vm.allocatedTo);
+        const stoppedWorkers = workers.filter(vm => vm.stopped);
 
-        // Sort workers by age (oldest first) for cleanup
-        const sortedWorkers = availableWorkers
-            .filter(vm => !vm.isCacheMaster)
-            .sort((a, b) => a.createdAt - b.createdAt);
+        console.log(`   📊 Pool: ${runningWorkers.length} running, ${allocatedWorkers.length} allocated, ${stoppedWorkers.length} stopped`);
 
-        // Calculate how many EXCESS VMs we have beyond target
-        const excessCount = Math.max(0, availableWorkers.length - targetSize);
+        // Sort running workers by idle time (longest idle first)
+        // Idle time = time since last allocation ended (or creation if never allocated)
+        const sortedRunning = runningWorkers
+            .sort((a, b) => {
+                const aIdleStart = a.lastReleasedAt || a.createdAt;
+                const bIdleStart = b.lastReleasedAt || b.createdAt;
+                return aIdleStart - bIdleStart; // Oldest idle first
+            });
 
-        const oldVMs = [];
-        let deletedCount = 0;
+        // How many running VMs can we stop? (keep MIN_RUNNING_VMS running)
+        const canStop = Math.max(0, runningWorkers.length - this.MIN_RUNNING_VMS);
 
-        for (const vm of sortedWorkers) {
-            // HARDENED: NEVER remove cache masters
+        const vmsToStop = [];
+        let stoppedCount = 0;
+
+        for (const vm of sortedRunning) {
+            // HARDENED: NEVER stop cache masters
             if (vm.isCacheMaster || this.isProtectedCacheMaster(vm.machineId)) {
                 console.log(`   🛡️ [Cleanup] Protecting cache master: ${vm.machineId}`);
                 continue;
@@ -1162,31 +1708,33 @@ PKGJSON
                 continue;
             }
 
-            // Skip VMs that are already stopped (they're already cheap at ~$0.30/mo)
-            if (vm.stopped) {
-                const stoppedMinutes = vm.stoppedAt ? Math.round((now - vm.stoppedAt) / 60000) : 0;
-                console.log(`   💤 [Cleanup] VM ${vm.machineId} already stopped (${stoppedMinutes}min ago, cost: ~$0.30/mo)`);
-                continue;
-            }
+            // Check idle time (time since released or created)
+            const idleStart = vm.lastReleasedAt || vm.createdAt;
+            const idleMs = now - idleStart;
+            const idleMinutes = Math.round(idleMs / 60000);
 
-            const ageMinutes = Math.round((now - vm.createdAt) / 60000);
+            // Stop if idle > 15 min AND we can stop more VMs
+            const isIdle = idleMs > this.VM_IDLE_TIMEOUT_MS;
+            const canStopMore = stoppedCount < canStop;
 
-            // Delete VM if:
-            // 1. Pool exceeds target AND this is one of the oldest excess VMs
-            // 2. OR VM is older than MAX_VM_AGE_MS (30 min) AND pool is above BASE_POOL_SIZE
-            const isExcess = deletedCount < excessCount;
-            const isOld = (now - vm.createdAt) > this.MAX_VM_AGE_MS;
-            const aboveMinimum = (availableWorkers.length - deletedCount) > this.BASE_POOL_SIZE;
-
-            if (isExcess || (isOld && aboveMinimum)) {
-                const reason = isExcess ? `excess (pool: ${availableWorkers.length} > target: ${targetSize})` : `age: ${ageMinutes}min > 30min`;
-                console.log(`   🗑️ [Cleanup] Marking for deletion: ${vm.machineId} (${reason})`);
-                oldVMs.push(vm);
-                deletedCount++;
+            if (isIdle && canStopMore) {
+                console.log(`   🗑️ [Cleanup] Marking for stop: ${vm.machineId} (idle: ${idleMinutes}min > 15min)`);
+                vmsToStop.push(vm);
+                stoppedCount++;
+            } else if (!canStopMore) {
+                console.log(`   🔥 [Cleanup] Keeping running: ${vm.machineId} (need ${this.MIN_RUNNING_VMS} running, idle: ${idleMinutes}min)`);
             } else {
-                console.log(`   💎 [Cleanup] Keeping worker: ${vm.machineId} (age: ${ageMinutes}min, prewarmed: ${vm.prewarmed})`);
+                console.log(`   💎 [Cleanup] Keeping worker: ${vm.machineId} (idle: ${idleMinutes}min < 15min, prewarmed: ${vm.prewarmed})`);
             }
         }
+
+        // Log already stopped VMs
+        for (const vm of stoppedWorkers) {
+            const stoppedMinutes = vm.stoppedAt ? Math.round((now - vm.stoppedAt) / 60000) : 0;
+            console.log(`   💤 [Cleanup] VM ${vm.machineId} already stopped (${stoppedMinutes}min ago)`);
+        }
+
+        const oldVMs = vmsToStop;
 
         if (oldVMs.length === 0) {
             console.log(`   ✅ [Cleanup] No old VMs to clean up`);
@@ -1234,7 +1782,7 @@ PKGJSON
         const workers = this.pool.filter(vm => !vm.isCacheMaster);
         const runningWorkers = workers.filter(vm => !vm.stopped);
         const stoppedWorkers = workers.filter(vm => vm.stopped);
-        const availableWorkers = runningWorkers.filter(vm => !vm.allocatedTo).length;
+        const availableRunning = runningWorkers.filter(vm => !vm.allocatedTo).length;
         const allocatedWorkers = workers.filter(vm => vm.allocatedTo).length;
 
         return {
@@ -1243,16 +1791,23 @@ PKGJSON
                 total: workers.length,
                 running: runningWorkers.length,
                 stopped: stoppedWorkers.length, // Stopped VMs cost ~$0.30/mo vs $11.83/mo running
-                available: availableWorkers, // Running + available
+                availableRunning, // Running + not allocated (instant allocation)
+                availableStopped: stoppedWorkers.filter(vm => !vm.allocatedTo).length, // Stopped + not allocated (need restart)
                 allocated: allocatedWorkers,
-                targetSize: this.calculateTargetPoolSize()
+                targetTotal: this.TOTAL_POOL_SIZE,
+                minRunning: this.MIN_RUNNING_VMS
             },
             cacheMasters: {
                 total: cacheMasters.length,
                 prewarmed: cacheMasters.filter(vm => vm.prewarmed).length,
                 targetSize: this.CACHE_MASTERS_COUNT
             },
-            activeUsers: this.activeUsers
+            activeUsers: this.activeUsers,
+            config: {
+                totalPoolSize: this.TOTAL_POOL_SIZE,
+                minRunningVMs: this.MIN_RUNNING_VMS,
+                idleTimeoutMin: this.VM_IDLE_TIMEOUT_MS / 60000
+            }
         };
     }
 }

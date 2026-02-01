@@ -16,6 +16,18 @@ import {
   AutocompleteOption,
 } from '../../shared/types';
 
+// Preview startup state (persisted per project)
+export interface PreviewStartupState {
+  isStarting: boolean;
+  startingMessage: string;
+  startupSteps: Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>;
+  currentStepId: string | null;
+  smoothProgress: number;
+  targetProgress: number;
+  displayedMessage: string;
+  previewError: { message: string; timestamp: Date } | null;
+}
+
 // AsyncStorage keys
 const STORAGE_KEYS = {
   CHAT_HISTORY: '@drape_chat_history',
@@ -95,6 +107,7 @@ interface TerminalState {
   flyMachineId: string | null; // Fly.io VM machine ID for session routing
   projectMachineIds: Record<string, string>; // 🔑 FIX: Persist machineId per project
   projectPreviewUrls: Record<string, string>; // 🔑 FIX: Persist preview URL per project
+  previewStartupStates: Record<string, PreviewStartupState>; // 🔑 FIX: Persist preview startup state per project
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
@@ -143,6 +156,9 @@ interface TerminalState {
   setPreviewServerStatus: (status: 'checking' | 'running' | 'stopped') => void;
   setPreviewServerUrl: (url: string | null) => void;
   setFlyMachineId: (id: string | null, projectId?: string) => void;
+  setPreviewStartupState: (projectId: string, state: Partial<PreviewStartupState>) => void;
+  getPreviewStartupState: (projectId: string) => PreviewStartupState | null;
+  clearPreviewStartupState: (projectId: string) => void;
   setIsToolsExpanded: (value: boolean) => void;
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
@@ -186,6 +202,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   flyMachineId: null,
   projectMachineIds: {}, // 🔑 FIX: Persist machineId per project
   projectPreviewUrls: {}, // 🔑 FIX: Persist preview URL per project
+  previewStartupStates: {}, // 🔑 FIX: Persist preview startup state per project
   isToolsExpanded: false,
   isSidebarOpen: false,
   autocompleteOptions: [],
@@ -427,6 +444,38 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     // If id is null, we only clear the current active ID, NOT the per-project mapping
     // This allows the mapping to be restored when the project is re-selected.
     return { flyMachineId: id };
+  }),
+  // 🔑 FIX: Persist preview startup state per project (allows navigation away and back)
+  setPreviewStartupState: (projectId, stateUpdate) => set((state) => {
+    const currentState = state.previewStartupStates[projectId] || {
+      isStarting: false,
+      startingMessage: '',
+      startupSteps: [],
+      currentStepId: null,
+      smoothProgress: 0,
+      targetProgress: 0,
+      displayedMessage: '',
+      previewError: null,
+    };
+
+    console.log(`💾 [TerminalStore] Updating preview startup state for project ${projectId}`, stateUpdate);
+
+    return {
+      previewStartupStates: {
+        ...state.previewStartupStates,
+        [projectId]: { ...currentState, ...stateUpdate }
+      }
+    };
+  }),
+  getPreviewStartupState: (projectId) => {
+    const state = useTerminalStore.getState();
+    return state.previewStartupStates[projectId] || null;
+  },
+  clearPreviewStartupState: (projectId) => set((state) => {
+    const newStates = { ...state.previewStartupStates };
+    delete newStates[projectId];
+    console.log(`🗑️ [TerminalStore] Cleared preview startup state for project ${projectId}`);
+    return { previewStartupStates: newStates };
   }),
   setIsToolsExpanded: (value) => set({ isToolsExpanded: value }),
   setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),

@@ -21,7 +21,7 @@ const os = require('os');
 const PORT = process.env.DRAPE_AGENT_PORT || 13338;
 const PROJECT_DIR = '/home/coder/project';
 
-console.log('🚀 Drape Agent v2.13 - Auto-detect zstd/gzip compression for cache');
+console.log('🚀 Drape Agent v2.16 - Binary upload fix (chunk collection)');
 
 // Ensure PROJECT_DIR exists at startup (required for exec default cwd)
 const fsSync = require('fs');
@@ -220,8 +220,8 @@ const server = http.createServer(async (req, res) => {
     console.log(`[Agent] ${req.method} ${pathname}`);
 
     try {
-        // API routes (start with /health, /exec, /files, /file, /clone, /logs, /extract, /download)
-        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs', '/extract', '/folder', '/delete', '/download'].some(route => pathname.startsWith(route));
+        // API routes (start with /health, /exec, /files, /file, /clone, /logs, /extract, /download, /upload)
+        const isApiRoute = ['/health', '/exec', '/files', '/file', '/clone', '/setup', '/logs', '/extract', '/folder', '/delete', '/download', '/upload'].some(route => pathname.startsWith(route));
 
         // Health check (explicit)
         if (pathname === '/health') {
@@ -431,8 +431,8 @@ const server = http.createServer(async (req, res) => {
                 return sendJson(req, res, { error: 'command required' }, 400);
             }
 
-            // Allow custom timeout up to 10 minutes
-            const timeoutMs = Math.min(parseInt(timeout) || 60000, 600000);
+            // Allow custom timeout up to 30 minutes (for large cache transfers ~4.8GB)
+            const timeoutMs = Math.min(parseInt(timeout) || 60000, 1800000);
             const result = await execCommand(command, cwd || PROJECT_DIR, timeoutMs);
             return sendJson(req, res, result);
         }
@@ -495,20 +495,42 @@ const server = http.createServer(async (req, res) => {
 
         // BULK EXTRACT: Extract tar.gz archive to project directory
         // This is 10-20x faster than individual file writes
+        // Supports both binary upload (preferred, 3x faster) and base64 (legacy)
         if (pathname === '/extract' && req.method === 'POST') {
-            const body = await parseBody(req);
-            const { archive } = body; // base64-encoded tar.gz
-
-            if (!archive) {
-                return sendJson(req, res, { error: 'archive required (base64 tar.gz)' }, 400);
-            }
-
             const startTime = Date.now();
             const tempFile = path.join(os.tmpdir(), `drape-sync-${Date.now()}.tar.gz`);
+            const contentType = req.headers['content-type'] || '';
 
             try {
-                // Decode base64 and write to temp file
-                const buffer = Buffer.from(archive, 'base64');
+                let buffer;
+
+                // OPTIMIZED: Binary upload (3x faster - no base64 overhead)
+                if (contentType.includes('application/gzip') || contentType.includes('application/octet-stream')) {
+                    console.log('[Agent] Receiving binary tar.gz upload...');
+
+                    // Collect binary body chunks
+                    const chunks = [];
+                    for await (const chunk of req) {
+                        chunks.push(chunk);
+                    }
+                    buffer = Buffer.concat(chunks);
+                    console.log(`[Agent] Received ${(buffer.length / 1024).toFixed(1)}KB binary upload`);
+
+                } else {
+                    // LEGACY: JSON with base64-encoded archive
+                    const body = await parseBody(req);
+                    const { archive } = body;
+
+                    if (!archive) {
+                        return sendJson(req, res, { error: 'archive required (base64 tar.gz or binary upload)' }, 400);
+                    }
+
+                    // Decode base64
+                    buffer = Buffer.from(archive, 'base64');
+                    console.log(`[Agent] Decoded ${(buffer.length / 1024).toFixed(1)}KB from base64`);
+                }
+
+                // Write buffer to temp file
                 await fs.writeFile(tempFile, buffer);
 
                 // Ensure project directory exists
@@ -558,50 +580,77 @@ const server = http.createServer(async (req, res) => {
 
         // Download cache archive (for cache sharing between VMs)
         // GET /download?type=pnpm - Returns tar.gz of pnpm store
+        // GET /download?type=node_modules - Returns tar.gz of node_modules
         // Optimized: uses pre-existing tar.gz if available, otherwise compresses only v10 store
         if (pathname === '/download' && req.method === 'GET') {
             const cacheType = url.searchParams.get('type') || 'pnpm';
             const startTime = Date.now();
 
+            // For node_modules, compress and stream
+            if (cacheType === 'node_modules') {
+                const nodeModulesDir = '/home/coder/project/node_modules';
+
+                try {
+                    // Check if node_modules exists
+                    const stat = await fs.stat(nodeModulesDir);
+                    if (!stat.isDirectory()) {
+                        return sendJson(req, res, { error: 'node_modules not found' }, 404);
+                    }
+
+                    console.log(`[Agent] Compressing node_modules for transfer...`);
+
+                    const origin = req.headers.origin || '*';
+                    res.writeHead(200, {
+                        'Content-Type': 'application/gzip',
+                        'Content-Disposition': 'attachment; filename="node_modules.tar.gz"',
+                        'Access-Control-Allow-Origin': origin,
+                        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+                        'Access-Control-Allow-Headers': '*',
+                        'Transfer-Encoding': 'chunked'
+                    });
+
+                    // Stream tar.gz directly to response (no temp file)
+                    const tar = require('child_process').spawn('tar', [
+                        '-czf', '-',
+                        '-C', '/home/coder/project',
+                        'node_modules'
+                    ]);
+
+                    tar.stdout.pipe(res);
+                    tar.stderr.on('data', (data) => {
+                        console.error(`[Agent] tar stderr: ${data}`);
+                    });
+
+                    tar.on('close', (code) => {
+                        const elapsed = Date.now() - startTime;
+                        console.log(`[Agent] ✅ Streamed node_modules in ${elapsed}ms (exit: ${code})`);
+                    });
+
+                    tar.on('error', (err) => {
+                        console.error(`[Agent] tar error: ${err}`);
+                        if (!res.headersSent) res.end();
+                    });
+
+                    return;
+                } catch (error) {
+                    console.error(`[Agent] Error compressing node_modules: ${error.message}`);
+                    if (!res.headersSent) {
+                        return sendJson(req, res, { error: error.message }, 500);
+                    }
+                    return;
+                }
+            }
+
             // For pnpm, we have a smarter strategy
             if (cacheType === 'pnpm') {
                 const volumeDir = '/home/coder/volumes/pnpm-store';
-                const preCachedTar = path.join(volumeDir, 'pnpm-cache.tar.gz');
+                const preCachedTar = path.join(volumeDir, 'pnpm-cache.tar.zst');
                 const v10Store = path.join(volumeDir, 'v10');
 
                 try {
-                    // Strategy 1: Use pre-existing tar.gz (fastest - just stream existing file)
-                    try {
-                        const tarStat = await fs.stat(preCachedTar);
-                        if (tarStat.isFile() && tarStat.size > 0) {
-                            console.log(`[Agent] Streaming pre-cached tar.gz (${(tarStat.size / 1024 / 1024).toFixed(1)}MB)...`);
-
-                            const origin = req.headers.origin || '*';
-                            res.writeHead(200, {
-                                'Content-Type': 'application/gzip',
-                                'Content-Disposition': 'attachment; filename="pnpm-cache.tar.gz"',
-                                'Content-Length': tarStat.size,
-                                'Access-Control-Allow-Origin': origin,
-                                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                                'Access-Control-Allow-Headers': '*'
-                            });
-
-                            const fsStream = require('fs');
-                            const readStream = fsStream.createReadStream(preCachedTar);
-                            readStream.pipe(res);
-                            readStream.on('end', () => {
-                                const elapsed = Date.now() - startTime;
-                                console.log(`[Agent] ✅ Streamed pre-cached tar.gz in ${elapsed}ms`);
-                            });
-                            readStream.on('error', (err) => {
-                                console.error(`[Agent] Stream error: ${err}`);
-                                if (!res.headersSent) res.end();
-                            });
-                            return;
-                        }
-                    } catch (e) {
-                        // Pre-cached file doesn't exist, continue to strategy 2
-                    }
+                    // Strategy 1: DISABLED - Skip pre-cached tar.zst for compatibility
+                    // Some VMs don't have zstd installed, so we always use gzip (strategy 2)
+                    // This ensures universal compatibility across all VMs
 
                     // Strategy 2: Compress pnpm store (supports both old v10/ and new files/ layouts)
                     // pnpm 10.x uses: files/, index/, projects/ (no v10 subdirectory)
@@ -651,7 +700,7 @@ const server = http.createServer(async (req, res) => {
 
                             const origin = req.headers.origin || '*';
                             res.writeHead(200, {
-                                'Content-Type': 'application/gzip',
+                                'Content-Type': 'application/gzip',  // Using gzip for universal compatibility
                                 'Content-Disposition': 'attachment; filename="pnpm-store.tar.gz"',
                                 'X-Pnpm-Layout': layout,  // Tell receiver what layout this is
                                 'Access-Control-Allow-Origin': origin,
@@ -660,8 +709,10 @@ const server = http.createServer(async (req, res) => {
                                 'Transfer-Encoding': 'chunked'
                             });
 
+                            // Use gzip compression for universal compatibility (all VMs have gzip)
+                            // zstd would be faster but not all VMs have it installed
                             const tarProcess = spawn('tar', [
-                                '-czf', '-',
+                                '-czf', '-',  // gzip compression
                                 '-h',  // Dereference symlinks (CRITICAL for cache sharing!)
                                 '--ignore-failed-read',  // Ignore files that disappear during read
                                 '--warning=no-file-changed',  // Suppress "file changed" warnings
@@ -704,6 +755,111 @@ const server = http.createServer(async (req, res) => {
 
             // Fallback for other cache types
             return sendJson(req, res, { error: `Unknown cache type: ${cacheType}` }, 400);
+        }
+
+        // Upload and extract cache archive (for TIER 3 cache sharing between VMs)
+        // POST /upload?path=/home/coder/volumes/pnpm-store&extract=true
+        // Receives a streamed tar.gz, saves it, and optionally extracts it
+        if (pathname === '/upload' && req.method === 'POST') {
+            const targetPath = url.searchParams.get('path');
+            const shouldExtract = url.searchParams.get('extract') === 'true';
+
+            console.log(`[Agent] 🔍 Upload request: targetPath=${targetPath}, extract=${shouldExtract}`);
+
+            if (!targetPath) {
+                console.log(`[Agent] ❌ Missing path parameter`);
+                return sendJson(req, res, { error: 'path parameter required' }, 400);
+            }
+
+            const startTime = Date.now();
+            const tempFile = path.join(os.tmpdir(), `cache-upload-${Date.now()}.tar.gz`);
+            console.log(`[Agent] 📁 Temp file: ${tempFile}`);
+
+            try {
+                console.log(`[Agent] ⏳ Receiving cache upload to ${targetPath}...`);
+
+                // Write incoming stream to temp file
+                const fsStream = require('fs');
+                const writeStream = fsStream.createWriteStream(tempFile);
+                console.log(`[Agent] 📝 Created write stream`);
+
+                await new Promise((resolve, reject) => {
+                    req.pipe(writeStream);
+                    writeStream.on('finish', () => {
+                        console.log(`[Agent] ✅ Stream finished`);
+                        resolve();
+                    });
+                    writeStream.on('error', (err) => {
+                        console.log(`[Agent] ❌ Write stream error: ${err.message}`);
+                        reject(err);
+                    });
+                    req.on('error', (err) => {
+                        console.log(`[Agent] ❌ Request stream error: ${err.message}`);
+                        reject(err);
+                    });
+                });
+
+                console.log(`[Agent] 📊 Checking file stats...`);
+                const stats = await fs.stat(tempFile);
+                const sizeMB = (stats.size / 1024 / 1024).toFixed(1);
+                console.log(`[Agent] 📦 Received ${sizeMB}MB archive`);
+
+                if (shouldExtract) {
+                    // Ensure target directory exists
+                    await fs.mkdir(targetPath, { recursive: true });
+
+                    // Extract tar.gz to target path
+                    console.log(`[Agent] Extracting to ${targetPath}...`);
+                    const extractResult = await execCommand(
+                        `tar -xzf "${tempFile}" -C "${targetPath}"`,
+                        targetPath,
+                        60000 // 60s timeout for extraction
+                    );
+
+                    // Cleanup temp file
+                    await fs.unlink(tempFile).catch(() => {});
+
+                    if (extractResult.exitCode !== 0) {
+                        return sendJson(req, res, {
+                            success: false,
+                            error: 'Extraction failed',
+                            stderr: extractResult.stderr
+                        }, 500);
+                    }
+
+                    const elapsed = Date.now() - startTime;
+                    console.log(`[Agent] ✅ Extracted ${sizeMB}MB in ${elapsed}ms`);
+
+                    return sendJson(req, res, {
+                        success: true,
+                        extracted: true,
+                        sizeMB: parseFloat(sizeMB),
+                        elapsed
+                    });
+                } else {
+                    // Just save the file without extracting
+                    const finalPath = path.join(targetPath, 'cache.tar.gz');
+                    await fs.mkdir(path.dirname(finalPath), { recursive: true });
+                    await fs.rename(tempFile, finalPath);
+
+                    const elapsed = Date.now() - startTime;
+                    console.log(`[Agent] ✅ Saved ${sizeMB}MB to ${finalPath} in ${elapsed}ms`);
+
+                    return sendJson(req, res, {
+                        success: true,
+                        extracted: false,
+                        path: finalPath,
+                        sizeMB: parseFloat(sizeMB),
+                        elapsed
+                    });
+                }
+
+            } catch (error) {
+                // Cleanup on error
+                await fs.unlink(tempFile).catch(() => {});
+                console.error(`[Agent] Upload error: ${error.message}`);
+                return sendJson(req, res, { error: error.message }, 500);
+            }
         }
 
         // Clone repository
@@ -765,7 +921,7 @@ server.listen(PORT, '::', () => {
  */
 async function autoFetchCache(cacheMasterId) {
     const startTime = Date.now();
-    const cacheUrl = `http://${cacheMasterId}.vm.drape-workspaces.internal:13338`;
+    const cacheUrl = `http://${cacheMasterId}.vm.drape-workspaces.internal:8080`;
     const volumeDir = '/home/coder/volumes/pnpm-store';
     const pnpmDir = '/home/coder/.local/share/pnpm';
 
@@ -818,7 +974,7 @@ async function autoFetchCache(cacheMasterId) {
             extractCmd = 'zstd -d /tmp/cache.tar.gz -o /tmp/cache.tar --force && tar -xf /tmp/cache.tar -C /home/coder/volumes/pnpm-store/ 2>&1';
         } else {
             // zstd not installed - this is a fatal error, cache needs to be regenerated with gzip
-            throw new Error('Cache is zstd-compressed but zstd is not installed! Regenerate cache with: tar -czf pnpm-cache.tar.gz v10/files v10/index');
+            throw new Error('Cache is zstd-compressed but zstd is not installed! Run: apt-get install -y zstd');
         }
     } else if (magicBuffer[0] === 0x1f && magicBuffer[1] === 0x8b) {
         // gzip format

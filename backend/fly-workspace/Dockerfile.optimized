@@ -12,6 +12,10 @@ LABEL description="Full Node.js workspace for Drape IDE - supports all npm packa
 # ✅ gcc, g++, make, build-essential (for native npm packages)
 # ✅ ca-certificates, openssh-client
 
+# Install zstd for ultra-fast compression/decompression (3-5x faster than gzip)
+# zstd provides better compression ratio AND faster decompression than gzip
+RUN apt-get update && apt-get install -y zstd && rm -rf /var/lib/apt/lists/*
+
 # Enable pnpm via corepack (included in node:20)
 RUN corepack enable && corepack prepare pnpm@latest --activate
 

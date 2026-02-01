@@ -12,9 +12,9 @@ require('dotenv').config();
 
 // 🔑 Global error handlers to prevent crashes on socket errors
 process.on('uncaughtException', (err) => {
-    // Handle ECONNRESET gracefully (client disconnect during stream)
+    // Handle ECONNRESET/EPIPE gracefully (client disconnect) - SILENT (no log to avoid spam)
     if (err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.code === 'ENOTFOUND') {
-        console.log(`⚠️ [Server] Socket error (handled): ${err.code} - ${err.message}`);
+        // Don't log - these are normal disconnection errors
         return; // Don't crash
     }
     console.error('❌ [Server] Uncaught Exception:', err);
@@ -49,7 +49,7 @@ if (!admin.apps.length) {
         admin.initializeApp({
             projectId: 'drape-mobile-ide',
             // Usa bucket di default per permessi automatici del service account
-            storageBucket: 'drape-mobile-ide.appspot.com'
+            storageBucket: 'drape-mobile-ide-workspaces'
         });
         console.log('🔥 Firebase Admin initialized');
     } catch (error) {
@@ -263,6 +263,29 @@ async function startServer() {
     });
     console.log('   ✅ Cleanup cron job scheduled');
     */
+
+    // Push Notification Cron Jobs
+    const reengagementService = require('./services/reengagement-service');
+    const githubActivityService = require('./services/github-activity-service');
+
+    // Re-engagement: daily at 10:00 AM (Europe/Rome)
+    cron.schedule('0 10 * * *', async () => {
+        console.log('[Cron] Running re-engagement check...');
+        await reengagementService.checkAndNotify();
+    }, { timezone: 'Europe/Rome' });
+
+    // Upgrade prompts for free users: every 2 days at 14:00 (Europe/Rome)
+    cron.schedule('0 14 */2 * *', async () => {
+        console.log('[Cron] Running upgrade prompt check...');
+        await reengagementService.checkUpgradePrompts();
+    }, { timezone: 'Europe/Rome' });
+
+    // GitHub activity: every 15 minutes
+    cron.schedule('*/15 * * * *', async () => {
+        await githubActivityService.checkAndNotify();
+    });
+
+    console.log('   ✅ Push notification cron jobs scheduled');
 
     const { initializeProviders, getAvailableProviders } = require('./services/ai-providers');
 

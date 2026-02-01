@@ -66,6 +66,7 @@ interface BudgetStatus {
 interface Props {
   onClose: () => void;
   initialShowPlans?: boolean;
+  initialPlanIndex?: number;
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -122,7 +123,7 @@ const GlassCard = ({ children, style }: { children: React.ReactNode; style?: any
   );
 };
 
-export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => {
+export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanIndex = 0 }: Props) => {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
   const [darkMode, setDarkMode] = useState(true);
@@ -149,7 +150,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
   const [showResourceUsage, setShowResourceUsage] = useState(false);
   const [tokenTimeframe, setTokenTimeframe] = useState<'24h' | '7d' | '30d'>('24h');
   const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'max'>('free');
-  const [visiblePlanIndex, setVisiblePlanIndex] = useState(0);
+  const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
+  const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
@@ -394,24 +396,24 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
         name: 'Starter',
         price: '€0',
         description: 'Per chi vuole esplorare le basi.',
-        features: ['AI Standard Models', '1 Progetto attivo', '500MB Storage Cloud', 'Community Support'],
+        features: ['2 progetti + 1 clonato', '5 preview al mese', 'Budget AI base (€2.50)', '500MB Storage Cloud'],
         color: '#94A3B8'
       },
       {
-        id: 'pro',
-        name: 'Professional',
-        price: billingCycle === 'monthly' ? '€19' : '€15',
-        description: 'La scelta per sviluppatori seri.',
-        features: ['AI Avanzata (Claude 3.5/GPT-4o)', 'Progetti Illimitati', '10GB Storage Cloud', 'Deep Research & Git Sync', 'Supporto Prioritario'],
+        id: 'go',
+        name: 'Go',
+        price: billingCycle === 'monthly' ? '€9.99' : '€7.99',
+        description: 'Per chi vuole creare sul serio.',
+        features: ['5 progetti + 3 clonati', '20 preview al mese', 'Budget AI raddoppiato (€5)', '2GB Storage Cloud', 'Supporto email'],
         color: AppColors.primary,
         isPopular: true
       },
       {
-        id: 'max',
-        name: 'Enterprise',
-        price: billingCycle === 'monthly' ? '€49' : '€39',
-        description: 'Potenza massima per core-dev.',
-        features: ['AI Senza Limiti di Token', 'VM ad Alte Performance', '100GB Storage Cloud', 'Custom Domains & API Access', 'Account Manager Dedicato'],
+        id: 'pro',
+        name: 'Pro',
+        price: billingCycle === 'monthly' ? '€29.99' : '€23.99',
+        description: 'Potenza massima per sviluppatori.',
+        features: ['Progetti illimitati', 'Preview illimitate', 'Budget AI €15/mese', '10GB Storage Cloud', 'Supporto prioritario'],
         color: '#F472B6'
       }
     ];
@@ -472,6 +474,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
           </View>
 
           <ScrollView
+            ref={planScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             snapToInterval={SNAP_INTERVAL}
@@ -479,6 +482,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
             decelerationRate="fast"
             contentContainerStyle={styles.plansScrollContent}
             scrollEventThrottle={16}
+            onLayout={() => {
+              if (initialPlanIndex > 0 && planScrollRef.current) {
+                setTimeout(() => {
+                  planScrollRef.current?.scrollTo({ x: initialPlanIndex * SNAP_INTERVAL, animated: false });
+                }, 50);
+              }
+            }}
             onScroll={(e) => {
               const x = e.nativeEvent.contentOffset.x;
               const index = Math.round(x / SNAP_INTERVAL);
@@ -584,7 +594,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
     const percentUsed = budgetStatus?.usage.percentUsed || 0;
     const planName = budgetStatus?.plan.name || 'Free';
 
-    const budgetDisplay = `€${spentEur.toFixed(2)} / €${budgetEur.toFixed(2)}`;
+    // Show more decimals for small amounts so users can see spending
+    const formatEur = (amount: number) => {
+      if (amount > 0 && amount < 0.01) return `€${amount.toFixed(4)}`;
+      return `€${amount.toFixed(2)}`;
+    };
+    const budgetDisplay = `${formatEur(spentEur)} / €${budgetEur.toFixed(2)}`;
 
     // Get color based on usage
     const getBudgetColor = () => {
@@ -647,7 +662,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
             {/* Budget Stats */}
             <View style={styles.budgetStatsRow}>
               <View style={styles.budgetStatItem}>
-                <Text style={styles.budgetStatValue}>€{remainingEur.toFixed(2)}</Text>
+                <Text style={styles.budgetStatValue}>{formatEur(remainingEur)}</Text>
                 <Text style={styles.budgetStatLabel}>Rimanente</Text>
               </View>
               <View style={styles.budgetStatDivider} />
@@ -709,8 +724,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 <Ionicons name="diamond" size={20} color={AppColors.primary} />
               </View>
               <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.premiumTitle}>Passa a Professional</Text>
-                <Text style={styles.premiumSub}>Sblocca progetti illimitati e accesso prioritario alla GPU.</Text>
+                <Text style={styles.premiumTitle}>Passa a Go</Text>
+                <Text style={styles.premiumSub}>5 progetti, 20 preview/mese e budget AI raddoppiato.</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
             </LinearGradient>
@@ -838,14 +853,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                 icon="card-outline"
                 iconColor="#60A5FA"
                 title="Piano Attuale"
-                subtitle={currentPlan.toUpperCase()}
+                subtitle={currentPlan === 'free' ? 'Starter' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan.toUpperCase()}
                 onPress={() => setShowPlanSelection(true)}
               />
               <SettingItem
                 icon="wallet-outline"
                 iconColor="#34D399"
                 title="Budget AI"
-                subtitle={budgetStatus ? `€${budgetStatus.usage.spentEur.toFixed(2)} / €${budgetStatus.plan.monthlyBudgetEur.toFixed(2)} (${budgetStatus.usage.percentUsed}% usato)` : 'Caricamento...'}
+                subtitle={budgetStatus ? `${budgetStatus.usage.spentEur > 0 && budgetStatus.usage.spentEur < 0.01 ? `€${budgetStatus.usage.spentEur.toFixed(4)}` : `€${budgetStatus.usage.spentEur.toFixed(2)}`} / €${budgetStatus.plan.monthlyBudgetEur.toFixed(2)} (${budgetStatus.usage.percentUsed}% usato)` : 'Caricamento...'}
                 onPress={() => setShowResourceUsage(true)}
                 isLast
               />
@@ -871,7 +886,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false }: Props) => 
                     trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
                     thumbColor="#fff"
                     ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }], opacity: 0.5 }}
+                    disabled={true}
                   />
                 }
                 isLast

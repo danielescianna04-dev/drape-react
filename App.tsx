@@ -12,7 +12,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { CreateProjectScreen } from './src/features/projects/CreateProjectScreen';
 import { AllProjectsScreen } from './src/features/projects/AllProjectsScreen';
 import { SettingsScreen } from './src/features/settings/SettingsScreen';
-import { OnboardingPlansScreen } from './src/features/onboarding/OnboardingPlansScreen';
 import { ImportGitHubModal } from './src/features/terminal/components/ImportGitHubModal';
 import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthModal';
 import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
@@ -75,20 +74,19 @@ export default function App() {
     liveActivityService.requestNotificationPermission().catch(() => {});
   }, []);
 
-  const { isNewUser } = useAuthStore();
-
-  // Navigate to onboarding or home when user logs in
+  // Navigate to onboarding (free users) or home when user logs in
   useEffect(() => {
     if (isInitialized && user && currentScreen === 'auth') {
-      if (isNewUser) {
-        console.log('🔐 [App] New user, showing onboarding');
+      const plan = user.plan || 'free';
+      if (plan === 'free') {
+        console.log('🔐 [App] Free user, showing plans');
         setCurrentScreen('onboarding');
       } else {
         console.log('🔐 [App] User authenticated, navigating to home');
         setCurrentScreen('home');
       }
     }
-  }, [user, isInitialized, currentScreen, isNewUser]);
+  }, [user, isInitialized, currentScreen]);
 
   // Listen to navigation store for cross-component navigation
   const pendingNavigation = useNavigationStore((state) => state.pendingNavigation);
@@ -958,13 +956,14 @@ export default function App() {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-          <OnboardingPlansScreen
-            displayName={user.displayName || ''}
-            onSelectPlan={(plan) => {
-              console.log('📋 [App] User selected plan:', plan);
+          <SettingsScreen
+            onClose={() => {
+              console.log('📋 [App] User closed plans, going to home');
               useAuthStore.setState({ isNewUser: false });
               setCurrentScreen('home');
             }}
+            initialShowPlans={true}
+            initialPlanIndex={1}
           />
           <StatusBar style="light" />
         </SafeAreaProvider>
@@ -1167,6 +1166,7 @@ export default function App() {
                 >
                   <CreateProjectScreen
                     onBack={() => setCurrentScreen('home')}
+                    onOpenPlans={() => setCurrentScreen('plans')}
                     onCreate={(workstation) => {
                       // 1. Set the new workstation
                       setWorkstation(workstation);

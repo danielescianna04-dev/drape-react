@@ -12,6 +12,7 @@ import {
   Pressable,
   Switch,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
@@ -287,7 +288,11 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
           </View>
 
           {/* Content */}
-          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={{ paddingBottom: 60 }}
+            showsVerticalScrollIndicator={false}
+          >
             {activeTab === 'create' ? (
               <View style={styles.createForm}>
                 <Text style={styles.label}>Nome repository</Text>
@@ -413,6 +418,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       onRequestClose={onClose}
       statusBarTranslucent
     >
+      <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
       <Animated.View
         style={styles.backdrop}
         entering={FadeIn.duration(200)}
@@ -426,7 +432,14 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         >
           {isLiquidGlassSupported ? (
             <LiquidGlassView
-              style={{ flex: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' }}
+              style={{
+                flex: 1,
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                overflow: 'hidden',
+                borderWidth: 1.5,
+                borderColor: 'rgba(255,255,255,0.2)',
+              }}
               interactive={true}
               effect="clear"
               colorScheme="dark"
@@ -434,7 +447,11 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
               {renderModalContent()}
             </LiquidGlassView>
           ) : (
-            <View style={[styles.container, { backgroundColor: '#151517' }]}>
+            <View style={[styles.container, {
+              backgroundColor: '#151517',
+              borderWidth: 1.5,
+              borderColor: 'rgba(255,255,255,0.2)',
+            }]}>
               {renderModalContent()}
             </View>
           )}
@@ -447,7 +464,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
   container: {

@@ -9,6 +9,8 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import EventSource from 'react-native-sse';
 import { config } from '../../config/config';
 import { useAgentStore } from '../../core/agent/agentStore';
+import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useAuthStore } from '../../core/auth/authStore';
 
 // SSE Event Types
 export type AgentEventType =
@@ -266,6 +268,8 @@ export function useAgentStream(
           model,
           conversationHistory: conversationHistory || [], // Send ALL history, no limits
           images: images || [], // Send images for multimodal support
+          userId: useTerminalStore.getState().userId || null,
+          userPlan: useAuthStore.getState().user?.plan || 'free',
         }),
       });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -20,6 +20,8 @@ import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
 import { useAgentStream } from '../../../hooks/api/useAgentStream';
+import { usePreviewLogs } from '../../../hooks/api/usePreviewLogs';
+import { liveActivityService } from '../../../core/services/liveActivityService';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -43,6 +45,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const projectMachineIds = useTerminalStore((state) => state.projectMachineIds);
   const projectPreviewUrls = useTerminalStore((state) => state.projectPreviewUrls);
   const selectedModel = useTerminalStore((state) => state.selectedModel);
+  // 🔑 FIX: Persistent preview startup state per project
+  const setPreviewStartupState = useTerminalStore((state) => state.setPreviewStartupState);
+  const getPreviewStartupState = useTerminalStore((state) => state.getPreviewStartupState);
+  const clearPreviewStartupState = useTerminalStore((state) => state.clearPreviewStartupState);
+  const projectId = currentWorkstation?.id;
   const { apiUrl } = useNetworkConfig();
 
   // Agent stream for full tool execution (like ChatPage)
@@ -105,8 +112,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     serverStatusRef.current = status;
   };
 
-  const [isStarting, setIsStarting] = useState(false);
-  const [startingMessage, setStartingMessage] = useState('');
+  // 🔑 FIX: Load persisted preview startup state (allows navigation away and back)
+  const getInitialStartupState = () => {
+    if (!projectId) return null;
+    return getPreviewStartupState(projectId);
+  };
+
+  const persistedState = getInitialStartupState();
+
+  const [isStarting, setIsStartingLocal] = useState(persistedState?.isStarting ?? false);
+  const [startingMessage, setStartingMessageLocal] = useState(persistedState?.startingMessage ?? '');
   const [webViewReady, setWebViewReady] = useState(false); // Track if WebView loaded successfully
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [hasWebUI, setHasWebUI] = useState(true); // Whether to show WebView (false = show terminal output)
@@ -166,25 +181,35 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [startupSteps, setStartupSteps] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>([
-    { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
-    { id: 'cloning', label: 'Preparazione file', status: 'pending' },
-    { id: 'detecting', label: 'Configurazione', status: 'pending' },
-    { id: 'booting', label: 'Accensione server', status: 'pending' },
-    { id: 'installing', label: 'Installazione dipendenze', status: 'pending' },
-    { id: 'starting', label: 'Avvio dev server', status: 'pending' },
-    { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
-  ]);
-  const [currentStepId, setCurrentStepId] = useState<string | null>(null);
+  const defaultSteps = [
+    { id: 'analyzing', label: 'Analisi progetto', status: 'pending' as const },
+    { id: 'cloning', label: 'Preparazione file', status: 'pending' as const },
+    { id: 'detecting', label: 'Configurazione', status: 'pending' as const },
+    { id: 'booting', label: 'Accensione server', status: 'pending' as const },
+    { id: 'installing', label: 'Installazione dipendenze', status: 'pending' as const },
+    { id: 'starting', label: 'Avvio dev server', status: 'pending' as const },
+    { id: 'ready', label: 'Ci siamo quasi', status: 'pending' as const },
+  ];
+  const [startupSteps, setStartupStepsLocal] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>(
+    persistedState?.startupSteps ?? defaultSteps
+  );
+  const [currentStepId, setCurrentStepIdLocal] = useState<string | null>(persistedState?.currentStepId ?? null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const maskOpacityAnim = useRef(new Animated.Value(1)).current;
-  const [smoothProgress, setSmoothProgress] = useState(0);
-  const [targetProgress, setTargetProgress] = useState(0); // Step-based target progress
-  const [displayedMessage, setDisplayedMessage] = useState('');
+  const [smoothProgress, setSmoothProgressLocal] = useState(persistedState?.smoothProgress ?? 0);
+  const smoothProgressRef = useRef(persistedState?.smoothProgress ?? 0); // Ref for animation loop to avoid re-renders
+  const [targetProgress, setTargetProgressLocal] = useState(persistedState?.targetProgress ?? 0); // Step-based target progress
+  const [displayedMessage, setDisplayedMessageLocal] = useState(persistedState?.displayedMessage ?? '');
   const [isNextJsProject, setIsNextJsProject] = useState(false); // Track if Next.js for time estimates
 
+  // Real-time VM logs during preview startup
+  const { logs: previewLogs, clearLogs } = usePreviewLogs({
+    enabled: serverStatus === 'checking',
+    maxLogs: 12,
+  });
+
   // Error handling state
-  const [previewError, setPreviewError] = useState<{ message: string; timestamp: Date } | null>(null);
+  const [previewError, setPreviewErrorLocal] = useState<{ message: string; timestamp: Date } | null>(persistedState?.previewError ?? null);
   const [isSendingReport, setIsSendingReport] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const recentLogsRef = useRef<string[]>([]); // Store recent logs for error reporting
@@ -192,6 +217,78 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // Session expiration state (when VM is released due to idle timeout)
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
+  // Live Activity / Dynamic Island state
+  const [estimatedRemainingSeconds, setEstimatedRemainingSeconds] = useState(0);
+  const appState = useRef(AppState.currentState);
+  const [isAppInBackground, setIsAppInBackground] = useState(false);
+
+  // 🔑 FIX: Wrapper setters to update both local state AND persisted state
+  const setIsStarting = (value: boolean) => {
+    setIsStartingLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { isStarting: value });
+    }
+  };
+
+  const setStartingMessage = (value: string) => {
+    setStartingMessageLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { startingMessage: value });
+    }
+  };
+
+  const setStartupSteps = (value: Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>) => {
+    setStartupStepsLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { startupSteps: value });
+    }
+  };
+
+  const setCurrentStepId = (value: string | null) => {
+    setCurrentStepIdLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { currentStepId: value });
+    }
+  };
+
+  const smoothProgressSyncTimer = useRef<NodeJS.Timeout | null>(null);
+  const setSmoothProgress = (value: number | ((prev: number) => number)) => {
+    // Support functional updates: resolve the value using the ref
+    const resolved = typeof value === 'function' ? value(smoothProgressRef.current) : value;
+    smoothProgressRef.current = resolved;
+    // Throttle React state + store updates to max every 200ms to avoid render cascading
+    if (!smoothProgressSyncTimer.current) {
+      smoothProgressSyncTimer.current = setTimeout(() => {
+        smoothProgressSyncTimer.current = null;
+        setSmoothProgressLocal(smoothProgressRef.current);
+        if (projectId) {
+          setPreviewStartupState(projectId, { smoothProgress: smoothProgressRef.current });
+        }
+      }, 200);
+    }
+  };
+
+  const setTargetProgress = (value: number) => {
+    setTargetProgressLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { targetProgress: value });
+    }
+  };
+
+  const setDisplayedMessage = (value: string) => {
+    setDisplayedMessageLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { displayedMessage: value });
+    }
+  };
+
+  const setPreviewError = (value: { message: string; timestamp: Date } | null) => {
+    setPreviewErrorLocal(value);
+    if (projectId) {
+      setPreviewStartupState(projectId, { previewError: value });
+    }
+  };
 
   // Rich Loading Messages
   const LOADING_MESSAGES: Record<string, string[]> = {
@@ -441,42 +538,39 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       setTargetProgress(0);
     } else {
       interval = setInterval(() => {
-        setSmoothProgress(prev => {
-          // If webview is ready, zoom to 100%
-          if (webViewReady) {
-            return Math.min(prev + 3, 100);
-          }
+        const prev = smoothProgressRef.current;
+        let next: number;
 
+        // If webview is ready, zoom to 100%
+        if (webViewReady) {
+          next = Math.min(prev + 3, 100);
+        } else {
           // Get current step's range
           const range = currentStepId ? stepRanges[currentStepId] : { min: 0, max: 10 };
-          if (!range) return prev;
+          if (!range) return;
 
-          // If below step's min, move quickly to get there
           if (prev < range.min) {
-            return Math.min(prev + 0.5, range.min);
-          }
-
-          // Within step's range - animate slowly toward max
-          // For Next.js "starting" step, this will take 3-5 minutes to go from 55% to 92%
-          if (prev < range.max) {
-            // Slower animation for longer steps (like "starting")
+            // Below step's min, move quickly to get there
+            next = Math.min(prev + 0.5, range.min);
+          } else if (prev < range.max) {
+            // Within step's range - animate slowly toward max
             const stepSize = range.max - range.min;
             const baseSpeed = isNextJsProject && currentStepId === 'starting'
-              ? 0.008  // Very slow for Next.js compilation (~5 min to complete range)
+              ? 0.008
               : stepSize > 20
-                ? 0.02   // Slow for big ranges
-                : 0.08;  // Normal for small ranges
+                ? 0.02
+                : 0.08;
 
-            // Slow down as approaching max (asymptotic)
             const distToMax = range.max - prev;
             const speed = Math.max(0.005, baseSpeed * (distToMax / stepSize));
-
-            return Math.min(prev + speed, range.max - 0.5);
+            next = Math.min(prev + speed, range.max - 0.5);
+          } else {
+            // At max of current step - tiny movement to show activity
+            next = prev + 0.002;
           }
+        }
 
-          // At max of current step - tiny movement to show activity
-          return prev + 0.002;
-        });
+        setSmoothProgress(next);
       }, 50);
     }
 
@@ -546,6 +640,132 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return () => {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
+    };
+  }, []);
+
+  // 🔑 FIX: Clear persisted state when preview completes successfully
+  useEffect(() => {
+    if (serverStatus === 'running' && webViewReady && projectId) {
+      // Preview startup complete - clear the persisted state
+      console.log(`✅ [PreviewPanel] Preview ready, clearing persisted startup state for ${projectId}`);
+      clearPreviewStartupState(projectId);
+
+      const projectName = currentWorkstation?.name || 'Progetto';
+
+      // 🟣 Dynamic Island: mostra "Pronto!" al 100% poi scompare
+      if (liveActivityService.isActivityActive()) {
+        liveActivityService.endWithSuccess(projectName).catch(() => {});
+      }
+
+      // 🔔 Notifica push locale (appare solo se l'app e' in background)
+      liveActivityService.sendNotification(
+        'Preview pronta!',
+        `${projectName} e' pronto per la preview`
+      ).catch(() => {});
+    }
+  }, [serverStatus, webViewReady, projectId]);
+
+  // 🟣 Dynamic Island: Refs for stable AppState callback (avoid re-subscribing on every state change)
+  const isStartingRef = useRef(isStarting);
+  const currentStepIdRef = useRef(currentStepId);
+  const startupStepsRef = useRef(startupSteps);
+  const estimatedRemainingSecondsRef = useRef(estimatedRemainingSeconds);
+  const currentWorkstationNameRef = useRef(currentWorkstation?.name);
+
+  useEffect(() => { isStartingRef.current = isStarting; }, [isStarting]);
+  useEffect(() => { currentStepIdRef.current = currentStepId; }, [currentStepId]);
+  useEffect(() => { startupStepsRef.current = startupSteps; }, [startupSteps]);
+  useEffect(() => { estimatedRemainingSecondsRef.current = estimatedRemainingSeconds; }, [estimatedRemainingSeconds]);
+  useEffect(() => { currentWorkstationNameRef.current = currentWorkstation?.name; }, [currentWorkstation?.name]);
+
+  // 🟣 Dynamic Island: Avvia Live Activity IN FOREGROUND quando inizia il preview startup
+  // iOS richiede che Activity.request() venga chiamato in foreground
+  useEffect(() => {
+    if (isStarting && currentWorkstation?.name && !liveActivityService.isActivityActive()) {
+      const currentStepLabel = startupSteps.find(s => s.id === currentStepId)?.label || 'Caricamento...';
+      console.log('🟣 [Dynamic Island] Starting Live Activity in foreground');
+
+      liveActivityService.startPreviewActivity(
+        currentWorkstation.name,
+        {
+          remainingSeconds: estimatedRemainingSeconds || 240,
+          currentStep: currentStepLabel,
+          progress: smoothProgressRef.current / 100
+        }
+      ).then((success) => {
+        console.log('🟣 [Dynamic Island] Start result:', success);
+      }).catch((error) => {
+        console.log('🟣 [Dynamic Island] Start error:', error.message);
+      });
+    }
+
+    // Nota: la Live Activity viene terminata con animazione di successo
+    // nell'effect di serverStatus === 'running' && webViewReady (endWithSuccess)
+  }, [isStarting, currentWorkstation?.name]);
+
+  // 🟣 Dynamic Island: Monitor AppState per aggiornare isAppInBackground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      appState.current = nextAppState;
+      setIsAppInBackground(nextAppState === 'background');
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  // 🟣 Dynamic Island: Aggiorna Live Activity ogni 2 secondi (funziona sia in foreground che background)
+  useEffect(() => {
+    const updateInterval = setInterval(() => {
+      if (liveActivityService.isActivityActive()) {
+        try {
+          const currentStepLabel = startupStepsRef.current.find(s => s.id === currentStepIdRef.current)?.label || 'Caricamento...';
+          liveActivityService.updatePreviewActivity({
+            remainingSeconds: estimatedRemainingSecondsRef.current,
+            currentStep: currentStepLabel,
+            progress: smoothProgressRef.current / 100
+          });
+        } catch (error: any) {
+          console.log('🔄 [Dynamic Island] Update error:', error.message);
+        }
+      }
+    }, 2000);
+
+    return () => clearInterval(updateInterval);
+  }, []);
+
+  // 🟣 Calcola secondi rimanenti stimati basandosi sul progresso
+  // Uses a separate interval to read from ref, avoiding render cascade from smoothProgress state
+  useEffect(() => {
+    if (!isStarting) {
+      setEstimatedRemainingSeconds(0);
+      return;
+    }
+
+    const updateEstimate = () => {
+      const estimatedTotalSeconds = isNextJsProject ? 480 : 240; // Next.js: 8min, Altri: 4min
+      const progressFraction = smoothProgressRef.current / 100;
+      const elapsedSeconds = estimatedTotalSeconds * progressFraction;
+      const remaining = Math.max(0, Math.round(estimatedTotalSeconds - elapsedSeconds));
+      setEstimatedRemainingSeconds(remaining);
+    };
+
+    updateEstimate();
+    const timer = setInterval(updateEstimate, 2000); // Update estimate every 2s
+
+    return () => clearInterval(timer);
+  }, [isStarting, isNextJsProject]);
+
+  // 🧹 Cleanup: Termina Live Activity e progress sync timer quando componente viene unmounted
+  useEffect(() => {
+    return () => {
+      if (smoothProgressSyncTimer.current) {
+        clearTimeout(smoothProgressSyncTimer.current);
+      }
+      try {
+        liveActivityService.cleanup();
+      } catch (error: any) {
+        console.log('🧹 [Dynamic Island] Cleanup error (caught):', error.message);
+      }
     };
   }, []);
 
@@ -965,6 +1185,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           }
         }
         setServerStatus('running');
+        clearLogs(); // Clear preview logs when server is ready
         // Server is ready - hide the loading overlay and let WebView show content
         setIsStarting(false);
         // Set webViewReady after short delay to trigger smooth transition
@@ -1117,6 +1338,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     setIsStarting(true);
     setServerStatus('checking'); // Enter checking screen
+    clearLogs(); // Clear previous logs when starting new preview
 
     // Reset and initialize steps
     setStartupSteps([
@@ -1249,6 +1471,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     const completeSetup = () => {
                       // Show UI now that cookie is ready
                       setServerStatus('running');
+                      clearLogs(); // Clear preview logs when server is ready
                       setIsStarting(false);
                       resolve();
                     };
@@ -2550,43 +2773,30 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       webViewReady && { pointerEvents: 'none' }
                     ]}
                   >
-                    {isLiquidGlassSupported ? (
-                      <LiquidGlassView
-                        style={styles.startScreen}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
+                    <View style={styles.startScreen}>
+                      <LinearGradient
+                        colors={['#050505', '#0a0a0b', '#0f0f12']}
+                        style={StyleSheet.absoluteFill}
                       >
                         {/* Animated Ambient Blobs */}
                         <View style={styles.ambientBlob1} />
                         <View style={styles.ambientBlob2} />
+                      </LinearGradient>
 
-                        {/* Close button top right */}
-                        <TouchableOpacity
-                          onPress={handleClose}
-                          style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                        </TouchableOpacity>
+                      {/* Close button top right */}
+                      <TouchableOpacity
+                        onPress={handleClose}
+                        style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
+                      </TouchableOpacity>
 
-                        {/* iPhone 15 Pro style mockup */}
-                        <View style={styles.iphoneMockup}>
-                          {/* Status bar area */}
-                          <View style={styles.statusBarArea}>
-                            <Text style={styles.fakeTime}>9:41</Text>
-                            <View style={styles.dynamicIsland} />
-                            <View style={styles.fakeStatusIcons}>
-                              <Ionicons name="wifi" size={10} color="#fff" />
-                              <Ionicons name="battery-full" size={10} color="#fff" />
-                            </View>
-                          </View>
-
-                          {/* Screen content - The Pulse Design OR Error UI */}
-                          <View style={styles.iphoneScreenCentered}>
-                            {previewError ? (
-                              /* ERROR UI */
-                              <View style={styles.errorContainer}>
+                      {/* Content - Error or Terminal (full screen) */}
+                      <View style={styles.fullScreenContent}>
+                        {previewError ? (
+                          /* ERROR UI */
+                          <View style={styles.errorContainer}>
                                 <View style={styles.errorIconContainer}>
                                   <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
                                 </View>
@@ -2634,250 +2844,68 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 )}
                               </View>
                             ) : (
-                              /* LOADING UI */
-                              <>
-                                {/* 1. The Breathing Spirit (Orb) */}
-                                <View style={styles.spiritContainer}>
-                                  <Animated.View style={[
-                                    styles.spiritOrb,
-                                    {
-                                      transform: [{ scale: pulseAnim }],
-                                      opacity: pulseAnim.interpolate({
-                                        inputRange: [0.6, 1],
-                                        outputRange: [0.3, 0.8]
-                                      })
-                                    }
-                                  ]} />
-                                  <Animated.View style={[
-                                    styles.spiritCore,
-                                    {
-                                      transform: [{
-                                        scale: pulseAnim.interpolate({
-                                          inputRange: [0.6, 1],
-                                          outputRange: [1, 1.2]
-                                        })
-                                      }]
-                                    }
-                                  ]} />
-                                  <View style={styles.spiritGlow} />
-                                </View>
-
-                                {/* 2. Minimalist Status Info */}
-                                <View style={styles.pulseStatusContainer}>
-                                  <Text style={styles.pulseStatusLabel}>
-                                    {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
-                                  </Text>
-                                  <Text style={styles.pulseStatusMessage} numberOfLines={2}>
-                                    {displayedMessage || 'Inizializzazione ambiente...'}
-                                  </Text>
-                                  <Text style={{
-                                    color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
-                                    fontSize: 12,
-                                    fontFamily: 'SF-Pro-Text-Regular',
-                                    marginTop: 8,
-                                    textAlign: 'center'
-                                  }}>
-                                    {smoothProgress > 88
-                                      ? "Ultimi istanti..."
-                                      : isNextJsProject
-                                        ? (currentStepId === 'starting'
-                                          ? "Compilazione Next.js in corso... (2-5 min)"
-                                          : "Next.js: primo avvio richiede 3-5 minuti")
-                                        : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
-                                  </Text>
-                                </View>
-
-                                {/* 3. Integrated Mini Progress at the bottom of screen */}
-                                <View style={styles.miniProgressContainer}>
-                                  <View style={styles.miniProgressBarBase}>
-                                    <View style={[
-                                      styles.miniProgressBarActive,
-                                      {
-                                        width: `${smoothProgress}%`,
-                                        backgroundColor: AppColors.primary
-                                      }
-                                    ]} />
-                                    <View style={styles.miniProgressBarGlow} />
+                              /* LOADING UI - Mac Terminal Style */
+                              <View style={styles.terminalContainer}>
+                                {/* Mac Terminal Header */}
+                                <View style={styles.terminalHeader}>
+                                  <View style={styles.terminalTrafficLights}>
+                                    <View style={[styles.terminalLight, styles.terminalLightRed]} />
+                                    <View style={[styles.terminalLight, styles.terminalLightYellow]} />
+                                    <View style={[styles.terminalLight, styles.terminalLightGreen]} />
                                   </View>
-                                  <Text style={styles.miniProgressText}>
+                                  <Text style={styles.terminalTitle}>drape — bash</Text>
+                                </View>
+
+                                {/* Terminal Body with Logs */}
+                                <ScrollView
+                                  style={styles.terminalBody}
+                                  contentContainerStyle={styles.terminalContent}
+                                  showsVerticalScrollIndicator={false}
+                                  ref={(ref) => {
+                                    if (ref && previewLogs.length > 0) {
+                                      setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
+                                    }
+                                  }}
+                                >
+                                  {previewLogs.length > 0 ? (
+                                    <>
+                                      {previewLogs.map((log) => (
+                                        <Text key={log.id} style={styles.terminalLogText}>
+                                          {log.message}
+                                        </Text>
+                                      ))}
+                                      {/* Blinking cursor */}
+                                      <Animated.View style={[styles.terminalCursor, {
+                                        opacity: pulseAnim.interpolate({
+                                          inputRange: [0.6, 1],
+                                          outputRange: [0, 1]
+                                        })
+                                      }]} />
+                                    </>
+                                  ) : (
+                                    <Text style={styles.terminalLogText}>
+                                      {displayedMessage || 'Inizializzazione ambiente...'}
+                                    </Text>
+                                  )}
+                                </ScrollView>
+
+                                {/* Progress bar at bottom */}
+                                <View style={styles.terminalFooter}>
+                                  <View style={styles.terminalProgressBar}>
+                                    <View style={[
+                                      styles.terminalProgressFill,
+                                      { width: `${smoothProgress}%` }
+                                    ]} />
+                                  </View>
+                                  <Text style={styles.terminalProgressText}>
                                     {Math.round(smoothProgress)}%
                                   </Text>
                                 </View>
-                              </>
-                            )}
-                          </View>
-
-                          {/* Side buttons */}
-                          <View style={styles.iphoneSideButton} />
-                          <View style={styles.iphoneVolumeUp} />
-                          <View style={styles.iphoneVolumeDown} />
-                        </View>
-                      </LiquidGlassView>
-                    ) : (
-                      <View style={styles.startScreen}>
-                        <LinearGradient
-                          colors={['#050505', '#0a0a0b', '#0f0f12']}
-                          style={StyleSheet.absoluteFill}
-                        >
-                          {/* Animated Ambient Blobs */}
-                          <View style={styles.ambientBlob1} />
-                          <View style={styles.ambientBlob2} />
-                        </LinearGradient>
-
-                        {/* Close button top right */}
-                        <TouchableOpacity
-                          onPress={handleClose}
-                          style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                        </TouchableOpacity>
-
-                        {/* iPhone 15 Pro style mockup */}
-                        <View style={styles.iphoneMockup}>
-                          {/* Status bar area */}
-                          <View style={styles.statusBarArea}>
-                            <Text style={styles.fakeTime}>9:41</Text>
-                            <View style={styles.dynamicIsland} />
-                            <View style={styles.fakeStatusIcons}>
-                              <Ionicons name="wifi" size={10} color="#fff" />
-                              <Ionicons name="battery-full" size={10} color="#fff" />
-                            </View>
-                          </View>
-
-                          {/* Screen content - The Pulse Design OR Error UI */}
-                          <View style={styles.iphoneScreenCentered}>
-                            {previewError ? (
-                              /* ERROR UI */
-                              <View style={styles.errorContainer}>
-                                <View style={styles.errorIconContainer}>
-                                  <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
-                                </View>
-                                <Text style={styles.errorTitle}>Si è verificato un errore</Text>
-                                <Text style={styles.errorMessage} numberOfLines={3}>
-                                  {previewError.message}
-                                </Text>
-
-                                <View style={styles.errorButtonsContainer}>
-                                  <TouchableOpacity
-                                    style={styles.retryButton}
-                                    onPress={handleRetryPreview}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Ionicons name="refresh" size={18} color="#fff" />
-                                    <Text style={styles.retryButtonText}>Riprova</Text>
-                                  </TouchableOpacity>
-
-                                  <TouchableOpacity
-                                    style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
-                                    onPress={sendErrorReport}
-                                    disabled={isSendingReport || reportSent}
-                                    activeOpacity={0.7}
-                                  >
-                                    {isSendingReport ? (
-                                      <ActivityIndicator size="small" color="#fff" />
-                                    ) : reportSent ? (
-                                      <>
-                                        <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-                                        <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
-                                        <Text style={styles.sendLogsButtonText}>Invia log</Text>
-                                      </>
-                                    )}
-                                  </TouchableOpacity>
-                                </View>
-
-                                {reportSent && (
-                                  <Text style={styles.reportSentMessage}>
-                                    Grazie! Il nostro team analizzerà il problema.
-                                  </Text>
-                                )}
                               </View>
-                            ) : (
-                              /* LOADING UI */
-                              <>
-                                {/* 1. The Breathing Spirit (Orb) */}
-                                <View style={styles.spiritContainer}>
-                                  <Animated.View style={[
-                                    styles.spiritOrb,
-                                    {
-                                      transform: [{ scale: pulseAnim }],
-                                      opacity: pulseAnim.interpolate({
-                                        inputRange: [0.6, 1],
-                                        outputRange: [0.3, 0.8]
-                                      })
-                                    }
-                                  ]} />
-                                  <Animated.View style={[
-                                    styles.spiritCore,
-                                    {
-                                      transform: [{
-                                        scale: pulseAnim.interpolate({
-                                          inputRange: [0.6, 1],
-                                          outputRange: [1, 1.2]
-                                        })
-                                      }]
-                                    }
-                                  ]} />
-                                  <View style={styles.spiritGlow} />
-                                </View>
-
-                                {/* 2. Minimalist Status Info */}
-                                <View style={styles.pulseStatusContainer}>
-                                  <Text style={styles.pulseStatusLabel}>
-                                    {startupSteps.find(s => s.status === 'active')?.label || 'Preparazione'}
-                                  </Text>
-                                  <Text style={styles.pulseStatusMessage} numberOfLines={2}>
-                                    {displayedMessage || 'Inizializzazione ambiente...'}
-                                  </Text>
-                                  <Text style={{
-                                    color: isNextJsProject ? 'rgba(255,200,100,0.7)' : 'rgba(255,255,255,0.4)',
-                                    fontSize: 12,
-                                    fontFamily: 'SF-Pro-Text-Regular',
-                                    marginTop: 8,
-                                    textAlign: 'center'
-                                  }}>
-                                    {smoothProgress > 88
-                                      ? "Ultimi istanti..."
-                                      : isNextJsProject
-                                        ? (currentStepId === 'starting'
-                                          ? "Compilazione Next.js in corso... (2-5 min)"
-                                          : "Next.js: primo avvio richiede 3-5 minuti")
-                                        : `Circa ${Math.ceil(60 * (1 - smoothProgress / 100))} secondi`}
-                                  </Text>
-                                </View>
-
-                                {/* 3. Integrated Mini Progress at the bottom of screen */}
-                                <View style={styles.miniProgressContainer}>
-                                  <View style={styles.miniProgressBarBase}>
-                                    <View style={[
-                                      styles.miniProgressBarActive,
-                                      {
-                                        width: `${smoothProgress}%`,
-                                        backgroundColor: AppColors.primary
-                                      }
-                                    ]} />
-                                    <View style={styles.miniProgressBarGlow} />
-                                  </View>
-                                  <Text style={styles.miniProgressText}>
-                                    {Math.round(smoothProgress)}%
-                                  </Text>
-                                </View>
-                              </>
                             )}
                           </View>
-
-                          {/* Side buttons */}
-                          <View style={styles.iphoneSideButton} />
-                          <View style={styles.iphoneVolumeUp} />
-                          <View style={styles.iphoneVolumeDown} />
                         </View>
-                      </View>
-                    )}
-                  </Animated.View>
+                    </Animated.View>
                 </Reanimated.View>
               )}
             </View>
@@ -4154,6 +4182,140 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 16,
     fontFamily: 'Inter-Medium',
+  },
+  logsScrollView: {
+    maxHeight: 120,
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  logsContent: {
+    gap: 6,
+    paddingVertical: 8,
+  },
+  logText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.65)',
+    textAlign: 'center',
+    lineHeight: 16,
+    fontFamily: 'Courier New',
+    letterSpacing: 0.3,
+  },
+  // Full screen content wrapper
+  fullScreenContent: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 60,
+  },
+  // Mac Terminal Styles
+  terminalContainer: {
+    width: '100%',
+    maxWidth: 700,
+    height: '80%',
+    alignSelf: 'center',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+  },
+  terminalHeader: {
+    height: 28,
+    backgroundColor: '#2B2B2B',
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  terminalTrafficLights: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  terminalLight: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  terminalLightRed: {
+    backgroundColor: '#7A6AD9',
+  },
+  terminalLightYellow: {
+    backgroundColor: '#9B8AFF',
+  },
+  terminalLightGreen: {
+    backgroundColor: '#BEB4FF',
+  },
+  terminalTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontFamily: 'SF-Pro-Text-Medium',
+    letterSpacing: 0.3,
+    marginRight: 32, // Offset for traffic lights
+  },
+  terminalBody: {
+    flex: 1,
+    backgroundColor: '#1A1A1A',
+  },
+  terminalContent: {
+    padding: 12,
+    paddingTop: 8,
+    gap: 2,
+  },
+  terminalLogText: {
+    fontSize: 10,
+    color: '#9B8AFF',
+    lineHeight: 16,
+    fontFamily: 'Courier New',
+    letterSpacing: 0.2,
+  },
+  terminalCursor: {
+    width: 6,
+    height: 14,
+    backgroundColor: '#9B8AFF',
+    marginTop: 2,
+    marginLeft: 2,
+  },
+  terminalFooter: {
+    height: 26,
+    backgroundColor: '#2B2B2B',
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    gap: 10,
+  },
+  terminalProgressBar: {
+    flex: 1,
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 1.5,
+    overflow: 'hidden',
+  },
+  terminalProgressFill: {
+    height: '100%',
+    backgroundColor: '#9B8AFF',
+    borderRadius: 1.5,
+  },
+  terminalProgressText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontFamily: 'SF-Pro-Text-Semibold',
+    minWidth: 32,
+    textAlign: 'right',
   },
   miniProgressContainer: {
     position: 'absolute',

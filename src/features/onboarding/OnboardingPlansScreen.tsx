@@ -16,10 +16,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface Props {
   displayName: string;
+  isNewUser?: boolean;
   onSelectPlan: (plan: 'free' | 'go') => void;
 }
 
-export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, onSelectPlan }) => {
+export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const cardFade1 = useRef(new Animated.Value(0)).current;
@@ -65,9 +66,13 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, onSelectPl
             <Ionicons name="sparkles" size={28} color="#fff" />
           </LinearGradient>
         </View>
-        <Text style={styles.welcomeTitle}>Benvenuto, {firstName}!</Text>
+        <Text style={styles.welcomeTitle}>
+          {isNewUser ? `Benvenuto, ${firstName}!` : `Ciao, ${firstName}!`}
+        </Text>
         <Text style={styles.welcomeSubtitle}>
-          Scegli il piano che fa per te per iniziare a creare.
+          {isNewUser
+            ? 'Scegli il piano che fa per te per iniziare a creare.'
+            : 'Sblocca più potenza per i tuoi progetti.'}
         </Text>
       </Animated.View>
 
@@ -105,7 +110,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, onSelectPl
 
             <View style={styles.planFeatures}>
               {[
-                { icon: 'folder-open', text: 'Fino a 5 progetti' },
+                { icon: 'folder-open', text: '5 progetti + 3 clonati' },
                 { icon: 'eye', text: '20 preview al mese' },
                 { icon: 'sparkles', text: 'Budget AI raddoppiato (€5)' },
                 { icon: 'cloud-upload', text: '2GB Storage Cloud' },
@@ -152,7 +157,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, onSelectPl
 
             <View style={styles.planFeatures}>
               {[
-                { icon: 'folder-open', text: 'Fino a 2 progetti' },
+                { icon: 'folder-open', text: '2 progetti + 1 clonato' },
                 { icon: 'eye', text: '5 preview al mese' },
                 { icon: 'sparkles', text: 'Budget AI base (€2.50)' },
                 { icon: 'cloud-upload', text: '500MB Storage' },

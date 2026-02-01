@@ -15,6 +15,8 @@ const terminalRoutes = require('./terminal');
 const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
 const agentRoutes = require('./agent'); // Agent tools & modes
 const statsRoutes = require('./stats'); // System stats & usage
+const cacheCopyRoutes = require('./cache-copy'); // TIER 3 cache copy
+const notificationRoutes = require('./notifications'); // Push notifications
 const globalLogService = require('../services/global-log-service');
 
 // Health check - top level
@@ -38,6 +40,8 @@ router.use('/terminal', terminalRoutes);
 router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
 router.use('/agent', agentRoutes); // Agent tools & modes
 router.use('/stats', statsRoutes); // System stats & usage
+router.use('/api', cacheCopyRoutes); // TIER 3 cache copy between VMs
+router.use('/notifications', notificationRoutes); // Push notifications
 
 // SSE endpoint for streaming ALL backend logs to frontend
 router.get('/logs/stream', (req, res) => {
@@ -76,11 +80,13 @@ router.get('/logs/recent', (req, res) => {
     res.json({ logs, count: logs.length });
 });
 
-// Backwards compatibility: redirect old /preview/* to /fly/*
-// DISABLED: All clients should use /fly/* directly now
-// router.use('/preview', (req, res) => {
-//     res.redirect(307, `/fly${req.url}`);
-// });
+// Backwards compatibility: redirect old /preview/* to /fly/preview/*
+router.use('/preview', (req, res, next) => {
+    const newUrl = `/fly/preview${req.url}`;
+    console.log(`🔄 [Compat] Redirecting ${req.method} /preview${req.url} → ${newUrl}`);
+    // Use 307 to preserve HTTP method
+    res.redirect(307, newUrl);
+});
 
 // API info
 router.get('/', (req, res) => {

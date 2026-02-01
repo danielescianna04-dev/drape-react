@@ -1282,6 +1282,20 @@ CRITICAL: You MUST respond with ONLY valid JSON.
             filesCount: filesArray.length,
             files: filesArray.map(f => f.path || f.filePath)
         };
+
+        // Send push notification
+        if (userId) {
+            const notificationService = require('../services/notification-service');
+            notificationService.sendToUser(userId, {
+                title: 'Progetto creato!',
+                body: `${projectName} e' pronto.`,
+                type: 'project_created',
+            }, {
+                projectId: wsId,
+                action: 'open_project',
+            }).catch(err => console.warn('[Notify] Creation notification failed:', err.message));
+        }
+
         // Auto-cleanup after 5 mins
         setTimeout(() => creationTasks.delete(taskId), 5 * 60 * 1000);
     }

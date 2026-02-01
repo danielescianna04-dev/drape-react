@@ -6431,30 +6431,6 @@
     "lastUsed": 1768908605676,
     "image": "registry.fly.io/drape-workspaces:deployment-01KFDJCH91CE891901B4MH7JW0"
   },
-  "ws-1767983915314-hu078lh4k": {
-    "id": "7811e40c3734d8",
-    "name": "ws-ws-1767983915314-hu078lh4k",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "7811e40c3734d8",
-    "projectId": "ws-1767983915314-hu078lh4k",
-    "createdAt": 1768951216617,
-    "lastUsed": 1768951222290,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6"
-  },
-  "ws-1767975714833-t876jh9or": {
-    "id": "6e823d1df4e708",
-    "name": "ws-ws-1767975714833-t876jh9or",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "6e823d1df4e708",
-    "projectId": "ws-1767975714833-t876jh9or",
-    "createdAt": 1768951855287,
-    "lastUsed": 1768954823205,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFEDV2QQJYAYCN38221JH3T6"
-  },
   "hFy5l3kyhnVvXC5Myo50": {
     "id": "e829e40c05e598",
     "name": "ws-hFy5l3kyhnVvXC5Myo50",
@@ -6567,16 +6543,331 @@
       "hasWebUI": true
     }
   },
-  "ws-1769226689618-1dmb1xwzw": {
-    "id": "4d8921d5f27d28",
-    "name": "ws-ws-1769226689618-1dmb1xwzw",
+  "ws-1767983915314-hu078lh4k": {
+    "id": "68301eec416238",
+    "name": "ws-ws-1767983915314-hu078lh4k",
     "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "4d8921d5f27d28",
-    "projectId": "ws-1769226689618-1dmb1xwzw",
-    "createdAt": 1769470213111,
-    "lastUsed": 1769470860795,
+    "machineId": "68301eec416238",
+    "projectId": "ws-1767983915314-hu078lh4k",
+    "createdAt": 1769685691400,
+    "lastUsed": 1769685696138,
     "fromPool": true,
     "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J"
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "react-vite",
+      "description": "React + Vite application",
+      "startCommand": "echo \"CmNvbnN0IGZzID0gcmVxdWlyZSgnZnMnKTsKY29uc3QgZmlsZSA9IGZzLmV4aXN0c1N5bmMoJ3ZpdGUuY29uZmlnLnRzJykgPyAndml0ZS5jb25maWcudHMnIDogKGZzLmV4aXN0c1N5bmMoJ3ZpdGUuY29uZmlnLmpzJykgPyAndml0ZS5jb25maWcuanMnIDogbnVsbCk7CmlmICghZmlsZSkgewogIGZzLndyaXRlRmlsZVN5bmMoJ3ZpdGUuY29uZmlnLmpzJywgJ2V4cG9ydCBkZWZhdWx0IHsgc2VydmVyOiB7IGhvc3Q6ICIwLjAuMC4wIiwgcG9ydDogMzAwMCwgc3RyaWN0UG9ydDogdHJ1ZSwgYWxsb3dlZEhvc3RzOiB0cnVlLCBjb3JzOiB0cnVlIH0gfScpOwogIHByb2Nlc3MuZXhpdCgwKTsKfQpsZXQgYyA9IGZzLnJlYWRGaWxlU3luYyhmaWxlLCAndXRmOCcpOwppZiAoYy5pbmNsdWRlcygnYWxsb3dlZEhvc3RzOiB0cnVlJykgfHwgYy5pbmNsdWRlcygnYWxsb3dlZEhvc3RzOiBbJykgfHwgYy5pbmNsdWRlcygnYWxsb3dlZEhvc3RzOiAiJykpIHByb2Nlc3MuZXhpdCgwKTsKCmlmIChjLmluY2x1ZGVzKCdzZXJ2ZXI6IHsnKSkgewogIGMgPSBjLnJlcGxhY2UoJ3NlcnZlcjogeycsICdzZXJ2ZXI6IHsgYWxsb3dlZEhvc3RzOiB0cnVlLCBjb3JzOiB0cnVlLCBob3N0OiAiMC4wLjAuMCIsIHBvcnQ6IDMwMDAsIHN0cmljdFBvcnQ6IHRydWUsICcpOwp9IGVsc2UgaWYgKGMuaW5jbHVkZXMoJ2RlZmluZUNvbmZpZyh7JykpIHsKICBjID0gYy5yZXBsYWNlKCdkZWZpbmVDb25maWcoeycsICdkZWZpbmVDb25maWcoeyBzZXJ2ZXI6IHsgYWxsb3dlZEhvc3RzOiB0cnVlLCBjb3JzOiB0cnVlLCBob3N0OiAiMC4wLjAuMCIsIHBvcnQ6IDMwMDAsIHN0cmljdFBvcnQ6IHRydWUgfSwgJyk7Cn0gZWxzZSBpZiAoYy5pbmNsdWRlcygnZXhwb3J0IGRlZmF1bHQgeycpKSB7CiAgYyA9IGMucmVwbGFjZSgnZXhwb3J0IGRlZmF1bHQgeycsICdleHBvcnQgZGVmYXVsdCB7IHNlcnZlcjogeyBhbGxvd2VkSG9zdHM6IHRydWUsIGNvcnM6IHRydWUsIGhvc3Q6ICIwLjAuMC4wIiwgcG9ydDogMzAwMCwgc3RyaWN0UG9ydDogdHJ1ZSB9LCAnKTsKfQpmcy53cml0ZUZpbGVTeW5jKGZpbGUsIGMpOwo=\" | base64 -d | node && npx vite --host 0.0.0.0 --port 3000 --strictPort",
+      "port": 3000,
+      "language": "typescript",
+      "packageManager": "npm",
+      "installCommand": "npm install",
+      "defaultPort": 3000,
+      "requiresDocker": false,
+      "hasWebUI": true
+    },
+    "detectedAt": 1769685695037
+  },
+  "test-nextjs15-social": {
+    "id": "148e659eb07de8",
+    "name": "ws-test-nextjs15-social",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "148e659eb07de8",
+    "projectId": "test-nextjs15-social",
+    "createdAt": 1769766793313,
+    "lastUsed": 1769766796799,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "static",
+      "startCommand": "npx http-server . -p 3000 -a 0.0.0.0",
+      "port": 3000
+    }
+  },
+  "test-nx15-social-001": {
+    "id": "d890129b0601e8",
+    "name": "ws-test-nx15-social-001",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d890129b0601e8",
+    "projectId": "test-nx15-social-001",
+    "createdAt": 1769766817054,
+    "lastUsed": 1769766819287,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "static",
+      "startCommand": "npx http-server . -p 3000 -a 0.0.0.0",
+      "port": 3000
+    }
+  },
+  "nx16-ixartz": {
+    "id": "3287d427c5ed48",
+    "name": "ws-nx16-ixartz",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "3287d427c5ed48",
+    "projectId": "nx16-ixartz",
+    "createdAt": 1769767128616,
+    "lastUsed": 1769768116449,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "npm run dev -- --turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues with Webpack",
+        "recommendation": "Using Turbopack to avoid hanging",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "disableTurbopack": false
+    },
+    "detectedAt": 1769768114638
+  },
+  "nx14-marcos-ecom": {
+    "id": "4d8921e1b9e918",
+    "name": "ws-nx14-marcos-ecom",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "4d8921e1b9e918",
+    "projectId": "nx14-marcos-ecom",
+    "createdAt": 1769767209619,
+    "lastUsed": 1769769310177,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "pnpm run dev --turbo -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "nextJsVersionWarning": {
+        "version": "16.1.1",
+        "message": "Next.js 16.0-16.1 has known dev server hanging issues with Webpack",
+        "recommendation": "Using Turbopack to avoid hanging",
+        "link": "https://github.com/vercel/next.js/discussions/77102"
+      },
+      "disableTurbopack": false
+    },
+    "detectedAt": 1769769309085
+  },
+  "nx13-gregrickaby": {
+    "id": "e825e25a161798",
+    "name": "ws-nx13-gregrickaby",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "e825e25a161798",
+    "projectId": "nx13-gregrickaby",
+    "createdAt": 1769767214477,
+    "lastUsed": 1769768110937,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "pnpm run dev -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769768110059
+  },
+  "nx12-jsdeveloper": {
+    "id": "e825e25a161798",
+    "name": "ws-nx12-jsdeveloper",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "e825e25a161798",
+    "projectId": "nx12-jsdeveloper",
+    "createdAt": 1769767216299,
+    "lastUsed": 1769768115219,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "pnpm run dev -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769768114511
+  },
+  "nx15-codinginflow": {
+    "id": "28650e0f42ee58",
+    "name": "ws-nx15-codinginflow",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "28650e0f42ee58",
+    "projectId": "nx15-codinginflow",
+    "createdAt": 1769768606490,
+    "lastUsed": 1769768607190,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "test-nx12-new": {
+    "id": "d899947b747068",
+    "name": "ws-test-nx12-new",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d899947b747068",
+    "projectId": "test-nx12-new",
+    "createdAt": 1769769570606,
+    "lastUsed": 1769769573121,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "test-nx13-new": {
+    "id": "d899947b747068",
+    "name": "ws-test-nx13-new",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "d899947b747068",
+    "projectId": "test-nx13-new",
+    "createdAt": 1769769570614,
+    "lastUsed": 1769769572735,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "nx14-vercel-commerce": {
+    "id": "080e324b769518",
+    "name": "ws-nx14-vercel-commerce",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "080e324b769518",
+    "projectId": "nx14-vercel-commerce",
+    "createdAt": 1769770202488,
+    "lastUsed": 1769770204206,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "demo-dub-nextjs14": {
+    "id": "080e324b769518",
+    "name": "ws-demo-dub-nextjs14",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "080e324b769518",
+    "projectId": "demo-dub-nextjs14",
+    "createdAt": 1769770608786,
+    "lastUsed": 1769770614869,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "quick-demo-next13": {
+    "id": "1859d7df129918",
+    "name": "ws-quick-demo-next13",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "1859d7df129918",
+    "projectId": "quick-demo-next13",
+    "createdAt": 1769770988316,
+    "lastUsed": 1769770988873,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "test-optimized-nx14": {
+    "id": "3287d427c5ed48",
+    "name": "ws-test-optimized-nx14",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "3287d427c5ed48",
+    "projectId": "test-optimized-nx14",
+    "createdAt": 1769771388113,
+    "lastUsed": 1769771389849,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
+  },
+  "final-test-ultra-opt": {
+    "id": "28650e0f42ee58",
+    "name": "ws-final-test-ultra-opt",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "28650e0f42ee58",
+    "projectId": "final-test-ultra-opt",
+    "createdAt": 1769772320369,
+    "lastUsed": 1769772367576,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "npm run dev -- -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769772352143
+  },
+  "qkvKSqk9AgMCbPQ700uZ": {
+    "id": "e2861672b56668",
+    "name": "ws-qkvKSqk9AgMCbPQ700uZ",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "e2861672b56668",
+    "projectId": "qkvKSqk9AgMCbPQ700uZ",
+    "createdAt": 1769772995249,
+    "lastUsed": 1769773004820,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "npm run dev -- -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769773003846
+  },
+  "ijAyHFVwxoy3zKmCMIkY": {
+    "id": "28650e0f42ee58",
+    "name": "ws-ijAyHFVwxoy3zKmCMIkY",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "28650e0f42ee58",
+    "projectId": "ijAyHFVwxoy3zKmCMIkY",
+    "createdAt": 1769773284056,
+    "lastUsed": 1769773616179,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "npm run dev -- -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769773300819
+  },
+  "CoTjpK0v1WSt2ycQpQyr": {
+    "id": "080e324b769518",
+    "name": "ws-CoTjpK0v1WSt2ycQpQyr",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "080e324b769518",
+    "projectId": "CoTjpK0v1WSt2ycQpQyr",
+    "createdAt": 1769784274772,
+    "lastUsed": 1769786974244,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S",
+    "projectInfo": {
+      "type": "nextjs",
+      "description": "Next.js Application",
+      "startCommand": "npm run dev -- -H 0.0.0.0 --port 3000",
+      "port": 3000,
+      "disableTurbopack": true
+    },
+    "detectedAt": 1769786476411
+  },
+  "ws-1769282245775-pokdu2j0p": {
+    "id": "28650e0f42ee58",
+    "name": "ws-ws-1769282245775-pokdu2j0p",
+    "agentUrl": "https://drape-workspaces.fly.dev",
+    "machineId": "28650e0f42ee58",
+    "projectId": "ws-1769282245775-pokdu2j0p",
+    "createdAt": 1769910061945,
+    "lastUsed": 1769910061945,
+    "fromPool": true,
+    "prewarmed": true,
+    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
   }
 }

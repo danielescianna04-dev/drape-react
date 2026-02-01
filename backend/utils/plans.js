@@ -89,9 +89,9 @@ const PLANS = {
         price: 0,
         models: ['gemini-3-flash', 'gemini-3-pro', 'claude-sonnet-4', 'claude-opus-4'],
         monthlyBudgetEur: 2.50,
-        maxProjects: 2,           // Totale massimo progetti
-        maxCreatedProjects: 2,    // Massimo progetti creati
-        maxImportedProjects: 1,   // Massimo progetti importati da GitHub
+        maxProjects: 3,           // Totale massimo progetti (2 creati + 1 clonato)
+        maxCreatedProjects: 2,    // Massimo progetti creati in app
+        maxImportedProjects: 1,   // Massimo progetti clonati da GitHub
         maxPreviewsPerMonth: 5,   // Preview mensili
         storageMB: 500,
         features: ['All AI models', 'Basic support']
@@ -102,9 +102,9 @@ const PLANS = {
         price: 9.99,
         models: ['gemini-3-flash', 'gemini-3-pro', 'claude-sonnet-4', 'claude-opus-4'],
         monthlyBudgetEur: 5,
-        maxProjects: 5,
-        maxCreatedProjects: 5,
-        maxImportedProjects: 5,
+        maxProjects: 8,           // Totale massimo progetti (5 creati + 3 clonati)
+        maxCreatedProjects: 5,    // Massimo progetti creati in app
+        maxImportedProjects: 3,   // Massimo progetti clonati da GitHub
         maxPreviewsPerMonth: 20,  // Preview mensili
         storageMB: 2000,
         features: ['All AI models', 'Email support', 'Project export']

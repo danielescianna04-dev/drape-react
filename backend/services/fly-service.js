@@ -66,8 +66,8 @@ class FlyService {
         // Node.js 20 full image with 100% npm compatibility (~450MB)
         // Includes Python3, build tools (gcc, g++, make) for native modules
         // Supports: sharp, bcrypt, canvas, node-sass, and all npm packages
-        // UPDATED: v2.12 - Fix cache: exclude projects/, ignore failed reads
-        return 'registry.fly.io/drape-workspaces:deployment-01KFFC9X48EKPJ3Z1P0SA8C25J';
+        // UPDATED: v2.13 - Added /upload endpoint for TIER 3 cache sharing
+        return 'registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S';
     }
 
     get DRAPE_IMAGE_FULL() {
