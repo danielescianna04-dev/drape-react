@@ -103,16 +103,16 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Go</Text>
               <View style={styles.planPriceRow}>
-                <Text style={styles.planPrice}>€9.99</Text>
+                <Text style={styles.planPrice}>€23.99</Text>
                 <Text style={styles.planPricePeriod}>/mese</Text>
               </View>
             </View>
 
             <View style={styles.planFeatures}>
               {[
-                { icon: 'folder-open', text: '5 progetti + 3 clonati' },
+                { icon: 'folder-open', text: '5 progetti + 5 clonati' },
                 { icon: 'eye', text: '20 preview al mese' },
-                { icon: 'sparkles', text: 'Budget AI raddoppiato (€5)' },
+                { icon: 'sparkles', text: 'Budget AI potenziato' },
                 { icon: 'cloud-upload', text: '2GB Storage Cloud' },
                 { icon: 'mail', text: 'Supporto email' },
               ].map((f, i) => (
@@ -159,7 +159,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
               {[
                 { icon: 'folder-open', text: '2 progetti + 1 clonato' },
                 { icon: 'eye', text: '5 preview al mese' },
-                { icon: 'sparkles', text: 'Budget AI base (€2.50)' },
+                { icon: 'sparkles', text: 'Budget AI base' },
                 { icon: 'cloud-upload', text: '500MB Storage' },
               ].map((f, i) => (
                 <View key={i} style={styles.featureRow}>

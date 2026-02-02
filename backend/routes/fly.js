@@ -1,10 +1,7 @@
 /**
- * Holy Grail Routes
- * New API endpoints using Fly.io MicroVMs instead of Coder
- * 
- * These routes provide the same functionality as the old Coder-based routes
- * but with instant VM spawning (< 3 seconds instead of 2-3 minutes).
- * 
+ * Workspace Routes
+ * API endpoints for Docker container workspaces on Hetzner.
+ *
  * Routes:
  * - POST /fly/project/create - Create a new project (clone repo)
  * - GET  /fly/project/:id/files - List project files
@@ -22,14 +19,13 @@ const { CODER_SESSION_TOKEN } = require('../utils/constants');
 
 const orchestrator = require('../services/workspace-orchestrator');
 const storageService = require('../services/storage-service');
-const flyService = require('../services/fly-service');
+const containerService = require('../services/container-service');
 const metricsService = require('../services/metrics-service');
 const errorTracker = require('../services/error-tracking-service');
 const redisService = require('../services/redis-service');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { analyzeProjectWithAI, analyzeEnvVars } = require('../services/project-analyzer');
 
-// Helper for robust timeouts
 const withTimeout = async (promise, timeoutMs, label) => {
     const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
@@ -40,17 +36,13 @@ const withTimeout = async (promise, timeoutMs, label) => {
 
 /**
  * GET /fly/project/:id/env
- * Get Environment Variables (.env)
  */
 router.get('/project/:id/env', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
-
-    // Read .env file
     const result = await orchestrator.readFile(projectId, '.env');
     let variables = [];
 
     if (result.success && result.content) {
-        // Parse .env content
         variables = result.content.split('\n')
             .filter(line => line.trim() && !line.startsWith('#'))
             .map(line => {
@@ -69,38 +61,30 @@ router.get('/project/:id/env', asyncHandler(async (req, res) => {
 
 /**
  * POST /fly/project/:id/env
- * Save Environment Variables (.env)
  */
 router.post('/project/:id/env', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
-    const { variables } = req.body; // Array of { key, value }
+    const { variables } = req.body;
 
     if (!Array.isArray(variables)) {
         return res.status(400).json({ error: 'variables must be an array' });
     }
 
-    const content = variables
-        .map(v => `${v.key}=${v.value}`)
-        .join('\n');
-
+    const content = variables.map(v => `${v.key}=${v.value}`).join('\n');
     await orchestrator.writeFile(projectId, '.env', content);
-
     res.json({ success: true, message: 'Environment variables saved' });
 }));
 
 /**
  * POST /fly/project/:id/env/analyze
- * Analyze project to find needed env vars
  */
 router.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
-    console.log(`🧪 [Fly] Analyzing env vars for: ${projectId}`);
+    console.log(`🧪 [API] Analyzing env vars for: ${projectId}`);
 
-    // Get file list
     const { files } = await orchestrator.listFiles(projectId);
     const fileNames = files.map(f => f.path);
 
-    // Read key config files
     let configFiles = {};
     for (const configName of ['package.json', 'next.config.js', 'vite.config.js', 'docker-compose.yml', 'app.py', 'settings.py', 'config.js']) {
         try {
@@ -109,28 +93,24 @@ router.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
         } catch { }
     }
 
-    // Analyze
     const variables = await analyzeEnvVars(fileNames, configFiles);
-
     res.json({ success: true, variables });
 }));
 
 /**
  * POST /fly/project/create
- * Create a new project by cloning a repository
  */
 router.post('/project/create', asyncHandler(async (req, res) => {
     const { projectId, repositoryUrl, githubToken, userId } = req.body;
     const startTime = Date.now();
 
-    console.log(`\n🚀 [Fly] Creating project: ${projectId}`);
+    console.log(`\n🚀 [API] Creating project: ${projectId}`);
     console.log(`   📦 Repository: ${repositoryUrl || '(none)'}`);
 
     if (!projectId) {
         return res.status(400).json({ error: 'projectId is required' });
     }
 
-    // Track project creation for auto-scaling burst detection
     const vmPoolManager = require('../services/vm-pool-manager');
     vmPoolManager.trackProjectCreation(projectId);
 
@@ -138,28 +118,24 @@ router.post('/project/create', asyncHandler(async (req, res) => {
         let filesCount = 0;
         let result = null;
 
-        // Clone repository if provided
         if (repositoryUrl) {
             result = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
             filesCount = result.filesCount;
 
-            // ULTRA OPTIMIZED: Start background warming immediately after clone
-            // This parallelizes install with user navigation, achieving 30-60s head start
             setImmediate(async () => {
                 try {
-                    console.log(`🚀 [Parallel Opt] Starting proactive warming for ${projectId} (post-clone)...`);
+                    console.log(`🚀 [Parallel] Starting proactive warming for ${projectId}...`);
                     await orchestrator.prewarmProjectServer(projectId);
-                    console.log(`✅ [Parallel Opt] Background warming completed for ${projectId}`);
+                    console.log(`✅ [Parallel] Background warming completed for ${projectId}`);
                 } catch (e) {
-                    console.warn(`⚠️ [Parallel Opt] Background warming failed for ${projectId}: ${e.message}`);
+                    console.warn(`⚠️ [Parallel] Background warming failed: ${e.message}`);
                 }
             });
         }
 
         const elapsed = Date.now() - startTime;
-        console.log(`✅ [Fly] Project created in ${elapsed}ms`);
+        console.log(`✅ [API] Project created in ${elapsed}ms`);
 
-        // Send push notification if userId provided
         if (userId && repositoryUrl) {
             const notificationService = require('../services/notification-service');
             const repoName = repositoryUrl.split('/').pop()?.replace('.git', '') || 'repository';
@@ -178,53 +154,43 @@ router.post('/project/create', asyncHandler(async (req, res) => {
             projectId,
             filesCount,
             files: (result && result.files) ? result.files.map(f => typeof f === 'string' ? f : f.path) : [],
-            timing: { totalMs: elapsed },
-            architecture: 'holy-grail'
+            timing: { totalMs: elapsed }
         });
     } finally {
-        // Remove project from creation tracking (creation finished)
         vmPoolManager.removeProjectCreation(projectId);
     }
 }));
 
 /**
  * GET /fly/project/:id/files
- * List all files in a project
  */
 router.get('/project/:id/files', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
     const { repositoryUrl, githubToken } = req.query;
 
-    console.log(`📂 [Fly] Listing files for: ${projectId}`);
+    console.log(`📂 [API] Listing files for: ${projectId}`);
 
     let result = await orchestrator.listFiles(projectId);
 
-    // If no files found and we have a repository URL, try to clone it now
-    // This is useful for retries or if the initial creation didn't clone
     if ((!result.files || result.files.length === 0) && repositoryUrl) {
-        console.log(`📦 [Fly] Project empty, attempting auto-clone from: ${repositoryUrl}`);
+        console.log(`📦 [API] Project empty, attempting auto-clone from: ${repositoryUrl}`);
 
-        // Track auto-clone for burst detection
         const vmPoolManager = require('../services/vm-pool-manager');
         vmPoolManager.trackProjectCreation(projectId);
 
         try {
             const cloneResult = await orchestrator.cloneRepository(projectId, repositoryUrl, githubToken);
             if (cloneResult.success) {
-                // Refresh file list after clone
                 result = await orchestrator.listFiles(projectId);
             }
         } catch (cloneError) {
-            console.error(`❌ [Fly] Auto-clone failed:`, cloneError.message);
-            // If it's an auth error, propagate it
+            console.error(`❌ [API] Auto-clone failed:`, cloneError.message);
             if (cloneError.statusCode === 401) throw cloneError;
         } finally {
-            // Remove from tracking after clone attempt
             vmPoolManager.removeProjectCreation(projectId);
         }
     }
 
-    // Disable caching to ensure fresh file list
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -235,13 +201,12 @@ router.get('/project/:id/files', asyncHandler(async (req, res) => {
         success: true,
         files: result.files || [],
         count: result.files?.length || 0,
-        timestamp: Date.now() // Force different response each time
+        timestamp: Date.now()
     });
 }));
 
 /**
  * GET /fly/project/:id/file
- * Read a single file
  */
 router.get('/project/:id/file', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
@@ -257,16 +222,11 @@ router.get('/project/:id/file', asyncHandler(async (req, res) => {
         return res.status(404).json({ error: 'File not found' });
     }
 
-    res.json({
-        success: true,
-        path: filePath,
-        content: result.content
-    });
+    res.json({ success: true, path: filePath, content: result.content });
 }));
 
 /**
  * POST /fly/project/:id/file
- * Write/update a file
  */
 router.post('/project/:id/file', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
@@ -277,17 +237,11 @@ router.post('/project/:id/file', asyncHandler(async (req, res) => {
     }
 
     await orchestrator.writeFile(projectId, filePath, content || '');
-
-    res.json({
-        success: true,
-        path: filePath,
-        message: 'File saved'
-    });
+    res.json({ success: true, path: filePath, message: 'File saved' });
 }));
 
 /**
  * POST /fly/project/:id/exec
- * Execute a command in the project's VM
  */
 router.post('/project/:id/exec', asyncHandler(async (req, res) => {
     const { id: projectId } = req.params;
@@ -297,8 +251,7 @@ router.post('/project/:id/exec', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'command is required' });
     }
 
-    console.log(`🔗 [Fly] Exec for ${projectId}: ${command.substring(0, 50)}...`);
-
+    console.log(`🔗 [API] Exec for ${projectId}: ${command.substring(0, 50)}...`);
     const result = await orchestrator.exec(projectId, command, cwd);
 
     res.json({
@@ -311,14 +264,13 @@ router.post('/project/:id/exec', asyncHandler(async (req, res) => {
 
 /**
  * POST /fly/clone
- * Quick VM warmup - ensures VM is running and files are synced
- * Called when project is opened (before preview start)
+ * Quick warmup - ensures container is running and files are synced
  */
 router.post('/clone', asyncHandler(async (req, res) => {
     const { workstationId, repositoryUrl, githubToken } = req.body;
     const projectId = workstationId;
 
-    console.log(`\n🔥 [Fly] Quick clone/warmup for: ${projectId}`);
+    console.log(`\n🔥 [API] Quick clone/warmup for: ${projectId}`);
     if (repositoryUrl) console.log(`   📎 Repo: ${repositoryUrl}`);
 
     if (!projectId) {
@@ -326,58 +278,43 @@ router.post('/clone', asyncHandler(async (req, res) => {
     }
 
     try {
-        // Check if project was recently warmed (< 30 seconds ago)
         const existingSession = await redisService.getVMSession(projectId);
         if (existingSession && existingSession.lastUsed && (Date.now() - existingSession.lastUsed < 30000)) {
-            console.log(`⚡ [Clone] Project already warmed ${Math.round((Date.now() - existingSession.lastUsed) / 1000)}s ago - skipping duplicate warmup`);
+            console.log(`⚡ [Clone] Project already warmed ${Math.round((Date.now() - existingSession.lastUsed) / 1000)}s ago`);
 
-            // Just return existing session data
             const projectInfo = existingSession.projectInfo || await orchestrator.detectProjectMetadata(projectId);
-            console.log(`📋 [Clone] Sending cached projectInfo:`, JSON.stringify(projectInfo, null, 2));
-
             return res.json({
                 success: true,
                 machineId: existingSession.machineId,
-                projectInfo: projectInfo
+                projectInfo
             });
         }
 
-        // Save repo URL so ensureGitRepo can find it (fixes "No repo URL" error)
         if (repositoryUrl) {
             await storageService.saveProjectMetadata(projectId, { repositoryUrl });
         }
 
-        // Proactive Warming: Get/Create VM + Install deps in background
         const result = await orchestrator.prewarmProjectServer(projectId);
+        if (!result.success) throw new Error(result.error);
 
-        if (!result.success) {
-            throw new Error(result.error);
-        }
+        console.log(`   ✅ Container warmed up: ${result.machineId}`);
 
-        console.log(`   ✅ VM warmed up: ${result.machineId}`);
-
-        // CRITICAL: Ensure Git repository is initialized (fixes "No changes" in UI)
         try {
-            const agentUrl = `https://${result.machineId}.vm.drape.fly.dev`;
-            await orchestrator.ensureGitRepo(projectId, agentUrl, result.machineId);
+            if (result.agentUrl) await orchestrator.ensureGitRepo(projectId, result.agentUrl, result.machineId);
             console.log(`   ✅ Git repo initialized`);
         } catch (e) {
             console.warn(`   ⚠️ ensureGitRepo failed: ${e.message}`);
         }
 
-        // Detect project type to send warnings (e.g., Next.js 16.x)
         const projectInfo = await orchestrator.detectProjectMetadata(projectId);
-        console.log(`📋 [Clone] Sending projectInfo:`, JSON.stringify(projectInfo, null, 2));
 
         res.json({
             success: true,
             machineId: result.machineId,
-            projectInfo: projectInfo // Include project metadata (type, warnings, etc.)
+            projectInfo
         });
-
     } catch (error) {
-        console.error(`❌ [Fly] Clone warmup failed:`, error.message);
-        // Use error's statusCode if available (e.g., 503 for POOL_EXHAUSTED)
+        console.error(`❌ [API] Clone warmup failed:`, error.message);
         const statusCode = error.statusCode || 500;
         res.status(statusCode).json({ success: false, error: error.message });
     }
@@ -385,27 +322,22 @@ router.post('/clone', asyncHandler(async (req, res) => {
 
 /**
  * ALL /fly/preview/start
- * Start the preview/dev server for a project
- * Supports both POST (JSON) and GET (SSE)
+ * Start the preview/dev server for a project (SSE stream)
  */
 router.all('/preview/start', asyncHandler(async (req, res) => {
-    // Support both body (POST) and query (GET) for projectId
     const projectId = req.body?.projectId || req.query?.projectId;
     const repositoryUrl = req.body?.repositoryUrl || req.query?.repositoryUrl;
-    const githubToken = req.body?.githubToken || req.query?.githubToken;
     const startTime = Date.now();
 
-    console.log(`\n🚀 [Fly] Starting preview for: ${projectId}`);
+    console.log(`\n🚀 [API] Starting preview for: ${projectId}`);
 
     if (!projectId) {
         return res.status(400).json({ error: 'projectId is required' });
     }
 
-    // CRITICAL: Set cookie BEFORE SSE headers to fix WebSocket HMR
-    // Check if we have an existing session with machineId
+    // Set cookie before SSE headers
     const existingSession = await redisService.getVMSession(projectId);
     if (existingSession && existingSession.machineId) {
-        console.log(`🍪 [Preview] Setting cookie early: ${existingSession.machineId}`);
         res.cookie('drape_vm_id', existingSession.machineId, {
             httpOnly: false,
             sameSite: 'Lax',
@@ -413,17 +345,12 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         });
     }
 
-    // Set up SSE headers
+    // SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-
-    // Flush headers immediately so the client knows we've started
     if (res.flushHeaders) res.flushHeaders();
-
-    // Send 2KB of whitespace padding to bypass proxy/browser buffers
-    // and force immediate delivery of the following events.
     res.write(' '.repeat(2048) + '\n');
     if (res.flush) res.flush();
 
@@ -433,28 +360,21 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         if (res.flush) res.flush();
     };
 
-    // Heartbeat to keep connection alive
     const heartbeat = setInterval(() => {
         res.write(`: ping\n\n`);
         if (res.flush) res.flush();
     }, 5000);
 
-    // Declare projectInfo outside try block so it's accessible in catch
     let projectInfo = null;
 
     try {
-        // FAST PATH: Check if dev server is already running
-        // This happens when user re-opens a project that was recently used
-        // Note: existingSession is already fetched above for cookie setting
+        // FAST PATH: Check if dev server already running
         if (existingSession && existingSession.machineId && existingSession.agentUrl) {
             try {
-                console.log(`🔍 [Fly] Checking if dev server already running for ${projectId}...`);
+                console.log(`🔍 [API] Checking if dev server already running for ${projectId}...`);
 
-                // CRITICAL: Verify the VM has the correct project before using Fast Path
-                // Read .drape-project-id file to check which project is on this VM
-                console.log(`🔍 [Fly] Verifying project ID on VM...`);
-                const flyService = require('../services/fly-service');
-                const projectIdCheck = await flyService.exec(
+                // Verify correct project
+                const projectIdCheck = await containerService.exec(
                     existingSession.agentUrl,
                     'cat /home/coder/project/.drape-project-id 2>/dev/null || echo ""',
                     '/home/coder',
@@ -465,36 +385,29 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
                 const vmProjectId = projectIdCheck.stdout?.trim() || '';
 
                 if (vmProjectId !== projectId) {
-                    console.log(`⚠️ [Fly] VM has different project! VM: "${vmProjectId}", Requested: "${projectId}"`);
-                    console.log(`   ℹ️ [Fly] Cannot use Fast Path - need to setup new project`);
                     throw new Error('Project mismatch - Fast Path not available');
                 }
 
-                console.log(`✅ [Fly] Project ID matches: ${vmProjectId}`);
+                // Check dev server via agent exec (curl localhost:3000 inside container)
+                const devCheck = await containerService.exec(
+                    existingSession.agentUrl,
+                    'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "000"',
+                    '/home/coder',
+                    existingSession.machineId,
+                    5000,
+                    true
+                );
+                const statusCode = parseInt(devCheck.stdout?.trim() || '000');
 
-                const axios = require('axios');
-                const healthResponse = await axios.get(existingSession.agentUrl, {
-                    timeout: 3000,
-                    headers: { 'Fly-Force-Instance-Id': existingSession.machineId },
-                    validateStatus: () => true
-                });
+                if (statusCode >= 200 && statusCode < 400) {
+                    console.log(`✅ [API] Dev server already running (${statusCode}) - FAST PATH`);
 
-                // Dev server is already running!
-                // IMPORTANT: 404 means server is NOT running, only accept 200-399 for Fast Path
-                if (healthResponse.status >= 200 && healthResponse.status < 400) {
-                    console.log(`✅ [Fly] Dev server already running (${healthResponse.status}) - FAST PATH`);
-
-                    // Get cached project info
                     projectInfo = existingSession.projectInfo || await orchestrator.detectProjectMetadata(projectId);
 
-                    // Use backend gateway for routing (handles Fly-Force-Instance-Id header)
                     const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
                     const host = req.headers.host;
                     const gatewayPreviewUrl = `${protocol}://${host}`;
 
-                    // Cookie already set above (before SSE headers)
-
-                    // Send quick ready event
                     sendStep('ready', 'Preview pronta!', {
                         previewUrl: gatewayPreviewUrl,
                         coderToken: existingSession.coderToken,
@@ -502,90 +415,61 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
                         machineId: existingSession.machineId,
                         projectType: projectInfo?.description || projectInfo?.type || 'unknown',
                         hasWebUI: projectInfo?.hasWebUI !== false,
-                        timing: { totalMs: 50 }, // Almost instant
-                        fastPath: true // Indicate this was a fast reconnect
+                        timing: { totalMs: 50 },
+                        fastPath: true
                     });
 
-                    console.log(`✅ [Fly] Preview reconnected in <100ms (Fast Path)`);
+                    console.log(`✅ [API] Preview reconnected in <100ms (Fast Path)`);
                     clearInterval(heartbeat);
                     res.write(`data: ${JSON.stringify({ type: 'end' })}\n\n`);
                     return res.end();
                 }
             } catch (e) {
-                console.log(`   ℹ️ [Fly] Dev server not responding (${e.message}) - using normal path`);
+                console.log(`   ℹ️ [API] Dev server not responding (${e.message}) - using normal path`);
             }
         }
 
         console.log(`   [1/3] Analyzing project...`);
         sendStep('analyzing', 'Analisi del progetto...');
 
-        // Detect project type (fast since it's cached in memory/Redis)
         projectInfo = await orchestrator.detectProjectMetadata(projectId);
-
-        // Ensure config patching is done (sanity check)
         await orchestrator.patchConfigFiles(projectId, projectInfo);
 
-        // Send Next.js version warning if detected
         if (projectInfo.nextJsVersionWarning) {
-            sendStep('warning', JSON.stringify({
-                type: 'nextjs-version',
-                ...projectInfo.nextJsVersionWarning
-            }));
+            sendStep('warning', projectInfo.nextJsVersionWarning.recommendation || projectInfo.nextJsVersionWarning.message, {
+                warningType: 'nextjs-version',
+                warningData: projectInfo.nextJsVersionWarning
+            });
         }
 
-        console.log(`   [2/3] Booting MicroVM...`);
-        sendStep('booting', 'Avvio della MicroVM su Fly.io...');
+        console.log(`   [2/3] Starting container...`);
+        sendStep('booting', 'Avvio del container...');
 
-
-        // Start the preview with progress callback
-        // Timeout: 8 minutes total (sufficient for heavy installs + dev server start)
-        // Breakdown:
-        // - VM allocation: ~1s
-        // - File sync: ~1s
-        // - npm install (first time): ~3min
-        // - npm install (cached): ~5-10s
-        // - Dev server start: ~2-10s
-        // - Health check: up to 3min
-        // - Buffer: 2min
         const result = await withTimeout(
             orchestrator.startPreview(projectId, projectInfo, (step, message) => {
-                // Forward progress updates from orchestrator to SSE stream
                 sendStep(step, message);
             }),
-            480000, // 8 minutes
+            480000,
             'startPreview'
         );
 
-        // Use the Gateway URL (this server) for preview routing.
-        // This ensures all sub-resources (JS, CSS, WS) go through our proxy
-        // where we can inject the routing headers and handle WebSockets.
         const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
         const host = req.headers.host;
         const gatewayPreviewUrl = `${protocol}://${host}`;
 
         const elapsed = Date.now() - startTime;
-        console.log(`✅ [Fly] Preview ready in ${elapsed}ms (Routed via Gateway: ${gatewayPreviewUrl})`);
-
-        // Cookie already set at the beginning (before SSE headers) - DO NOT set again here
-        // as it would cause "Cannot set headers after they are sent to the client" error
-        console.log(`🍪 [Preview] Cookie already set early for machineId: ${result.machineId}`);
-
-        // Track metrics (Phase 3.1)
+        console.log(`✅ [API] Preview ready in ${elapsed}ms (Gateway: ${gatewayPreviewUrl})`);
 
         metricsService.trackPreviewCreation({
             projectId,
             duration: elapsed,
             success: true,
-            vmSource: result.vmSource || 'unknown',
+            vmSource: result.vmSource || 'docker-pool',
             skipInstall: result.skipInstall || false,
             projectType: projectInfo.type,
             phases: result.phases || {}
         }).catch(e => console.warn(`Metrics error: ${e.message}`));
 
-        // Send final result
-        console.log(`   [4/5] Ready!`);
-        console.log(`   Preview URL: ${gatewayPreviewUrl}`);
-        console.log(`   🔑 machineId: ${result.machineId} (cookie set, WebSocket ready)`);
         sendStep('ready', 'Preview pronta!', {
             success: true,
             previewUrl: gatewayPreviewUrl,
@@ -593,27 +477,21 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
             agentUrl: result.agentUrl,
             machineId: result.machineId,
             projectType: projectInfo.description || projectInfo.type,
-            hasWebUI: projectInfo.hasWebUI !== false, // Default true if not specified
-            timing: { totalMs: elapsed },
-            architecture: 'holy-grail'
+            hasWebUI: projectInfo.hasWebUI !== false,
+            timing: { totalMs: elapsed }
         });
 
     } catch (error) {
         console.error('❌ Preview start failed:', error);
 
-        // Track error (Phase 3.2)
         errorTracker.trackError({
             operation: 'preview_creation',
             error,
             projectId,
             severity: 'critical',
-            context: {
-                projectType: projectInfo?.type,
-                repositoryUrl
-            }
+            context: { projectType: projectInfo?.type, repositoryUrl }
         }).catch(e => console.warn(`Error tracker failed: ${e.message}`));
 
-        // Track metrics (Phase 3.1)
         const elapsed = Date.now() - startTime;
         metricsService.trackPreviewCreation({
             projectId,
@@ -629,107 +507,71 @@ router.all('/preview/start', asyncHandler(async (req, res) => {
         if (res.flush) res.flush();
     } finally {
         clearInterval(heartbeat);
-        console.log(`   [5/5] Stream ending.`);
         res.end();
     }
 }));
 
 /**
  * POST /fly/error-report
- * Receive error reports from the app for debugging
  */
 router.post('/error-report', asyncHandler(async (req, res) => {
-    const {
-        projectId,
-        userId,
-        errorMessage,
-        errorStack,
-        deviceInfo,
-        logs,
-        timestamp
-    } = req.body;
+    const { projectId, userId, errorMessage, errorStack, deviceInfo, logs, timestamp } = req.body;
 
     console.log(`\n🐛 ========== ERROR REPORT ==========`);
     console.log(`📅 Time: ${timestamp || new Date().toISOString()}`);
     console.log(`👤 User: ${userId || 'anonymous'}`);
     console.log(`📁 Project: ${projectId || 'unknown'}`);
     console.log(`❌ Error: ${errorMessage}`);
-    if (errorStack) {
-        console.log(`📚 Stack:\n${errorStack}`);
-    }
-    if (deviceInfo) {
-        console.log(`📱 Device: ${JSON.stringify(deviceInfo)}`);
-    }
+    if (errorStack) console.log(`📚 Stack:\n${errorStack}`);
+    if (deviceInfo) console.log(`📱 Device: ${JSON.stringify(deviceInfo)}`);
     if (logs && logs.length > 0) {
         console.log(`📋 Recent Logs:`);
-        logs.slice(-20).forEach((log, i) => {
-            console.log(`   ${i + 1}. ${log}`);
-        });
+        logs.slice(-20).forEach((log, i) => console.log(`   ${i + 1}. ${log}`));
     }
     console.log(`🐛 ====================================\n`);
 
-    // TODO: In production, send to a logging service (Sentry, LogRocket, etc.)
-    // For now, we just log to console which will appear in Fly.io logs
-
-    res.json({
-        success: true,
-        message: 'Error report received. Thank you for helping us improve!'
-    });
+    res.json({ success: true, message: 'Error report received.' });
 }));
 
 /**
  * POST /fly/preview/stop
- * Stop the preview and cleanup VM
  */
 router.post('/preview/stop', asyncHandler(async (req, res) => {
     const { projectId } = req.body;
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
 
-    if (!projectId) {
-        return res.status(400).json({ error: 'projectId is required' });
-    }
-
-    console.log(`⏹️ [Fly] Stopping preview for: ${projectId}`);
-
+    console.log(`⏹️ [API] Stopping preview for: ${projectId}`);
     const result = await orchestrator.stopVM(projectId);
-
     res.json(result);
 }));
 
 /**
  * POST /fly/release
- * Release a project's VM back to the pool (for project switching)
- * Lighter than /preview/stop - releases VM but keeps it in pool for reuse
  */
 router.post('/release', asyncHandler(async (req, res) => {
     const { projectId } = req.body;
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
 
-    if (!projectId) {
-        return res.status(400).json({ error: 'projectId is required' });
-    }
-
-    console.log(`🔄 [Fly] Releasing VM for project: ${projectId}`);
-
+    console.log(`🔄 [API] Releasing container for project: ${projectId}`);
     const result = await orchestrator.releaseProjectVM(projectId);
-
     res.json(result);
 }));
 
 /**
  * GET /fly/status
- * Get system status and active VMs
  */
 router.get('/status', asyncHandler(async (req, res) => {
     const activeVMs = await orchestrator.getActiveVMs();
-    const flyHealth = await flyService.healthCheck();
+    const health = await containerService.healthCheck();
 
     res.json({
-        architecture: 'holy-grail',
-        status: flyHealth.healthy ? 'operational' : 'degraded',
-        flyio: flyHealth,
-        activeVMs: activeVMs.length,
-        vms: activeVMs.map(vm => ({
+        backend: 'docker',
+        status: health.healthy ? 'operational' : 'degraded',
+        docker: health,
+        activeContainers: activeVMs.length,
+        containers: activeVMs.map(vm => ({
             projectId: vm.projectId,
-            vmId: vm.vmId,
+            containerId: vm.vmId || vm.machineId,
             idleMinutes: Math.round(vm.idleTime / 60000)
         }))
     });
@@ -737,19 +579,17 @@ router.get('/status', asyncHandler(async (req, res) => {
 
 /**
  * GET /fly/health
- * Simple health check
  */
 router.get('/health', (req, res) => {
     res.json({
         status: 'ok',
-        architecture: 'holy-grail',
+        backend: 'docker',
         timestamp: new Date().toISOString()
     });
 });
 
 /**
  * GET /fly/vms
- * List all active VMs for debugging
  */
 router.get('/vms', asyncHandler(async (req, res) => {
     const vms = await orchestrator.getActiveVMs();
@@ -758,41 +598,35 @@ router.get('/vms', asyncHandler(async (req, res) => {
 
 /**
  * GET /fly/diagnostics
- * System diagnostics and monitoring
  */
 router.get('/diagnostics', asyncHandler(async (req, res) => {
     const vmPoolManager = require('../services/vm-pool-manager');
     const metricsService = require('../services/metrics-service');
     const errorTracker = require('../services/error-tracking-service');
 
-    // Get VM pool stats
     const poolStats = vmPoolManager.getStats();
-
-    // Get error stats
     const errorStats = errorTracker.getStats();
+    const metrics = metricsService.getAggregatedMetrics ? await metricsService.getAggregatedMetrics(24 * 60 * 60 * 1000) : null;
 
-    // Get aggregated metrics (last 24 hours)
-    const metrics = await metricsService.getAggregatedMetrics(24 * 60 * 60 * 1000);
-
-    // Get running VMs from Fly
-    const machines = await flyService.listMachines();
-    const runningMachines = machines.filter(m => m.state === 'started');
+    const containers = await containerService.listContainers();
+    const runningContainers = containers.filter(c => c.state === 'running');
 
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        vmPool: {
+        backend: 'docker',
+        containerPool: {
             ...poolStats,
-            description: `${poolStats.available} VMs ready for instant allocation`
+            description: `${poolStats.workers?.availableRunning || 0} containers ready for instant allocation`
         },
-        runningVMs: {
-            total: runningMachines.length,
-            machines: runningMachines.map(m => ({
-                id: m.id,
-                name: m.name,
-                state: m.state,
-                region: m.region,
-                created: m.created_at
+        runningContainers: {
+            total: runningContainers.length,
+            containers: runningContainers.map(c => ({
+                id: c.id?.substring(0, 12),
+                name: c.name,
+                state: c.state,
+                project: c.labels?.['drape.project'],
+                created: c.created_at
             }))
         },
         errors: errorStats,
@@ -801,82 +635,62 @@ router.get('/diagnostics', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * POST /fly/pool/recycle - Destroy all unallocated containers and recreate with current config
+ */
+router.post('/pool/recycle', asyncHandler(async (req, res) => {
+    const vmPoolManager = require('../services/vm-pool-manager');
+    const result = await vmPoolManager.recycleAll();
+    res.json({ success: true, ...result });
+}));
+
+/**
  * POST /fly/heartbeat
- * 🔑 FIX 4: Keep VM alive while user has project open
- * Frontend sends this every 60 seconds to prevent VM timeout
  */
 router.post('/heartbeat', asyncHandler(async (req, res) => {
     const { projectId } = req.body;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    if (!projectId) {
-        return res.status(400).json({ error: 'projectId required' });
-    }
-
-    // 🔑 FIX: Update BOTH in-memory and Redis to prevent VM cleanup
-    // The cleanup function checks Redis lastUsed, so we must update both!
-
-    // 1. Update in-memory activeVMs
     const activeVMs = await orchestrator.getActiveVMs();
     const vm = activeVMs.find(v => v.projectId === projectId);
+    if (vm) vm.lastUsed = Date.now();
 
-    if (vm) {
-        vm.lastUsed = Date.now();
-    }
-
-    // 2. Update Redis session (CRITICAL - cleanup reads from Redis!)
     const session = await redisService.getVMSession(projectId);
     if (session) {
         session.lastUsed = Date.now();
         await redisService.saveVMSession(projectId, session);
-        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (Redis + memory updated)`);
+        console.log(`💓 [Heartbeat] ${projectId} - container kept alive`);
         res.json({ success: true, machineId: session.machineId, status: 'alive' });
     } else if (vm) {
-        // VM in memory but not in Redis - still respond OK
-        console.log(`💓 [Heartbeat] ${projectId} - VM kept alive (memory only)`);
+        console.log(`💓 [Heartbeat] ${projectId} - container alive (memory only)`);
         res.json({ success: true, machineId: vm.machineId, status: 'alive' });
     } else {
-        // No VM found anywhere
-        console.log(`💔 [Heartbeat] ${projectId} - No active VM found`);
+        console.log(`💔 [Heartbeat] ${projectId} - No active container`);
         res.json({ success: true, status: 'no_vm' });
     }
 }));
 
 /**
  * POST /fly/session
- * Set routing cookie for the Gateway
- * 🔑 FIX: Validates machineId is still active, returns current machineId for project
  */
 router.post('/session', asyncHandler(async (req, res) => {
     let { machineId, projectId } = req.body;
 
-    // 🔑 FIX: If projectId provided, ALWAYS get/verify the current VM for that project
-    // This handles cases where the frontend has a stale machineId
     if (projectId) {
         const activeVMs = await orchestrator.getActiveVMs();
         const projectVM = activeVMs.find(v => v.projectId === projectId);
 
         if (projectVM) {
-            // Project has an active VM
             const currentMachineId = projectVM.vmId || projectVM.machineId;
-
-            // Check if frontend's machineId is stale
             if (machineId && machineId !== currentMachineId) {
-                console.log(`🔄 [Fly] Session: Frontend has stale machineId ${machineId}, current is ${currentMachineId}`);
+                console.log(`🔄 [API] Session: stale machineId ${machineId}, current is ${currentMachineId}`);
             }
-
             machineId = currentMachineId;
-            console.log(`✅ [Fly] Session: Using active VM for ${projectId}: ${machineId}`);
         } else if (!machineId) {
-            // No active VM and no machineId provided - auto-create
-            console.log(`🔄 [Fly] Session: No active VM for ${projectId}, auto-creating...`);
+            console.log(`🔄 [API] Session: No active container for ${projectId}, auto-creating...`);
             try {
-                const vmSession = await orchestrator.getOrCreateVM(projectId);
-                if (vmSession && vmSession.machineId) {
-                    machineId = vmSession.machineId;
-                    console.log(`✅ [Fly] Session: VM auto-created: ${machineId}`);
-                }
+                const vmSession = await orchestrator.getOrCreateVM(projectId, { skipSync: true });
+                if (vmSession && vmSession.machineId) machineId = vmSession.machineId;
             } catch (vmError) {
-                console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
                 return res.status(503).json({
                     error: 'VM_STARTING',
                     message: 'Starting workspace, please retry in a few seconds',
@@ -884,16 +698,11 @@ router.post('/session', asyncHandler(async (req, res) => {
                 });
             }
         } else {
-            // Frontend provided machineId but no active VM found - it's stale
-            console.log(`⚠️ [Fly] Session: machineId ${machineId} is stale (VM destroyed), auto-creating...`);
+            console.log(`⚠️ [API] Session: machineId ${machineId} is stale, auto-creating...`);
             try {
-                const vmSession = await orchestrator.getOrCreateVM(projectId);
-                if (vmSession && vmSession.machineId) {
-                    machineId = vmSession.machineId;
-                    console.log(`✅ [Fly] Session: New VM created: ${machineId}`);
-                }
+                const vmSession = await orchestrator.getOrCreateVM(projectId, { skipSync: true });
+                if (vmSession && vmSession.machineId) machineId = vmSession.machineId;
             } catch (vmError) {
-                console.error(`❌ [Fly] Session: Auto-create VM failed:`, vmError.message);
                 return res.status(503).json({
                     error: 'VM_STARTING',
                     message: 'Starting workspace, please retry in a few seconds',
@@ -907,11 +716,6 @@ router.post('/session', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'machineId or projectId required' });
     }
 
-    // Set cookie valid for session
-    // SameSite=None; Secure required for iframes if cross-site,
-    // but here we are on same domain (sub paths), so Lax is fine.
-    // However, if we move to subdomains later, we might need adjustments.
-    // For now, simple cookie.
     res.cookie('drape_vm_id', machineId, {
         httpOnly: false,
         sameSite: 'Lax',
@@ -923,28 +727,15 @@ router.post('/session', asyncHandler(async (req, res) => {
 
 /**
  * POST /fly/inspect
- * AI-powered element inspection with SSE streaming (Holy Grail mode)
  */
 router.post('/inspect', asyncHandler(async (req, res) => {
-    const {
-        description,
-        userPrompt,
-        elementInfo,
-        projectId,
-        selectedModel
-    } = req.body;
+    const { description, userPrompt, elementInfo, projectId, selectedModel } = req.body;
 
-    if (!projectId) {
-        return res.status(400).json({ error: 'projectId required' });
-    }
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    console.log(`\n🔍 [Fly] AI Inspect: "${description?.substring(0, 50)}"`);
-    console.log(`   Project: ${projectId}`);
-
-    // Import Holy Grail inspect function
+    console.log(`\n🔍 [API] AI Inspect: "${description?.substring(0, 50)}"`);
     const { streamInspectElementHolyGrail } = require('../services/ai-inspect-holygrail');
 
-    // Set up SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -952,11 +743,7 @@ router.post('/inspect', asyncHandler(async (req, res) => {
 
     try {
         for await (const chunk of streamInspectElementHolyGrail({
-            description,
-            userPrompt,
-            elementInfo,
-            projectId,
-            selectedModel
+            description, userPrompt, elementInfo, projectId, selectedModel
         })) {
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         }
@@ -971,79 +758,51 @@ router.post('/inspect', asyncHandler(async (req, res) => {
 
 /**
  * POST /fly/reload
- * Reload/resync files to VM after AI modifications
  */
 router.post('/reload', asyncHandler(async (req, res) => {
     const { projectId } = req.body;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    if (!projectId) {
-        return res.status(400).json({ error: 'projectId required' });
-    }
-
-    console.log(`🔄 [Fly] Reloading project: ${projectId}`);
-
-    // Get active VM and resync files
+    console.log(`🔄 [API] Reloading project: ${projectId}`);
     const activeVMs = await orchestrator.getActiveVMs();
     const vm = activeVMs.find(v => v.projectId === projectId);
 
     if (vm) {
-        // Sync files from storage to VM
-        const storageService = require('../services/storage-service');
         const result = await storageService.syncToVM(projectId, vm.agentUrl);
-
-        res.json({
-            success: true,
-            message: 'Files synced to VM',
-            syncedCount: result.syncedCount
-        });
+        res.json({ success: true, message: 'Files synced to container', syncedCount: result.syncedCount });
     } else {
-        res.json({
-            success: true,
-            message: 'No active VM - files will sync on next preview start'
-        });
+        res.json({ success: true, message: 'No active container - files will sync on next preview start' });
     }
 }));
 
 /**
  * GET /fly/logs/:projectId
- * Stream live terminal output from VM via SSE proxy
- * 🔑 FIX: Auto-creates VM if not exists (Option A from VM_AUTO_CREATE_BUG.md)
+ * Stream live terminal output via SSE proxy
  */
 router.get('/logs/:projectId', asyncHandler(async (req, res) => {
     const { projectId } = req.params;
     const since = req.query.since || '0';
 
-    console.log(`📺 [Fly] Streaming logs for: ${projectId}`);
+    console.log(`📺 [API] Streaming logs for: ${projectId}`);
 
-    // Get active VM for this project
     let activeVMs = await orchestrator.getActiveVMs();
     let vm = activeVMs.find(v => v.projectId === projectId);
 
-    // 🔑 AUTO-CREATE VM if not exists
     if (!vm) {
-        console.log(`🔄 [Fly] No active VM for ${projectId}, auto-creating...`);
+        console.log(`🔄 [API] No active container for ${projectId}, auto-creating...`);
         try {
-            // Try to get or create VM
-            const vmSession = await orchestrator.getOrCreateVM(projectId);
+            const vmSession = await orchestrator.getOrCreateVM(projectId, { skipSync: true });
             if (vmSession && vmSession.machineId) {
-                console.log(`✅ [Fly] VM auto-created: ${vmSession.machineId}`);
-                vm = {
-                    projectId,
-                    agentUrl: vmSession.agentUrl,
-                    machineId: vmSession.machineId
-                };
+                vm = { projectId, agentUrl: vmSession.agentUrl, machineId: vmSession.machineId };
             }
         } catch (vmError) {
-            console.error(`❌ [Fly] Auto-create VM failed:`, vmError.message);
             return res.status(503).json({
                 error: 'VM_STARTING',
-                message: 'Starting workspace, please retry in a few seconds',
-                details: vmError.message
+                message: 'Starting workspace, please retry in a few seconds'
             });
         }
     }
 
-    // Final check - if still no VM, return 503 (not 404)
     if (!vm || !vm.agentUrl) {
         return res.status(503).json({
             error: 'VM_UNAVAILABLE',
@@ -1051,105 +810,71 @@ router.get('/logs/:projectId', asyncHandler(async (req, res) => {
         });
     }
 
-    // 🔑 FIX: Get machineId from vm (could be vmId or machineId depending on source)
     const machineId = vm.machineId || vm.vmId;
-    if (!machineId) {
-        console.error(`❌ [Fly] No machineId for project ${projectId}:`, JSON.stringify(vm));
-        return res.status(503).json({
-            error: 'VM_NOT_READY',
-            message: 'VM is starting, machineId not available yet. Please retry.'
-        });
-    }
 
-    // Set up SSE headers
+    // SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.setHeader('Access-Control-Allow-Origin', '*');
 
-    // Proxy the SSE stream from the agent
-    // Use HTTPS for Fly.io URLs (they proxy to the agent internally)
-    const https = require('https');
+    // Proxy SSE stream from agent - direct HTTP (no Fly headers needed)
     const http = require('http');
     const agentUrl = new URL(vm.agentUrl);
-    const isHttps = agentUrl.protocol === 'https:';
-    const transport = isHttps ? https : http;
 
-    const proxyReq = transport.request({
+    const proxyReq = http.request({
         hostname: agentUrl.hostname,
-        port: isHttps ? 443 : (agentUrl.port || 13338),
+        port: agentUrl.port || 13338,
         path: `/logs?since=${since}`,
         method: 'GET',
-        headers: {
-            'Accept': 'text/event-stream',
-            'Fly-Force-Instance-Id': machineId
-        }
+        headers: { 'Accept': 'text/event-stream' }
     }, (proxyRes) => {
-        console.log(`📺 [Fly] Connected to agent logs stream`);
+        console.log(`📺 [API] Connected to agent logs stream`);
 
-        // Pipe the response
         proxyRes.on('data', (chunk) => {
             try {
                 if (!res.destroyed && !res.writableEnded) {
                     res.write(chunk);
                     if (res.flush) res.flush();
                 }
-            } catch (e) {
-                // Client disconnected, ignore
-            }
+            } catch (e) {}
         });
 
         proxyRes.on('end', () => {
-            console.log(`📺 [Fly] Agent logs stream ended`);
-            try {
-                if (!res.destroyed && !res.writableEnded) res.end();
-            } catch (e) { /* ignore */ }
+            try { if (!res.destroyed && !res.writableEnded) res.end(); } catch (e) {}
         });
 
         proxyRes.on('error', (err) => {
-            // "aborted" is normal when client disconnects - don't log as error
-            if (err.message === 'aborted' || err.code === 'ECONNRESET') {
-                console.log(`📺 [Fly] Stream closed (client disconnected): ${err.message}`);
-            } else {
-                console.error(`📺 [Fly] Proxy stream error:`, err.message);
+            if (err.message !== 'aborted' && err.code !== 'ECONNRESET') {
+                console.error(`📺 [API] Proxy stream error:`, err.message);
             }
-            try {
-                if (!res.destroyed && !res.writableEnded) res.end();
-            } catch (e) { /* ignore */ }
+            try { if (!res.destroyed && !res.writableEnded) res.end(); } catch (e) {}
         });
     });
 
     proxyReq.on('error', (err) => {
-        // 🔑 FIX: Handle ECONNRESET and other socket errors gracefully
-        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
-            console.log(`📺 [Fly] Connection reset (client disconnected): ${err.code}`);
-        } else {
-            console.error(`📺 [Fly] Failed to connect to agent:`, err.message);
+        if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+            console.error(`📺 [API] Failed to connect to agent:`, err.message);
         }
         try {
             if (!res.destroyed && !res.writableEnded) {
-                res.write(`data: ${JSON.stringify({ type: 'error', message: 'Connection to VM lost' })}\n\n`);
+                res.write(`data: ${JSON.stringify({ type: 'error', message: 'Connection to container lost' })}\n\n`);
                 res.end();
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {}
     });
 
-    // 🔑 FIX: Handle socket errors on response to prevent crash
     res.on('error', (err) => {
-        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') {
-            console.log(`📺 [Fly] Client socket error (normal): ${err.code}`);
-        } else {
-            console.error(`📺 [Fly] Response error:`, err.message);
+        if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+            console.error(`📺 [API] Response error:`, err.message);
         }
         proxyReq.destroy();
     });
 
     proxyReq.end();
 
-    // Cleanup on client disconnect
     req.on('close', () => {
-        console.log(`📺 [Fly] Client disconnected from logs`);
         proxyReq.destroy();
     });
 }));

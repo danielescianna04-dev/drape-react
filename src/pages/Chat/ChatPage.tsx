@@ -333,17 +333,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         // Format based on tool type (matching old UI expectations)
         if (event.tool === 'read_file') {
           const lines = result ? result.split('\n').length : 0;
-          const filePath = input?.path || input?.filePath || '?';
+          const filePath = input?.file_path || input?.path || input?.filePath || '?';
           const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
           formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
         }
         else if (event.tool === 'write_file') {
-          const filePath = input?.path || input?.filePath || '?';
+          const filePath = input?.file_path || input?.path || input?.filePath || '?';
           const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
           formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
         }
         else if (event.tool === 'edit_file') {
-          const filePath = input?.path || input?.filePath || '?';
+          const filePath = input?.file_path || input?.path || input?.filePath || '?';
           const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
           if (hasError) {
             // Show error without the diff box
@@ -354,7 +354,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           }
         }
         else if (event.tool === 'write_file') {
-          const filePath = input?.path || input?.filePath || '?';
+          const filePath = input?.file_path || input?.path || input?.filePath || '?';
           const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
 
           if (hasError) {
@@ -605,7 +605,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // Handle TEXT_DELTA events (real-time streaming from AI)
       else if (event.type === 'text_delta') {
-        const delta = (event as any).delta;
+        const delta = (event as any).delta || (event as any).text;
         if (delta) {
           // Check if we need to transition from thinking to streaming
           const wasThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-');
@@ -690,6 +690,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }
 
       // Handle errors explicitly
+      // Budget exceeded — show upgrade CTA instead of error
+      else if (event.type === 'budget_exceeded') {
+        // Remove any thinking placeholder
+        if (currentAgentMessageIdRef.current) {
+          removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+          currentAgentMessageIdRef.current = null;
+        }
+
+        addTerminalItem({
+          id: `budget-exceeded-${Date.now()}`,
+          content: `__BUDGET_EXCEEDED__`,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(event.timestamp),
+        });
+      }
+
       else if (event.type === 'error' || event.type === 'fatal_error') {
         addTerminalItem({
           id: event.id,
@@ -1767,7 +1783,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             !item.content?.startsWith('Execute:') && !item.content?.startsWith('Glob ') &&
             !item.content?.startsWith('Web Search') && !item.content?.startsWith('Agent:') &&
             !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question') &&
-            !item.content?.startsWith('List files'))
+            !item.content?.startsWith('List files') && item.content !== '__BUDGET_EXCEEDED__')
         )
         // NO slice() - send ALL conversation history, backend will handle summarization if needed
         .map(item => {
@@ -2638,6 +2654,57 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                               status={isRunning ? 'running' : 'complete'}
                               currentTool={isRunning ? agentCurrentTool : null}
                             />
+                          </View>
+                        );
+                        return acc;
+                      }
+
+                      // Handle budget exceeded — show upgrade card
+                      if (item.content === '__BUDGET_EXCEEDED__') {
+                        acc.push(
+                          <View key={item.id} style={{
+                            marginHorizontal: 16,
+                            marginVertical: 12,
+                            backgroundColor: 'rgba(139, 124, 246, 0.08)',
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            borderColor: 'rgba(139, 124, 246, 0.2)',
+                            padding: 20,
+                          }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                              <View style={{
+                                width: 36, height: 36, borderRadius: 10,
+                                backgroundColor: 'rgba(139, 124, 246, 0.15)',
+                                alignItems: 'center', justifyContent: 'center', marginRight: 12,
+                              }}>
+                                <Ionicons name="flash" size={18} color={AppColors.primary} />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
+                                  Budget AI esaurito
+                                </Text>
+                                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+                                  Hai utilizzato tutto il budget di questo mese
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 20, marginBottom: 16 }}>
+                              Il tuo budget AI mensile è terminato. Passa al piano Go per continuare a usare l'assistente AI con un budget maggiore.
+                            </Text>
+                            <TouchableOpacity
+                              style={{
+                                backgroundColor: AppColors.primary,
+                                borderRadius: 12,
+                                paddingVertical: 12,
+                                alignItems: 'center',
+                              }}
+                              onPress={() => navigateTo('plans')}
+                              activeOpacity={0.8}
+                            >
+                              <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff' }}>
+                                Passa a Go
+                              </Text>
+                            </TouchableOpacity>
                           </View>
                         );
                         return acc;

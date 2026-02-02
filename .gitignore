@@ -54,3 +54,4 @@ backend/bin/coder
 .drape/
 .claude/
 backend/serviceAccountKey.json
+backend-ts/service-account-key.json

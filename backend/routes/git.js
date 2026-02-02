@@ -68,7 +68,7 @@ router.get('/status/:projectId', asyncHandler(async (req, res) => {
     // This fixes "fatal: not a git repository" errors
     try {
         const orch = getOrchestrator();
-        const vm = await orch.getOrCreateVM(projectId);
+        const vm = await orch.getOrCreateVM(projectId, { skipSync: true });
         await orch.ensureGitRepo(projectId, vm.agentUrl, vm.machineId);
     } catch (e) {
         console.warn(`⚠️ [Git] ensureGitRepo failed: ${e.message}`);

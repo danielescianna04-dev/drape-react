@@ -1,6 +1,6 @@
 /**
  * Routes Index
- * Holy Grail Architecture - Fly.io MicroVMs
+ * Holy Grail Architecture - Docker Containers
  */
 
 const express = require('express');
@@ -12,10 +12,9 @@ const githubRoutes = require('./github');
 const gitRoutes = require('./git');
 const workstationRoutes = require('./workstation');
 const terminalRoutes = require('./terminal');
-const flyRoutes = require('./fly'); // Holy Grail - Fly.io MicroVMs
+const flyRoutes = require('./fly'); // Holy Grail - Docker Containers
 const agentRoutes = require('./agent'); // Agent tools & modes
 const statsRoutes = require('./stats'); // System stats & usage
-const cacheCopyRoutes = require('./cache-copy'); // TIER 3 cache copy
 const notificationRoutes = require('./notifications'); // Push notifications
 const globalLogService = require('../services/global-log-service');
 
@@ -37,10 +36,9 @@ router.use('/github', githubRoutes);
 router.use('/git', gitRoutes);
 router.use('/workstation', workstationRoutes);
 router.use('/terminal', terminalRoutes);
-router.use('/fly', flyRoutes); // Holy Grail - Instant MicroVMs
+router.use('/fly', flyRoutes); // Holy Grail - Instant Containers
 router.use('/agent', agentRoutes); // Agent tools & modes
 router.use('/stats', statsRoutes); // System stats & usage
-router.use('/api', cacheCopyRoutes); // TIER 3 cache copy between VMs
 router.use('/notifications', notificationRoutes); // Push notifications
 
 // SSE endpoint for streaming ALL backend logs to frontend
@@ -94,7 +92,7 @@ router.get('/', (req, res) => {
         name: 'Drape Backend API',
         version: '2.0.0',
         architecture: 'holy-grail',
-        description: 'AI-powered Cloud IDE Backend with Fly.io MicroVMs',
+        description: 'AI-powered Cloud IDE Backend with Docker Containers',
         endpoints: {
             health: 'GET /health',
             ai: {

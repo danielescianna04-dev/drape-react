@@ -157,9 +157,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   innerInput: {
-    flex: 1,
     width: '100%',
-    height: '100%',
     paddingHorizontal: 16,
     paddingVertical: 12,
     color: '#fff',

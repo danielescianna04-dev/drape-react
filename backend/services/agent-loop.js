@@ -12,7 +12,7 @@
  * "Iteration > Perfection" - Ralph Wiggum Principle
  */
 
-const flyService = require('./fly-service');
+const containerService = require('./container-service');
 const workspaceOrchestrator = require('./workspace-orchestrator');
 const { getProviderForModel } = require('./ai-providers');
 const { DEFAULT_AI_MODEL } = require('../utils/constants');
@@ -172,7 +172,7 @@ class AgentLoop {
      */
     async initialize() {
         // Get or create VM for this project
-        this.vmInfo = await workspaceOrchestrator.getOrCreateVM(this.projectId);
+        this.vmInfo = await workspaceOrchestrator.getOrCreateVM(this.projectId, { skipSync: true });
 
         // INSTANT START: No blocking operations
         // Agent starts immediately, all context loads in background
@@ -182,7 +182,7 @@ class AgentLoop {
         // Fire-and-forget: All checks run in background, don't block agent
         setImmediate(() => {
             // Background file check and sync if needed
-            flyService.exec(
+            containerService.exec(
                 this.vmInfo.agentUrl,
                 '[ "$(ls -A /home/coder/project)" ] && echo "FOUND" || echo "EMPTY"',
                 '/home/coder/project',
@@ -214,7 +214,7 @@ class AgentLoop {
      */
     async _loadProjectContext() {
         try {
-            const result = await flyService.exec(
+            const result = await containerService.exec(
                 this.vmInfo.agentUrl,
                 'cat /home/coder/project/.drape/project.json 2>/dev/null || echo "{}"',
                 '/home/coder/project',
@@ -280,7 +280,7 @@ class AgentLoop {
 
             case 'read_file': {
                 const filePath = input.path.replace(/^\.\//, '');
-                const result = await flyService.exec(agentUrl, `cat "/home/coder/project/${filePath}"`, '/home/coder/project', machineId, 10000);
+                const result = await containerService.exec(agentUrl, `cat "/home/coder/project/${filePath}"`, '/home/coder/project', machineId, 10000);
                 if (result.exitCode !== 0) {
                     return { success: false, error: `File not found: ${filePath}` };
                 }
@@ -289,7 +289,7 @@ class AgentLoop {
 
             case 'list_directory': {
                 const dirPath = input.path === '.' ? '/home/coder/project' : `/home/coder/project/${input.path}`;
-                const result = await flyService.exec(agentUrl, `ls -la "${dirPath}"`, '/home/coder/project', machineId, 10000);
+                const result = await containerService.exec(agentUrl, `ls -la "${dirPath}"`, '/home/coder/project', machineId, 10000);
                 if (result.exitCode !== 0) {
                     return { success: false, error: result.stderr };
                 }
@@ -298,7 +298,7 @@ class AgentLoop {
 
             case 'run_command': {
                 const timeout = input.timeout_ms || TOOL_TIMEOUT;
-                const result = await flyService.exec(agentUrl, input.command, '/home/coder/project', machineId, timeout);
+                const result = await containerService.exec(agentUrl, input.command, '/home/coder/project', machineId, timeout);
                 return {
                     success: result.exitCode === 0,
                     exitCode: result.exitCode,
@@ -310,7 +310,7 @@ class AgentLoop {
             case 'edit_file': {
                 const filePath = input.path.replace(/^\.\//, '');
                 // Read the file
-                const readResult = await flyService.exec(agentUrl, `cat "/home/coder/project/${filePath}"`, '/home/coder/project', machineId, 10000);
+                const readResult = await containerService.exec(agentUrl, `cat "/home/coder/project/${filePath}"`, '/home/coder/project', machineId, 10000);
                 if (readResult.exitCode !== 0) {
                     return { success: false, error: `Cannot read file: ${readResult.stderr}` };
                 }
@@ -1184,7 +1184,7 @@ class AgentLoop {
  */
 async function saveProjectContext(projectId, contextData) {
     try {
-        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId);
+        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId, { skipSync: true });
 
         const context = {
             name: contextData.name,
@@ -1199,7 +1199,7 @@ async function saveProjectContext(projectId, contextData) {
 ${JSON.stringify(context, null, 2)}
 DRAPE_EOF`;
 
-        await flyService.exec(
+        await containerService.exec(
             vmInfo.agentUrl,
             cmd,
             '/home/coder/project',

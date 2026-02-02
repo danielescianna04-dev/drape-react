@@ -300,7 +300,9 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                   value={repoName}
                   onChangeText={setRepoName}
                   placeholder="my-awesome-project"
+                  noGlass
                   style={{ marginBottom: 4 }}
+                  inputStyle={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' }}
                 />
 
                 <Text style={styles.label}>Descrizione (opzionale)</Text>
@@ -310,7 +312,9 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                   placeholder="Descrizione del progetto..."
                   multiline
                   numberOfLines={2}
+                  noGlass
                   style={{ marginBottom: 4 }}
+                  inputStyle={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' }}
                 />
 
                 <View style={styles.switchRow}>
@@ -344,7 +348,8 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                   onPress={handleCreateRepo}
                   disabled={loading || !repoName.trim()}
                   variant="primary"
-                  style={{ marginTop: 16 }}
+                  noGlass
+                  style={{ marginTop: 16, borderRadius: 14 }}
                 />
               </View>
             ) : (
@@ -418,7 +423,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
       <Animated.View
         style={styles.backdrop}
         entering={FadeIn.duration(200)}
@@ -426,7 +431,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <Animated.View
-          style={[styles.container, { backgroundColor: 'transparent' }]}
+          style={[styles.container, { backgroundColor: '#121216' }]}
           entering={SlideInDown.duration(300)}
           exiting={SlideOutDown.duration(200)}
         >
@@ -438,7 +443,9 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                 borderTopRightRadius: 20,
                 overflow: 'hidden',
                 borderWidth: 1.5,
+                borderBottomWidth: 0,
                 borderColor: 'rgba(255,255,255,0.2)',
+                backgroundColor: 'rgba(18, 18, 22, 0.65)',
               }}
               interactive={true}
               effect="clear"
@@ -448,8 +455,9 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
             </LiquidGlassView>
           ) : (
             <View style={[styles.container, {
-              backgroundColor: '#151517',
+              backgroundColor: 'rgba(18, 18, 22, 0.92)',
               borderWidth: 1.5,
+              borderBottomWidth: 0,
               borderColor: 'rgba(255,255,255,0.2)',
             }]}>
               {renderModalContent()}
@@ -464,7 +472,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
   container: {
@@ -476,7 +484,6 @@ const styles = StyleSheet.create({
   },
   modalInner: {
     flex: 1,
-    backgroundColor: 'rgba(21, 21, 23, 0.4)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },

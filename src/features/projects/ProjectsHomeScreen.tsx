@@ -365,20 +365,38 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       // Show "Freeing resources" step
       await animateProgressTo(8, 'Liberando risorse...', 500);
 
-      // Release VM and wait for grace period (2 seconds for process kill + cleanup)
-      await fetch(`${config.apiUrl}/fly/release`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: currentWorkstation.id }),
-      }).then(res => {
-        if (res.ok) {
-          console.log('✅ [Home] Released VM for previous project:', currentWorkstation.id);
-        } else {
-          console.warn('⚠️ [Home] Failed to release VM:', res.status);
+      // Release VM with retry (up to 3 attempts)
+      const releaseProjectId = currentWorkstation.id;
+      const releaseWithRetry = async (attempt = 1) => {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 8000);
+          const res = await fetch(`${config.apiUrl}/fly/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectId: releaseProjectId }),
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          if (res.ok) {
+            console.log('✅ [Home] Released VM for previous project:', releaseProjectId);
+          } else {
+            console.warn(`⚠️ [Home] Release returned ${res.status}, attempt ${attempt}`);
+            if (attempt < 3) {
+              await new Promise(r => setTimeout(r, 1000 * attempt));
+              return releaseWithRetry(attempt + 1);
+            }
+          }
+        } catch (err: any) {
+          console.warn(`⚠️ [Home] Release attempt ${attempt} failed:`, err.message);
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+            return releaseWithRetry(attempt + 1);
+          }
+          console.error('❌ [Home] Release failed after 3 attempts');
         }
-      }).catch(err => {
-        console.error('❌ [Home] Release error:', err.message);
-      });
+      };
+      releaseWithRetry();
 
       // Wait for the 2-second grace period (process kill + resource cleanup)
       await animateProgressTo(12, 'Liberando risorse...', 2000);

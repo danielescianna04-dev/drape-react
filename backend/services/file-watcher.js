@@ -3,7 +3,7 @@
  * Monitors VM file changes and broadcasts via WebSocket
  */
 
-const flyService = require('./fly-service');
+const containerService = require('./container-service');
 
 class FileWatcherService {
     constructor() {
@@ -50,7 +50,7 @@ class FileWatcherService {
         if (!watcherData) return;
 
         // Get current file list from VM (exclude build/cache folders)
-        const result = await flyService.exec(
+        const result = await containerService.exec(
             agentUrl,
             'find /home/coder/project -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/.next/*" | sort',
             '/home/coder/project',

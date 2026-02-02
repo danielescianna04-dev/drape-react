@@ -8,6 +8,12 @@ const axios = require('axios');
  * Body: { workerMachineId, sourceMachineId, type: 'pnpm' | 'node_modules' }
  */
 router.post('/cache-copy', async (req, res) => {
+    // TIER 3 VM-to-VM cache copy - only works in Fly.io mode
+    const isDocker = process.env.INFRA_BACKEND === 'docker';
+    if (isDocker) {
+        return res.status(400).json({ error: 'VM-to-VM cache copy not needed in Docker mode (shared NVMe volumes)' });
+    }
+
     const { workerMachineId, sourceMachineId, cacheMasterMachineId, type = 'pnpm' } = req.body;
 
     // Support both sourceMachineId and cacheMasterMachineId for backward compatibility

@@ -1,0 +1,122 @@
+import { config } from '../config';
+import { log } from '../utils/logger';
+import { ContainerInfo, CreateContainerOptions } from '../types';
+import { dockerService } from './docker.service';
+import { sessionService } from './session.service';
+import { fileService } from './file.service';
+
+class ContainerLifecycleService {
+  private reaperInterval: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * Create a new container for a project with NVMe bind mounts
+   */
+  async create(projectId: string): Promise<ContainerInfo> {
+    // Ensure project directory and .next cache dir exist on NVMe
+    await fileService.ensureProjectDir(projectId);
+    const { default: fs } = await import('fs/promises');
+    await fs.mkdir(`${config.cacheRoot}/next-build/${projectId}`, { recursive: true });
+
+    const container = await dockerService.createContainer({ projectId });
+
+    // Wait for agent to be healthy
+    const healthy = await dockerService.waitForAgent(container.agentUrl, 30000);
+    if (!healthy) {
+      log.warn(`[Lifecycle] Agent not healthy for ${container.id.substring(0, 12)}, proceeding anyway`);
+    }
+
+    return container;
+  }
+
+  /**
+   * Destroy a container and clean up session
+   */
+  async destroy(projectId: string): Promise<void> {
+    const session = await sessionService.get(projectId);
+    if (session) {
+      await dockerService.destroyContainer(session.containerId, session.serverId);
+      await sessionService.delete(projectId);
+      log.info(`[Lifecycle] Destroyed container for ${projectId}`);
+    }
+  }
+
+  /**
+   * Check if a container is healthy (agent responding)
+   */
+  async isHealthy(agentUrl: string): Promise<boolean> {
+    try {
+      const result = await dockerService.exec(agentUrl, 'echo ok', '/home/coder', 3000, true);
+      return result.exitCode === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Start the idle reaper — checks every 60s for containers idle > timeout
+   */
+  startIdleReaper(): void {
+    if (this.reaperInterval) return;
+
+    this.reaperInterval = setInterval(async () => {
+      try {
+        const sessions = await sessionService.getAll();
+        const now = Date.now();
+        const timeout = config.containerIdleTimeoutMs;
+
+        for (const session of sessions) {
+          if (now - session.lastUsed > timeout) {
+            log.info(`[Lifecycle] Reaping idle container for ${session.projectId} (idle ${Math.round((now - session.lastUsed) / 60000)}min)`);
+            await this.destroy(session.projectId).catch(e =>
+              log.warn(`[Lifecycle] Reap failed for ${session.projectId}: ${e.message}`)
+            );
+          }
+        }
+      } catch (e: any) {
+        log.error(`[Lifecycle] Reaper error: ${e.message}`);
+      }
+    }, 60000);
+
+    log.info(`[Lifecycle] Idle reaper started (timeout: ${config.containerIdleTimeoutMs / 60000}min)`);
+  }
+
+  stopIdleReaper(): void {
+    if (this.reaperInterval) {
+      clearInterval(this.reaperInterval);
+      this.reaperInterval = null;
+    }
+  }
+
+  /**
+   * Adopt existing Docker containers on startup
+   */
+  async adoptExisting(): Promise<number> {
+    const containers = await dockerService.listContainers();
+    let adopted = 0;
+
+    for (const c of containers) {
+      if (c.state !== 'running' || !c.projectId || !c.agentUrl) continue;
+
+      const existing = await sessionService.get(c.projectId);
+      if (existing) continue;
+
+      await sessionService.set(c.projectId, {
+        containerId: c.id,
+        projectId: c.projectId,
+        agentUrl: c.agentUrl,
+        previewPort: c.previewPort,
+        serverId: c.serverId,
+        createdAt: c.createdAt,
+        lastUsed: Date.now(),
+      });
+      adopted++;
+    }
+
+    if (adopted > 0) {
+      log.info(`[Lifecycle] Adopted ${adopted} existing containers`);
+    }
+    return adopted;
+  }
+}
+
+export const containerLifecycleService = new ContainerLifecycleService();

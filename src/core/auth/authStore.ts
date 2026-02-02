@@ -48,6 +48,7 @@ interface AuthState {
   signInWithApple: () => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updateDisplayName: (name: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -307,6 +308,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       set({ error: errorMessage, isLoading: false });
       throw new Error(errorMessage);
+    }
+  },
+
+  updateDisplayName: async (name: string) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) throw new Error('Not authenticated');
+      await updateProfile(currentUser, { displayName: name });
+      set({ user: { ...get().user!, displayName: name } });
+    } catch (error: any) {
+      console.error('[AuthStore] updateDisplayName error:', error.message);
     }
   },
 

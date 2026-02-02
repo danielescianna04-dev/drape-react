@@ -19,6 +19,7 @@ export type AgentEventType =
   | 'tool_complete'
   | 'tool_error'
   | 'iteration_start'
+  | 'budget_exceeded'
   | 'thinking'
   | 'message'
   | 'text_delta'
@@ -288,6 +289,7 @@ export function useAgentStream(
         'message',
         'text_delta',
         'plan_ready',
+        'budget_exceeded',
         'complete',
         'error',
         'fatal_error',

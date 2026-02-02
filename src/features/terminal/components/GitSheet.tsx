@@ -78,6 +78,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [commitMessage, setCommitMessage] = useState('');
   const [showConnectModal, setShowConnectModal] = useState(false);
+  const [showCommitModal, setShowCommitModal] = useState(false);
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -332,9 +333,15 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       const localData = await localResponse.json();
 
       if (localData?.isGitRepo) {
-        // Update status for Changes tab
-        if (localData.status) {
-          setGitStatus(localData.status);
+        // Update status for Changes tab — backend returns 'changes' object, not 'status'
+        const changes = localData.changes;
+        if (changes) {
+          setGitStatus({
+            staged: changes.staged || [],
+            modified: changes.modified || [],
+            untracked: changes.untracked || [],
+            deleted: changes.deleted || [],
+          });
           console.log('✅ [GitSheet] Backend status loaded (Changes ready)');
         }
 
@@ -343,7 +350,12 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         if (cached) {
           useGitCacheStore.getState().setGitData(currentWorkstation.id, {
             ...cached,
-            status: localData.status || null,
+            status: changes ? {
+              staged: changes.staged || [],
+              modified: changes.modified || [],
+              untracked: changes.untracked || [],
+              deleted: changes.deleted || [],
+            } : null,
           });
         }
       }
@@ -493,9 +505,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   // Get all changed files for selection
   const allChangedFiles = gitStatus ? [
-    ...gitStatus.modified.map(f => ({ file: f, type: 'modified' })),
-    ...gitStatus.untracked.map(f => ({ file: f, type: 'untracked' })),
-    ...gitStatus.deleted.map(f => ({ file: f, type: 'deleted' })),
+    ...(gitStatus.modified || []).map(f => ({ file: f, type: 'modified' })),
+    ...(gitStatus.untracked || []).map(f => ({ file: f, type: 'untracked' })),
+    ...(gitStatus.deleted || []).map(f => ({ file: f, type: 'deleted' })),
   ] : [];
 
   const toggleFileSelection = (file: string) => {
@@ -586,7 +598,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (isLiquidGlassSupported) {
       return (
         <LiquidGlassView
-          style={[styles.modalContainer, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          style={[styles.modalContainer, { backgroundColor: 'rgba(18, 18, 22, 0.55)', overflow: 'hidden' }]}
           interactive={true}
           effect="clear"
           colorScheme="dark"
@@ -617,7 +629,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <BlurView intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView intensity={80} tint="dark" style={StyleSheet.absoluteFill} />
       <Pressable style={styles.backdrop} onPress={onClose}>
         <SheetContainer>
           {/* Header */}
@@ -859,10 +871,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     </TouchableOpacity>
 
                     {/* File List with Checkboxes */}
-                    {gitStatus?.modified.length > 0 && (
+                    {(gitStatus?.modified?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
                         <Text style={styles.changeSectionTitle}>MODIFICATI</Text>
-                        {gitStatus.modified.map((file) => (
+                        {gitStatus!.modified.map((file) => (
                           <TouchableOpacity key={`mod-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
                               name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
@@ -875,10 +887,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         ))}
                       </View>
                     )}
-                    {gitStatus?.untracked.length > 0 && (
+                    {(gitStatus?.untracked?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
                         <Text style={styles.changeSectionTitle}>NUOVI</Text>
-                        {gitStatus.untracked.map((file) => (
+                        {gitStatus!.untracked.map((file) => (
                           <TouchableOpacity key={`untracked-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
                               name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
@@ -891,10 +903,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         ))}
                       </View>
                     )}
-                    {gitStatus?.deleted.length > 0 && (
+                    {(gitStatus?.deleted?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
                         <Text style={styles.changeSectionTitle}>ELIMINATI</Text>
-                        {gitStatus.deleted.map((file) => (
+                        {gitStatus!.deleted.map((file) => (
                           <TouchableOpacity key={`del-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
                               name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
@@ -908,6 +920,22 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                       </View>
                     )}
 
+                    {/* Commit Button */}
+                    <TouchableOpacity
+                      style={[styles.createCommitBtn, selectedFiles.size === 0 && styles.createCommitBtnDisabled]}
+                      onPress={() => {
+                        if (selectedFiles.size === 0) {
+                          Alert.alert('Seleziona file', 'Seleziona almeno un file da committare');
+                          return;
+                        }
+                        setShowCommitModal(true);
+                      }}
+                    >
+                      <Ionicons name="git-commit-outline" size={18} color="#fff" />
+                      <Text style={styles.createCommitBtnText}>
+                        Crea Commit ({selectedFiles.size} {selectedFiles.size === 1 ? 'file' : 'file'})
+                      </Text>
+                    </TouchableOpacity>
                   </>
                 ) : (
                   <View style={styles.emptyState}>
@@ -918,50 +946,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             )}
           </ScrollView>
-
-          {/* Commit Section - Fixed Footer (only in Changes tab with changes) */}
-          {activeSection === 'changes' && allChangedFiles.length > 0 && (
-            <View style={styles.commitSection}>
-              <Input
-                value={commitMessage}
-                onChangeText={setCommitMessage}
-                placeholder="Messaggio di commit..."
-                multiline
-                numberOfLines={2}
-                style={{ marginBottom: 12 }}
-              />
-              <View style={styles.commitActions}>
-                <TouchableOpacity
-                  style={[styles.commitBtn, (!selectedFiles.size || !commitMessage.trim()) && styles.commitBtnDisabled]}
-                  onPress={handleCommit}
-                  disabled={!selectedFiles.size || !commitMessage.trim() || !!actionLoading}
-                >
-                  {actionLoading === 'commit' ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
-                      <Text style={styles.commitBtnText}>Commit</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.pushBtn, !isOwnRepo && styles.pushBtnWarning]}
-                  onPress={() => handleGitAction('push')}
-                  disabled={!!actionLoading}
-                >
-                  {actionLoading === 'push' ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name={isOwnRepo ? "cloud-upload" : "lock-closed"} size={16} color={isOwnRepo ? "#fff" : "#f59e0b"} />
-                      <Text style={[styles.pushBtnText, !isOwnRepo && styles.pushBtnTextWarning]}>Push</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
 
           {/* Account Link */}
           {linkedAccount && (
@@ -1053,6 +1037,93 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           </Animated.View>
         </Animated.View>
       </Modal>
+
+      {/* Commit Modal */}
+      <Modal
+        visible={showCommitModal}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowCommitModal(false)}
+        statusBarTranslucent
+      >
+        <Animated.View
+          style={styles.commitModalBackdrop}
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+        >
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowCommitModal(false)} />
+          <Animated.View
+            style={styles.commitModalContainer}
+            entering={FadeIn.duration(250).springify()}
+            exiting={FadeOut.duration(200)}
+          >
+            <View style={styles.commitModalHeader}>
+              <Text style={styles.commitModalTitle}>Nuovo Commit</Text>
+              <TouchableOpacity onPress={() => setShowCommitModal(false)}>
+                <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.commitModalFilesSummary}>
+              <Ionicons name="documents-outline" size={16} color={AppColors.primary} />
+              <Text style={styles.commitModalFilesText}>
+                {selectedFiles.size} file selezionat{selectedFiles.size === 1 ? 'o' : 'i'}
+              </Text>
+            </View>
+
+            <TextInput
+              style={styles.commitModalInput}
+              placeholder="Messaggio di commit..."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={commitMessage}
+              onChangeText={setCommitMessage}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+
+            <View style={styles.commitModalActions}>
+              <TouchableOpacity
+                style={[styles.commitModalBtn, !commitMessage.trim() && styles.commitModalBtnDisabled]}
+                onPress={async () => {
+                  await handleCommit();
+                  setShowCommitModal(false);
+                }}
+                disabled={!commitMessage.trim() || !!actionLoading}
+              >
+                {actionLoading === 'commit' ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                    <Text style={styles.commitModalBtnText}>Commit</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.commitModalPushBtn, !isOwnRepo && styles.pushBtnWarning]}
+                onPress={async () => {
+                  if (commitMessage.trim()) {
+                    await handleCommit();
+                  }
+                  await handleGitAction('push');
+                  setShowCommitModal(false);
+                }}
+                disabled={!!actionLoading}
+              >
+                {actionLoading === 'push' ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name={isOwnRepo ? "cloud-upload" : "lock-closed"} size={18} color={isOwnRepo ? "#fff" : "#f59e0b"} />
+                    <Text style={[styles.commitModalPushBtnText, !isOwnRepo && styles.pushBtnTextWarning]}>Push</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
     </Modal>
   );
 };
@@ -1060,7 +1131,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -1069,8 +1140,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     maxHeight: MODAL_HEIGHT,
-    minHeight: 500, // FORCE HEIGHT
-    backgroundColor: '#151517',
+    minHeight: 500,
+    backgroundColor: 'rgba(18, 18, 22, 0.92)',
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1.5,
@@ -1402,7 +1473,6 @@ const styles = StyleSheet.create({
     color: AppColors.primary,
   },
   changesContainer: {
-    flex: 1,
     paddingTop: 4,
     paddingBottom: 20,
   },
@@ -1503,7 +1573,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.08)',
-    backgroundColor: '#151517',
   },
   commitInput: {
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -1658,5 +1727,112 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: AppColors.primary,
+  },
+  createCommitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 16,
+  },
+  createCommitBtnDisabled: {
+    opacity: 0.35,
+  },
+  createCommitBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  commitModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commitModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: '#1a1a1e',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  commitModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  commitModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  commitModalFilesSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  commitModalFilesText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: AppColors.primary,
+  },
+  commitModalInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    padding: 14,
+    color: '#fff',
+    fontSize: 14,
+    minHeight: 80,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 16,
+  },
+  commitModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  commitModalBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  commitModalBtnDisabled: {
+    opacity: 0.4,
+  },
+  commitModalBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  commitModalPushBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+  },
+  commitModalPushBtnText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#fff',
   },
 });

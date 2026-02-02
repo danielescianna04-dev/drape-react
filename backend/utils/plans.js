@@ -88,7 +88,7 @@ const PLANS = {
         name: 'Free',
         price: 0,
         models: ['gemini-3-flash', 'gemini-3-pro', 'claude-sonnet-4', 'claude-opus-4'],
-        monthlyBudgetEur: 2.50,
+        monthlyBudgetEur: 1.50,
         maxProjects: 3,           // Totale massimo progetti (2 creati + 1 clonato)
         maxCreatedProjects: 2,    // Massimo progetti creati in app
         maxImportedProjects: 1,   // Massimo progetti clonati da GitHub
@@ -99,12 +99,12 @@ const PLANS = {
     go: {
         id: 'go',
         name: 'Go',
-        price: 9.99,
+        price: 23.99,
         models: ['gemini-3-flash', 'gemini-3-pro', 'claude-sonnet-4', 'claude-opus-4'],
-        monthlyBudgetEur: 5,
-        maxProjects: 8,           // Totale massimo progetti (5 creati + 3 clonati)
+        monthlyBudgetEur: 7.50,
+        maxProjects: 10,          // Totale massimo progetti (5 creati + 5 clonati)
         maxCreatedProjects: 5,    // Massimo progetti creati in app
-        maxImportedProjects: 3,   // Massimo progetti clonati da GitHub
+        maxImportedProjects: 5,   // Massimo progetti clonati da GitHub
         maxPreviewsPerMonth: 20,  // Preview mensili
         storageMB: 2000,
         features: ['All AI models', 'Email support', 'Project export']

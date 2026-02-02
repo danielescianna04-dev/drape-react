@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,9 @@ import {
   Linking,
   Alert,
   Dimensions,
+  PanResponder,
+  Modal,
+  TextInput,
 } from 'react-native';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, Rect, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -153,6 +156,74 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [showEditName, setShowEditName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+
+  // Swipe-back gesture
+  const swipeX = useRef(new Animated.Value(0)).current;
+  const panResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gs) => {
+      // Only activate for horizontal right swipes starting from left edge area
+      return gs.dx > 10 && Math.abs(gs.dy) < Math.abs(gs.dx) && gs.moveX < 40;
+    },
+    onPanResponderMove: (_, gs) => {
+      if (gs.dx > 0) swipeX.setValue(gs.dx);
+    },
+    onPanResponderRelease: (_, gs) => {
+      const screenWidth = Dimensions.get('window').width;
+      if (gs.dx > screenWidth * 0.3 || gs.vx > 0.5) {
+        Animated.timing(swipeX, {
+          toValue: screenWidth,
+          duration: 200,
+          useNativeDriver: true,
+        }).start(() => onClose());
+      } else {
+        Animated.spring(swipeX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 65,
+          friction: 11,
+        }).start();
+      }
+    },
+  }), [onClose]);
+
+  // Plan screen entrance/exit animations
+  const planHeaderAnim = useRef(new Animated.Value(0)).current;
+  const planToggleAnim = useRef(new Animated.Value(0)).current;
+  const planCardsAnim = useRef(new Animated.Value(0)).current;
+  const planFooterAnim = useRef(new Animated.Value(0)).current;
+  const planExitAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (showPlanSelection) {
+      planExitAnim.setValue(1);
+      planHeaderAnim.setValue(0);
+      planToggleAnim.setValue(0);
+      planCardsAnim.setValue(0);
+      planFooterAnim.setValue(0);
+      Animated.stagger(100, [
+        Animated.timing(planHeaderAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.timing(planToggleAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.timing(planCardsAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.timing(planFooterAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [showPlanSelection]);
+
+  // Animated close for plan screen
+  const handleClosePlans = () => {
+    Animated.parallel([
+      Animated.timing(planExitAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
+    ]).start(() => {
+      if (initialShowPlans) {
+        onClose();
+      } else {
+        setShowPlanSelection(false);
+      }
+    });
+  };
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -396,15 +467,15 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         name: 'Starter',
         price: '€0',
         description: 'Per chi vuole esplorare le basi.',
-        features: ['2 progetti + 1 clonato', '5 preview al mese', 'Budget AI base (€2.50)', '500MB Storage Cloud'],
+        features: ['2 progetti + 1 clonato', '5 preview al mese', 'Budget AI base', '500MB Storage Cloud'],
         color: '#94A3B8'
       },
       {
         id: 'go',
         name: 'Go',
-        price: billingCycle === 'monthly' ? '€9.99' : '€7.99',
+        price: billingCycle === 'monthly' ? '€23.99' : '€19.99',
         description: 'Per chi vuole creare sul serio.',
-        features: ['5 progetti + 3 clonati', '20 preview al mese', 'Budget AI raddoppiato (€5)', '2GB Storage Cloud', 'Supporto email'],
+        features: ['5 progetti + 5 clonati', '20 preview al mese', 'Budget AI potenziato', '2GB Storage Cloud', 'Supporto email'],
         color: AppColors.primary,
         isPopular: true
       },
@@ -413,13 +484,18 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         name: 'Pro',
         price: billingCycle === 'monthly' ? '€29.99' : '€23.99',
         description: 'Potenza massima per sviluppatori.',
-        features: ['Progetti illimitati', 'Preview illimitate', 'Budget AI €15/mese', '10GB Storage Cloud', 'Supporto prioritario'],
+        features: ['Progetti illimitati', 'Preview illimitate', 'Budget AI illimitato', '10GB Storage Cloud', 'Supporto prioritario'],
         color: '#F472B6'
       }
     ];
 
     return (
-      <View style={styles.container}>
+      <Animated.View style={[styles.container, {
+        opacity: planExitAnim,
+        transform: [{
+          scale: planExitAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }),
+        }],
+      }]}>
         <LinearGradient colors={['#0A0A0C', '#0A0A0C']} style={StyleSheet.absoluteFill} />
 
         {/* Decorative Background Elements */}
@@ -428,13 +504,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity
             style={styles.backButtonCompact}
-            onPress={() => {
-              if (initialShowPlans) {
-                onClose();
-              } else {
-                setShowPlanSelection(false);
-              }
-            }}
+            onPress={handleClosePlans}
           >
             <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
               <Ionicons name="close" size={20} color="#fff" />
@@ -449,13 +519,19 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         >
-          <View style={styles.planSelectionHero}>
+          <Animated.View style={[styles.planSelectionHero, {
+            opacity: planHeaderAnim,
+            transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+          }]}>
             <Text style={styles.plansMainTitle}>Eleva il tuo Sviluppo</Text>
             <Text style={styles.plansSubtitleSmall}>Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.</Text>
-          </View>
+          </Animated.View>
 
           {/* Billing Switcher */}
-          <View style={styles.pricingToggleContainer}>
+          <Animated.View style={[styles.pricingToggleContainer, {
+            opacity: planToggleAnim,
+            transform: [{ translateY: planToggleAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          }]}>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
               onPress={() => setBillingCycle('monthly')}
@@ -471,8 +547,15 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 <Text style={styles.yearlySavingsText}>-20%</Text>
               </View>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
 
+          <Animated.View style={{
+            opacity: planCardsAnim,
+            transform: [
+              { translateY: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) },
+              { scale: planCardsAnim.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] }) },
+            ],
+          }}>
           <ScrollView
             ref={planScrollRef}
             horizontal
@@ -568,19 +651,24 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               </TouchableOpacity>
             ))}
           </ScrollView>
+          </Animated.View>
 
           {/* Dots */}
-          <View style={styles.dotsRow}>
+          <Animated.View style={[styles.dotsRow, {
+            opacity: planFooterAnim,
+          }]}>
             {plans.map((_, i) => (
               <View key={i} style={[styles.planDot, visiblePlanIndex === i && styles.planDotActive]} />
             ))}
-          </View>
+          </Animated.View>
 
-          <Text style={styles.legalNotice}>
+          <Animated.Text style={[styles.legalNotice, {
+            opacity: planFooterAnim,
+          }]}>
             Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.
-          </Text>
+          </Animated.Text>
         </ScrollView>
-      </View>
+      </Animated.View>
     );
   };
 
@@ -599,14 +687,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       if (amount > 0 && amount < 0.01) return `€${amount.toFixed(4)}`;
       return `€${amount.toFixed(2)}`;
     };
-    const budgetDisplay = `${formatEur(spentEur)} / €${budgetEur.toFixed(2)}`;
-
     // Get color based on usage
     const getBudgetColor = () => {
       if (percentUsed >= 90) return '#F87171'; // Red
       if (percentUsed >= 70) return '#FBBF24'; // Yellow
-      return '#34D399'; // Green
+      return '#6366F1'; // Indigo/blue like Claude
     };
+
+    const daysLeft = Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate()));
 
     return (
       <View style={styles.container}>
@@ -621,7 +709,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <Ionicons name="close" size={20} color="#fff" />
             </BlurView>
           </TouchableOpacity>
-          <Text style={styles.headerTitleSmall}>Budget AI</Text>
+          <Text style={styles.headerTitleSmall}>Utilizzo</Text>
           <View style={{ width: 44 }} />
         </View>
 
@@ -630,50 +718,25 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         >
-          {/* Budget Card - Main */}
+          {/* Budget Card - Claude style: clean bar + percentage */}
           <BlurView intensity={30} tint="dark" style={styles.mainMonitorCard}>
-            <View style={styles.monitorHeader}>
-              <View>
-                <Text style={styles.monitorTitle}>Budget Mensile</Text>
-                <Text style={styles.monitorSub}>Piano {planName}</Text>
-              </View>
-              <View style={[styles.monitorValueBadge, { backgroundColor: `${getBudgetColor()}20` }]}>
-                <Text style={[styles.monitorValueText, { color: getBudgetColor() }]}>{budgetDisplay}</Text>
-              </View>
-            </View>
+            <Text style={styles.monitorTitle}>Budget AI</Text>
+            <Text style={[styles.monitorSub, { marginBottom: 20 }]}>Piano {planName} · si resetta tra {daysLeft}g</Text>
 
-            {/* Big Progress Bar */}
+            {/* Clean Progress Bar */}
             <View style={styles.budgetProgressContainer}>
-              <View style={styles.budgetProgressBg}>
-                <LinearGradient
-                  colors={[getBudgetColor(), `${getBudgetColor()}80`]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.budgetProgressFill, { width: `${Math.min(percentUsed, 100)}%` }]}
-                />
-              </View>
-              <View style={styles.budgetProgressLabels}>
-                <Text style={styles.budgetProgressText}>€0</Text>
-                <Text style={styles.budgetProgressText}>€{(budgetEur / 2).toFixed(2)}</Text>
-                <Text style={styles.budgetProgressText}>€{budgetEur.toFixed(2)}</Text>
-              </View>
-            </View>
-
-            {/* Budget Stats */}
-            <View style={styles.budgetStatsRow}>
-              <View style={styles.budgetStatItem}>
-                <Text style={styles.budgetStatValue}>{formatEur(remainingEur)}</Text>
-                <Text style={styles.budgetStatLabel}>Rimanente</Text>
-              </View>
-              <View style={styles.budgetStatDivider} />
-              <View style={styles.budgetStatItem}>
-                <Text style={styles.budgetStatValue}>{percentUsed}%</Text>
-                <Text style={styles.budgetStatLabel}>Utilizzato</Text>
-              </View>
-              <View style={styles.budgetStatDivider} />
-              <View style={styles.budgetStatItem}>
-                <Text style={styles.budgetStatValue}>{Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate()))}g</Text>
-                <Text style={styles.budgetStatLabel}>Al reset</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={[styles.budgetProgressBg, { flex: 1 }]}>
+                  <View
+                    style={[styles.budgetProgressFill, {
+                      width: `${Math.min(percentUsed, 100)}%`,
+                      backgroundColor: getBudgetColor(),
+                    }]}
+                  />
+                </View>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '500', minWidth: 65 }}>
+                  {percentUsed}% usato
+                </Text>
               </View>
             </View>
           </BlurView>
@@ -739,7 +802,10 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   if (showResourceUsage) return renderResourceUsage();
 
   return (
-    <View style={styles.container}>
+    <Animated.View
+      style={[styles.container, { transform: [{ translateX: swipeX }] }]}
+      {...panResponder.panHandlers}
+    >
       <LinearGradient
         colors={['#0A0A0C', '#0A0A0C']}
         style={StyleSheet.absoluteFill}
@@ -779,34 +845,42 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       >
         {/* User Profile Section */}
         {user && (
-          <GlassCard style={styles.profileBlur} key={loading ? 'loading-profile' : 'loaded-profile'}>
-            <View style={styles.profileSection}>
-              <View style={styles.profileAvatarContainer}>
-                <LinearGradient
-                  colors={[AppColors.primary, AppColors.primaryShade]}
-                  style={styles.profileAvatar}
-                >
-                  <Text style={styles.profileAvatarText}>
-                    {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
-                  </Text>
-                </LinearGradient>
-              </View>
-              <View style={styles.profileInfo}>
-                <View style={styles.profileNameRow}>
-                  <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
-                  <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
-                    <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
-                      {currentPlan.toUpperCase()}
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              setEditNameValue(user.displayName || '');
+              setShowEditName(true);
+            }}
+          >
+            <GlassCard style={styles.profileBlur} key={loading ? 'loading-profile' : 'loaded-profile'}>
+              <View style={styles.profileSection}>
+                <View style={styles.profileAvatarContainer}>
+                  <LinearGradient
+                    colors={[AppColors.primary, AppColors.primaryShade]}
+                    style={styles.profileAvatar}
+                  >
+                    <Text style={styles.profileAvatarText}>
+                      {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
                     </Text>
-                  </View>
+                  </LinearGradient>
                 </View>
-                <Text style={styles.profileEmail}>{user.email}</Text>
+                <View style={styles.profileInfo}>
+                  <View style={styles.profileNameRow}>
+                    <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
+                    <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
+                      <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
+                        {currentPlan.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.profileEmail}>{user.email}</Text>
+                </View>
+                <View style={styles.editProfileBtn}>
+                  <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.6)" />
+                </View>
               </View>
-              <TouchableOpacity style={styles.editProfileBtn}>
-                <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.6)" />
-              </TouchableOpacity>
-            </View>
-          </GlassCard>
+            </GlassCard>
+          </TouchableOpacity>
         )}
 
         {/* Account Git Section */}
@@ -860,7 +934,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 icon="wallet-outline"
                 iconColor="#34D399"
                 title="Budget AI"
-                subtitle={budgetStatus ? `${budgetStatus.usage.spentEur > 0 && budgetStatus.usage.spentEur < 0.01 ? `€${budgetStatus.usage.spentEur.toFixed(4)}` : `€${budgetStatus.usage.spentEur.toFixed(2)}`} / €${budgetStatus.plan.monthlyBudgetEur.toFixed(2)} (${budgetStatus.usage.percentUsed}% usato)` : 'Caricamento...'}
+                subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% utilizzato` : 'Caricamento...'}
                 onPress={() => setShowResourceUsage(true)}
                 isLast
               />
@@ -1043,7 +1117,111 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           loadAccounts();
         }}
       />
-    </View>
+
+      {/* Edit Name Modal */}
+      <Modal
+        visible={showEditName}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditName(false)}
+      >
+        <View style={styles.editNameOverlay}>
+          <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={styles.editNameCard}
+              interactive={true}
+              effect="regular"
+              colorScheme="dark"
+            >
+              <View style={styles.editNameInner}>
+                <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
+                <Text style={styles.editNameTitle}>Modifica Nome</Text>
+                <Text style={styles.editNameSubtitle}>Inserisci il tuo nome visualizzato</Text>
+                <View style={styles.editNameInputWrap}>
+                  <TextInput
+                    style={styles.editNameInput}
+                    value={editNameValue}
+                    onChangeText={setEditNameValue}
+                    placeholder="Nome"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    autoFocus
+                    selectionColor={AppColors.primary}
+                  />
+                </View>
+                <View style={styles.editNameButtons}>
+                  <TouchableOpacity
+                    style={styles.editNameBtn}
+                    onPress={() => setShowEditName(false)}
+                  >
+                    <Text style={styles.editNameBtnTextCancel}>Annulla</Text>
+                  </TouchableOpacity>
+                  <LinearGradient
+                    colors={[AppColors.primary, AppColors.primaryShade]}
+                    style={styles.editNameBtnConfirm}
+                  >
+                    <TouchableOpacity
+                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+                      onPress={() => {
+                        if (editNameValue.trim()) {
+                          useAuthStore.getState().updateDisplayName(editNameValue.trim());
+                        }
+                        setShowEditName(false);
+                      }}
+                    >
+                      <Text style={styles.editNameBtnTextConfirm}>Salva</Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              </View>
+            </LiquidGlassView>
+          ) : (
+            <View style={[styles.editNameCard, { backgroundColor: '#1C1C1E' }]}>
+              <View style={styles.editNameInner}>
+                <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
+                <Text style={styles.editNameTitle}>Modifica Nome</Text>
+                <Text style={styles.editNameSubtitle}>Inserisci il tuo nome visualizzato</Text>
+                <View style={styles.editNameInputWrap}>
+                  <TextInput
+                    style={styles.editNameInput}
+                    value={editNameValue}
+                    onChangeText={setEditNameValue}
+                    placeholder="Nome"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    autoFocus
+                    selectionColor={AppColors.primary}
+                  />
+                </View>
+                <View style={styles.editNameButtons}>
+                  <TouchableOpacity
+                    style={styles.editNameBtn}
+                    onPress={() => setShowEditName(false)}
+                  >
+                    <Text style={styles.editNameBtnTextCancel}>Annulla</Text>
+                  </TouchableOpacity>
+                  <LinearGradient
+                    colors={[AppColors.primary, AppColors.primaryShade]}
+                    style={styles.editNameBtnConfirm}
+                  >
+                    <TouchableOpacity
+                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+                      onPress={() => {
+                        if (editNameValue.trim()) {
+                          useAuthStore.getState().updateDisplayName(editNameValue.trim());
+                        }
+                        setShowEditName(false);
+                      }}
+                    >
+                      <Text style={styles.editNameBtnTextConfirm}>Salva</Text>
+                    </TouchableOpacity>
+                  </LinearGradient>
+                </View>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
+    </Animated.View>
   );
 };
 
@@ -1821,5 +1999,74 @@ const styles = StyleSheet.create({
     width: 1,
     height: 30,
     backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  editNameOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editNameCard: {
+    width: 310,
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  editNameInner: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  editNameTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    letterSpacing: -0.3,
+  },
+  editNameSubtitle: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 13,
+    marginBottom: 20,
+  },
+  editNameInputWrap: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  editNameInput: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: '#fff',
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  editNameButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 10,
+  },
+  editNameBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  editNameBtnConfirm: {
+    flex: 1,
+    borderRadius: 12,
+    height: 46,
+  },
+  editNameBtnTextCancel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  editNameBtnTextConfirm: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

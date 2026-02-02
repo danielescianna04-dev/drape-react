@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState } from 'react-native';
-import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState } from 'react-native';
+import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, FadeInUp, FadeOutUp, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -128,6 +128,31 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]); // Terminal output for CLI projects
   const terminalScrollRef = useRef<ScrollView>(null); // Auto-scroll terminal output
   const logsXhrRef = useRef<XMLHttpRequest | null>(null); // SSE connection for logs (using XHR for RN compatibility)
+  // Start screen transition animation
+  const startTransitionAnim = useRef(new Animated.Value(0)).current; // 0 = idle, 1 = transitioning out
+  const [isStartTransitioning, setIsStartTransitioning] = useState(false);
+
+  const handleStartWithTransition = () => {
+    setIsStartTransitioning(true);
+    // Animate start window closing (scale down + fade, like minimizing a macOS window)
+    Animated.timing(startTransitionAnim, {
+      toValue: 1,
+      duration: 300,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      handleStartServer();
+    });
+  };
+
+  // Reset transition state when returning to stopped
+  useEffect(() => {
+    if (serverStatus === 'stopped') {
+      startTransitionAnim.setValue(0);
+      setIsStartTransitioning(false);
+    }
+  }, [serverStatus]);
+
   // Environment variables state
   const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
   const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
@@ -191,7 +216,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     { id: 'ready', label: 'Ci siamo quasi', status: 'pending' as const },
   ];
   const [startupSteps, setStartupStepsLocal] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>(
-    persistedState?.startupSteps ?? defaultSteps
+    Array.isArray(persistedState?.startupSteps) ? persistedState.startupSteps : defaultSteps
   );
   const [currentStepId, setCurrentStepIdLocal] = useState<string | null>(persistedState?.currentStepId ?? null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -220,6 +245,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Live Activity / Dynamic Island state
   const [estimatedRemainingSeconds, setEstimatedRemainingSeconds] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
   const appState = useRef(AppState.currentState);
   const [isAppInBackground, setIsAppInBackground] = useState(false);
 
@@ -262,9 +289,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       smoothProgressSyncTimer.current = setTimeout(() => {
         smoothProgressSyncTimer.current = null;
         setSmoothProgressLocal(smoothProgressRef.current);
-        if (projectId) {
-          setPreviewStartupState(projectId, { smoothProgress: smoothProgressRef.current });
-        }
       }, 200);
     }
   };
@@ -475,7 +499,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   useEffect(() => {
     if (!agentStreaming && agentEvents.length > 0 && previewChatId && aiMessages.length > 0) {
       // Convert aiMessages to TerminalItem format for storage
-      const messagesToSave = aiMessages.map((msg, index) => ({
+      const messagesToSave = (aiMessages || []).map((msg, index) => ({
         id: `preview-msg-${index}`,
         content: msg.content || '',
         type: msg.type === 'user' ? 'user_message' : 'output',
@@ -754,6 +778,25 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     return () => clearInterval(timer);
   }, [isStarting, isNextJsProject]);
+
+  // ⏱️ Real elapsed timer - counts up from when preview start begins
+  useEffect(() => {
+    if (isStarting) {
+      if (!startTimeRef.current) {
+        startTimeRef.current = Date.now();
+      }
+      setElapsedSeconds(0);
+      const timer = setInterval(() => {
+        if (startTimeRef.current) {
+          setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+        }
+      }, 1000);
+      return () => clearInterval(timer);
+    } else {
+      startTimeRef.current = null;
+      setElapsedSeconds(0);
+    }
+  }, [isStarting]);
 
   // 🧹 Cleanup: Termina Live Activity e progress sync timer quando componente viene unmounted
   useEffect(() => {
@@ -1380,6 +1423,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         let pollInterval: any = null;
         let dataBuffer = '';
         let readyReceived = false; // Track if 'ready' event was received
+        let errorReceived = false; // Track if 'error' event was received (don't recover)
 
         const processResponse = () => {
           const newData = xhr.responseText.substring(lastIndex);
@@ -1451,7 +1495,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     setIsNextJsProject(true);
                   }
 
-                  setStartupSteps(prev => prev.map(step => {
+                  setStartupSteps(prev => (prev || []).map(step => {
                     if (step.id === parsed.step) return { ...step, status: 'active' };
                     // Mark previous steps as complete
                     const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'installing', 'starting', 'ready'];
@@ -1523,9 +1567,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   }
                 } else if (parsed.type === 'error') {
                   console.error('❌ SSE Error:', parsed.message);
+                  errorReceived = true; // Prevent recovery from overriding error state
                   // Capture logs for error reporting
                   recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
-                  setStartupSteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+                  setStartupSteps(prev => (prev || []).map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
                   logError(parsed.message, 'preview');
                   setServerStatus('stopped');
                   setIsStarting(false);
@@ -1561,7 +1606,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           }
 
           // 🔑 RECOVERY: If XHR completed but we never got 'ready' event, try to recover
-          if (!readyReceived && xhr.status === 200) {
+          // Skip recovery if we already received an error (don't override error state)
+          if (!readyReceived && !errorReceived && xhr.status === 200) {
             console.log('⚠️ XHR completed but ready event not received, attempting recovery...');
             console.log('📋 Final response length:', xhr.responseText?.length);
             console.log('📋 Last 500 chars:', xhr.responseText?.slice(-500));
@@ -1580,7 +1626,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                 console.log('✅ Recovery: VM is running, manually completing setup');
                 setGlobalFlyMachineId(sessionData.machineId, currentWorkstation?.id);
                 flyMachineIdRef.current = sessionData.machineId;
-                setCurrentPreviewUrl(`${apiUrl}`);
+                setCurrentPreviewUrl(`${apiUrl}/preview/${currentWorkstation?.id}`);
                 setServerStatus('running');
                 setIsStarting(false);
                 resolve();
@@ -1615,6 +1661,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       logError(error.message || 'Errore durante l\'avvio', 'preview');
       setServerStatus('stopped');
       setIsStarting(false);
+      setPreviewError({ message: error.message || 'Errore durante l\'avvio della preview', timestamp: new Date() });
     }
   };
 
@@ -2401,115 +2448,243 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     <View style={styles.iphoneVolumeDown} />
                   </View>
                 </Reanimated.View>
-              ) : serverStatus === 'stopped' ? (
-                // Server not running - Device mockup style with ChatPage background
-                <Reanimated.View style={styles.startScreen} exiting={FadeOut.duration(300)}>
-                  {/* Premium gradient background with ambient effects */}
+              ) : serverStatus === 'stopped' && previewError ? (
+                // Error screen - show error instead of start button
+                <View style={styles.startScreen}>
                   <LinearGradient
-                    colors={['#050505', '#0a0a0b', '#0f0f12']}
+                    colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
                     style={StyleSheet.absoluteFill}
+                  />
+                  <View style={styles.macDesktopOrb1} />
+                  <View style={styles.macDesktopOrb2} />
+                  <View style={styles.macDesktopOrb3} />
+
+                  <TouchableOpacity
+                    onPress={handleClose}
+                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.ambientBlob1} />
-                    <View style={styles.ambientBlob2} />
-                  </LinearGradient>
+                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
+                  </TouchableOpacity>
 
-                  {/* iPhone 15 Pro style mockup */}
-                  <View style={styles.iphoneMockup}>
-                    {/* Status bar area */}
-                    <View style={styles.statusBarArea}>
-                      <Text style={styles.fakeTime}>9:41</Text>
-                      <View style={styles.dynamicIsland} />
-                      <View style={styles.fakeStatusIcons}>
-                        <Ionicons name="wifi" size={10} color="#fff" />
-                        <Ionicons name="battery-full" size={10} color="#fff" />
+                  <View style={styles.fullScreenContent}>
+                    <View style={styles.errorContainer}>
+                      <View style={styles.errorIconContainer}>
+                        <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
                       </View>
-                    </View>
+                      <Text style={styles.errorTitle}>Avvio preview fallito</Text>
+                      <Text style={styles.errorMessage} numberOfLines={8}>
+                        {previewError.message}
+                      </Text>
 
-                    {/* Screen content - Cosmic Energy Design */}
-                    <View style={styles.iphoneScreenCentered}>
-
-                      {/* Integrated Cosmic Orb Button - Glass & Round */}
-                      <TouchableOpacity
-                        style={styles.cosmicOrbContainer}
-                        onPress={handleStartServer}
-                        activeOpacity={0.9}
-                      >
-                        {/* Layered Glow Rings */}
-                        <View style={styles.cosmicGlowRing1} />
-                        <View style={styles.cosmicGlowRing2} />
-
-                        <LiquidGlassView
-                          style={styles.cosmicOrbGlass}
-                          interactive={true}
-                          effect="clear"
-                          colorScheme="dark"
+                      <View style={styles.errorButtonsContainer}>
+                        <TouchableOpacity
+                          style={styles.retryButton}
+                          onPress={handleRetryPreview}
+                          activeOpacity={0.7}
                         >
-                          <View style={styles.cosmicOrbRaw}>
-                            <Ionicons name="play" size={32} color={AppColors.primary} style={{ marginLeft: 4 }} />
-                          </View>
-                        </LiquidGlassView>
-                      </TouchableOpacity>
+                          <Ionicons name="refresh" size={18} color="#fff" />
+                          <Text style={styles.retryButtonText}>Riprova</Text>
+                        </TouchableOpacity>
 
-                      {/* High-Impact Typography */}
-                      <View style={styles.cosmicTextContainer}>
-                        <Text style={styles.cosmicTitle}>
-                          ANTEPRIMA
-                        </Text>
-                        <View style={styles.cosmicTitleUnderline} />
-                        <Text style={styles.cosmicSubtitle}>
-                          Tocca l'orb per iniziare
-                        </Text>
+                        <TouchableOpacity
+                          style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
+                          onPress={sendErrorReport}
+                          disabled={isSendingReport || reportSent}
+                          activeOpacity={0.7}
+                        >
+                          {isSendingReport ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : reportSent ? (
+                            <>
+                              <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                              <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
+                            </>
+                          ) : (
+                            <>
+                              <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
+                              <Text style={styles.sendLogsButtonText}>Invia log</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
                       </View>
+
+                      {reportSent && (
+                        <Text style={styles.reportSentMessage}>
+                          Grazie! Il nostro team analizzerà il problema.
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ) : serverStatus === 'stopped' ? (
+                // Server not running - macOS desktop style start screen
+                <View style={styles.startScreen}>
+                  {/* Same purple desktop background as loading screen */}
+                  <LinearGradient
+                    colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View style={styles.macDesktopOrb1} />
+                  <View style={styles.macDesktopOrb2} />
+                  <View style={styles.macDesktopOrb3} />
+
+                  {/* Terminal-style window with project info */}
+                  <Animated.View style={[
+                    styles.devTerminalWindow,
+                    {
+                      opacity: startTransitionAnim.interpolate({
+                        inputRange: [0, 0.6, 1],
+                        outputRange: [1, 0.5, 0],
+                      }),
+                      transform: [{
+                        scale: startTransitionAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 0.85],
+                        }),
+                      }, {
+                        translateY: startTransitionAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, 30],
+                        }),
+                      }],
+                    }
+                  ]}>
+                    {/* Window title bar */}
+                    <View style={styles.devWindowTitleBar}>
+                      <View style={styles.devWindowDots}>
+                        <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
+                        <View style={[styles.devWindowDot, { backgroundColor: '#FEBC2E' }]} />
+                        <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
+                      </View>
+                      <Text style={styles.devWindowTitle}>
+                        {currentWorkstation?.name || 'Progetto'} — preview
+                      </Text>
+                      <View style={{ width: 44 }} />
                     </View>
 
-                    {/* Side buttons */}
-                    <View style={styles.iphoneSideButton} />
-                    <View style={styles.iphoneVolumeUp} />
-                    <View style={styles.iphoneVolumeDown} />
-                  </View>
-
-                  <View style={styles.loadingFooter}>
-                    {/* Premium CTA Banner - Glass & Round High End Redesign */}
-                    <TouchableOpacity
-                      style={styles.premiumBannerRound}
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        console.log('💎 Upgrade to Professional');
-                      }}
-                    >
-                      <LiquidGlassView
-                        style={styles.premiumGlass}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      >
-                        <View style={styles.premiumBannerContentRaw}>
-                          <View style={styles.premiumIconContainerGlass}>
-                            <Ionicons name="flash" size={14} color={AppColors.primary} />
+                    {/* Window content */}
+                    <View style={styles.devWindowContent}>
+                      {/* Project Identity */}
+                      <View style={styles.devProjectHeader}>
+                        <View style={styles.devProjectIcon}>
+                          <Ionicons
+                            name={
+                              currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? 'logo-react' :
+                              currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? 'logo-vue' :
+                              currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? 'server-outline' :
+                              'logo-html5'
+                            }
+                            size={24}
+                            color={
+                              currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? '#61DAFB' :
+                              currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? '#4FC08D' :
+                              currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? '#fff' :
+                              '#E34F26'
+                            }
+                          />
+                        </View>
+                        <Text style={styles.devProjectName} numberOfLines={1}>
+                          {currentWorkstation?.name || 'Progetto'}
+                        </Text>
+                        <View style={styles.devStatusRow}>
+                          <View style={styles.devTechBadge}>
+                            <Text style={styles.devTechBadgeText}>
+                              {currentWorkstation?.technology || currentWorkstation?.language || 'web'}
+                            </Text>
                           </View>
-
-                          <View style={{ flex: 1, gap: 1 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Text style={styles.premiumBannerTitle}>Professional</Text>
-                              <View style={styles.proBadge}>
-                                <Text style={styles.proBadgeText}>PRO</Text>
-                              </View>
-                            </View>
-                            <Text style={styles.premiumBannerSubtitle}>Anteprime 4x più veloci ed istantanee</Text>
-                          </View>
-
-                          <View style={styles.premiumArrow}>
-                            <Ionicons name="chevron-forward" size={14} color="rgba(255, 255, 255, 0.3)" />
+                          <View style={styles.devDot} />
+                          <View style={styles.devStatusBadge}>
+                            <View style={[styles.devStatusDot, isStartTransitioning && { backgroundColor: '#FBBF24' }]} />
+                            <Text style={styles.devStatusText}>{isStartTransitioning ? 'Avvio...' : 'Pronto'}</Text>
                           </View>
                         </View>
-                      </LiquidGlassView>
-                    </TouchableOpacity>
+                      </View>
 
-                    {/* Technical credit text removed for a cleaner look */}
+                      {/* Info Card */}
+                      <View style={styles.devInfoCard}>
+                        <View style={styles.devInfoRow}>
+                          <Text style={styles.devInfoLabel}>Tecnologia</Text>
+                          <Text style={styles.devInfoValue}>
+                            {currentWorkstation?.technology === 'react' ? 'React' :
+                             currentWorkstation?.technology === 'vue' ? 'Vue.js' :
+                             currentWorkstation?.technology === 'nextjs' ? 'Next.js' :
+                             currentWorkstation?.technology === 'html' ? 'HTML/CSS/JS' :
+                             currentWorkstation?.technology || 'Web'}
+                          </Text>
+                        </View>
+                        <View style={styles.devInfoDivider} />
+                        <View style={styles.devInfoRow}>
+                          <Text style={styles.devInfoLabel}>Porta</Text>
+                          <Text style={styles.devInfoValue}>
+                            {currentWorkstation?.technology === 'nextjs' ? '3000' : '5173'}
+                          </Text>
+                        </View>
+                        <View style={styles.devInfoDivider} />
+                        <View style={styles.devInfoRow}>
+                          <Text style={styles.devInfoLabel}>Ambiente</Text>
+                          <View style={styles.devEnvBadge}>
+                            <Text style={styles.devEnvBadgeText}>development</Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Start Button */}
+                      <TouchableOpacity
+                        style={styles.devStartBtn}
+                        onPress={handleStartWithTransition}
+                        activeOpacity={0.85}
+                        disabled={isStartTransitioning}
+                      >
+                        <LinearGradient
+                          colors={isStartTransitioning ? ['#4C1D95', '#4C1D95'] : [AppColors.primary, '#7C3AED']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.devStartBtnGradient}
+                        >
+                          {isStartTransitioning ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <>
+                              <Ionicons name="play" size={18} color="#fff" style={{ marginLeft: 2 }} />
+                              <Text style={styles.devStartBtnText}>Avvia Anteprima</Text>
+                            </>
+                          )}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  </Animated.View>
+
+                  {/* macOS Dock */}
+                  <View style={styles.macDock}>
+                    <View style={styles.macDockBar}>
+                      {[
+                        { icon: 'compass-outline', color1: '#3B82F6', color2: '#1D4ED8' },
+                        { icon: 'terminal', color1: '#2D2D2D', color2: '#111111', active: true },
+                        { icon: 'shield-half-outline', color1: '#6366F1', color2: '#4338CA' },
+                        { icon: 'sparkles', color1: '#A855F7', color2: '#7C3AED' },
+                      ].map((app, i) => (
+                        <View key={i} style={styles.macDockIconWrap}>
+                          <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
+                            <LinearGradient
+                              colors={[app.color1, app.color2]}
+                              style={styles.macDockIconGradient}
+                            >
+                              <Ionicons name={app.icon as any} size={22} color="#fff" />
+                            </LinearGradient>
+                          </View>
+                          {app.active && <View style={styles.macDockDot} />}
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                </Reanimated.View>
+                </View>
               ) : (
-                <Reanimated.View style={{ flex: 1, backgroundColor: '#0a0a0c' }} entering={FadeIn.duration(400).delay(200)}>
+                <View style={{ flex: 1, backgroundColor: '#0a0a0c' }}>
                   {/* LIVE APP LAYER (Below) */}
                   <View style={StyleSheet.absoluteFill}>
 
@@ -2607,6 +2782,24 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           onLoadEnd={(syntheticEvent) => {
                             const { nativeEvent } = syntheticEvent;
                             console.log('✅ WebView load end:', nativeEvent.url);
+                            // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
+                            webViewRef.current?.injectJavaScript(`
+                           (function() {
+                             try {
+                               var bodyText = document.body && document.body.innerText && document.body.innerText.trim();
+                               if (bodyText && bodyText.charAt(0) === '{' && bodyText.indexOf('"error"') !== -1) {
+                                 var parsed = JSON.parse(bodyText);
+                                 if (parsed.error) {
+                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
+                                     type: 'PREVIEW_ERROR',
+                                     message: parsed.error + (parsed.message ? ': ' + parsed.message : '')
+                                   }));
+                                 }
+                               }
+                             } catch(e) {}
+                           })();
+                           true;
+                         `);
                             webViewRef.current?.injectJavaScript(`
                            (function() {
                              window.addEventListener('error', function(e) {
@@ -2689,6 +2882,23 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                               if (data.type === 'WEBVIEW_READY') {
                                 setWebViewReady(true);
                               }
+                              if (data.type === 'PREVIEW_ERROR') {
+                                // WebView loaded a JSON error from the proxy — show error UI
+                                console.error('❌ WebView detected proxy error:', data.message);
+                                const rawMsg = data.message || '';
+                                let userMsg = rawMsg;
+                                // Translate common proxy errors to user-friendly Italian messages
+                                if (rawMsg.includes('ECONNREFUSED')) {
+                                  userMsg = 'Il dev server non è riuscito ad avviarsi.\n\nPotrebbe esserci un errore nel progetto (dipendenze mancanti, errori di build o variabili d\'ambiente non configurate).';
+                                } else if (rawMsg.includes('timeout') || rawMsg.includes('Timeout')) {
+                                  userMsg = 'Il dev server non ha risposto in tempo.\n\nIl progetto potrebbe richiedere più tempo per la compilazione, oppure c\'è un errore durante il build.';
+                                } else if (rawMsg.includes('ENOTFOUND') || rawMsg.includes('EHOSTUNREACH')) {
+                                  userMsg = 'Container non raggiungibile.\n\nIl container potrebbe essere stato rilasciato. Prova a riavviare la preview.';
+                                }
+                                setPreviewError({ message: userMsg, timestamp: new Date() });
+                                setServerStatus('stopped');
+                                setIsStarting(false);
+                              }
                               if (data.type === 'TRIGGER_REFRESH') {
                                 handleRefresh();
                               }
@@ -2749,7 +2959,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                             </Text>
                           </View>
                         ) : (
-                          terminalOutput.map((line, index) => {
+                          (terminalOutput || []).map((line, index) => {
                             // Detect line type from prefix (system messages start with emoji)
                             const isSystem = line.startsWith('🚀') || line.startsWith('🔄') || line.startsWith('⏹️') || line.startsWith('❌');
                             const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('warn');
@@ -2769,19 +2979,22 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   <Animated.View
                     style={[
                       StyleSheet.absoluteFill,
-                      { opacity: maskOpacityAnim, backgroundColor: '#0a0a0c' },
+                      { opacity: maskOpacityAnim },
                       webViewReady && { pointerEvents: 'none' }
                     ]}
                   >
                     <View style={styles.startScreen}>
+                      {/* macOS Desktop-style background */}
                       <LinearGradient
-                        colors={['#050505', '#0a0a0b', '#0f0f12']}
+                        colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
                         style={StyleSheet.absoluteFill}
-                      >
-                        {/* Animated Ambient Blobs */}
-                        <View style={styles.ambientBlob1} />
-                        <View style={styles.ambientBlob2} />
-                      </LinearGradient>
+                      />
+                      {/* Subtle ambient orbs */}
+                      <View style={styles.macDesktopOrb1} />
+                      <View style={styles.macDesktopOrb2} />
+                      <View style={styles.macDesktopOrb3} />
 
                       {/* Close button top right */}
                       <TouchableOpacity
@@ -2869,7 +3082,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 >
                                   {previewLogs.length > 0 ? (
                                     <>
-                                      {previewLogs.map((log) => (
+                                      {(previewLogs || []).map((log) => (
                                         <Text key={log.id} style={styles.terminalLogText}>
                                           {log.message}
                                         </Text>
@@ -2897,16 +3110,47 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                       { width: `${smoothProgress}%` }
                                     ]} />
                                   </View>
-                                  <Text style={styles.terminalProgressText}>
-                                    {Math.round(smoothProgress)}%
+                                  <Text style={styles.terminalProgressText} numberOfLines={1}>
+                                    {startingMessage || 'Caricamento...'}
                                   </Text>
+                                  {elapsedSeconds > 0 && (
+                                    <Text style={styles.terminalRemainingText}>
+                                      {elapsedSeconds < 60
+                                        ? `${elapsedSeconds}s`
+                                        : `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`}
+                                    </Text>
+                                  )}
                                 </View>
                               </View>
                             )}
                           </View>
+
+                        {/* macOS Dock */}
+                        <View style={styles.macDock}>
+                          <View style={styles.macDockBar}>
+                            {[
+                              { icon: 'compass-outline', color1: '#3B82F6', color2: '#1D4ED8', label: 'Browser' },
+                              { icon: 'terminal', color1: '#2D2D2D', color2: '#111111', label: 'Terminal', active: true },
+                              { icon: 'shield-half-outline', color1: '#6366F1', color2: '#4338CA', label: 'VPN' },
+                              { icon: 'sparkles', color1: '#A855F7', color2: '#7C3AED', label: 'AI' },
+                            ].map((app, i) => (
+                              <View key={i} style={styles.macDockIconWrap}>
+                                <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
+                                  <LinearGradient
+                                    colors={[app.color1, app.color2]}
+                                    style={styles.macDockIconGradient}
+                                  >
+                                    <Ionicons name={app.icon as any} size={22} color="#fff" />
+                                  </LinearGradient>
+                                </View>
+                                {app.active && <View style={styles.macDockDot} />}
+                              </View>
+                            ))}
+                          </View>
+                        </View>
                         </View>
                     </Animated.View>
-                </Reanimated.View>
+                </View>
               )}
             </View>
           </KeyboardAvoidingView>
@@ -2972,7 +3216,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   }}
                 >
                   {/* Render all messages */}
-                  {aiMessages.map((msg, index) => {
+                  {(aiMessages || []).map((msg, index) => {
                     if (msg.type === 'user') {
                       return (
                         <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
@@ -3420,9 +3664,334 @@ const styles = StyleSheet.create({
   },
   startScreen: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Terminal window (macOS style)
+  devTerminalWindow: {
+    width: '92%',
+    maxWidth: 380,
+    borderRadius: 12,
+    backgroundColor: 'rgba(30, 30, 30, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  devWindowTitleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  devWindowDots: {
+    flexDirection: 'row',
+    gap: 7,
+    marginRight: 12,
+  },
+  devWindowDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  devWindowTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.45)',
+  },
+  devWindowContent: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  // Dev-tool style start screen
+  devStartContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 80,
+  },
+  devProjectHeader: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  devProjectIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 100,
+    marginBottom: 16,
+  },
+  devProjectName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: -0.3,
+    marginBottom: 10,
+    textAlign: 'center',
+    maxWidth: '90%',
+  },
+  devStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  devTechBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  devTechBadgeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+    textTransform: 'lowercase',
+  },
+  devDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  devStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  devStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+  },
+  devStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  devStartBtn: {
+    width: '100%',
+    maxWidth: 280,
+    height: 50,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 20,
+    marginBottom: 32,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  devStartBtnGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  devStartBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+    letterSpacing: 0.2,
+  },
+  devInfoCard: {
+    width: '100%',
+    maxWidth: 280,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: 4,
+  },
+  devInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  devInfoLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.35)',
+  },
+  devInfoValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.75)',
+  },
+  devInfoDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginHorizontal: 16,
+  },
+  devEnvBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
+  },
+  devEnvBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#22C55E',
+  },
+  devUpgradeFooter: {
+    position: 'absolute',
+    bottom: 32,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  devUpgradeBanner: {
+    width: '100%',
+    maxWidth: 320,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  devUpgradeIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: 'rgba(139, 92, 246, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  devUpgradeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  devGoBadge: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+  },
+  devGoBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: AppColors.primary,
+  },
+  devUpgradeSubtitle: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 1,
+  },
+  // macOS Dock
+  macDock: {
+    position: 'absolute',
+    bottom: 18,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  macDockBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 22,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  macDockIconWrap: {
+    alignItems: 'center',
+    gap: 5,
+  },
+  macDockIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  macDockIconActive: {
+    shadowColor: AppColors.primary,
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+  },
+  macDockIconGradient: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+  },
+  macDockDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  // macOS Desktop wallpaper orbs
+  macDesktopOrb1: {
+    position: 'absolute',
+    top: '10%',
+    left: '-15%',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(139, 92, 246, 0.25)',
+  },
+  macDesktopOrb2: {
+    position: 'absolute',
+    top: '5%',
+    right: '-10%',
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+  },
+  macDesktopOrb3: {
+    position: 'absolute',
+    bottom: '15%',
+    left: '20%',
+    width: 350,
+    height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
   },
   glowTop: {
     position: 'absolute',
@@ -4314,7 +4883,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: 'rgba(255, 255, 255, 0.5)',
     fontFamily: 'SF-Pro-Text-Semibold',
-    minWidth: 32,
+    flex: 1,
+  },
+  terminalRemainingText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontFamily: 'SF-Pro-Text-Semibold',
     textAlign: 'right',
   },
   miniProgressContainer: {

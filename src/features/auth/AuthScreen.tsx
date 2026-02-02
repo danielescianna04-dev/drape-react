@@ -5,7 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   Alert,
@@ -228,10 +228,40 @@ export const AuthScreen = () => {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
-  const modalMarginBottom = useRef(new RNAnimated.Value(90)).current;
+  const modalBottom = useRef(new RNAnimated.Value(90)).current;
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
+  const keyboardHeight = useRef(0);
+  const baseMarginBottom = useRef(90);
   const { signIn, signUp, resetPassword, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
+
+  // Manual keyboard handling to avoid KAV jitter when switching fields
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const onShow = (e: any) => {
+      keyboardHeight.current = e.endCoordinates.height;
+      RNAnimated.timing(modalBottom, {
+        toValue: keyboardHeight.current - insets.bottom + 10,
+        duration: e.duration || 250,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const onHide = (e: any) => {
+      keyboardHeight.current = 0;
+      RNAnimated.timing(modalBottom, {
+        toValue: baseMarginBottom.current,
+        duration: e.duration || 250,
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const sub1 = Keyboard.addListener(showEvent, onShow);
+    const sub2 = Keyboard.addListener(hideEvent, onHide);
+    return () => { sub1.remove(); sub2.remove(); };
+  }, [insets.bottom]);
 
   useEffect(() => {
     let targetHeight = 200;
@@ -240,8 +270,13 @@ export const AuthScreen = () => {
     if (mode === 'forgot') targetHeight = 300;
 
     const showBlur = mode !== 'initial';
-
     const targetMarginBottom = mode === 'initial' ? 90 : 30;
+    baseMarginBottom.current = targetMarginBottom;
+
+    // Only animate bottom if keyboard is NOT open
+    const bottomTarget = keyboardHeight.current > 0
+      ? keyboardHeight.current - insets.bottom + 10
+      : targetMarginBottom;
 
     RNAnimated.parallel([
       RNAnimated.spring(modalHeight, {
@@ -250,8 +285,8 @@ export const AuthScreen = () => {
         tension: 65,
         friction: 12,
       }),
-      RNAnimated.spring(modalMarginBottom, {
-        toValue: targetMarginBottom,
+      RNAnimated.spring(modalBottom, {
+        toValue: bottomTarget,
         useNativeDriver: false,
         tension: 65,
         friction: 12,
@@ -522,12 +557,8 @@ export const AuthScreen = () => {
       </RNAnimated.View>
 
       {/* Bottom Modal */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalContainer}
-        keyboardVerticalOffset={0}
-      >
-        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: modalMarginBottom }]}>
+      <View style={styles.modalContainer}>
+        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: modalBottom }]}>
           {isLiquidGlassSupported ? (
             <LiquidGlassView style={styles.liquidGlassModal} interactive={true} effect="clear" colorScheme="dark">
               <View style={styles.modalContent}>
@@ -542,7 +573,7 @@ export const AuthScreen = () => {
             </BlurView>
           )}
         </RNAnimated.View>
-      </KeyboardAvoidingView>
+      </View>
 
       {/* Footer - only show in initial mode */}
       {mode === 'initial' && (

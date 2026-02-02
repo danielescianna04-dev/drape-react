@@ -451,8 +451,7 @@ class StorageService {
         const startTime = Date.now();
         console.log(`🔄 [Storage] Syncing ${bundle.length} files to VM (tar.gz)...`);
 
-        // Headers for Fly.io routing
-        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+        const headers = {};
 
         try {
             // Create tar.gz archive in memory

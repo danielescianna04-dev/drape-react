@@ -8,7 +8,7 @@
 
 const express = require('express');
 const router = express.Router();
-const flyService = require('../services/fly-service');
+const containerService = require('../services/container-service');
 const workspaceOrchestrator = require('../services/workspace-orchestrator');
 const TOOLS_CONFIG = require('../services/agent-tools.json');
 
@@ -43,7 +43,7 @@ async function executeTool(toolName, input, agentUrl, machineId, projectId) {
         }
 
         case 'read_file': {
-            const result = await flyService.exec(agentUrl, `cat "/home/coder/project/${input.path}"`, '/home/coder/project', machineId, 10000);
+            const result = await containerService.exec(agentUrl, `cat "/home/coder/project/${input.path}"`, '/home/coder/project', machineId, 10000);
             if (result.exitCode !== 0) {
                 return { success: false, error: result.stderr };
             }
@@ -52,7 +52,7 @@ async function executeTool(toolName, input, agentUrl, machineId, projectId) {
 
         case 'list_directory': {
             const path = input.path === '.' ? '/home/coder/project' : `/home/coder/project/${input.path}`;
-            const result = await flyService.exec(agentUrl, `ls -la "${path}"`, '/home/coder/project', machineId, 10000);
+            const result = await containerService.exec(agentUrl, `ls -la "${path}"`, '/home/coder/project', machineId, 10000);
             if (result.exitCode !== 0) {
                 return { success: false, error: result.stderr };
             }
@@ -71,7 +71,7 @@ async function executeTool(toolName, input, agentUrl, machineId, projectId) {
             }
 
             const timeout = input.timeout_ms || 60000;
-            const result = await flyService.exec(agentUrl, input.command, '/home/coder/project', machineId, timeout);
+            const result = await containerService.exec(agentUrl, input.command, '/home/coder/project', machineId, timeout);
             return {
                 success: result.exitCode === 0,
                 exitCode: result.exitCode,
@@ -82,7 +82,7 @@ async function executeTool(toolName, input, agentUrl, machineId, projectId) {
 
         case 'edit_file': {
             // Read, replace, write using orchestrator
-            const readResult = await flyService.exec(agentUrl, `cat "/home/coder/project/${input.path}"`, '/home/coder/project', machineId, 10000);
+            const readResult = await containerService.exec(agentUrl, `cat "/home/coder/project/${input.path}"`, '/home/coder/project', machineId, 10000);
             if (readResult.exitCode !== 0) {
                 return { success: false, error: `Cannot read file: ${readResult.stderr}` };
             }
@@ -195,7 +195,7 @@ router.post('/execute-tool', async (req, res) => {
 
     try {
         // Get VM
-        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId);
+        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId, { skipSync: true });
         const { agentUrl, machineId } = vmInfo;
 
         // Execute tool
@@ -609,8 +609,8 @@ router.get('/context/:projectId', async (req, res) => {
     const { projectId } = req.params;
 
     try {
-        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId);
-        const result = await flyService.exec(
+        const vmInfo = await workspaceOrchestrator.getOrCreateVM(projectId, { skipSync: true });
+        const result = await containerService.exec(
             vmInfo.agentUrl,
             'cat /home/coder/project/.drape/project.json',
             '/home/coder/project',

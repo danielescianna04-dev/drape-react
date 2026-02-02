@@ -1,14 +1,15 @@
 /**
  * Drape Backend - Main Server Entry Point v2.0
- * Holy Grail Architecture - Fly.io MicroVMs
+ * Holy Grail Architecture - Docker Containers
  */
 
-// FIRST: Initialize global log service to capture ALL logs
+// FIRST: Load environment variables before any service imports
+require('dotenv').config();
+
+// Initialize global log service to capture ALL logs
 const globalLogService = require('./services/global-log-service');
 const fileWatcherService = require('./services/file-watcher');
 const cron = require('node-cron');
-
-require('dotenv').config();
 
 // 🔑 Global error handlers to prevent crashes on socket errors
 process.on('uncaughtException', (err) => {
@@ -165,7 +166,7 @@ async function startServer() {
 
                         // Get VM info from orchestrator and start watching
                         try {
-                            const vmInfo = await orchestrator.getOrCreateVM(projectId);
+                            const vmInfo = await orchestrator.getOrCreateVM(projectId, { skipSync: true });
                             if (vmInfo && vmInfo.agentUrl && vmInfo.machineId) {
                                 await fileWatcherService.startWatching(
                                     projectId,
@@ -320,7 +321,7 @@ async function startServer() {
         console.log('╠' + '═'.repeat(55) + '╣');
         console.log(`║  ☁️  GCP Project:  ${GOOGLE_CLOUD_PROJECT.padEnd(35)}║`);
         console.log(`║  🌍 Region:       ${LOCATION.padEnd(35)}║`);
-        console.log(`║  🚀 Compute:      Fly.io MicroVMs`.padEnd(58) + '║');
+        console.log(`║  🚀 Compute:      Docker / Hetzner`.padEnd(58) + '║');
         console.log('╚' + '═'.repeat(55) + '╝');
         console.log('');
         console.log('📂 Modular Structure Active:');

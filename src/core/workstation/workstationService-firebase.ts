@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import axios from 'axios';
@@ -128,6 +128,28 @@ export const workstationService = {
     }
   },
 
+  // Save project with a specific ID (used for AI-created projects where backend generates the ID)
+  async saveProjectWithId(projectId: string, name: string, userId: string, technology?: string): Promise<UserProject> {
+    try {
+      const project: Omit<UserProject, 'id'> = {
+        name,
+        type: 'personal',
+        userId,
+        createdAt: new Date(),
+        lastAccessed: new Date(),
+        status: 'running',
+      };
+
+      await setDoc(doc(db, COLLECTION, projectId), project);
+      console.log('📂 [saveProjectWithId] Saved project:', projectId, 'name:', name);
+
+      return { ...project, id: projectId };
+    } catch (error) {
+      console.error('Error saving project with ID:', error);
+      throw error;
+    }
+  },
+
   // Carica progetti utente da Firebase
   async getUserProjects(userId: string): Promise<UserProject[]> {
     try {
@@ -159,19 +181,18 @@ export const workstationService = {
 
       // 🚀 HOLY GRAIL: Use Fly.io API for project creation
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Creating project:', project.id, 'with token:', !!token);
+        const url = `${FLY_API_BASE}/project/create`;
         const headers: Record<string, string> = {};
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        result = await axios.post(`${FLY_API_BASE}/project/create`, {
+        result = await axios.post(url, {
           projectId: project.id,
           repositoryUrl: project.repositoryUrl,
           githubToken: token, // Also pass in body for cloneRepository
-        }, { headers });
+        }, { headers, timeout: 30000 });
 
-        console.log('🚀 [HolyGrail] Project created:', result.data);
         return {
           workstationId: project.id,
           status: 'created'
@@ -204,7 +225,7 @@ export const workstationService = {
       if (error.response?.status === 401) {
         console.log('🔐 [createWorkstationForProject] Auth required (401)');
       } else {
-        console.error('Error creating workstation:', error);
+        console.error('❌ [createWorkstation]', error.message);
       }
       throw error;
     }
@@ -214,7 +235,7 @@ export const workstationService = {
     try {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Getting files for:', workstationId, 'with token:', !!githubToken);
+        // HolyGrail: get files via backend API
         const headers: Record<string, string> = {};
         if (githubToken) {
           headers['Authorization'] = `Bearer ${githubToken}`;
@@ -228,7 +249,7 @@ export const workstationService = {
           headers,
           timeout: 45000 // Slightly longer for potential clone
         });
-        console.log('🚀 [HolyGrail] Got', response.data.files?.length || 0, 'files');
+        // Files loaded from backend
         return (response.data.files || []).map((f: any) => typeof f === 'string' ? f : f.path);
       }
 
@@ -329,7 +350,7 @@ export const workstationService = {
     try {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Reading file:', filePath);
+        // Read file via backend API
         const response = await axios.get(
           `${FLY_API_BASE}/project/${projectId}/file?path=${encodeURIComponent(filePath)}`
         );
@@ -354,7 +375,7 @@ export const workstationService = {
     try {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
-        console.log('🚀 [HolyGrail] Saving file:', filePath);
+        // Save file via backend API
         await axios.post(`${FLY_API_BASE}/project/${projectId}/file`, {
           path: filePath,
           content

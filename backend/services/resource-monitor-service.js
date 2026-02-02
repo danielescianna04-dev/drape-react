@@ -9,7 +9,7 @@
  * - Alert on resource constraints
  */
 
-const flyService = require('./fly-service');
+const containerService = require('./container-service');
 const errorTracker = require('./error-tracking-service');
 
 class ResourceMonitorService {
@@ -58,7 +58,7 @@ class ResourceMonitorService {
 
         try {
             // Get all running VMs
-            const machines = await flyService.listMachines();
+            const machines = await containerService.listMachines();
             const runningMachines = machines.filter(m => m.state === 'started');
 
             console.log(`   Found ${runningMachines.length} running VMs`);
@@ -116,16 +116,16 @@ class ResourceMonitorService {
 
     /**
      * Check resources for a specific VM
-     * @param {object} machine - Fly machine object
+     * @param {object} machine - Container/machine object
      * @returns {Promise<object>} Resource usage stats
      */
     async checkVMResources(machine) {
         try {
-            const agentUrl = 'https://drape-workspaces.fly.dev';
+            const agentUrl = machine.agentUrl;
 
             // Get memory usage
             const memoryCmd = `free -m | awk 'NR==2{printf "USED:%s TOTAL:%s", $3,$2}'`;
-            const memoryResult = await flyService.exec(
+            const memoryResult = await containerService.exec(
                 agentUrl,
                 memoryCmd,
                 '/home/coder',
@@ -136,7 +136,7 @@ class ResourceMonitorService {
 
             // Get disk usage
             const diskCmd = `df -h /home/coder | awk 'NR==2{print $5}' | sed 's/%//'`;
-            const diskResult = await flyService.exec(
+            const diskResult = await containerService.exec(
                 agentUrl,
                 diskCmd,
                 '/home/coder',

@@ -1,16 +1,14 @@
 /**
  * Workspace Orchestrator
- * Holy Grail Architecture - Central coordinator
- * 
- * This is the brain that connects:
+ * Central coordinator for Docker container workspaces on Hetzner.
+ *
+ * Connects:
  * - Firebase Storage (persistent files)
- * - Fly.io MicroVMs (compute)
- * - Drape Agent (execution)
- * 
- * It replaces the old Coder-based workflow with instant MicroVM spawning.
+ * - Docker containers on Hetzner (compute)
+ * - Drape Agent (execution inside containers)
  */
 
-const flyService = require('./fly-service');
+const containerService = require('./container-service');
 const storageService = require('./storage-service');
 const redisService = require('./redis-service');
 const fileWatcherService = require('./file-watcher');
@@ -322,16 +320,15 @@ class WorkspaceOrchestrator {
             if (existingSession && existingSession.machineId && existingSession.agentUrl) {
                 try {
                     console.log(`🔍 [Orchestrator] Checking if dev server is already running...`);
-                    const axios = require('axios');
-                    const response = await axios.get(existingSession.agentUrl, {
-                        timeout: 5000,
-                        headers: { 'Fly-Force-Instance-Id': existingSession.machineId },
-                        validateStatus: () => true
-                    });
+                    // Check actual dev server inside container (not agent URL which always returns 200)
+                    const devPort = 3000; // will be overridden by projectInfo later if needed
+                    const checkCmd = `curl -s -o /dev/null -w "%{http_code}" http://localhost:${devPort}/ 2>/dev/null || echo "000"`;
+                    const devCheck = await containerService.exec(existingSession.agentUrl, checkCmd, '/home/coder', existingSession.machineId, 4000, true);
+                    const statusCode = parseInt((devCheck.stdout || '').trim()) || 0;
 
-                    // Dev server is running - skip all warming to preserve it
-                    if ((response.status >= 200 && response.status < 400) || response.status === 404) {
-                        console.log(`✅ [Orchestrator] Dev server already running (status ${response.status}) - SKIPPING WARMING`);
+                    // Dev server is running AND returning valid content - skip warming
+                    if (statusCode >= 200 && statusCode < 400) {
+                        console.log(`✅ [Orchestrator] Dev server already running (status ${statusCode}) - SKIPPING WARMING`);
                         // Update lastUsed timestamp
                         existingSession.lastUsed = Date.now();
                         await redisService.saveVMSession(projectId, existingSession);
@@ -347,8 +344,8 @@ class WorkspaceOrchestrator {
                 }
             }
 
-            // 1. Get/Create VM
-            const vm = await this.getOrCreateVM(projectId);
+            // 1. Get/Create VM (skipSync: warmup will clean + sync itself)
+            const vm = await this.getOrCreateVM(projectId, { skipSync: true });
 
             // 2. CRITICAL: Clean project folder before sync to prevent stale file detection
             // When reusing a VM from a different project, old files (especially package.json)
@@ -356,7 +353,7 @@ class WorkspaceOrchestrator {
             console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
             try {
                 const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
-                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                await containerService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
                 console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
             } catch (e) {
                 console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
@@ -367,9 +364,12 @@ class WorkspaceOrchestrator {
             const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
             console.log(`   ✅ Synced ${syncResult.syncedCount} files`);
 
+            // NOTE: .package-json-hash is preserved — optimizedSetup recalculates and
+            // compares it. If package.json changed, hash won't match → reinstall.
+
             // Write project ID marker to VM so we can verify on next use
             try {
-                await flyService.exec(vm.agentUrl, `echo "${projectId}" > /home/coder/project/.drape-project-id`, '/home/coder', vm.machineId, 5000, true);
+                await containerService.exec(vm.agentUrl, `echo "${projectId}" > /home/coder/project/.drape-project-id`, '/home/coder', vm.machineId, 5000, true);
             } catch (e) { }
 
             // 4. Detect project type (now reads clean files from VM)
@@ -384,17 +384,16 @@ class WorkspaceOrchestrator {
                 try {
                     console.log(`🔥 [Orchestrator] Background warming starting for ${projectId}...`);
 
-                    // Patch configs for Fly.io proxy
+                    // Patch configs for Docker proxy
                     await this.patchConfigFiles(projectId, projectInfo);
 
-                    // Run npm install
+                    // Run npm install + start dev server
                     if (projectInfo.type !== 'static') {
-                        console.log(`🔥 [Orchestrator] Background install starting for ${projectId}...`);
-                        // Set a lock to prevent parallel installs during Start Preview
+                        console.log(`🔥 [Orchestrator] Background install + server start for ${projectId}...`);
+                        // staySilent=false: also start dev server so Fast Path works on preview/start
                         await this.optimizedSetup(projectId, vm.agentUrl, vm.machineId, projectInfo, (step, msg) => {
-                            // Only log locally
                             console.log(`   [Warming ${projectId}] ${step}: ${msg}`);
-                        }, true); // Use staySilent=true to skip wait for dev server
+                        }, false);
 
                         // Update lastUsed after install completes to prevent idle cleanup
                         const session = await redisService.getVMSession(projectId);
@@ -418,7 +417,7 @@ class WorkspaceOrchestrator {
     }
 
     /**
-     * Patch project configs for Fly.io proxying
+     * Patch project configs for Docker proxying
      */
     async patchConfigFiles(projectId, projectInfo) {
         try {
@@ -430,12 +429,13 @@ class WorkspaceOrchestrator {
 
             if (viteConfig && viteConfig.content) {
                 let content = viteConfig.content;
-                if (!content.includes('allowedHosts') && !content.includes('drape-workspaces.fly.dev')) {
+                const proxyDomain = 'all';
+                if (!content.includes('allowedHosts') && !content.includes(proxyDomain)) {
                     console.log(`   🔧 [Orchestrator] Patching ${viteConfig.name} for allowedHosts...`);
                     if (content.includes('server: {')) {
-                        content = content.replace('server: {', `server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all'],`);
+                        content = content.replace('server: {', `server: {\n    allowedHosts: ['${proxyDomain}', 'all'],`);
                     } else if (content.includes('defineConfig({')) {
-                        content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['drape-workspaces.fly.dev', 'all']\n  },`);
+                        content = content.replace('defineConfig({', `defineConfig({\n  server: {\n    allowedHosts: ['${proxyDomain}', 'all']\n  },`);
                     }
 
                     if (content !== viteConfig.content) {
@@ -457,17 +457,18 @@ class WorkspaceOrchestrator {
                 let content = nextConfig.content;
                 let needsWrite = false;
 
-                // Patch 2a: Add allowedOrigins for Fly.io CORS
+                // Patch 2a: Add allowedOrigins for CORS
                 if (!content.includes('allowedOrigins')) {
+                    const origins = "['*']";
                     console.log(`   🔧 [Orchestrator] Patching ${nextConfig.name} for allowedOrigins...`);
                     if (content.includes('const nextConfig = {')) {
-                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        content = content.replace('const nextConfig = {', `const nextConfig = {\n  experimental: { allowedOrigins: ${origins} },`);
                         needsWrite = true;
                     } else if (content.includes('module.exports = {')) {
-                        content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        content = content.replace('module.exports = {', `module.exports = {\n  experimental: { allowedOrigins: ${origins} },`);
                         needsWrite = true;
                     } else if (content.includes('export default {')) {
-                        content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ['drape-workspaces.fly.dev', '*.fly.dev'] },`);
+                        content = content.replace('export default {', `export default {\n  experimental: { allowedOrigins: ${origins} },`);
                         needsWrite = true;
                     }
                 }
@@ -561,52 +562,40 @@ class WorkspaceOrchestrator {
     /**
      * Stop all machines that don't belong to the current project
      * This ensures only one project's VM is active at a time (single-tenant mode)
-     * Required because all VMs share the same public URL on Fly.io
+     * Required to ensure only one project's container is active at a time
      */
     async stopOtherMachines(currentProjectId, currentMachineId = null) {
-        const machineName = `ws-${currentProjectId}`.substring(0, 30);
-
         // Use provided machineId if available (prevents race conditions during allocation)
-        // Otherwise fallback to activeVMs lookup
         if (!currentMachineId) {
             const currentVM = activeVMs.get(currentProjectId);
             currentMachineId = currentVM?.machineId;
         }
 
         try {
-            const machines = await flyService.listMachines();
-            const startedMachines = machines.filter(m =>
-                m.state === 'started' &&
-                !m.name.startsWith('ws-pool-') &&
-                m.name !== 'ws-cache-master'
-            );
+            // CRITICAL: Only stop VMs allocated to OTHER projects (from activeVMs map)
+            // NEVER touch unallocated pool containers — they must stay warm
+            const MAX_CONCURRENT_PROJECTS = 3;
+            const allocatedProjects = [...activeVMs.entries()].filter(([pid]) => pid !== currentProjectId);
 
-            // Allow up to 3 concurrent active project VMs
-            const MAX_CONCURRENT_VMS = 3;
-            if (startedMachines.length <= MAX_CONCURRENT_VMS) {
-                return;
+            if (allocatedProjects.length < MAX_CONCURRENT_PROJECTS) {
+                return; // Within limits, nothing to stop
             }
 
-            // If we have too many, stop the oldest ones (excluding current)
-            const otherMachines = startedMachines
-                .filter(m => m.id !== currentMachineId)
-                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-            const toStop = otherMachines.slice(0, startedMachines.length - MAX_CONCURRENT_VMS);
+            // Sort by lastUsed — stop the oldest idle ones
+            const toStop = allocatedProjects
+                .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0))
+                .slice(0, allocatedProjects.length - (MAX_CONCURRENT_PROJECTS - 1));
 
             if (toStop.length > 0) {
-                console.log(`🛑 [Orchestrator] Concurrency limit reached. Stopping ${toStop.length} oldest VM(s)...`);
-                for (const machine of toStop) {
+                console.log(`🛑 [Orchestrator] ${allocatedProjects.length + 1} active projects, stopping ${toStop.length} oldest...`);
+                for (const [pid, vm] of toStop) {
                     try {
-                        await flyService.stopMachine(machine.id);
-                        // Also remove from cache
-                        for (const [pid, vm] of activeVMs) {
-                            if (vm.machineId === machine.id) {
-                                activeVMs.delete(pid);
-                            }
-                        }
+                        console.log(`   ⏸️ Stopping VM for project ${pid}: ${vm.machineId?.substring(0, 12)}`);
+                        await containerService.stopMachine(vm.machineId);
+                        activeVMs.delete(pid);
+                        await redisService.removeVMSession(pid);
                     } catch (e) {
-                        console.warn(`   ⚠️ Failed to stop machine ${machine.id}: ${e.message}`);
+                        console.warn(`   ⚠️ Failed to stop machine for ${pid}: ${e.message}`);
                     }
                 }
             }
@@ -641,7 +630,7 @@ class WorkspaceOrchestrator {
             // Anti-Collision: Ensure only this project's machine is running
             // [MULTI-PROJECT ENABLED] allow multiple VMs but rely on idle timeout
             const machineName = `ws-${projectId}`.substring(0, 30);
-            // await flyService.ensureSingleActiveMachine(machineName);
+            // await containerService.ensureSingleActiveMachine(machineName);
 
             // 1. Check if we already have an active VM for this project (HIGHEST PRIORITY)
             let cached = activeVMs.get(projectId);
@@ -653,19 +642,19 @@ class WorkspaceOrchestrator {
                     console.log(`♻️ [Orchestrator] Recovered VM session from Redis: ${persisted.machineId}`);
                     // Check if it's the right image VERSION before adopting
                     const savedImage = persisted.image;
-                    if (savedImage && savedImage !== flyService.DRAPE_IMAGE) {
-                        console.log(`⚠️ [Orchestrator] Recovered VM image outdated (saved): ${savedImage} !== ${flyService.DRAPE_IMAGE}. Skipping cache.`);
+                    if (savedImage && savedImage !== containerService.DRAPE_IMAGE) {
+                        console.log(`⚠️ [Orchestrator] Recovered VM image outdated (saved): ${savedImage} !== ${containerService.DRAPE_IMAGE}. Skipping cache.`);
                         await redisService.removeVMSession(projectId);
                     } else if (!savedImage) {
                         // Legacy session without image field - verify via API
                         try {
-                            const machine = await flyService.getMachine(persisted.machineId);
-                            if (machine && machine.config?.image !== flyService.DRAPE_IMAGE) {
+                            const machine = await containerService.getMachine(persisted.machineId);
+                            if (machine && machine.config?.image !== containerService.DRAPE_IMAGE) {
                                 console.log(`⚠️ [Orchestrator] Recovered VM image outdated (API): ${machine.config?.image}. Skipping cache.`);
                                 await redisService.removeVMSession(projectId);
                             } else {
                                 // Update session with image info for future checks
-                                persisted.image = machine?.config?.image || flyService.DRAPE_IMAGE;
+                                persisted.image = machine?.config?.image || containerService.DRAPE_IMAGE;
                                 cached = persisted;
                                 activeVMs.set(projectId, cached);
                                 await redisService.saveVMSession(projectId, cached);
@@ -688,11 +677,42 @@ class WorkspaceOrchestrator {
             }
 
             if (cached && !options.forceNew) {
-                // Verify it's still alive on Fly.io
+                // Verify it's still alive — check both Docker state AND agent reachability
                 try {
-                    const machine = await flyService.getMachine(cached.machineId);
+                    const machine = await containerService.getMachine(cached.machineId);
                     if (machine && machine.state !== 'destroyed' && machine.state !== 'destroying') {
-                        console.log(`✅ [Orchestrator] Using existing active VM: ${cached.machineId}`);
+                        // CRITICAL: Also verify agent is reachable (not just Docker state)
+                        // Container can be "started" but agent unreachable (port mapping changed, crashed, etc.)
+                        if (cached.agentUrl) {
+                            try {
+                                const axios = require('axios');
+                                await axios.get(`${cached.agentUrl}/health`, { timeout: 3000, headers: {} });
+                                console.log(`✅ [Orchestrator] Using existing active VM: ${cached.machineId}`);
+                            } catch (healthErr) {
+                                // Agent unreachable — try to refresh container info from Docker
+                                console.log(`⚠️ [Orchestrator] Agent unreachable at ${cached.agentUrl}, refreshing...`);
+                                const containers = await containerService.listContainers();
+                                const fresh = containers.find(c => c.id === cached.machineId);
+                                if (fresh && fresh.agentUrl) {
+                                    cached.agentUrl = fresh.agentUrl;
+                                    cached.previewUrl = fresh.previewUrl;
+                                    activeVMs.set(projectId, cached);
+                                    await redisService.saveVMSession(projectId, cached);
+                                    // Verify new URL works
+                                    try {
+                                        const axios = require('axios');
+                                        await axios.get(`${fresh.agentUrl}/health`, { timeout: 3000, headers: {} });
+                                        console.log(`✅ [Orchestrator] Refreshed agentUrl: ${fresh.agentUrl}`);
+                                    } catch (e2) {
+                                        console.log(`❌ [Orchestrator] VM ${cached.machineId} still unreachable after refresh — discarding`);
+                                        throw new Error('Agent unreachable');
+                                    }
+                                } else {
+                                    console.log(`❌ [Orchestrator] VM ${cached.machineId} not found in Docker — discarding`);
+                                    throw new Error('Container not found');
+                                }
+                            }
+                        }
                         this._scheduleCleanup(projectId);
                         return cached;
                     }
@@ -725,7 +745,7 @@ class WorkspaceOrchestrator {
                         lastUsed: Date.now(),
                         fromPool: true,
                         prewarmed: pooledVM.prewarmed || false,
-                        image: pooledVM.image || flyService.DRAPE_IMAGE // Track image version
+                        image: pooledVM.image || containerService.DRAPE_IMAGE // Track image version
                     };
 
                     // Cache it
@@ -740,17 +760,29 @@ class WorkspaceOrchestrator {
                         console.warn(`⚠️ File watcher start failed: ${e.message}`);
                     }
 
-                    // CRITICAL FIX: Sync files to the new VM from storage
-                    // Without this, VM from pool has no project files!
-                    try {
-                        console.log(`📂 [Orchestrator] Syncing files to pool VM...`);
-                        await this.forceSync(projectId, vmInfo);
-                    } catch (e) {
-                        console.warn(`⚠️ [Orchestrator] forceSync to pool VM failed: ${e.message}`);
+                    // Sync files to the new VM from storage (skip if caller will sync themselves)
+                    if (!options.skipSync) {
+                        try {
+                            // Kill any leftover dev server from previous allocation (adopted containers may still have one)
+                            try {
+                                await containerService.exec(pooledVM.agentUrl, `pkill -f "node.*dev" 2>/dev/null; fuser -k 3000/tcp 2>/dev/null; true`, '/home/coder', pooledVM.machineId, 3000, true);
+                            } catch (e2) { /* ignore */ }
+                            console.log(`📂 [Orchestrator] Syncing files to pool VM...`);
+                            await this.forceSync(projectId, vmInfo);
+                            // Write project ID marker so startPreview knows files are already synced
+                            try {
+                                await containerService.exec(pooledVM.agentUrl, `echo "${projectId}" > /home/coder/project/.drape-project-id`, '/home/coder', pooledVM.machineId, 5000, true);
+                            } catch (e2) { /* ignore */ }
+                        } catch (e) {
+                            console.warn(`⚠️ [Orchestrator] forceSync to pool VM failed: ${e.message}`);
+                        }
                     }
 
                     // Initialize Git Repo (Critical for UI "Changes" view)
-                    await this.ensureGitRepo(projectId, pooledVM.agentUrl, pooledVM.machineId);
+                    // Skip if caller will handle sync+git themselves
+                    if (!options.skipSync) {
+                        await this.ensureGitRepo(projectId, pooledVM.agentUrl, pooledVM.machineId);
+                    }
 
                     return vmInfo;
                 }
@@ -776,7 +808,7 @@ class WorkspaceOrchestrator {
             let isFromPool = false; // FIX: Define outside if/else so it's available for all paths
 
             // Check Fly API for existing machine to avoid 409 Conflict
-            const machines = await flyService.listMachines();
+            const machines = await containerService.listMachines();
             const existing = machines.find(m => m.name === machineName);
 
             if (existing && existing.state !== 'destroyed') {
@@ -784,14 +816,14 @@ class WorkspaceOrchestrator {
 
                 // Detect project type to get the correct expected image
                 const projectType = await this._detectProjectType(projectId);
-                const expectedImage = flyService.getImageForProject(projectType);
+                const expectedImage = containerService.getImageForProject(projectType);
                 const currentImage = existing.config?.image;
 
                 if (currentImage && currentImage !== expectedImage) {
                     console.log(`⚠️ [Orchestrator] Machine image mismatch. Current: ${currentImage}, Expected: ${expectedImage}`);
                     console.log(`🔄 [Orchestrator] Destroying old machine to force update...`);
                     try {
-                        await flyService.destroyMachine(existing.id);
+                        await containerService.destroyMachine(existing.id);
                         vm = null; // Force creation of new VM
                     } catch (e) {
                         console.warn(`⚠️ [Orchestrator] Failed to destroy old machine: ${e.message}`);
@@ -803,7 +835,7 @@ class WorkspaceOrchestrator {
 
                 // If machine is already running, fast-path: just check health and return
                 if (vm && existing.state === 'started') {
-                    const agentUrl = 'https://drape-workspaces.fly.dev';
+                    const agentUrl = existing.agentUrl;
                     try {
                         // Quick health check with retry
                         let healthOk = false;
@@ -811,7 +843,7 @@ class WorkspaceOrchestrator {
                             try {
                                 await axios.get(`${agentUrl}/health`, {
                                     timeout: 2000 + (attempt * 1000), // 3s, 4s
-                                    headers: { 'Fly-Force-Instance-Id': existing.id } // FIX: consistent capitalization
+                                    headers: {}
                                 });
                                 healthOk = true;
                                 break;
@@ -859,7 +891,7 @@ class WorkspaceOrchestrator {
                 // If stopped, start it
                 if (vm && existing.state === 'stopped') {
                     console.log(`   🔄 Starting stopped machine...`);
-                    await flyService.startMachine(existing.id);
+                    await containerService.startMachine(existing.id);
                 }
             } else {
                 console.log(`📦 [Orchestrator] Creating new MicroVM...`);
@@ -891,10 +923,10 @@ class WorkspaceOrchestrator {
 
                         // Detect project type for image
                         const projectType = await this._detectProjectType(projectId);
-                        const dockerImage = flyService.getImageForProject(projectType);
+                        const dockerImage = containerService.getImageForProject(projectType);
 
                         // Create VM with persistent volume
-                        const result = await flyService.createVMWithVolume(projectId, {
+                        const result = await containerService.createVMWithVolume(projectId, {
                             image: dockerImage,
                             memory_mb: memoryMb,
                             cpus: 2
@@ -921,7 +953,7 @@ class WorkspaceOrchestrator {
 
                     // Auto-detect project type to select Docker image
                     const projectType = await this._detectProjectType(projectId);
-                    const dockerImage = flyService.getImageForProject(projectType);
+                    const dockerImage = containerService.getImageForProject(projectType);
 
                     // HOLY GRAIL: Shared Global Volume (10GB)
                     // All projects share the same pnpm store - first project downloads deps,
@@ -931,12 +963,12 @@ class WorkspaceOrchestrator {
                         const SHARED_VOLUME_NAME = 'drape_global_store';
                         const SHARED_VOLUME_SIZE = 10; // 10GB for all deps
 
-                        const volumes = await flyService.listVolumes();
-                        let globalVolume = volumes.find(v => v.name === SHARED_VOLUME_NAME && v.region === flyService.FLY_REGION);
+                        const volumes = await containerService.listVolumes();
+                        let globalVolume = volumes.find(v => v.name === SHARED_VOLUME_NAME && v.region === containerService.FLY_REGION);
 
                         if (!globalVolume) {
                             console.log(`📦 [Orchestrator] Creating shared global volume (${SHARED_VOLUME_SIZE}GB)...`);
-                            globalVolume = await flyService.createVolume(SHARED_VOLUME_NAME, flyService.FLY_REGION, SHARED_VOLUME_SIZE);
+                            globalVolume = await containerService.createVolume(SHARED_VOLUME_NAME, containerService.FLY_REGION, SHARED_VOLUME_SIZE);
                         }
 
                         if (globalVolume) {
@@ -950,7 +982,7 @@ class WorkspaceOrchestrator {
                         console.warn(`   ⚠️ Volume orchestration failed: ${e.message}`);
                     }
 
-                    vm = await flyService.createMachine(projectId, {
+                    vm = await containerService.createMachine(projectId, {
                         memory_mb: memoryMb,
                         image: dockerImage,
                         auto_destroy: mounts.length > 0 ? false : true, // Keep machine if it has volume (faster restart)
@@ -972,10 +1004,9 @@ class WorkspaceOrchestrator {
 
             // Wait for machine to be ready (two-phase: 30s fast, then slower polling up to 120s)
             // This never shows errors to user - keeps trying silently
-            await flyService.waitForMachine(vm.id, 30000, 120000);
+            await containerService.waitForMachine(vm.id, 30000, 120000);
 
-            // Use the common app URL - all traffic goes through drape-workspaces.fly.dev
-            const agentUrl = 'https://drape-workspaces.fly.dev';
+            const agentUrl = vm.agentUrl || (vm.private_ip && `http://${vm.private_ip}:13338`);
 
             // Wait for agent to be healthy (same two-phase approach)
             await this._waitForAgent(agentUrl, 30000, 90000, vm.id);
@@ -990,7 +1021,7 @@ class WorkspaceOrchestrator {
                 createdAt: Date.now(),
                 lastUsed: Date.now(),
                 fromPool: isFromPool, // FIX #2: Track if VM came from pool
-                image: vm.config?.image || flyService.DRAPE_IMAGE // Store image for version check
+                image: vm.config?.image || containerService.DRAPE_IMAGE // Store image for version check
             };
 
             // Cache it
@@ -1091,14 +1122,14 @@ class WorkspaceOrchestrator {
      * @param {string} cwd - Working directory
      */
     async exec(projectId, command, cwd = '/home/coder/project', silent = false) {
-        const vm = await this.getOrCreateVM(projectId);
+        const vm = await this.getOrCreateVM(projectId, { skipSync: true });
 
         if (!silent) {
             console.log(`🔗 [Orchestrator] Exec: ${command.substring(0, 50)}...`);
         }
 
-        // Pass machineId for routing via Fly-Force-Instance-Id header
-        return await flyService.exec(vm.agentUrl, command, cwd, vm.machineId, 60000, silent);
+        // Pass machineId for exec routing
+        return await containerService.exec(vm.agentUrl, command, cwd, vm.machineId, 60000, silent);
     }
 
     /**
@@ -1115,8 +1146,8 @@ class WorkspaceOrchestrator {
                 const vmState = await vmPoolManager.getVMState(machineId);
                 if (vmState?.stopped) {
                     console.log(`   ⚠️ VM ${machineId} is stopped, starting it first...`);
-                    await flyService.start(machineId);
-                    await flyService.waitForReady(machineId, 60000);
+                    await containerService.start(machineId);
+                    await containerService.waitForReady(machineId, 60000);
                     console.log(`   ✅ VM ${machineId} is now running`);
                 }
             } catch (e) {
@@ -1126,8 +1157,8 @@ class WorkspaceOrchestrator {
 
             // Run permissions fix AND git check in parallel
             const [, status] = await Promise.all([
-                flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project 2>/dev/null; git config --global --add safe.directory /home/coder/project 2>/dev/null', '/home/coder/project', machineId),
-                flyService.exec(agentUrl, 'test -d .git && echo "EXISTS" || echo "MISSING"', '/home/coder/project', machineId)
+                containerService.exec(agentUrl, 'chown -R coder:coder /home/coder/project 2>/dev/null; git config --global --add safe.directory /home/coder/project 2>/dev/null', '/home/coder/project', machineId),
+                containerService.exec(agentUrl, 'test -d .git && echo "EXISTS" || echo "MISSING"', '/home/coder/project', machineId)
             ]);
 
             if (status.stdout.trim() === 'MISSING') {
@@ -1156,7 +1187,7 @@ class WorkspaceOrchestrator {
                 }
 
                 // Check if files already exist (from forceSync)
-                const fileCheck = await flyService.exec(agentUrl, 'ls -A /home/coder/project 2>/dev/null | head -1', '/home/coder', machineId);
+                const fileCheck = await containerService.exec(agentUrl, 'ls -A /home/coder/project 2>/dev/null | head -1', '/home/coder', machineId);
                 const hasFiles = fileCheck.stdout.trim().length > 0;
 
                 if (hasFiles) {
@@ -1170,7 +1201,7 @@ class WorkspaceOrchestrator {
                     if (repoUrl) {
                         // Use shallow clone (--depth 1) for speed
                         const cloneCmd = `cd /home/coder && rm -rf project && git clone --depth 1 ${repoUrl} project 2>&1`;
-                        const cloneResult = await flyService.exec(agentUrl, cloneCmd, '/home/coder', machineId, 60000); // 1 min timeout
+                        const cloneResult = await containerService.exec(agentUrl, cloneCmd, '/home/coder', machineId, 60000); // 1 min timeout
 
                         if (cloneResult.exitCode === 0) {
                             console.log(`   ✅ Shallow clone completed`);
@@ -1193,14 +1224,14 @@ class WorkspaceOrchestrator {
                 }
 
                 // Fix permissions again after clone/init
-                await flyService.exec(agentUrl, 'chown -R coder:coder /home/coder/project', '/home/coder/project', machineId);
+                await containerService.exec(agentUrl, 'chown -R coder:coder /home/coder/project', '/home/coder/project', machineId);
             } else {
                 console.log(`   ✅ .git already exists`);
 
                 // Check if we only have the placeholder "Initial sync" commit
                 // If so, try to fetch real history from remote (unless skipHistoryFetch is true)
                 if (!skipHistoryFetch) {
-                    const logCheck = await flyService.exec(agentUrl, 'git log --oneline -1 2>/dev/null | head -1', '/home/coder/project', machineId);
+                    const logCheck = await containerService.exec(agentUrl, 'git log --oneline -1 2>/dev/null | head -1', '/home/coder/project', machineId);
                     const lastCommit = logCheck.stdout.trim();
 
                     if (lastCommit.includes('Initial sync')) {
@@ -1222,17 +1253,17 @@ class WorkspaceOrchestrator {
                     if (repoUrl) {
                         try {
                             // Ensure remote is configured
-                            await flyService.exec(agentUrl, `git remote set-url origin "${repoUrl}" 2>/dev/null || git remote add origin "${repoUrl}"`, '/home/coder/project', machineId);
+                            await containerService.exec(agentUrl, `git remote set-url origin "${repoUrl}" 2>/dev/null || git remote add origin "${repoUrl}"`, '/home/coder/project', machineId);
 
                             // Fetch real history
-                            await flyService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
+                            await containerService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
 
                             // Get default branch
-                            const branchResult = await flyService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
+                            const branchResult = await containerService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
                             const defaultBranch = branchResult.stdout.trim() || 'main';
 
                             // Reset to match remote (keeps files, replaces history)
-                            await flyService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
+                            await containerService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
 
                             console.log(`   ✅ Replaced placeholder with real GitHub history`);
                         } catch (e) {
@@ -1257,7 +1288,7 @@ class WorkspaceOrchestrator {
         console.log(`   🔧 Initializing local git repo...`);
 
         // Basic git init with initial commit
-        await flyService.exec(agentUrl, 'git init && git config user.email "bot@drape.ai" && git config user.name "Drape Bot" && git add . && git commit -m "Initial sync" --allow-empty', '/home/coder/project', machineId);
+        await containerService.exec(agentUrl, 'git init && git config user.email "bot@drape.ai" && git config user.name "Drape Bot" && git add . && git commit -m "Initial sync" --allow-empty', '/home/coder/project', machineId);
 
         // If we have a repo URL, add it as remote and fetch history
         if (repoUrl) {
@@ -1265,20 +1296,20 @@ class WorkspaceOrchestrator {
                 console.log(`   🔗 Connecting to remote: ${repoUrl}`);
 
                 // Add remote origin
-                await flyService.exec(agentUrl, `git remote add origin "${repoUrl}" 2>/dev/null || git remote set-url origin "${repoUrl}"`, '/home/coder/project', machineId);
+                await containerService.exec(agentUrl, `git remote add origin "${repoUrl}" 2>/dev/null || git remote set-url origin "${repoUrl}"`, '/home/coder/project', machineId);
 
                 // Fetch the actual commit history (shallow fetch for speed)
-                const fetchResult = await flyService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
+                const fetchResult = await containerService.exec(agentUrl, 'git fetch --depth=20 origin 2>&1 || true', '/home/coder/project', machineId, 30000);
                 console.log(`   📥 Fetch result: ${fetchResult.stdout.substring(0, 100)}`);
 
                 // Get the default branch name from remote
-                const branchResult = await flyService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
+                const branchResult = await containerService.exec(agentUrl, 'git remote show origin 2>/dev/null | grep "HEAD branch" | cut -d: -f2 | tr -d " " || echo "main"', '/home/coder/project', machineId);
                 const defaultBranch = branchResult.stdout.trim() || 'main';
                 console.log(`   🌿 Default branch: ${defaultBranch}`);
 
                 // Reset to match remote history (keeps local files, replaces commit history)
                 // This makes our local commits match GitHub's real history
-                const resetResult = await flyService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
+                const resetResult = await containerService.exec(agentUrl, `git reset --soft origin/${defaultBranch} 2>/dev/null || true`, '/home/coder/project', machineId);
 
                 console.log(`   ✅ Connected to remote, history synced`);
             } catch (e) {
@@ -1323,7 +1354,7 @@ class WorkspaceOrchestrator {
                     }
 
                     // Write file to VM
-                    const headers = { 'Fly-Force-Instance-Id': machineId };
+                    const headers = {};
                     await axios.post(`${agentUrl}/file`, {
                         path: file.path,
                         content: fileData.content,
@@ -1429,22 +1460,21 @@ class WorkspaceOrchestrator {
 
         // Recovery: If not in cache, check if VM exists in Fly
         if (!vm) {
-            console.log(`   🔧 Attempting VM recovery from Fly.io...`);
+            console.log(`   🔧 Attempting VM recovery from Docker...`);
             try {
                 const machineName = `ws-${projectId}`.substring(0, 30);
-                const machines = await flyService.listMachines();
+                const machines = await containerService.listMachines();
                 const existing = machines.find(m => m.name === machineName && m.state === 'started');
                 if (existing) {
                     console.log(`♻️ [Orchestrator] Recovered active VM session for write: ${existing.id}`);
                     vm = {
                         id: existing.id,
                         machineId: existing.id,
-                        // Use App URL (Traffic routed via Fly-Force-Instance-Id header)
-                        agentUrl: `https://${flyService.appName}.fly.dev`
+                        agentUrl: existing.agentUrl
                     };
                     activeVMs.set(projectId, vm);
                 } else {
-                    console.log(`   ❌ No active VM found in Fly.io`);
+                    console.log(`   ❌ No active container found`);
                 }
             } catch (e) {
                 console.warn(`⚠️ [Orchestrator] Failed to recover VM session: ${e.message}`);
@@ -1456,7 +1486,7 @@ class WorkspaceOrchestrator {
 
             // CRITICAL: Ensure Git repo exists (fixes "No changes" in UI)
             try {
-                const agentUrl = vm.agentUrl || `https://${vm.machineId}.vm.drape.fly.dev`;
+                const agentUrl = vm.agentUrl || `http://${vm.machineId}:13338`;
                 await this.ensureGitRepo(projectId, agentUrl, vm.machineId);
             } catch (e) {
                 console.warn(`   ⚠️ ensureGitRepo failed: ${e.message}`);
@@ -1464,7 +1494,7 @@ class WorkspaceOrchestrator {
 
             try {
                 // Ensure we send the Instance ID header for proper routing if using shared domain
-                const headers = { 'Fly-Force-Instance-Id': vm.machineId };
+                const headers = {};
 
                 // Prepare content for transmission
                 let contentToSend = content;
@@ -1514,14 +1544,14 @@ class WorkspaceOrchestrator {
         if (!vm) {
             try {
                 const machineName = `ws-${projectId}`.substring(0, 30);
-                const machines = await flyService.listMachines();
+                const machines = await containerService.listMachines();
                 const existing = machines.find(m => m.name === machineName && m.state === 'started');
                 if (existing) {
                     console.log(`♻️ [Orchestrator] Recovered active VM session for createFolder: ${existing.id}`);
                     vm = {
                         id: existing.id,
                         machineId: existing.id,
-                        agentUrl: `https://${flyService.appName}.fly.dev`
+                        agentUrl: existing.agentUrl
                     };
                     activeVMs.set(projectId, vm);
                 }
@@ -1532,7 +1562,7 @@ class WorkspaceOrchestrator {
 
         if (vm) {
             try {
-                const headers = { 'Fly-Force-Instance-Id': vm.machineId };
+                const headers = {};
                 await axios.post(`${vm.agentUrl}/folder`, {
                     path: folderPath
                 }, {
@@ -1563,14 +1593,14 @@ class WorkspaceOrchestrator {
         if (!vm) {
             try {
                 const machineName = `ws-${projectId}`.substring(0, 30);
-                const machines = await flyService.listMachines();
+                const machines = await containerService.listMachines();
                 const existing = machines.find(m => m.name === machineName && m.state === 'started');
                 if (existing) {
                     console.log(`♻️ [Orchestrator] Recovered active VM session for deleteFile: ${existing.id}`);
                     vm = {
                         id: existing.id,
                         machineId: existing.id,
-                        agentUrl: `https://${flyService.appName}.fly.dev`
+                        agentUrl: existing.agentUrl
                     };
                     activeVMs.set(projectId, vm);
                 }
@@ -1581,7 +1611,7 @@ class WorkspaceOrchestrator {
 
         if (vm) {
             try {
-                const headers = { 'Fly-Force-Instance-Id': vm.machineId };
+                const headers = {};
                 await axios.post(`${vm.agentUrl}/delete`, {
                     path: filePath
                 }, {
@@ -1619,7 +1649,7 @@ class WorkspaceOrchestrator {
             try {
                 // Get live files from VM
                 // We use find to get all files. We exclude node_modules and .git for speed.
-                const result = await flyService.exec(
+                const result = await containerService.exec(
                     vm.agentUrl,
                     'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | sort',
                     '/home/coder/project',
@@ -1664,8 +1694,8 @@ class WorkspaceOrchestrator {
         console.log(`   📋 projectInfo:`, JSON.stringify(projectInfo, null, 2));
 
         // CRITICAL: Get/Create VM FIRST, then stop others
-        // This ensures we don't stop the VM we just allocated from the pool
-        const vm = await this.getOrCreateVM(projectId);
+        // skipSync: startPreview handles its own clean/sync logic below
+        const vm = await this.getOrCreateVM(projectId, { skipSync: true });
 
         // === DEBUG: Check VM initial state ===
         console.log(`\n🔍 [DEBUG] VM INITIAL STATE CHECK for ${vm.machineId}`);
@@ -1702,7 +1732,7 @@ echo "=== MEMORY ==="
 free -m | head -2
 echo "=== END DEBUG ==="
             `.trim();
-            const debugResult = await flyService.exec(vm.agentUrl, debugCmd, '/home/coder', vm.machineId, 15000, true);
+            const debugResult = await containerService.exec(vm.agentUrl, debugCmd, '/home/coder', vm.machineId, 15000, true);
             console.log(debugResult.stdout || '(no output)');
         } catch (e) {
             console.log(`   ⚠️ Debug check failed: ${e.message}`);
@@ -1732,29 +1762,26 @@ echo "=== END DEBUG ==="
             console.log(`   ✅ Background warming complete - skipping clean/sync (files already fresh)`);
         }
 
-        // CRITICAL: Only clean and sync if background warming didn't just complete
-        // Background warming already synced files and installed deps, so re-syncing would delete them
-        // BUT: If warm VM has files from a DIFFERENT project, we must resync!
+        // Check if VM already has this project's files (warmup completed earlier, or same project reopen)
+        // This handles the case where warming finished before startPreview and the lock was already cleaned up
         let syncResult;
-        let needsResync = !hadBackgroundWarming;
+        let needsResync = true;
 
-        if (hadBackgroundWarming) {
-            // Verify the warm VM has files for THIS project, not a different one
-            try {
-                const checkProjectCmd = `cat /home/coder/project/.drape-project-id 2>/dev/null || echo "NO_PROJECT_ID"`;
-                const projectIdCheck = await flyService.exec(vm.agentUrl, checkProjectCmd, '/home/coder', vm.machineId, 5000, true);
-                const vmProjectId = projectIdCheck.stdout?.trim();
+        try {
+            const checkProjectCmd = `cat /home/coder/project/.drape-project-id 2>/dev/null || echo "NO_PROJECT_ID"`;
+            const projectIdCheck = await containerService.exec(vm.agentUrl, checkProjectCmd, '/home/coder', vm.machineId, 5000, true);
+            const vmProjectId = projectIdCheck.stdout?.trim();
 
-                if (vmProjectId !== projectId) {
-                    console.log(`⚠️ [Orchestrator] VM was warmed for different project (${vmProjectId}), forcing resync for ${projectId}`);
-                    needsResync = true;
-                } else {
-                    console.log(`✅ [Orchestrator] VM project ID matches: ${vmProjectId}`);
-                }
-            } catch (e) {
-                console.log(`⚠️ [Orchestrator] Could not verify VM project, forcing resync: ${e.message}`);
-                needsResync = true;
+            if (vmProjectId === projectId) {
+                console.log(`✅ [Orchestrator] VM already has project ${projectId} — skipping clean/sync`);
+                needsResync = false;
+            } else if (vmProjectId === 'NO_PROJECT_ID') {
+                console.log(`   ℹ️ [Orchestrator] No project ID on VM — needs sync`);
+            } else {
+                console.log(`⚠️ [Orchestrator] VM has different project (${vmProjectId}), forcing resync for ${projectId}`);
             }
+        } catch (e) {
+            console.log(`⚠️ [Orchestrator] Could not verify VM project: ${e.message} — needs sync`);
         }
 
         if (needsResync) {
@@ -1762,7 +1789,7 @@ echo "=== END DEBUG ==="
             console.log(`🧹 [Orchestrator] Cleaning project folder on VM (preserving node_modules)...`);
             try {
                 const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
-                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                await containerService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
                 console.log(`   ✅ Project folder cleaned (node_modules preserved)`);
             } catch (e) {
                 console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
@@ -1776,9 +1803,12 @@ echo "=== END DEBUG ==="
             syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
             console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
 
+            // NOTE: .package-json-hash is preserved — optimizedSetup recalculates and
+            // compares it. If package.json changed, hash won't match → reinstall.
+
             // Write project ID marker to VM so we can verify on next use
             try {
-                await flyService.exec(vm.agentUrl, `echo "${projectId}" > /home/coder/project/.drape-project-id`, '/home/coder', vm.machineId, 5000, true);
+                await containerService.exec(vm.agentUrl, `echo "${projectId}" > /home/coder/project/.drape-project-id`, '/home/coder', vm.machineId, 5000, true);
             } catch (e) {
                 console.warn(`   ⚠️ Could not write project ID marker: ${e.message}`);
             }
@@ -1795,7 +1825,7 @@ echo "=== END DEBUG ==="
                 ln -snf /home/coder/volumes/next-cache /home/coder/project/.next/cache
                 chown -R coder:coder /home/coder/project/.next
             `.replace(/\s+/g, ' ').trim();
-            await flyService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
+            await containerService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
         } catch (e) { }
 
         // OPTIMIZATION: Skip file integrity check if we used warm VM or tar.gz sync succeeded
@@ -1805,7 +1835,7 @@ echo "=== END DEBUG ==="
             console.log(`🔍 [Orchestrator] Verifying file integrity on VM (sync had issues)...`);
             try {
                 // Fast check: just count files instead of listing them all
-                const countResult = await flyService.exec(
+                const countResult = await containerService.exec(
                     vm.agentUrl,
                     'find . -type f -not -path "*/node_modules/*" -not -path "*/.git/*" | wc -l',
                     '/home/coder/project',
@@ -1831,9 +1861,9 @@ echo "=== END DEBUG ==="
             console.log(`✅ [Orchestrator] File integrity verified. All files present.`);
         }
 
-        // CRITICAL FIX: Only force-restore package.json if we didn't use warm VM
-        // If background warming just completed, package.json is already fresh from install
-        if (!hadBackgroundWarming) {
+        // CRITICAL FIX: Only force-restore package.json if we resynced files
+        // If background warming completed or same project reopened, package.json is already correct
+        if (needsResync && !hadBackgroundWarming) {
             try {
                 console.log('🔨 [Orchestrator] Force-restoring package.json...');
                 const mkPkg = await storageService.readFile(projectId, 'package.json');
@@ -1841,7 +1871,7 @@ echo "=== END DEBUG ==="
                     await axios.post(`${vm.agentUrl}/file`, {
                         path: 'package.json',
                         content: mkPkg.content
-                    }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
+                    }, { headers: {} });
                     console.log('   ✅ Restored package.json');
                 } else {
                     console.error('   ❌ Could not read package.json from storage');
@@ -1850,14 +1880,45 @@ echo "=== END DEBUG ==="
                 console.warn('   ⚠️ Failed to restore package.json:', e.message);
             }
         } else {
-            console.log('⚡ [Orchestrator] Skipping package.json restore - using version from warm VM');
+            console.log('⚡ [Orchestrator] Skipping package.json restore - warm VM or same project');
         }
 
         // Setup (Install + Start) via Optimized pnpm (Async)
         if (projectInfo.installCommand || projectInfo.startCommand) {
+            // FAST PATH: If same project (no resync needed), check if dev server is already running
+            // This avoids killing + recompiling when warmup already started the server
+            // Only skip when we DIDN'T resync files (same project on same VM)
+            if (!needsResync) {
+                try {
+                    const devPort = projectInfo.port || 3000;
+                    const checkDevServerCmd = `curl -s -o /dev/null -w "%{http_code}" http://localhost:${devPort}/ 2>/dev/null || echo "000"`;
+                    const devCheck = await containerService.exec(vm.agentUrl, checkDevServerCmd, '/home/coder', vm.machineId, 4000, true);
+                    const statusCode = parseInt((devCheck.stdout || '').trim()) || 0;
+
+                    if (statusCode >= 200 && statusCode < 400) {
+                        console.log(`⚡ [Orchestrator] Dev server already running on port ${devPort} (HTTP ${statusCode}) - same project, skipping setup!`);
+                        if (onProgress) onProgress('ready', 'Server pronto!');
+                        this.startLogStreaming(projectId, vm);
+                        return {
+                            success: true,
+                            machineId: vm.machineId,
+                            previewUrl: vm.previewUrl || vm.agentUrl,
+                            agentUrl: vm.agentUrl,
+                            projectType: projectInfo.description || projectInfo.type,
+                            port: projectInfo.port,
+                            isHolyGrail: true
+                        };
+                    } else {
+                        console.log(`   ℹ️ [Orchestrator] Dev server not responding on port ${devPort} (${statusCode}) - will run setup`);
+                    }
+                } catch (e) {
+                    console.log(`   ℹ️ [Orchestrator] Dev server check failed: ${e.message} - will run setup`);
+                }
+            }
+
             // Check if workspace was already prepared in background
-            const vmSession = await redisService.getVMSession(projectId);
-            const isPrepared = vmSession?.preparedAt && (Date.now() - vmSession.preparedAt) < 300000; // 5 min validity
+            const vmSession2 = await redisService.getVMSession(projectId);
+            const isPrepared = vmSession2?.preparedAt && (Date.now() - vmSession2.preparedAt) < 300000; // 5 min validity
 
             if (isPrepared && !hadBackgroundWarming) {
                 console.log(`⚡ [Orchestrator] Workspace already prepared! Skipping install, starting server directly...`);
@@ -1876,15 +1937,11 @@ echo "=== END DEBUG ==="
             this.startLogStreaming(projectId, vm);
         }
 
-
-        // Construct preview URL
-        const previewUrl = `${vm.agentUrl}`;
-
         return {
             success: true,
             machineId: vm.machineId,
-            previewUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
-            agentUrl: `https://${process.env.FLY_APP_NAME}.fly.dev`,
+            previewUrl: vm.previewUrl || vm.agentUrl,
+            agentUrl: vm.agentUrl,
             projectType: projectInfo.description || projectInfo.type,
             port: projectInfo.port,
             isHolyGrail: true // Metadata for UI
@@ -1929,7 +1986,7 @@ echo "=== END DEBUG ==="
             console.log(`🧹 [Orchestrator] Cleaning project folder on VM...`);
             try {
                 const cleanCmd = `find /home/coder/project -mindepth 1 -maxdepth 1 -not -name 'node_modules' -not -name '.git' -not -name '.package-json-hash' -exec rm -rf {} +`;
-                await flyService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
+                await containerService.exec(vm.agentUrl, cleanCmd, '/home/coder', vm.machineId);
                 console.log(`   ✅ Project folder cleaned`);
             } catch (e) {
                 console.warn(`   ⚠️ Cleanup failed: ${e.message}`);
@@ -1943,10 +2000,13 @@ echo "=== END DEBUG ==="
             const syncResult = await storageService.syncToVM(projectId, vm.agentUrl, vm.machineId);
             console.log(`   Sync result: ${syncResult.syncedCount} files synced`);
 
+            // NOTE: .package-json-hash is preserved — optimizedSetup recalculates and
+            // compares it. If package.json changed, hash won't match → reinstall.
+
             // Link Next.js cache to volume
             try {
                 const linkCacheCmd = `mkdir -p /home/coder/project/.next && ln -snf /home/coder/volumes/next-cache /home/coder/project/.next/cache && chown -R coder:coder /home/coder/project/.next`.replace(/\s+/g, ' ').trim();
-                await flyService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
+                await containerService.exec(vm.agentUrl, linkCacheCmd, '/home/coder', vm.machineId, 10000);
             } catch (e) { }
 
             // Force-restore package.json
@@ -1957,7 +2017,7 @@ echo "=== END DEBUG ==="
                     await axios.post(`${vm.agentUrl}/file`, {
                         path: 'package.json',
                         content: mkPkg.content
-                    }, { headers: { 'Fly-Force-Instance-Id': vm.machineId } });
+                    }, { headers: {} });
                     console.log('   ✅ Restored package.json');
                 }
             } catch (e) {
@@ -2044,7 +2104,7 @@ echo "=== END DEBUG ==="
         `.replace(/\s+/g, ' ').trim();
 
         try {
-            await flyService.exec(agentUrl, hardenCmd, '/home/coder', machineId, 30000);
+            await containerService.exec(agentUrl, hardenCmd, '/home/coder', machineId, 30000);
             console.log(`   ✅ VM Hardening complete (${Date.now() - startTime}ms)`);
         } catch (e) {
             console.warn(`   ⚠️ VM Hardening warning: ${e.message}`);
@@ -2078,7 +2138,7 @@ echo "=== END DEBUG ==="
                     ? `tail -n 100 ${logFile} 2>/dev/null || echo ""`
                     : `tail -c +${lastSize + 1} ${logFile} 2>/dev/null || echo ""`;
 
-                const result = await flyService.exec(vm.agentUrl, tailCmd, '/home/coder', vm.machineId, 5000, true);
+                const result = await containerService.exec(vm.agentUrl, tailCmd, '/home/coder', vm.machineId, 5000, true);
 
                 if (result.stdout && result.stdout.trim()) {
                     const lines = result.stdout.split('\n').filter(l => l.trim());
@@ -2098,7 +2158,7 @@ echo "=== END DEBUG ==="
                     });
 
                     // Update size (best effort, silent=true)
-                    const sizeResult = await flyService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId, 5000, true);
+                    const sizeResult = await containerService.exec(vm.agentUrl, `wc -c < ${logFile}`, '/home/coder', vm.machineId, 5000, true);
                     const newSize = parseInt(sizeResult.stdout);
                     if (!isNaN(newSize) && newSize >= lastSize) {
                         lastSize = newSize;
@@ -2132,22 +2192,10 @@ echo "=== END DEBUG ==="
         try {
             console.log(`🔄 [Orchestrator] Releasing VM for project ${projectId}`);
 
-            // HARDENED SAFETY: Check if this VM is a cache master
-            const isCacheMaster = vmPoolManager.isProtectedCacheMaster
-                ? vmPoolManager.isProtectedCacheMaster(cached.machineId)
-                : vmPoolManager.pool?.some(vm => vm.machineId === cached.machineId && vm.isCacheMaster);
-
-            if (isCacheMaster) {
-                console.log(`🛡️ [Orchestrator] Skipping release for cache master ${cached.machineId}`);
-                activeVMs.delete(projectId);
-                await redisService.removeVMSession(projectId);
-                return { success: true, message: 'Cache master protected' };
-            }
-
             // 1. Stop dev server
             console.log(`   🛑 Stopping dev server on port 3000...`);
             try {
-                await flyService.exec(
+                await containerService.exec(
                     cached.agentUrl,
                     'fuser -k 3000/tcp 2>/dev/null || true; pkill -9 -f "next-server" || true; pkill -9 -f "vite" || true',
                     '/home/coder',
@@ -2166,7 +2214,7 @@ echo "=== END DEBUG ==="
                 await vmPoolManager.releaseVM(cached.machineId, true); // Keep node_modules
             } else {
                 console.log(`🗑️ [Orchestrator] Non-pool VM ${cached.machineId}, destroying`);
-                await flyService.destroyMachine(cached.id);
+                await containerService.destroyMachine(cached.id);
             }
 
             // 3. Remove from active sessions
@@ -2194,18 +2242,6 @@ echo "=== END DEBUG ==="
         try {
             console.log(`⏹️ [Orchestrator] Stopping preview for ${projectId}`);
 
-            // HARDENED SAFETY: Check if this VM is a cache master (NEVER destroy cache masters!)
-            // Use multi-layer protection from vmPoolManager
-            const isCacheMaster = vmPoolManager.isProtectedCacheMaster
-                ? vmPoolManager.isProtectedCacheMaster(cached.machineId)
-                : vmPoolManager.pool?.some(vm => vm.machineId === cached.machineId && vm.isCacheMaster);
-            if (isCacheMaster) {
-                console.log(`🛡️ [Orchestrator] Skipping stopVM for cache master ${cached.machineId}`);
-                activeVMs.delete(projectId);
-                await redisService.removeVMSession(projectId);
-                return { success: true, message: 'Cache master protected' };
-            }
-
             // Check if this VM is tracked by the pool
             const isPoolVM = cached.fromPool === true;
 
@@ -2216,7 +2252,7 @@ echo "=== END DEBUG ==="
             } else {
                 // Non-pool VM, destroy it
                 console.log(`🗑️ [Orchestrator] Destroying non-pool VM ${cached.machineId}`);
-                await flyService.destroyMachine(cached.id);
+                await containerService.destroyMachine(cached.id);
             }
 
             // Remove from active VMs
@@ -2263,7 +2299,7 @@ echo "=== END DEBUG ==="
         let phase = 1;
         console.log(`⏳ [Orchestrator] Waiting for agent at ${agentUrl} (machine: ${machineId})...`);
 
-        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+        const headers = {};
 
         while (Date.now() - startTime < maxTimeout) {
             try {
@@ -2274,10 +2310,6 @@ echo "=== END DEBUG ==="
                 if (response.data.status === 'ok') {
                     const elapsed = Date.now() - startTime;
                     console.log(`✅ [Orchestrator] Agent ready in ${elapsed}ms`);
-
-                    // Phase 3: Wait for Fly proxy to propagate the route
-                    // This prevents PR04 "could not find candidate" errors
-                    await this._waitForProxyRoute(agentUrl, machineId);
 
                     return true;
                 }
@@ -2300,60 +2332,6 @@ echo "=== END DEBUG ==="
         throw new Error(`Agent not ready after ${maxTimeout / 1000}s`);
     }
 
-    /**
-     * Wait for Fly.io proxy to register the machine route
-     * This prevents PR04 "could not find a good candidate" errors
-     *
-     * @param {string} agentUrl - Base URL for the agent
-     * @param {string} machineId - Fly machine ID for routing
-     * @param {number} maxWait - Maximum wait time (default 10s)
-     */
-    async _waitForProxyRoute(agentUrl, machineId, maxWait = 10000) {
-        if (!machineId) return;
-
-        console.log(`🔗 [Orchestrator] Verifying proxy route for ${machineId}...`);
-        const startTime = Date.now();
-        let attempts = 0;
-
-        while (Date.now() - startTime < maxWait) {
-            attempts++;
-            try {
-                // Make a request through the public proxy WITH the routing header
-                // This verifies the Fly edge proxy can route to our specific machine
-                const response = await axios.get(`${agentUrl}/health`, {
-                    timeout: 2000,
-                    headers: { 'Fly-Force-Instance-Id': machineId },
-                    // Disable any keep-alive to force fresh connection through proxy
-                    httpAgent: new (require('http').Agent)({ keepAlive: false }),
-                    httpsAgent: new (require('https').Agent)({ keepAlive: false })
-                });
-
-                if (response.data.status === 'ok') {
-                    const elapsed = Date.now() - startTime;
-                    console.log(`✅ [Orchestrator] Proxy route verified in ${elapsed}ms (${attempts} attempts)`);
-                    return true;
-                }
-            } catch (e) {
-                // Check if it's a PR04 error (proxy can't find machine)
-                const isPR04 = e.message?.includes('PR04') ||
-                    e.response?.status === 502 ||
-                    e.response?.status === 503;
-
-                if (isPR04) {
-                    // Proxy not ready yet, wait longer
-                    await new Promise(r => setTimeout(r, 500));
-                    continue;
-                }
-                // Other errors - might be transient, retry
-            }
-
-            await new Promise(r => setTimeout(r, 300));
-        }
-
-        // Don't throw - just log warning and continue
-        // Sometimes the route works even if verification times out
-        console.warn(`⚠️ [Orchestrator] Proxy route verification timed out after ${attempts} attempts (continuing anyway)`);
-    }
 
     /**
      * Fetch files from GitHub repository using direct download (no API rate limits!)
@@ -2489,7 +2467,7 @@ echo "=== END DEBUG ==="
     /**
      * Reconcile State (Hydration + Reaper)
      * 
-     * 1. Fetches all running machines from Fly.io.
+     * 1. Fetches all running containers from Docker.
      * 2. Adopts any machines that aren't in our State (Cache).
      * 
      * This ensures that restarting the Backend doesn't kill user sessions.
@@ -2543,7 +2521,7 @@ echo "=== END DEBUG ==="
             const response = await axios.post(`${vm.agentUrl}/extract`, buffer, {
                 timeout: 30000,
                 headers: {
-                    'Fly-Force-Instance-Id': vm.machineId,
+                    ...{},
                     'Content-Type': 'application/gzip'
                 },
                 maxContentLength: 50 * 1024 * 1024, // 50MB max
@@ -2567,7 +2545,7 @@ echo "=== END DEBUG ==="
                             content: fileContent.content
                         }, {
                             timeout: 10000,
-                            headers: { 'Fly-Force-Instance-Id': vm.machineId }
+                            headers: {}
                         });
                         synced++;
                     }
@@ -2582,15 +2560,15 @@ echo "=== END DEBUG ==="
     /**
      * Reconcile State (Hydration + Reaper)
      * 
-     * 1. Fetches all running machines from Fly.io.
+     * 1. Fetches all running containers from Docker.
      * 2. Adopts any machines that aren't in our State (Cache).
      * 
      * This ensures that restarting the Backend doesn't kill user sessions.
      */
     async reconcileState() {
-        console.log('🔄 [Orchestrator] Reconciling state with Fly.io...');
+        console.log(`🔄 [Orchestrator] Reconciling state with Docker...`);
         try {
-            const machines = await flyService.listMachines();
+            const machines = await containerService.listMachines();
             const activeSessions = await redisService.getAllSessions();
             const sessionMap = new Map(activeSessions.map(s => [s.machineId, s]));
 
@@ -2603,9 +2581,8 @@ echo "=== END DEBUG ==="
             const MAX_AGE_MS = this.vmTimeout;
 
             for (const machine of machines) {
-                // Only care about started workspace machines (skip pool machines and ALL cache masters, managed by VMPoolManager)
-                // FIX: Skip ALL ws-cache-* machines, not just 'ws-cache-master'
-                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.name.startsWith('ws-cache-') || machine.state !== 'started') continue;
+                // Only care about started workspace machines (skip pool machines, managed by VMPoolManager)
+                if (!machine.name.startsWith('ws-') || machine.name.startsWith('ws-pool-') || machine.state !== 'started') continue;
 
                 // Check age
                 const createdAt = new Date(machine.created_at).getTime();
@@ -2643,8 +2620,8 @@ echo "=== END DEBUG ==="
                         console.log(`🧟 [Orchestrator] Reaping ZOMBIE machine (No Session): ${machine.name} (Uptime: ${Math.round(uptime / 60000)}m)`);
                         // We don't know the projectId easily without parsing name or config, but destroyMachine takes ID.
                         // We also need to stop it. stopVM takes projectId. 
-                        // Let's use flyService directly to stop.
-                        await flyService.stopMachine(machine.id);
+                        // Let's use containerService directly to stop.
+                        await containerService.stopMachine(machine.id);
                         reapedCount++;
                         continue;
                     }
@@ -2662,10 +2639,10 @@ echo "=== END DEBUG ==="
                         projectId: projectId,
                         region: machine.region,
                         privateIp: machine.private_ip,
-                        agentUrl: `https://${flyService.appName}.fly.dev`,
+                        agentUrl: machine.agentUrl || `http://${machine.private_ip || machine.id}:13338`,
                         createdAt: machine.created_at,
                         lastUsed: now, // Give it a fresh lease on life since we just adopted it (maybe user just connected)
-                        image: machine.config?.image || flyService.DRAPE_IMAGE // Track image version
+                        image: machine.config?.image || (containerService.DRAPE_IMAGE || 'drape-workspace:latest') // Track image version
                     };
 
                     await redisService.saveVMSession(projectId, vmInfo);
@@ -2764,7 +2741,7 @@ echo "=== END DEBUG ==="
                     grep -qxF "pnpm-lock.yaml" .gitignore || echo "pnpm-lock.yaml" >> .gitignore; \
                 fi
             `.trim();
-            await flyService.exec(agentUrl, gitignoreCmd, '/home/coder', machineId, 10000, true);
+            await containerService.exec(agentUrl, gitignoreCmd, '/home/coder', machineId, 10000, true);
             console.log(`   📝 [Setup] Updated .gitignore with internal files`);
         } catch (e) {
             console.warn(`   ⚠️ [Setup] Could not update .gitignore: ${e.message}`);
@@ -2797,7 +2774,7 @@ echo "=== END DEBUG ==="
 
             // Kill any existing process on port 3000
             console.log(`   🔪 Killing any process on port 3000...`);
-            await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 15000, true);
+            await containerService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 15000, true);
 
             // Create startup script for http-server
             const startupScript = `/home/coder/start-server.sh`;
@@ -2816,14 +2793,14 @@ echo "HTTP server started in background"`;
 
             console.log(`\n   📝 [DEBUG] HTTP-SERVER STARTUP SCRIPT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
 
-            await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
+            await containerService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
 ${startupScriptContent}
 EOFSCRIPT
 chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
             // Execute startup script
             try {
-                await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+                await containerService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
                 console.log(`   ✅ HTTP server script triggered successfully`);
             } catch (execErr) {
                 if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
@@ -2840,7 +2817,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
             const isReady = await this.waitForDevServer(agentUrl, machineId, 30000);
 
             if (!isReady) {
-                const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+                const logs = await containerService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
                 console.error(`❌[Health Check] HTTP server failed! Last logs: \n${logs.stdout}`);
                 throw new Error(`HTTP server failed to start. Check project logs.`);
             }
@@ -2866,14 +2843,14 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
         try {
             const axios = require('axios');
-            const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+            const headers = {};
             const cacheService = require('./node-modules-cache-service');
 
             // === STEP 1: LIVELLO 1 - Controlla node_modules esistente (Persistent Workspace) ===
             console.log(`\n🔍 [Setup] Step 1: Checking for existing node_modules (LIVELLO 1)...`);
 
             const checkNodeModulesCmd = 'test -d /home/coder/project/node_modules && ls /home/coder/project/node_modules 2>/dev/null | wc -l';
-            const checkResult = await flyService.exec(agentUrl, checkNodeModulesCmd, '/home/coder/project', machineId, 10000, true);
+            const checkResult = await containerService.exec(agentUrl, checkNodeModulesCmd, '/home/coder/project', machineId, 10000, true);
 
             const packageCount = parseInt(checkResult.stdout?.trim() || '0');
 
@@ -2894,7 +2871,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                         // Read saved hash from .package-json-hash file
                         const readHashCmd = 'test -f /home/coder/project/.package-json-hash && cat /home/coder/project/.package-json-hash || echo ""';
-                        const hashResult = await flyService.exec(agentUrl, readHashCmd, '/home/coder/project', machineId, 5000, true);
+                        const hashResult = await containerService.exec(agentUrl, readHashCmd, '/home/coder/project', machineId, 5000, true);
                         const savedHash = hashResult.stdout?.trim() || '';
 
                         console.log(`   📋 [Setup] Current hash: ${currentHash}`);
@@ -2902,9 +2879,63 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                         if (savedHash && currentHash === savedHash) {
                             console.log(`   ✅ [Setup] Hash matches - node_modules is valid for this package.json`);
-                            console.log(`   ⚡ LIVELLO 1: Persistent Workspace - SKIP INSTALL!`);
 
-                            if (onProgress) onProgress('install', '✅ Dipendenze già installate (persistent workspace)');
+                            // CRITICAL: Verify a key dependency actually exists in node_modules
+                            // Prevents false matches when container was reused and hash file was stale
+                            let depCheckPassed = true;
+                            try {
+                                const depCheckCmd = `node -e "const pkg=JSON.parse(require('fs').readFileSync('package.json','utf8')); const deps=Object.keys(pkg.dependencies||{}); const first=deps[0]; if(!first){process.exit(0)} const fs=require('fs'); if(fs.existsSync('node_modules/'+first)){console.log('DEP_OK:'+first)}else{console.log('DEP_MISSING:'+first)}"`;
+                                const depResult = await containerService.exec(agentUrl, depCheckCmd, '/home/coder/project', machineId, 5000, true);
+                                const depStatus = (depResult.stdout || '').trim();
+
+                                if (depStatus.startsWith('DEP_MISSING:')) {
+                                    const missingDep = depStatus.split(':')[1];
+                                    console.log(`   ❌ [Setup] Key dependency "${missingDep}" missing from node_modules — wrong modules!`);
+                                    console.log(`   🗑️ [Setup] Removing stale node_modules...`);
+                                    await containerService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules /home/coder/project/.package-json-hash', '/home/coder/project', machineId, 30000, true);
+                                    depCheckPassed = false;
+                                } else {
+                                    console.log(`   ✅ [Setup] Dependency check passed: ${depStatus}`);
+                                }
+                            } catch (depErr) {
+                                console.log(`   ⚠️ [Setup] Dependency check failed: ${depErr.message}`);
+                            }
+
+                            if (depCheckPassed) {
+                                // CRITICAL: Verify node_modules symlink integrity
+                                // node_modules synced via tar lose internal symlinks (npm and pnpm)
+                                try {
+                                    const integrityCheck = await containerService.exec(agentUrl,
+                                        'if test -f pnpm-lock.yaml; then ' +
+                                        '  test -d node_modules/.pnpm && echo "PNPM_OK" || echo "PNPM_BROKEN"; ' +
+                                        'elif test -f package-lock.json; then ' +
+                                        '  test -f node_modules/.package-lock.json && echo "NPM_OK" || echo "NPM_BROKEN"; ' +
+                                        'else echo "OK"; fi',
+                                        '/home/coder/project', machineId, 5000, true);
+                                    const status = (integrityCheck.stdout || '').trim();
+
+                                    if (status === 'PNPM_BROKEN') {
+                                        console.log(`   ⚠️ [Setup] pnpm project but .pnpm missing - rebuilding symlinks...`);
+                                        const storeDir = '/home/coder/volumes/pnpm-store';
+                                        const pnpmFixCmd = `mkdir -p ${storeDir} /home/coder/.local/share/pnpm && ln -snf ${storeDir} /home/coder/.local/share/pnpm/store && CI=true pnpm install --store-dir ${storeDir} --prefer-offline --network-concurrency=64 --child-concurrency=10 --no-optional`;
+                                        await containerService.exec(agentUrl, pnpmFixCmd, '/home/coder/project', machineId, 120000, true);
+                                        console.log(`   ✅ [Setup] pnpm symlinks rebuilt`);
+                                    } else if (status === 'NPM_BROKEN') {
+                                        console.log(`   ⚠️ [Setup] npm symlinks broken (tar sync) - running npm install to rebuild...`);
+                                        await containerService.exec(agentUrl,
+                                            'npm install --prefer-offline --legacy-peer-deps 2>&1 | tail -5',
+                                            '/home/coder/project', machineId, 120000, true);
+                                        console.log(`   ✅ [Setup] npm symlinks rebuilt`);
+                                    }
+                                } catch (integrityErr) {
+                                    console.log(`   ⚠️ [Setup] Integrity check failed: ${integrityErr.message}`);
+                                }
+
+                                console.log(`   ⚡ LIVELLO 1: Persistent Workspace - SKIP INSTALL!`);
+
+                                if (onProgress) onProgress('install', '✅ Dipendenze già installate (persistent workspace)');
+                            }
+                            // If depCheckPassed is false, node_modules was removed — fall through to install
                         } else {
                             if (savedHash) {
                                 console.log(`   ⚠️ [Setup] Hash MISMATCH! Different package.json detected.`);
@@ -2913,21 +2944,21 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                                 console.log(`   ⚠️ [Setup] No saved hash found - first time install or cache miss`);
                                 console.log(`   🗑️ [Setup] Removing node_modules to ensure clean install...`);
                             }
-                            await flyService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
+                            await containerService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
                             // Fall through to install
                             console.log(`   ❌ [Setup] node_modules removed - will reinstall`);
                         }
                     } catch (hashError) {
                         console.log(`   ⚠️ [Setup] Hash verification failed: ${hashError.message}`);
                         console.log(`   🗑️ [Setup] Removing node_modules to be safe...`);
-                        await flyService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
+                        await containerService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
                         // Fall through to install
                         console.log(`   ❌ [Setup] node_modules removed - will reinstall`);
                     }
 
                     // Only proceed with SKIP INSTALL if hash matched
                     const recheckCmd = 'test -d /home/coder/project/node_modules && echo "exists" || echo "missing"';
-                    const recheckResult = await flyService.exec(agentUrl, recheckCmd, '/home/coder/project', machineId, 5000, true);
+                    const recheckResult = await containerService.exec(agentUrl, recheckCmd, '/home/coder/project', machineId, 5000, true);
 
                     if (recheckResult.stdout?.trim() === 'exists') {
                         // Hash matched, node_modules still exists - safe to skip install
@@ -2961,7 +2992,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     // Pacchetti insufficienti, probabilmente installazione parziale
                     console.log(`   ⚠️ [Setup] node_modules has only ${packageCount} packages (< 100 threshold)`);
                     console.log(`   🗑️ [Setup] Removing incomplete node_modules and reinstalling...`);
-                    await flyService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
+                    await containerService.exec(agentUrl, 'rm -rf /home/coder/project/node_modules', '/home/coder/project', machineId, 30000, true);
                 }
             }
 
@@ -2972,7 +3003,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
             try {
                 const hash = await cacheService.calculateHash(projectId);
-                const cacheExists = await cacheService.exists(hash);
+                const cacheExists = await cacheService.exists(hash, agentUrl, machineId);
 
                 if (cacheExists) {
                     console.log(`   ✨ [Setup] Cache found! (hash: ${hash})`);
@@ -2984,7 +3015,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                     if (isNextJS) {
                         const nextCacheService = require('./next-cache-service');
-                        const nextInfo = await nextCacheService.exists(projectId);
+                        const nextInfo = await nextCacheService.exists(projectId, agentUrl, machineId);
                         nextCacheExists = nextInfo.exists;
                     }
 
@@ -3015,7 +3046,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                         // CRITICAL: Save hash after cache restore to prevent reinstall on next run
                         if (restoreResult.success) {
                             try {
-                                await flyService.exec(agentUrl, `echo "${hash}" > /home/coder/project/.package-json-hash`, '/home/coder/project', machineId, 5000, true);
+                                await containerService.exec(agentUrl, `echo "${hash}" > /home/coder/project/.package-json-hash`, '/home/coder/project', machineId, 5000, true);
                                 console.log(`   💾 [Setup] Saved hash ${hash} to .package-json-hash`);
 
                                 // Track hash in VM pool for TIER 3 VM-to-VM transfers
@@ -3047,7 +3078,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                                 // Detect package manager from lockfiles
                                 let pkgManager = 'npm';
                                 try {
-                                    const checkLockfiles = await flyService.exec(agentUrl,
+                                    const checkLockfiles = await containerService.exec(agentUrl,
                                         'test -f pnpm-lock.yaml && echo "PNPM" || (test -f yarn.lock && echo "YARN" || echo "NPM")',
                                         '/home/coder/project', machineId, 5000, true);
                                     const lockOutput = (checkLockfiles.stdout || '').trim();
@@ -3061,9 +3092,9 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                                     ? 'pnpm install --prefer-offline --ignore-scripts'
                                     : pkgManager === 'yarn'
                                     ? 'yarn install --prefer-offline --ignore-scripts'
-                                    : 'npm install --prefer-offline --ignore-scripts';
+                                    : 'npm install --prefer-offline --legacy-peer-deps';
 
-                                await flyService.exec(agentUrl, symlinkCmd, '/home/coder/project', machineId, 120000, true);
+                                await containerService.exec(agentUrl, symlinkCmd, '/home/coder/project', machineId, 120000, true);
                                 console.log(`   ✅ [Setup] Bin symlinks recreated with ${pkgManager}`);
                             } catch (symlinkError) {
                                 console.log(`   ⚠️ [Setup] Failed to recreate symlinks: ${symlinkError.message}`);
@@ -3071,7 +3102,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                             // CRITICAL: Save hash after cache restore to prevent reinstall on next run
                             try {
-                                await flyService.exec(agentUrl, `echo "${hash}" > /home/coder/project/.package-json-hash`, '/home/coder/project', machineId, 5000, true);
+                                await containerService.exec(agentUrl, `echo "${hash}" > /home/coder/project/.package-json-hash`, '/home/coder/project', machineId, 5000, true);
                                 console.log(`   💾 [Setup] Saved hash ${hash} to .package-json-hash`);
 
                                 // Track hash in VM pool for TIER 3 VM-to-VM transfers
@@ -3161,8 +3192,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                 console.log('   ⚡ Using npm --legacy-peer-deps (no lockfile - default to npm for compatibility)');
             }
 
-            // Note: build cache disabled (Fly.io supports only 1 volume per machine)
-            // Using pnpm cache which provides bigger performance gain
+            // Build cache disabled - using shared pnpm store via NVMe volume mount
             const cacheCmd = 'true';
 
             // Get start command using detected package manager
@@ -3176,7 +3206,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
             let pkgJsonResult = null;
             for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
-                    pkgJsonResult = await flyService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', machineId, 60000, true);
+                    pkgJsonResult = await containerService.exec(agentUrl, 'cat /home/coder/project/package.json', '/home/coder/project', machineId, 60000, true);
                     break;
                 } catch (readErr) {
                     if (attempt < 3 && (readErr.code === 'ECONNABORTED' || readErr.message?.includes('timeout'))) {
@@ -3251,7 +3281,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
             try {
                 // Check if node_modules exists AND contains packages
-                const checkNodeModules = await flyService.exec(
+                const checkNodeModules = await containerService.exec(
                     agentUrl,
                     'test -d node_modules && ls node_modules 2>/dev/null | wc -l',
                     '/home/coder/project',
@@ -3292,7 +3322,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                             .digest('hex');
 
                         // Get stored hash from VM
-                        const storedHashResult = await flyService.exec(
+                        const storedHashResult = await containerService.exec(
                             agentUrl,
                             'cat .package-json-hash 2>/dev/null || echo ""',
                             '/home/coder/project',
@@ -3347,7 +3377,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                 try {
                     if (installCmd.includes('npm ci')) {
                         console.log(`   🧹 Removing node_modules for clean npm ci...`);
-                        await flyService.exec(agentUrl, 'rm -rf node_modules', '/home/coder/project', machineId, 10000, true);
+                        await containerService.exec(agentUrl, 'rm -rf node_modules', '/home/coder/project', machineId, 10000, true);
                     }
 
                     // === DEBUG: Cache status BEFORE install ===
@@ -3357,14 +3387,14 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     let detectedLayout = 'unknown';  // Will be set during cache detection
                     try {
                         // Check cache store size
-                        const cacheSize = await flyService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
+                        const cacheSize = await containerService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
                         console.log(`   📦 Cache Store Size: ${cacheSize.stdout?.trim() || 'N/A'}`);
 
                         // Detect pnpm store layout with debug output:
                         // - pnpm 10.x: files/, index/, projects/ (layout "pnpm10")
                         // - pnpm 9.x: v3/ (layout "v3") or v10/ (layout "v10")
                         // Note: Workers may have nested structure (pnpm-store/pnpm-store/v10/) due to rsync copy
-                        const layoutCheck = await flyService.exec(agentUrl, `
+                        const layoutCheck = await containerService.exec(agentUrl, `
                             BASE="/home/coder/volumes/pnpm-store" &&
                             echo "DIRS:" && ls -1 $BASE/ 2>/dev/null | head -10 &&
                             if [ -d $BASE/files ]; then echo "LAYOUT:pnpm10";
@@ -3397,11 +3427,11 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                             case 'nested-v3': filesDir = 'pnpm-store/v3/files'; break;
                             default: filesDir = 'files';
                         }
-                        const fileCount = await flyService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | wc -l || echo "0"`, '/home/coder', machineId, 10000, true);
+                        const fileCount = await containerService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | wc -l || echo "0"`, '/home/coder', machineId, 10000, true);
                         console.log(`   📁 Cached File Hashes: ${fileCount.stdout?.trim() || '0'}`);
 
                         // List some cached files
-                        const cachedPkgs = await flyService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | head -10 || echo "(empty)"`, '/home/coder', machineId, 10000, true);
+                        const cachedPkgs = await containerService.exec(agentUrl, `ls /home/coder/volumes/pnpm-store/${filesDir} 2>/dev/null | head -10 || echo "(empty)"`, '/home/coder', machineId, 10000, true);
                         console.log(`   📋 Sample cached hashes:\n      ${cachedPkgs.stdout?.trim().split('\n').join('\n      ') || '(none)'}`);
                     } catch (e) {
                         console.log(`   ⚠️ Could not read cache status: ${e.message}`);
@@ -3453,7 +3483,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                             : `${fullInstallCmd} && ${pkgManager} install typescript`;
                     }
 
-                    // HOLY GRAIL: Run install in background to avoid HTTP timeouts (Fly.io proxy 30s limit)
+                    // Run install in background to avoid HTTP timeouts
                     console.log(`   📦 Triggering ${pkgManager} install in background...`);
                     const installLog = '/home/coder/install.log';
                     const installMarker = '/home/coder/install.done';
@@ -3466,7 +3496,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
                     // Cleanup old markers (don't wait too long - VM might be busy)
                     try {
-                        await flyService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 10000, true);
+                        await containerService.exec(agentUrl, `rm -f ${installMarker} ${installLog}`, '/home/coder', machineId, 10000, true);
                     } catch (cleanupErr) {
                         console.log(`   ⚠️ Marker cleanup timed out (VM busy) - continuing anyway`);
                     }
@@ -3474,7 +3504,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
                     // Kill dev servers (but NOT package managers if install might be running)
                     const killCmd = 'fuser -k 3000/tcp || true; pkill -9 -f next-server || true; pkill -9 -f vite || true';
                     console.log(`\n   🔪 [DEBUG] EXECUTING KILL CMD:\n   ${killCmd}`);
-                    await flyService.exec(agentUrl, killCmd, '/home/coder', machineId, 20000, true);
+                    await containerService.exec(agentUrl, killCmd, '/home/coder', machineId, 20000, true);
 
                     // Create install script on VM (avoids complex shell escaping)
                     const installScript = `/home/coder/install.sh`;
@@ -3494,7 +3524,7 @@ fi`;
 
                     console.log(`\n   📝 [DEBUG] INSTALL SCRIPT CONTENT:\n${'─'.repeat(40)}\n${scriptContent}\n${'─'.repeat(40)}`);
 
-                    await flyService.exec(agentUrl, `cat > ${installScript} << 'EOFSCRIPT'
+                    await containerService.exec(agentUrl, `cat > ${installScript} << 'EOFSCRIPT'
 ${scriptContent}
 EOFSCRIPT
 chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
@@ -3503,7 +3533,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     // Run in background (detached from parent)
                     // Use nohup for proper detachment, increased timeout, and catch timeout errors gracefully
                     try {
-                        await flyService.exec(agentUrl, `nohup ${installScript} > /dev/null 2>&1 &`, '/home/coder', machineId, 15000, true);
+                        await containerService.exec(agentUrl, `nohup ${installScript} > /dev/null 2>&1 &`, '/home/coder', machineId, 15000, true);
                         console.log(`   ✅ Install script triggered successfully`);
                     } catch (triggerErr) {
                         // Ignore timeout errors - the script is likely running in background
@@ -3521,7 +3551,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     let installSuccess = false;
 
                     while (pollCount < maxPolls) {
-                        const checkMarker = await flyService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 90000, true); // 90s timeout for heavy load
+                        const checkMarker = await containerService.exec(agentUrl, `cat ${installMarker} 2>/dev/null || echo "PENDING"`, '/home/coder', machineId, 90000, true); // 90s timeout for heavy load
                         const status = checkMarker.stdout?.trim();
 
                         if (status && status !== 'PENDING') {
@@ -3543,12 +3573,12 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                                 installSuccess = true;
                             } else {
                                 // Check if it's a "soft" failure
-                                const checkResult = await flyService.exec(agentUrl, '[ -d node_modules ] && [ "$(ls -A node_modules)" ]', '/home/coder/project', machineId, 10000, true);
+                                const checkResult = await containerService.exec(agentUrl, '[ -d node_modules ] && [ "$(ls -A node_modules)" ]', '/home/coder/project', machineId, 10000, true);
                                 if (checkResult.exitCode === 0) {
                                     console.log(`   ⚠️ ${pkgManager} install had warnings/soft error (${exitCode}) but node_modules exists. Proceeding...`);
                                     installSuccess = true;
                                 } else {
-                                    const errorLogs = await flyService.exec(agentUrl, `tail -n 20 ${installLog}`, '/home/coder', machineId, 5000, true);
+                                    const errorLogs = await containerService.exec(agentUrl, `tail -n 20 ${installLog}`, '/home/coder', machineId, 5000, true);
                                     throw new Error(`${pkgManager} install failed (code ${match ? match[1] : 'unknown'}). Logs:\n${errorLogs.stdout}`);
                                 }
                             }
@@ -3574,7 +3604,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                             ? 'cd /home/coder/project && pnpm dedupe --store-dir /home/coder/volumes/pnpm-store'
                             : 'cd /home/coder/project && npm dedupe';
 
-                        await flyService.exec(agentUrl, dedupeCmd, '/home/coder', machineId, 60000, true);
+                        await containerService.exec(agentUrl, dedupeCmd, '/home/coder', machineId, 60000, true);
                         console.log(`   ✅ [Optimization] Dedupe completed - reduced duplicate dependencies`);
                     } catch (dedupeErr) {
                         // Non-fatal - continue even if dedupe fails
@@ -3584,7 +3614,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     // === DEBUG: Show install.log output ===
                     console.log(`\n   📋 [DEBUG] INSTALL.LOG (last 50 lines):`);
                     try {
-                        const installLogs = await flyService.exec(agentUrl, `tail -n 50 ${installLog}`, '/home/coder', machineId, 5000, true);
+                        const installLogs = await containerService.exec(agentUrl, `tail -n 50 ${installLog}`, '/home/coder', machineId, 5000, true);
                         console.log(`${'─'.repeat(40)}\n${installLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
                     } catch (e) {
                         console.log(`   (could not read install.log: ${e.message})`);
@@ -3596,19 +3626,19 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                     console.log(`   ${'═'.repeat(50)}`);
                     try {
                         // Check cache store size after
-                        const cacheSizeAfter = await flyService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
+                        const cacheSizeAfter = await containerService.exec(agentUrl, 'du -sh /home/coder/volumes/pnpm-store 2>/dev/null || echo "Cache not found"', '/home/coder', machineId, 10000, true);
                         console.log(`   📦 Cache Store Size: ${cacheSizeAfter.stdout?.trim() || 'N/A'}`);
 
                         // Check node_modules size
-                        const nodeModulesSize = await flyService.exec(agentUrl, 'du -sh /home/coder/project/node_modules 2>/dev/null || echo "not found"', '/home/coder', machineId, 10000, true);
+                        const nodeModulesSize = await containerService.exec(agentUrl, 'du -sh /home/coder/project/node_modules 2>/dev/null || echo "not found"', '/home/coder', machineId, 10000, true);
                         console.log(`   📁 node_modules Size: ${nodeModulesSize.stdout?.trim() || 'N/A'}`);
 
                         // Count packages installed
-                        const installedPkgs = await flyService.exec(agentUrl, 'ls /home/coder/project/node_modules 2>/dev/null | wc -l || echo "0"', '/home/coder', machineId, 10000, true);
+                        const installedPkgs = await containerService.exec(agentUrl, 'ls /home/coder/project/node_modules 2>/dev/null | wc -l || echo "0"', '/home/coder', machineId, 10000, true);
                         console.log(`   📊 Packages in node_modules: ${installedPkgs.stdout?.trim() || '0'}`);
 
                         // Check pnpm store status (packages count)
-                        const storeStatus = await flyService.exec(agentUrl, 'pnpm store status 2>&1 | head -5 || echo "N/A"', '/home/coder/project', machineId, 15000, true);
+                        const storeStatus = await containerService.exec(agentUrl, 'pnpm store status 2>&1 | head -5 || echo "N/A"', '/home/coder/project', machineId, 15000, true);
                         console.log(`   🗄️ Store Status:\n      ${storeStatus.stdout?.trim().split('\n').join('\n      ') || 'N/A'}`);
                     } catch (e) {
                         console.log(`   ⚠️ Could not read post-install status: ${e.message}`);
@@ -3669,11 +3699,15 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
      */
     async waitForDevServer(agentUrl, machineId, maxWaitMs = 120000) {
         const axios = require('axios');
-        const headers = machineId ? { 'Fly-Force-Instance-Id': machineId } : {};
+        const headers = {};
         const startTime = Date.now();
         const checkInterval = 2000;
 
-        console.log(`⏳[Health Check] Verifying app at ${machineId}...`);
+        // In Docker mode, use agent's exec to check if dev server is listening on port 3000
+        // (agentUrl points to agent port 13338, not dev server port 3000)
+        const useAgentCheck = true;
+
+        console.log(`⏳[Health Check] Verifying app at ${machineId.substring(0, 12)}... (${useAgentCheck ? 'Docker agent check' : 'direct HTTP'})`);
 
         // Use longer timeout for each request (120s) to handle slow first-compile
         // This is especially important for Next.js 16 Turbopack first build (can take 60-120s)
@@ -3682,11 +3716,22 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
         while (Date.now() - startTime < maxWaitMs) {
             try {
                 const checkStart = Date.now();
-                const response = await axios.get(agentUrl, {
-                    timeout: requestTimeout,
-                    headers,
-                    validateStatus: () => true // Catch all statuses
-                });
+                let response;
+
+                if (useAgentCheck) {
+                    // Docker mode: ask agent to curl localhost:3000
+                    const checkResult = await containerService.exec(agentUrl,
+                        'curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null || echo "000"',
+                        '/home/coder', machineId, 10000, true);
+                    const statusCode = parseInt(checkResult.stdout?.trim() || '000');
+                    response = { status: statusCode };
+                } else {
+                    response = await axios.get(agentUrl, {
+                        timeout: requestTimeout,
+                        headers,
+                        validateStatus: () => true
+                    });
+                }
 
                 // Accept 2xx, 3xx (success/redirect) OR 404 (server responding, but no content on root)
                 // 404 is common for SPA frameworks (Vite, Vue, React) that don't serve content on root
@@ -3724,7 +3769,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
         let pkgManager = 'npm';
         try {
             // Check each lockfile explicitly (pnpm takes priority)
-            const checkLockfiles = await flyService.exec(agentUrl,
+            const checkLockfiles = await containerService.exec(agentUrl,
                 'test -f pnpm-lock.yaml && echo "PNPM" || (test -f yarn.lock && echo "YARN" || echo "NPM")',
                 '/home/coder/project', machineId, 5000, true);
             const lockOutput = (checkLockfiles.stdout || '').trim();
@@ -3745,7 +3790,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
         // Read package.json to detect project type and set appropriate start command
         // CRITICAL: Runtime detection OVERRIDES any previous detection (fixes wrong type from AI/cache)
         try {
-            const pkgJsonResult = await flyService.exec(agentUrl, 'cat package.json', '/home/coder/project', machineId, 5000, true);
+            const pkgJsonResult = await containerService.exec(agentUrl, 'cat package.json', '/home/coder/project', machineId, 5000, true);
             if (pkgJsonResult && pkgJsonResult.stdout) {
                 const pkg = JSON.parse(pkgJsonResult.stdout);
                 const deps = { ...pkg.dependencies, ...pkg.devDependencies };
@@ -3805,14 +3850,14 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                 const nextCacheService = require('./next-cache-service');
 
                 // Check if .next exists on VM
-                const checkNext = await flyService.exec(agentUrl, 'test -d /home/coder/project/.next && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
+                const checkNext = await containerService.exec(agentUrl, 'test -d /home/coder/project/.next && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
 
                 if (checkNext.stdout.includes('missing')) {
-                    console.log(`   📦 [NextCache] .next missing - checking cloud cache...`);
-                    const cacheInfo = await nextCacheService.exists(projectId);
+                    console.log(`   📦 [NextCache] .next missing - checking NVMe cache...`);
+                    const cacheInfo = await nextCacheService.exists(projectId, agentUrl, machineId);
 
                     if (cacheInfo.exists) {
-                        console.log(`   ⬇️ [NextCache] Restoring from cloud (~${(cacheInfo.size / 1024 / 1024).toFixed(0)}MB)...`);
+                        console.log(`   ⬇️ [NextCache] Restoring from NVMe cache...`);
                         console.log(`   ℹ️ [NextCache] (fallback restore - should have been done in parallel at LIVELLO 2)`);
                         if (onProgress) onProgress('install', 'Ripristino cache compilazione...');
 
@@ -3839,14 +3884,14 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                 const angularCacheService = require('./angular-cache-service');
 
                 // Check if .angular exists on VM
-                const checkAngular = await flyService.exec(agentUrl, 'test -d /home/coder/project/.angular && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
+                const checkAngular = await containerService.exec(agentUrl, 'test -d /home/coder/project/.angular && echo "exists" || echo "missing"', '/home/coder', machineId, 5000, true);
 
                 if (checkAngular.stdout.includes('missing')) {
-                    console.log(`   📦 [AngularCache] .angular missing - checking cloud cache...`);
-                    const cacheInfo = await angularCacheService.exists(projectId);
+                    console.log(`   📦 [AngularCache] .angular missing - checking NVMe cache...`);
+                    const cacheInfo = await angularCacheService.exists(projectId, agentUrl, machineId);
 
                     if (cacheInfo.exists) {
-                        console.log(`   ⬇️ [AngularCache] Restoring from cloud (~${(cacheInfo.size / 1024 / 1024).toFixed(0)}MB)...`);
+                        console.log(`   ⬇️ [AngularCache] Restoring from NVMe cache...`);
                         if (onProgress) onProgress('install', 'Ripristino cache compilazione Angular...');
 
                         const restoreResult = await angularCacheService.restore(projectId, agentUrl, machineId);
@@ -3856,7 +3901,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
                             console.log(`   ⚠️ [AngularCache] Restore failed: ${restoreResult.error}`);
                         }
                     } else {
-                        console.log(`   ℹ️ [AngularCache] No cloud cache found - will compile from scratch`);
+                        console.log(`   ℹ️ [AngularCache] No NVMe cache found - will compile from scratch`);
                     }
                 } else {
                     console.log(`   ✅ [AngularCache] .angular exists on VM - using local cache`);
@@ -3869,7 +3914,7 @@ chmod +x ${installScript}`, '/home/coder', machineId, 10000, true);
         // Step 2: Kill any existing processes on port 3000
         // Use 30s timeout - VM might be slow after heavy pnpm install
         console.log(`   🔪 Killing any process on port 3000...`);
-        await flyService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 30000, true);
+        await containerService.exec(agentUrl, 'fuser -k 3000/tcp 2>/dev/null || true', '/home/coder/project', machineId, 30000, true);
 
         // Step 3: Create and execute startup script
         console.log(`   🚀 Starting dev server in background...`);
@@ -3904,8 +3949,8 @@ sleep 1
 # Only delete .next if source files have changed since last build
 # This allows .next to persist across VM restarts as long as code hasn't changed
 if [ -d .next ]; then
-  # Calculate hash of source directories (app, src, pages, components, public, styles)
-  CURRENT_HASH=$(find app src pages components public styles -type f 2>/dev/null | sort | xargs -r stat -c '%Y %n' 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
+  # Calculate hash based on file CONTENT (not timestamps, which change on every sync)
+  CURRENT_HASH=$(find app src pages components public styles -type f -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.css' -o -name '*.json' 2>/dev/null | sort | xargs -r md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
   SAVED_HASH=$(cat .next-source-hash 2>/dev/null || echo "none")
 
   if [ "$CURRENT_HASH" != "none" ] && [ "$CURRENT_HASH" = "$SAVED_HASH" ]; then
@@ -3926,11 +3971,16 @@ rm -rf node_modules/.vite-temp 2>/dev/null || true
 # Pass optimization variables inline to ensure they reach the process
 nohup env UV_THREADPOOL_SIZE=$CPU_CORES TURBOPACK_WORKERS=$CPU_CORES VITE_CPU_CORES=$CPU_CORES NODE_OPTIONS="--max-old-space-size=$NODE_MEM_MB --max-semi-space-size=128" ${finalStart} > /home/coder/server.log 2>&1 &
 disown
+
+# Save source hash so next startup can skip recompilation if files haven't changed
+SOURCE_HASH=$(find app src pages components public styles -type f -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.css' -o -name '*.json' 2>/dev/null | sort | xargs -r md5sum 2>/dev/null | md5sum | cut -d' ' -f1 || echo "none")
+echo "$SOURCE_HASH" > .next-source-hash
+
 echo "Dev server started in background with optimizations"`;
 
         console.log(`\n   📝 [DEBUG] STARTUP SCRIPT CONTENT:\n${'─'.repeat(40)}\n${startupScriptContent}\n${'─'.repeat(40)}`);
 
-        await flyService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
+        await containerService.exec(agentUrl, `cat > ${startupScript} << 'EOFSCRIPT'
 ${startupScriptContent}
 EOFSCRIPT
 chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
@@ -3939,7 +3989,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
 
         // Fire-and-forget execution
         try {
-            await flyService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
+            await containerService.exec(agentUrl, startupScript, '/home/coder', machineId, 10000, true);
             console.log(`   ✅ Startup script triggered successfully`);
         } catch (execErr) {
             if (execErr.code === 'ECONNABORTED' || execErr.message?.includes('timeout') || execErr.message?.includes('socket hang up')) {
@@ -3956,11 +4006,11 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
         // Next.js 16 with Turbopack can take 5-8 minutes for first compilation on cold start
         // Angular CLI (ng serve) also needs ~2-3 minutes for initial compilation
         const slowFrameworks = ['nextjs', 'angular'];
-        const healthCheckTimeout = slowFrameworks.includes(projectInfo.type) ? 300000 : 90000;
+        const healthCheckTimeout = slowFrameworks.includes(projectInfo.type) ? 480000 : 90000;
         const isReady = await this.waitForDevServer(agentUrl, machineId, healthCheckTimeout);
 
         if (!isReady) {
-            const logs = await flyService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+            const logs = await containerService.exec(agentUrl, 'tail -n 30 /home/coder/server.log', '/home/coder', machineId, 5000, true);
             console.error(`❌[Health Check] Dev server failed! Last logs: \n${logs.stdout}`);
             throw new Error(`Dev server failed to start. Check project logs.`);
         }
@@ -3968,7 +4018,7 @@ chmod +x ${startupScript}`, '/home/coder', machineId, 10000, true);
         // Step 6: Show server logs
         console.log(`\n   📋 [DEBUG] SERVER.LOG (last 20 lines):`);
         try {
-            const serverLogs = await flyService.exec(agentUrl, 'tail -n 20 /home/coder/server.log', '/home/coder', machineId, 5000, true);
+            const serverLogs = await containerService.exec(agentUrl, 'tail -n 20 /home/coder/server.log', '/home/coder', machineId, 5000, true);
             console.log(`${'─'.repeat(40)}\n${serverLogs.stdout || '(empty)'}\n${'─'.repeat(40)}`);
         } catch (e) {
             console.log(`   (could not read server.log: ${e.message})`);

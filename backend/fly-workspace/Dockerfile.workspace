@@ -1,0 +1,46 @@
+# Drape Workspace Image - Docker Edition
+# For Hetzner dedicated servers with Docker
+# Full Node.js workspace with 100% npm package compatibility
+
+FROM node:20
+
+LABEL maintainer="Drape Team"
+LABEL description="Drape workspace container for Docker-based infrastructure"
+
+# node:20 already includes: git, curl, bash, python3, gcc, g++, make, build-essential
+
+# Install zstd for ultra-fast compression
+RUN apt-get update && apt-get install -y zstd && rm -rf /var/lib/apt/lists/*
+
+# Enable pnpm via corepack
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Create workspace user
+RUN useradd -m -s /bin/bash coder \
+    && mkdir -p /home/coder/project \
+    && mkdir -p /home/coder/volumes/pnpm-store \
+    && mkdir -p /home/coder/.local/share/pnpm \
+    && mkdir -p /home/coder/.next-cache \
+    && chown -R coder:coder /home/coder
+
+# Symlink pnpm store to shared volume mount point
+RUN ln -snf /home/coder/volumes/pnpm-store /home/coder/.local/share/pnpm/store
+
+# Configure pnpm
+ENV PNPM_HOME=/home/coder/.local/share/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+
+# Copy the Drape Agent
+COPY drape-agent.js /drape-agent.js
+
+WORKDIR /home/coder/project
+
+# Expose ports: 13338 (agent), 3000 (dev server)
+EXPOSE 13338 3000
+
+# Healthcheck targeting actual agent port
+HEALTHCHECK --interval=10s --timeout=3s --start-period=2s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:13338/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
+
+# Start the Drape Agent
+CMD ["node", "/drape-agent.js"]

@@ -55,19 +55,16 @@ function updateEnvFile(ip) {
     envContent += `\nLOCAL_IP=${ip}\n`;
   }
 
-  // Update or add EXPO_PUBLIC_API_URL
-  const apiUrl = `http://${ip}:3000`;
-  if (envContent.includes('EXPO_PUBLIC_API_URL=')) {
-    envContent = envContent.replace(/EXPO_PUBLIC_API_URL=.*/g, `EXPO_PUBLIC_API_URL=${apiUrl}`);
-  } else {
+  // Only set API/WS URLs if they don't already exist in .env
+  // (allows manual override for remote backends like Hetzner)
+  const apiUrl = envContent.match(/EXPO_PUBLIC_API_URL=(.*)/)?.[1] || `http://${ip}:3000`;
+  const wsUrl = envContent.match(/EXPO_PUBLIC_WS_URL=(.*)/)?.[1] || `ws://${ip}:3000`;
+
+  if (!envContent.includes('EXPO_PUBLIC_API_URL=')) {
     envContent += `EXPO_PUBLIC_API_URL=${apiUrl}\n`;
   }
 
-  // Update or add EXPO_PUBLIC_WS_URL
-  const wsUrl = `ws://${ip}:3000`;
-  if (envContent.includes('EXPO_PUBLIC_WS_URL=')) {
-    envContent = envContent.replace(/EXPO_PUBLIC_WS_URL=.*/g, `EXPO_PUBLIC_WS_URL=${wsUrl}`);
-  } else {
+  if (!envContent.includes('EXPO_PUBLIC_WS_URL=')) {
     envContent += `EXPO_PUBLIC_WS_URL=${wsUrl}\n`;
   }
 

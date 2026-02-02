@@ -917,22 +917,27 @@ export default function App() {
     }
   };
 
-  // Handle splash screen finish - check auth state
+  // Handle splash screen finish - navigate based on auth state
   const handleSplashFinish = () => {
     if (isInitialized && user) {
-      setCurrentScreen('home');
-    } else if (isInitialized && !user) {
-      setCurrentScreen('auth');
+      const plan = user.plan || 'free';
+      if (plan === 'free') {
+        setCurrentScreen('onboarding');
+      } else {
+        setCurrentScreen('home');
+      }
     } else {
-      // Auth not initialized yet, wait a bit
+      // Set to 'auth' — if auth isn't initialized yet, the !isInitialized guard
+      // will show a loading spinner (not the auth screen) until ready.
+      // Once isInitialized becomes true, the useEffect below routes correctly.
       setCurrentScreen('auth');
     }
   };
 
   if (currentScreen === 'splash') {
     return (
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0D0816' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#0D0816' }}>
           <SplashScreen onFinish={handleSplashFinish} />
           <StatusBar style="light" />
         </SafeAreaProvider>
@@ -940,8 +945,20 @@ export default function App() {
     );
   }
 
-  // Show auth screen if not logged in
-  if (currentScreen === 'auth' || (!user && isInitialized)) {
+  // Show seamless dark screen while auth is initializing (must be BEFORE auth check)
+  if (!isInitialized) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0D0816' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#0D0816' }}>
+          <View style={{ flex: 1, backgroundColor: '#0D0816' }} />
+          <StatusBar style="light" />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // Show auth screen only when initialized and no user
+  if (!user) {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider style={{ backgroundColor: '#000' }}>
@@ -952,7 +969,7 @@ export default function App() {
     );
   }
 
-  if (currentScreen === 'onboarding' && user) {
+  if (currentScreen === 'onboarding') {
     return (
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
         <SafeAreaProvider style={{ backgroundColor: '#000' }}>
@@ -971,27 +988,13 @@ export default function App() {
     );
   }
 
-  // Show loading if auth not initialized
-  if (!isInitialized) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-          <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color="#9B8AFF" />
-          </View>
-          <StatusBar style="light" />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
       <SafeAreaProvider style={{ backgroundColor: '#000' }}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <NetworkConfigProvider>
             <ErrorBoundary>
-              {currentScreen === 'home' && (
+              {(currentScreen === 'home' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
                 <Animated.View
                   key="home-screen"
                   entering={FadeIn.duration(300)}
@@ -1167,7 +1170,18 @@ export default function App() {
                   <CreateProjectScreen
                     onBack={() => setCurrentScreen('home')}
                     onOpenPlans={() => setCurrentScreen('plans')}
-                    onCreate={(workstation) => {
+                    onCreate={async (workstation) => {
+                      // 0. Save to Firebase so it appears in home screen
+                      const userId = useAuthStore.getState().user?.uid;
+                      if (userId) {
+                        workstationService.saveProjectWithId(
+                          workstation.projectId || workstation.id,
+                          workstation.name,
+                          userId,
+                          workstation.technology || workstation.language,
+                        ).catch((e: any) => console.warn('[App] Failed to save project to Firebase:', e.message));
+                      }
+
                       // 1. Set the new workstation
                       setWorkstation(workstation);
 
@@ -1214,7 +1228,7 @@ export default function App() {
                 </Animated.View>
               )}
 
-              {currentScreen === 'terminal' && (
+              {(currentScreen === 'terminal' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'terminal')) && (
                 <Animated.View
                   key="terminal-screen"
                   entering={FadeInDown.duration(800)}
@@ -1356,7 +1370,7 @@ export default function App() {
                   key="settings-screen"
                   entering={SlideInRight.duration(300)}
                   exiting={FadeOut.duration(200)}
-                  style={{ flex: 1 }}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}
                 >
                   <SettingsScreen
                     onClose={() => {

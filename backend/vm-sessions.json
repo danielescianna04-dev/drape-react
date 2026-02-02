@@ -6857,17 +6857,5 @@
       "disableTurbopack": true
     },
     "detectedAt": 1769786476411
-  },
-  "ws-1769282245775-pokdu2j0p": {
-    "id": "28650e0f42ee58",
-    "name": "ws-ws-1769282245775-pokdu2j0p",
-    "agentUrl": "https://drape-workspaces.fly.dev",
-    "machineId": "28650e0f42ee58",
-    "projectId": "ws-1769282245775-pokdu2j0p",
-    "createdAt": 1769910061945,
-    "lastUsed": 1769910061945,
-    "fromPool": true,
-    "prewarmed": true,
-    "image": "registry.fly.io/drape-workspaces:deployment-01KG3EXH6SBB5D0NW434C1MY7S"
   }
 }
