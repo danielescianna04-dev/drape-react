@@ -1,9 +1,9 @@
 // Hetzner Docker-Native backend (TypeScript)
-// HTTP goes through SSH tunnel (localhost:3001 → Hetzner:3001)
-// WebSocket connects directly to Hetzner IP (works without tunnel on iOS)
-const PRODUCTION_URL = 'http://localhost:3001';
+// Direct HTTP to Hetzner (NSAllowsArbitraryLoads enabled in Info.plist)
+const PRODUCTION_URL = 'http://77.42.1.116:3001';
 const PRODUCTION_WS_URL = 'ws://77.42.1.116:3001';
 
+// Dev: localhost for tunnel, WS direct to Hetzner
 const LOCAL_URL = 'http://localhost:3001';
 const LOCAL_WS_URL = 'ws://77.42.1.116:3001';
 

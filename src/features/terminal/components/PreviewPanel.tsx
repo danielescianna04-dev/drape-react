@@ -204,6 +204,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const aiScrollViewRef = useRef<ScrollView>(null);
   const lastProcessedEventIndexRef = useRef<number>(-1); // Track last processed event to avoid missing events
   const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
+  const fabContentOpacity = useRef(new Animated.Value(0)).current; // Expanded content opacity
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const defaultSteps = [
@@ -1823,15 +1824,22 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const expandFab = () => {
     isExpandedShared.value = true;
     setIsInputExpanded(true);
-    // Calculate width based on current sidebar position
-    // sidebarTranslateX: 0 = sidebar visible, -50 = sidebar hidden
+    fabContentOpacity.setValue(0);
     const expandedWidth = 320 + Math.abs(sidebarTranslateX.value);
-    Animated.spring(fabWidthAnim, {
-      toValue: expandedWidth,
-      useNativeDriver: false,
-      damping: 18,
-      stiffness: 200,
-    }).start(() => {
+    Animated.parallel([
+      Animated.spring(fabWidthAnim, {
+        toValue: expandedWidth,
+        useNativeDriver: false,
+        damping: 20,
+        stiffness: 220,
+      }),
+      Animated.timing(fabContentOpacity, {
+        toValue: 1,
+        duration: 180,
+        delay: 120,
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
       inputRef.current?.focus();
     });
   };
@@ -1839,13 +1847,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // FAB collapse animation - slower and smoother than expand
   const collapseFab = () => {
     isExpandedShared.value = false;
-    setIsInputExpanded(false); // Immediately hide input content
-    Animated.spring(fabWidthAnim, {
-      toValue: 44, // Collapsed width
+    Animated.timing(fabContentOpacity, {
+      toValue: 0,
+      duration: 80,
       useNativeDriver: false,
-      damping: 22, // Higher damping = less bounce
-      stiffness: 140, // Lower stiffness = slower, gentler motion
-    }).start();
+    }).start(() => {
+      setIsInputExpanded(false);
+      Animated.spring(fabWidthAnim, {
+        toValue: 44,
+        useNativeDriver: false,
+        damping: 22,
+        stiffness: 140,
+      }).start();
+    });
   };
 
   const handleGoBack = () => {
@@ -2908,15 +2922,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 }
                               }
                               if (data.type === 'ELEMENT_SELECTED') {
-                                let elementSelector = `<${data.element.tag}>`;
-                                if (data.element.id) elementSelector = `<${data.element.tag}#${data.element.id}>`;
-                                else if (data.element.className) {
-                                  const classNameStr = typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || '');
-                                  const classes = classNameStr.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2);
-                                  if (classes.length > 0) elementSelector = `<${data.element.tag}.${classes.join('.')}>`;
+                                const el = data.element;
+                                let elementSelector = `<${el.tag}>`;
+                                if (el.id) elementSelector = `<${el.tag}#${el.id}>`;
+                                else if (el.className) {
+                                  const classNameStr = typeof el.className === 'string' ? el.className : (el.className?.baseVal || '');
+                                  const classes = classNameStr.split(' ').filter((c: string) => c && !c.startsWith('__inspector')).slice(0, 2);
+                                  if (classes.length > 0) elementSelector = `<${el.tag}.${classes.join('.')}>`;
                                 }
-                                setSelectedElement({ selector: elementSelector, text: (data.element.text?.trim()?.substring(0, 40) || '') + (data.element.text?.length > 40 ? '...' : ''), tag: data.element.tag, className: typeof data.element.className === 'string' ? data.element.className : (data.element.className?.baseVal || ''), id: data.element.id, innerHTML: data.element.innerHTML });
-                                inputRef.current?.focus();
+                                // Toggle: if same element is already selected, deselect it
+                                if (selectedElement && selectedElement.selector === elementSelector) {
+                                  clearSelectedElement();
+                                } else {
+                                  setSelectedElement({ selector: elementSelector, text: (el.text?.trim()?.substring(0, 40) || '') + (el.text?.length > 40 ? '...' : ''), tag: el.tag, className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''), id: el.id, innerHTML: el.innerHTML });
+                                  inputRef.current?.focus();
+                                }
                                 setIsInspectMode(false);
                               }
                             } catch (error) { }
@@ -3363,12 +3383,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               <Animated.View
                 style={[
                   styles.fabAnimated,
-                  { width: fabWidthAnim }
+                  { width: fabWidthAnim },
+                  !isInputExpanded && { height: 44 }
                 ]}
               >
-                <BlurView intensity={60} tint="dark" style={[styles.fabBlur, isInputExpanded && { alignItems: 'stretch', paddingHorizontal: 0 }]}>
+                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, isInputExpanded && { alignItems: 'stretch', paddingHorizontal: 0 }]}>
                   {isInputExpanded ? (
-                    <View style={{ flex: 1, flexDirection: 'column' }}>
+                    <Animated.View style={{ flex: 1, flexDirection: 'column', opacity: fabContentOpacity }}>
 
                       {/* Context Bar - Selected Element (Inside Input) */}
                       {selectedElement && (
@@ -3395,25 +3416,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                             </TouchableOpacity>
                             {/* Element tag badge */}
                             <View style={{
+                              flex: 1,
+                              flexShrink: 1,
                               backgroundColor: 'rgba(139, 124, 246, 0.2)',
                               paddingHorizontal: 8,
                               paddingVertical: 4,
                               borderRadius: 6,
-                              flexDirection: 'row',
-                              alignItems: 'center',
                             }}>
-                              <Text style={{ color: AppColors.primary, fontSize: 12, fontFamily: 'Inter-SemiBold' }}>
+                              <Text style={{ color: AppColors.primary, fontSize: 12, fontFamily: 'Inter-SemiBold' }} numberOfLines={1}>
                                 {selectedElement.selector}
                               </Text>
                             </View>
-                            {/* Text preview */}
-                            {selectedElement.text && (
-                              <Text style={{ flex: 1, color: 'rgba(255,255,255,0.5)', fontSize: 11, fontFamily: 'Inter-Regular' }} numberOfLines={1}>
-                                "{selectedElement.text}"
-                              </Text>
-                            )}
                             {/* Close button */}
-                            <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4 }}>
+                            <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4, flexShrink: 0 }}>
                               <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.35)" />
                             </TouchableOpacity>
                           </View>
@@ -3501,7 +3516,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           </View>
                         </TouchableOpacity>
                       </View>
-                    </View>
+                    </Animated.View>
                   ) : (
                     <TouchableOpacity
                       onPress={expandFab}
@@ -4297,11 +4312,12 @@ const styles = StyleSheet.create({
     minHeight: 44,
     borderRadius: 22,
     overflow: 'hidden',
+    backgroundColor: 'rgba(20, 20, 28, 0.85)',
     // Shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
     elevation: 12,
   },
   fabBlur: {
@@ -4309,8 +4325,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 4,
     overflow: 'hidden',
   },

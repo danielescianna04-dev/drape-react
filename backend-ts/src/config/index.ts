@@ -20,6 +20,7 @@ function optionalInt(key: string, fallback: number): number {
 
 export const config = {
   port: optionalInt('PORT', 3001),
+  publicUrl: optional('PUBLIC_URL', ''),  // e.g. https://77-42-1-116.nip.io
   nodeEnv: optional('NODE_ENV', 'development'),
   isDev: optional('NODE_ENV', 'development') === 'development',
 

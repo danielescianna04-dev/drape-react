@@ -274,7 +274,8 @@ class WorkspaceService {
    * Routes through the backend proxy so iOS only needs to reach port 3001.
    */
   private buildPreviewUrl(session: Session): string {
-    return `http://localhost:${config.port}/preview/${session.projectId}/`;
+    const base = config.publicUrl || `http://localhost:${config.port}`;
+    return `${base}/preview/${session.projectId}/`;
   }
 }
 
