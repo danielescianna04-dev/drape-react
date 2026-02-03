@@ -2815,17 +2815,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 {/* Background Layer */}
                 {isLiquidGlassSupported ? (
                   <>
+                    <BlurView
+                      intensity={80}
+                      tint="dark"
+                      style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
+                    />
                     <LiquidGlassView
-                      style={StyleSheet.absoluteFill}
+                      style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
                       interactive={true}
                       effect="regular"
                       colorScheme="dark"
-                    />
-                    <View
-                      style={[
-                        StyleSheet.absoluteFill,
-                        { backgroundColor: 'rgba(20, 20, 25, 0.6)' }
-                      ]}
                     />
                   </>
                 ) : (

@@ -1,7 +1,7 @@
 // Hetzner Docker-Native backend (TypeScript)
-// Direct HTTP to Hetzner (NSAllowsArbitraryLoads enabled in Info.plist)
-const PRODUCTION_URL = 'http://77.42.1.116:3001';
-const PRODUCTION_WS_URL = 'ws://77.42.1.116:3001';
+// HTTPS via drape.info (nginx reverse proxy + Let's Encrypt)
+const PRODUCTION_URL = 'https://drape.info';
+const PRODUCTION_WS_URL = 'wss://drape.info';
 
 // Dev: localhost for tunnel, WS direct to Hetzner
 const LOCAL_URL = 'http://localhost:3001';

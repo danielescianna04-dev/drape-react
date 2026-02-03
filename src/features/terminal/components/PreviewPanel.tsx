@@ -1825,21 +1825,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     isExpandedShared.value = true;
     setIsInputExpanded(true);
     fabContentOpacity.setValue(0);
-    const expandedWidth = 320 + Math.abs(sidebarTranslateX.value);
-    Animated.parallel([
-      Animated.spring(fabWidthAnim, {
-        toValue: expandedWidth,
-        useNativeDriver: false,
-        damping: 20,
-        stiffness: 220,
-      }),
-      Animated.timing(fabContentOpacity, {
-        toValue: 1,
-        duration: 180,
-        delay: 120,
-        useNativeDriver: false,
-      }),
-    ]).start(() => {
+    Animated.timing(fabContentOpacity, {
+      toValue: 1,
+      duration: 180,
+      delay: 80,
+      useNativeDriver: false,
+    }).start(() => {
       inputRef.current?.focus();
     });
   };
@@ -1847,19 +1838,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // FAB collapse animation - slower and smoother than expand
   const collapseFab = () => {
     isExpandedShared.value = false;
-    Animated.timing(fabContentOpacity, {
-      toValue: 0,
-      duration: 80,
+    setIsInputExpanded(false);
+    fabContentOpacity.setValue(0);
+    Animated.spring(fabWidthAnim, {
+      toValue: 44,
       useNativeDriver: false,
-    }).start(() => {
-      setIsInputExpanded(false);
-      Animated.spring(fabWidthAnim, {
-        toValue: 44,
-        useNativeDriver: false,
-        damping: 22,
-        stiffness: 140,
-      }).start();
-    });
+      damping: 22,
+      stiffness: 140,
+    }).start();
   };
 
   const handleGoBack = () => {
@@ -2082,153 +2068,114 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             updateOverlay(e.target);
           };
 
-          // Touch start handler - show overlay on touch
-          const handleTouchStart = (e) => {
-            if (e.touches.length === 1) {
-              const touch = e.touches[0];
-              const target = document.elementFromPoint(touch.clientX, touch.clientY);
-              updateOverlay(target);
-            }
-          };
-
-          // Touch move handler - update overlay as finger moves
-          const handleTouchMove = (e) => {
-            if (e.touches.length === 1) {
-              const touch = e.touches[0];
-              const target = document.elementFromPoint(touch.clientX, touch.clientY);
-              updateOverlay(target);
-            }
-          };
+          // No touch handlers needed — we use 'click' which only fires on real taps
+          // iOS WKWebView does NOT fire 'click' on scroll, only on actual taps
 
           // Helper to select element
           const selectElement = () => {
             if (!lastElement) return;
 
-            // Remove listeners immediately to freeze interaction
-            document.removeEventListener('mousemove', handleMouseMove, true);
-            document.removeEventListener('touchstart', handleTouchStart, true);
-            document.removeEventListener('touchmove', handleTouchMove, true);
+            const tagName = lastElement.tagName.toLowerCase();
+            const className = lastElement.className || '';
+            const id = lastElement.id || '';
+            const text = lastElement.textContent?.substring(0, 50) || '';
 
-            // Show "waiting" state while animations settle
-            tooltip.textContent = '⏳ ...';
-            overlay.style.opacity = '0.5';
+            // Flash green to confirm selection
+            overlay.style.borderColor = '#00D084';
+            overlay.style.background = 'rgba(0, 208, 132, 0.2)';
+            overlay.style.animation = 'none';
+            overlay.style.boxShadow = '0 0 0 3px rgba(0, 208, 132, 0.3)';
+            tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
+            tooltip.textContent = '✓ Selected';
 
-            // Wait for animations to complete (CSS transitions typically 150-300ms)
-            // Then re-capture the element's final position
-            setTimeout(() => {
-              // Re-calculate position after animations
-              const rect = lastElement.getBoundingClientRect();
-              overlay.style.top = (rect.top + window.scrollY) + 'px';
-              overlay.style.left = (rect.left + window.scrollX) + 'px';
-              overlay.style.width = rect.width + 'px';
-              overlay.style.height = rect.height + 'px';
-              overlay.style.opacity = '1';
+            // Send message to React Native
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type: 'ELEMENT_SELECTED',
+              element: {
+                tag: tagName,
+                className: className,
+                id: id,
+                text: text,
+                innerHTML: lastElement.innerHTML?.substring(0, 200)
+              }
+            }));
 
-              const tagName = lastElement.tagName.toLowerCase();
-              const className = lastElement.className || '';
-              const id = lastElement.id || '';
-              const text = lastElement.textContent?.substring(0, 50) || '';
+            // Store selected element for parent navigation
+            window.__selectedElement = lastElement;
 
-              // Change overlay style to show it's selected (not just hovered)
-              overlay.style.borderColor = '#00D084';
-              overlay.style.background = 'rgba(0, 208, 132, 0.2)';
-              overlay.style.animation = 'none';
-              overlay.style.boxShadow = '0 0 0 3px rgba(0, 208, 132, 0.3)';
+            // Function to select parent element
+            window.__selectParentElement = () => {
+              const parent = window.__selectedElement?.parentElement;
+              if (parent && parent !== document.body && parent !== document.documentElement) {
+                window.__selectedElement = parent;
+                lastElement = parent;
 
-              // Update tooltip to show "Selected!"
-              tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
-              tooltip.textContent = '✓ Selected';
+                const rect = parent.getBoundingClientRect();
+                overlay.style.top = (rect.top + window.scrollY) + 'px';
+                overlay.style.left = (rect.left + window.scrollX) + 'px';
+                overlay.style.width = rect.width + 'px';
+                overlay.style.height = rect.height + 'px';
 
-              // Send message to React Native
-              window.ReactNativeWebView?.postMessage(JSON.stringify({
-                type: 'ELEMENT_SELECTED',
-                element: {
-                  tag: tagName,
-                  className: className,
-                  id: id,
-                  text: text,
-                  innerHTML: lastElement.innerHTML?.substring(0, 200)
-                }
-              }));
+                const tagName = parent.tagName.toLowerCase();
+                const className = parent.className || '';
+                const id = parent.id || '';
+                const text = parent.textContent?.substring(0, 50) || '';
 
-              // Keep selection visible until user sends message or removes it
-              // Store a function to clear the selection from React Native
-              window.__clearInspectSelection = () => {
-                overlay.style.transition = 'opacity 0.3s ease';
-                overlay.style.opacity = '0';
-                setTimeout(() => {
-                  if (window.__inspectorCleanup) {
-                    window.__inspectorCleanup();
+                window.ReactNativeWebView?.postMessage(JSON.stringify({
+                  type: 'ELEMENT_SELECTED',
+                  element: {
+                    tag: tagName,
+                    className: className,
+                    id: id,
+                    text: text,
+                    innerHTML: parent.innerHTML?.substring(0, 200)
                   }
-                }, 300);
-              };
+                }));
+              }
+            };
 
-              // Store selected element for parent navigation
-              window.__selectedElement = lastElement;
+            // After brief flash, revert to hover style so user can keep selecting
+            setTimeout(() => {
+              overlay.style.borderColor = 'rgba(59, 130, 246, 0.8)';
+              overlay.style.background = 'rgba(59, 130, 246, 0.15)';
+              overlay.style.animation = 'inspectorPulse 2s ease-in-out infinite';
+              overlay.style.boxShadow = 'none';
+              tooltip.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            }, 600);
 
-              // Function to select parent element
-              window.__selectParentElement = () => {
-                const parent = window.__selectedElement?.parentElement;
-                if (parent && parent !== document.body && parent !== document.documentElement) {
-                  window.__selectedElement = parent;
-                  lastElement = parent;
-
-                  const rect = parent.getBoundingClientRect();
-                  overlay.style.top = (rect.top + window.scrollY) + 'px';
-                  overlay.style.left = (rect.left + window.scrollX) + 'px';
-                  overlay.style.width = rect.width + 'px';
-                  overlay.style.height = rect.height + 'px';
-
-                  const tagName = parent.tagName.toLowerCase();
-                  const className = parent.className || '';
-                  const id = parent.id || '';
-                  const text = parent.textContent?.substring(0, 50) || '';
-
-                  window.ReactNativeWebView?.postMessage(JSON.stringify({
-                    type: 'ELEMENT_SELECTED',
-                    element: {
-                      tag: tagName,
-                      className: className,
-                      id: id,
-                      text: text,
-                      innerHTML: parent.innerHTML?.substring(0, 200)
-                    }
-                  }));
+            // Store cleanup function
+            window.__clearInspectSelection = () => {
+              overlay.style.transition = 'opacity 0.3s ease';
+              overlay.style.opacity = '0';
+              setTimeout(() => {
+                if (window.__inspectorCleanup) {
+                  window.__inspectorCleanup();
                 }
-              };
-            }, 350); // Wait 350ms for CSS animations to settle
+              }, 300);
+            };
           };
 
-          // Click handler (mouse)
+          // Click handler — fires on real taps only (not on scroll)
           const handleClick = (e) => {
             e.preventDefault();
             e.stopPropagation();
+            // Find the element under the click/tap
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            if (target) {
+              updateOverlay(target);
+            }
             selectElement();
             return false;
           };
 
-          // Touch end handler - select element on touch end
-          const handleTouchEnd = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            selectElement();
-            return false;
-          };
-
-          // Attach listeners for both mouse and touch
+          // Attach listeners — only click + mousemove (no touch handlers = no scroll interference)
           document.addEventListener('mousemove', handleMouseMove, true);
           document.addEventListener('click', handleClick, true);
-          document.addEventListener('touchstart', handleTouchStart, { capture: true, passive: false });
-          document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: false });
-          document.addEventListener('touchend', handleTouchEnd, { capture: true, passive: false });
 
           // Store cleanup function
           window.__inspectorCleanup = () => {
             document.removeEventListener('mousemove', handleMouseMove, true);
             document.removeEventListener('click', handleClick, true);
-            document.removeEventListener('touchstart', handleTouchStart, true);
-            document.removeEventListener('touchmove', handleTouchMove, true);
-            document.removeEventListener('touchend', handleTouchEnd, true);
             overlay.remove();
             style.remove();
             window.__inspectorEnabled = false;
@@ -2241,7 +2188,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         true;
       `);
     } else {
-      // Disable inspect mode
+      // Disable inspect mode and clear selection
       webViewRef.current?.injectJavaScript(`
         if (window.__inspectorCleanup) {
           window.__inspectorCleanup();
@@ -2249,6 +2196,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         }
         true;
       `);
+      clearSelectedElement();
     }
   };
 
@@ -2930,14 +2878,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                   const classes = classNameStr.split(' ').filter((c: string) => c && !c.startsWith('__inspector')).slice(0, 2);
                                   if (classes.length > 0) elementSelector = `<${el.tag}.${classes.join('.')}>`;
                                 }
-                                // Toggle: if same element is already selected, deselect it
-                                if (selectedElement && selectedElement.selector === elementSelector) {
-                                  clearSelectedElement();
-                                } else {
-                                  setSelectedElement({ selector: elementSelector, text: (el.text?.trim()?.substring(0, 40) || '') + (el.text?.length > 40 ? '...' : ''), tag: el.tag, className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''), id: el.id, innerHTML: el.innerHTML });
-                                  inputRef.current?.focus();
-                                }
-                                setIsInspectMode(false);
+                                // Always update selection to the new element (replaces previous)
+                                setSelectedElement({ selector: elementSelector, text: (el.text?.trim()?.substring(0, 40) || '') + (el.text?.length > 40 ? '...' : ''), tag: el.tag, className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''), id: el.id, innerHTML: el.innerHTML });
+                                // Stay in inspect mode — user exits by pressing the button again
                               }
                             } catch (error) { }
                           }}
@@ -3175,221 +3118,129 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             </View>
           </KeyboardAvoidingView>
 
-          {/* AI Response Panel - Shows when there's a response */}
-          {(aiMessages.length > 0 || isAiLoading) && (
-            <View style={[
-              styles.aiResponsePanel,
-              { bottom: keyboardHeight > 0 ? keyboardHeight + (selectedElement ? 120 : 70) : insets.bottom + (selectedElement ? 120 : 70) },
-              isChatMinimized && { height: 44, overflow: 'hidden', paddingBottom: 0 }
-            ]}>
-              <BlurView intensity={90} tint="dark" style={StyleSheet.absoluteFill} />
-              <View style={styles.aiResponseHeader}>
-                <View style={styles.aiResponseHeaderLeft}>
-                  <View style={styles.headerIconContainer}>
-                    <Ionicons name="sparkles" size={14} color="#fff" />
-                  </View>
-                  <Text style={styles.aiResponseTitle}>
-                    {activeTools.length > 0 ? `Esecuzione: ${activeTools[activeTools.length - 1]}` : 'Analisi AI'}
-                  </Text>
-                  {activeTools.length > 0 && (
-                    <ActivityIndicator size="small" color={AppColors.primary} style={{ marginLeft: 8 }} />
-                  )}
-                </View>
-
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {/* Minimize Token */}
-                  <TouchableOpacity
-                    onPress={() => setIsChatMinimized(!isChatMinimized)}
-                    style={[styles.aiResponseClose, { backgroundColor: 'rgba(255,255,255,0.05)' }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={isChatMinimized ? "chevron-up" : "chevron-down"}
-                      size={16}
-                      color="rgba(255, 255, 255, 0.6)"
-                    />
-                  </TouchableOpacity>
-
-                  {/* Close Token */}
-                  <TouchableOpacity
-                    onPress={() => {
-                      setAiResponse('');
-                      setAiMessages([]);
-                      setIsChatMinimized(false);
-                    }}
-                    style={styles.aiResponseClose}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={16} color="rgba(255, 255, 255, 0.4)" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {!isChatMinimized && (
-                <ScrollView
-                  ref={aiScrollViewRef}
-                  style={styles.aiResponseScroll}
-                  showsVerticalScrollIndicator={false}
-                  onContentSizeChange={() => {
-                    // Auto-scroll to bottom when content changes
-                    aiScrollViewRef.current?.scrollToEnd({ animated: true });
-                  }}
-                >
-                  {/* Render all messages */}
-                  {(aiMessages || []).map((msg, index) => {
-                    if (msg.type === 'user') {
-                      return (
-                        <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 14 }]}>
-                          <LinearGradient
-                            colors={['#007AFF', '#0055FF']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.userMessageBubble}
-                          >
-                            <Text style={styles.userMessageText}>{msg.content}</Text>
-                          </LinearGradient>
-                        </View>
-                      );
-                    }
-
-                    if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-                      // Tool badge rendering - comprehensive mapping for all tools
-                      const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-                        // === Claude Code tool names (PascalCase) ===
-                        'Read': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                        'Edit': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                        'Write': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
-                        'Glob': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
-                        'Grep': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
-                        'Bash': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
-                        'Task': { icon: 'git-branch-outline', label: 'TASK', color: '#DB61A2' },
-                        'WebFetch': { icon: 'globe-outline', label: 'FETCH', color: '#79C0FF' },
-                        'WebSearch': { icon: 'search-outline', label: 'SEARCH', color: '#79C0FF' },
-                        'TodoWrite': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
-                        'AskUserQuestion': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
-                        'EnterPlanMode': { icon: 'map-outline', label: 'PLAN', color: '#8957E5' },
-                        'ExitPlanMode': { icon: 'checkmark-done-outline', label: 'PLAN', color: '#8957E5' },
-                        'NotebookEdit': { icon: 'code-outline', label: 'NOTEBOOK', color: '#F97583' },
-                        'KillShell': { icon: 'close-circle-outline', label: 'KILL', color: '#F85149' },
-                        'TaskOutput': { icon: 'download-outline', label: 'OUTPUT', color: '#79C0FF' },
-                        'Skill': { icon: 'flash-outline', label: 'SKILL', color: '#D29922' },
-
-                        // === Agent tools (snake_case) ===
-                        'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                        'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                        'write_file': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
-                        'list_directory': { icon: 'folder-open-outline', label: 'LIST', color: '#A371F7' },
-                        'run_command': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
-                        'glob_search': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
-                        'grep_search': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
-                        'launch_sub_agent': { icon: 'git-branch-outline', label: 'AGENT', color: '#DB61A2' },
-                        'todo_write': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
-                        'ask_user_question': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
-                        'enter_plan_mode': { icon: 'map-outline', label: 'PLAN', color: '#8957E5' },
-                        'exit_plan_mode': { icon: 'checkmark-done-outline', label: 'PLAN', color: '#8957E5' },
-                        'web_search': { icon: 'globe-outline', label: 'SEARCH', color: '#79C0FF' },
-                        'execute_skill': { icon: 'flash-outline', label: 'SKILL', color: '#D29922' },
-                        'notebook_edit': { icon: 'code-outline', label: 'NOTEBOOK', color: '#F97583' },
-                        'kill_shell': { icon: 'close-circle-outline', label: 'KILL', color: '#F85149' },
-                        'get_task_output': { icon: 'download-outline', label: 'OUTPUT', color: '#79C0FF' },
-                        'signal_completion': { icon: 'checkmark-circle-outline', label: 'DONE', color: '#3FB950' },
-
-                        // === MCP tools ===
-                        'mcp__ide__getDiagnostics': { icon: 'bug-outline', label: 'DIAG', color: '#F85149' },
-                        'mcp__ide__executeCode': { icon: 'play-outline', label: 'EXEC', color: '#3FB950' },
-
-                        // === Legacy/Alternative names ===
-                        'glob_files': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
-                        'search_in_files': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
-                        'list_files': { icon: 'list-outline', label: 'LIST', color: '#A371F7' },
-                      };
-
-                      const config = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: msg.tool?.replace(/_/g, ' ').toUpperCase().slice(0, 8) || 'TOOL', color: '#8B949E' };
-                      const isComplete = msg.type === 'tool_result';
-                      const isSuccess = msg.success !== false;
-
-                      // Get display name (filename only from path, or pattern)
-                      const displayName = msg.filePath
-                        ? msg.filePath.split('/').pop() || msg.filePath
-                        : msg.pattern || '';
-
-                      return (
-                        <View key={index} style={styles.aiMessageRow}>
-                          <View style={styles.aiThreadContainer}>
-                            <View style={[
-                              styles.aiThreadDot,
-                              { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : config.color }
-                            ]} />
-                          </View>
-                          <View style={styles.aiToolRow}>
-                            <View style={[styles.aiToolBadge, { backgroundColor: `${config.color}15`, borderColor: `${config.color}30` }]}>
-                              <Ionicons name={config.icon as any} size={12} color={config.color} />
-                              <Text style={[styles.aiToolBadgeText, { color: config.color }]}>{config.label}</Text>
-                            </View>
-                            {displayName && (
-                              <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text>
-                            )}
-                            {!isComplete ? (
-                              <ActivityIndicator size="small" color={config.color} style={{ marginLeft: 8 }} />
-                            ) : (
-                              <Ionicons
-                                name={isSuccess ? 'checkmark-circle' : 'close-circle'}
-                                size={16}
-                                color={isSuccess ? '#3FB950' : '#F85149'}
-                                style={{ marginLeft: 8 }}
-                              />
-                            )}
-                          </View>
-                        </View>
-                      );
-                    } else {
-                      // Text message rendering
-                      return (
-                        <View key={index} style={styles.aiMessageRow}>
-                          <View style={styles.aiThreadContainer}>
-                            <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                          </View>
-                          <View style={styles.aiMessageContent}>
-                            <Text style={styles.aiResponseText}>{msg.content}</Text>
-                          </View>
-                        </View>
-                      );
-                    }
-                  })}
-                  {/* Show "Thinking..." only when loading AND no AI responses yet */}
-                  {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
-                    <View style={styles.aiMessageRow}>
-                      <View style={styles.aiThreadContainer}>
-                        <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                      </View>
-                      <View style={styles.aiMessageContent}>
-                        <Text style={styles.aiThinkingText}>Thinking...</Text>
-                      </View>
-                    </View>
-                  )}
-                </ScrollView>
-              )}
-            </View>
-          )}
+          {/* AI messages now rendered inside FAB input below */}
 
 
           {/* Animated FAB / Input Box - Only show when server is running and WebView is ready */}
           {serverStatus === 'running' && webViewReady && (
-            <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: 12 }]}>
-              {/* Selected Element Chip - only when expanded */}
-
+            <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: isInputExpanded ? 12 : undefined }]}>
 
               {/* Animated FAB that expands into input */}
               <Animated.View
                 style={[
                   styles.fabAnimated,
-                  { width: fabWidthAnim },
-                  !isInputExpanded && { height: 44 }
+                  isInputExpanded ? { width: '100%' } : { width: 44, height: 44 },
                 ]}
               >
-                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, isInputExpanded && { alignItems: 'stretch', paddingHorizontal: 0 }]}>
+                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, isInputExpanded ? { alignItems: 'stretch', paddingHorizontal: 0 } : { paddingHorizontal: 0 }]}>
                   {isInputExpanded ? (
                     <Animated.View style={{ flex: 1, flexDirection: 'column', opacity: fabContentOpacity }}>
+
+                      {/* AI Messages - integrated into FAB */}
+                      {(aiMessages.length > 0 || isAiLoading) && (
+                        <>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Ionicons name="sparkles" size={12} color="#fff" />
+                              <Text style={{ fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>
+                                {activeTools.length > 0 ? `${activeTools[activeTools.length - 1]}` : 'AI'}
+                              </Text>
+                              {activeTools.length > 0 && (
+                                <ActivityIndicator size="small" color={AppColors.primary} />
+                              )}
+                            </View>
+                            <TouchableOpacity onPress={() => { setAiResponse(''); setAiMessages([]); }} style={{ padding: 4 }} activeOpacity={0.7}>
+                              <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView
+                            ref={aiScrollViewRef}
+                            style={{ maxHeight: 200, paddingHorizontal: 8 }}
+                            showsVerticalScrollIndicator={false}
+                            onContentSizeChange={() => aiScrollViewRef.current?.scrollToEnd({ animated: true })}
+                          >
+                            {(aiMessages || []).map((msg, index) => {
+                              if (msg.type === 'user') {
+                                return (
+                                  <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10 }]}>
+                                    <LinearGradient colors={['#007AFF', '#0055FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.userMessageBubble}>
+                                      <Text style={styles.userMessageText}>{msg.content}</Text>
+                                    </LinearGradient>
+                                  </View>
+                                );
+                              }
+                              if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+                                const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
+                                  'Read': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                                  'Edit': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                                  'Write': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
+                                  'Glob': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
+                                  'Grep': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
+                                  'Bash': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
+                                  'Task': { icon: 'git-branch-outline', label: 'TASK', color: '#DB61A2' },
+                                  'WebFetch': { icon: 'globe-outline', label: 'FETCH', color: '#79C0FF' },
+                                  'WebSearch': { icon: 'search-outline', label: 'SEARCH', color: '#79C0FF' },
+                                  'TodoWrite': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
+                                  'AskUserQuestion': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
+                                  'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
+                                  'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
+                                  'write_file': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
+                                  'run_command': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
+                                  'list_directory': { icon: 'folder-open-outline', label: 'LIST', color: '#A371F7' },
+                                  'glob_search': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
+                                  'grep_search': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
+                                  'launch_sub_agent': { icon: 'git-branch-outline', label: 'AGENT', color: '#DB61A2' },
+                                  'signal_completion': { icon: 'checkmark-circle-outline', label: 'DONE', color: '#3FB950' },
+                                };
+                                const cfg = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: msg.tool?.replace(/_/g, ' ').toUpperCase().slice(0, 8) || 'TOOL', color: '#8B949E' };
+                                const isComplete = msg.type === 'tool_result';
+                                const isSuccess = msg.success !== false;
+                                const displayName = msg.filePath ? msg.filePath.split('/').pop() || msg.filePath : msg.pattern || '';
+                                return (
+                                  <View key={index} style={styles.aiMessageRow}>
+                                    <View style={styles.aiThreadContainer}>
+                                      <View style={[styles.aiThreadDot, { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : cfg.color }]} />
+                                    </View>
+                                    <View style={styles.aiToolRow}>
+                                      <View style={[styles.aiToolBadge, { backgroundColor: `${cfg.color}15`, borderColor: `${cfg.color}30` }]}>
+                                        <Ionicons name={cfg.icon as any} size={12} color={cfg.color} />
+                                        <Text style={[styles.aiToolBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
+                                      </View>
+                                      {displayName ? <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text> : null}
+                                      {!isComplete ? (
+                                        <ActivityIndicator size="small" color={cfg.color} style={{ marginLeft: 8 }} />
+                                      ) : (
+                                        <Ionicons name={isSuccess ? 'checkmark-circle' : 'close-circle'} size={16} color={isSuccess ? '#3FB950' : '#F85149'} style={{ marginLeft: 8 }} />
+                                      )}
+                                    </View>
+                                  </View>
+                                );
+                              }
+                              return (
+                                <View key={index} style={styles.aiMessageRow}>
+                                  <View style={styles.aiThreadContainer}>
+                                    <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                                  </View>
+                                  <View style={styles.aiMessageContent}>
+                                    <Text style={styles.aiResponseText}>{msg.content}</Text>
+                                  </View>
+                                </View>
+                              );
+                            })}
+                            {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
+                              <View style={styles.aiMessageRow}>
+                                <View style={styles.aiThreadContainer}>
+                                  <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                                </View>
+                                <View style={styles.aiMessageContent}>
+                                  <Text style={styles.aiThinkingText}>Thinking...</Text>
+                                </View>
+                              </View>
+                            )}
+                          </ScrollView>
+                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 8 }} />
+                        </>
+                      )}
 
                       {/* Context Bar - Selected Element (Inside Input) */}
                       {selectedElement && (
@@ -3520,7 +3371,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   ) : (
                     <TouchableOpacity
                       onPress={expandFab}
-                      style={styles.fabButton}
+                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
                       activeOpacity={0.8}
                     >
                       <Ionicons name="pencil" size={20} color="#fff" />
