@@ -371,8 +371,26 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   };
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
-    if (!currentWorkstation?.id || !linkedAccount) {
-      Alert.alert('Errore', 'Collega un account Git per eseguire questa azione');
+    if (!currentWorkstation?.id) {
+      Alert.alert('Errore', 'Nessun workspace attivo');
+      return;
+    }
+
+    // Check if user has any Git accounts
+    if (gitAccounts.length === 0) {
+      Alert.alert(
+        'Autenticazione richiesta',
+        `Per eseguire ${action === 'pull' ? 'pull' : action === 'push' ? 'push' : 'fetch'} devi prima collegare un account GitHub.`,
+        [
+          { text: 'Annulla', style: 'cancel' },
+          { text: 'Collega account', onPress: () => setShowAddAccountModal(true) },
+        ]
+      );
+      return;
+    }
+
+    if (!linkedAccount) {
+      Alert.alert('Errore', 'Seleziona un account Git per questa repository');
       return;
     }
 
@@ -644,9 +662,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             </View>
             <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.expandButton} onPress={expandToTab}>
-                <Ionicons name="expand-outline" size={18} color="#fff" />
-              </TouchableOpacity>
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
               </TouchableOpacity>
@@ -860,7 +875,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     {/* Select All Header */}
                     <TouchableOpacity style={styles.selectAllRow} onPress={toggleSelectAll}>
                       <Ionicons
-                        name={selectedFiles.size === allChangedFiles.length ? "checkbox" : "square-outline"}
+                        name={selectedFiles.size === allChangedFiles.length ? "checkmark-circle" : "ellipse-outline"}
                         size={18}
                         color={selectedFiles.size === allChangedFiles.length ? AppColors.primary : 'rgba(255,255,255,0.4)'}
                       />
@@ -877,7 +892,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         {gitStatus!.modified.map((file) => (
                           <TouchableOpacity key={`mod-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
-                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
                               size={16}
                               color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
                             />
@@ -893,7 +908,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         {gitStatus!.untracked.map((file) => (
                           <TouchableOpacity key={`untracked-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
-                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
                               size={16}
                               color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
                             />
@@ -909,7 +924,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         {gitStatus!.deleted.map((file) => (
                           <TouchableOpacity key={`del-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
-                              name={selectedFiles.has(file) ? "checkbox" : "square-outline"}
+                              name={selectedFiles.has(file) ? "checkmark-circle" : "ellipse-outline"}
                               size={16}
                               color={selectedFiles.has(file) ? AppColors.primary : 'rgba(255,255,255,0.3)'}
                             />
@@ -920,22 +935,40 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                       </View>
                     )}
 
-                    {/* Commit Button */}
-                    <TouchableOpacity
-                      style={[styles.createCommitBtn, selectedFiles.size === 0 && styles.createCommitBtnDisabled]}
-                      onPress={() => {
-                        if (selectedFiles.size === 0) {
-                          Alert.alert('Seleziona file', 'Seleziona almeno un file da committare');
-                          return;
-                        }
-                        setShowCommitModal(true);
-                      }}
-                    >
-                      <Ionicons name="git-commit-outline" size={18} color="#fff" />
-                      <Text style={styles.createCommitBtnText}>
-                        Crea Commit ({selectedFiles.size} {selectedFiles.size === 1 ? 'file' : 'file'})
-                      </Text>
-                    </TouchableOpacity>
+                    {/* Commit Button or Auth Required */}
+                    {gitAccounts.length === 0 ? (
+                      <View style={styles.authRequiredContainer}>
+                        <View style={styles.authRequiredBanner}>
+                          <Ionicons name="lock-closed" size={16} color="#FFB800" />
+                          <Text style={styles.authRequiredText}>
+                            Autenticazione richiesta per creare commit
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.authRequiredBtn}
+                          onPress={() => setShowAddAccountModal(true)}
+                        >
+                          <Ionicons name="log-in-outline" size={18} color="#fff" />
+                          <Text style={styles.authRequiredBtnText}>Collega account GitHub</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.createCommitBtn, selectedFiles.size === 0 && styles.createCommitBtnDisabled]}
+                        onPress={() => {
+                          if (selectedFiles.size === 0) {
+                            Alert.alert('Seleziona file', 'Seleziona almeno un file da committare');
+                            return;
+                          }
+                          setShowCommitModal(true);
+                        }}
+                      >
+                        <Ionicons name="git-commit-outline" size={18} color="#fff" />
+                        <Text style={styles.createCommitBtnText}>
+                          Crea Commit ({selectedFiles.size} {selectedFiles.size === 1 ? 'file' : 'file'})
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </>
                 ) : (
                   <View style={styles.emptyState}>
@@ -1742,6 +1775,42 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
   createCommitBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  authRequiredContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  authRequiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255, 184, 0, 0.1)',
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.2)',
+  },
+  authRequiredText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#FFB800',
+    textAlign: 'center',
+  },
+  authRequiredBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: AppColors.primary,
+    paddingVertical: 14,
+    borderRadius: 50,
+  },
+  authRequiredBtnText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#fff',

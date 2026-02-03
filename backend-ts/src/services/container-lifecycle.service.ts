@@ -31,12 +31,12 @@ class ContainerLifecycleService {
   /**
    * Destroy a container and clean up session
    */
-  async destroy(projectId: string): Promise<void> {
-    const session = await sessionService.get(projectId);
+  async destroy(projectId: string, userId: string): Promise<void> {
+    const session = await sessionService.get(projectId, userId);
     if (session) {
       await dockerService.destroyContainer(session.containerId, session.serverId);
-      await sessionService.delete(projectId);
-      log.info(`[Lifecycle] Destroyed container for ${projectId}`);
+      await sessionService.delete(projectId, userId);
+      log.info(`[Lifecycle] Destroyed container for ${userId}:${projectId}`);
     }
   }
 
@@ -66,9 +66,9 @@ class ContainerLifecycleService {
 
         for (const session of sessions) {
           if (now - session.lastUsed > timeout) {
-            log.info(`[Lifecycle] Reaping idle container for ${session.projectId} (idle ${Math.round((now - session.lastUsed) / 60000)}min)`);
-            await this.destroy(session.projectId).catch(e =>
-              log.warn(`[Lifecycle] Reap failed for ${session.projectId}: ${e.message}`)
+            log.info(`[Lifecycle] Reaping idle container for ${session.userId}:${session.projectId} (idle ${Math.round((now - session.lastUsed) / 60000)}min)`);
+            await this.destroy(session.projectId, session.userId).catch(e =>
+              log.warn(`[Lifecycle] Reap failed for ${session.userId}:${session.projectId}: ${e.message}`)
             );
           }
         }
@@ -97,12 +97,15 @@ class ContainerLifecycleService {
     for (const c of containers) {
       if (c.state !== 'running' || !c.projectId || !c.agentUrl) continue;
 
-      const existing = await sessionService.get(c.projectId);
-      if (existing) continue;
+      // Check if any session already has this container
+      const existingByContainer = await sessionService.getByContainerId(c.id);
+      if (existingByContainer) continue;
 
-      await sessionService.set(c.projectId, {
+      const uid = 'legacy';
+      await sessionService.set(c.projectId, uid, {
         containerId: c.id,
         projectId: c.projectId,
+        userId: uid,
         agentUrl: c.agentUrl,
         previewPort: c.previewPort,
         serverId: c.serverId,

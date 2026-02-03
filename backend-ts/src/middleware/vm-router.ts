@@ -29,7 +29,7 @@ export function createPreviewProxy() {
         return;
       }
 
-      const session = await sessionService.get(projectId);
+      const session = await sessionService.getByProjectId(projectId);
 
       if (!session) {
         res.status(404).json({ error: 'No active session for project', projectId });
@@ -47,10 +47,12 @@ export function createPreviewProxy() {
         proxyPath = '/' + proxyPath;
       }
 
-      const containerHost = session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost';
-      log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${containerHost}:3000`);
+      // When previewPort is set, it's mapped to localhost (host network mode)
+      const previewPort = session.previewPort || 3000;
+      const containerHost = session.previewPort ? 'localhost' : (session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost');
+      log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${containerHost}:${previewPort} (user: ${session.userId}, lastUsed: ${new Date(session.lastUsed).toISOString()})`);
 
-      await proxyRequest(req, res, 3000, proxyPath, projectId, containerHost, session);
+      await proxyRequest(req, res, previewPort, proxyPath, projectId, containerHost, session);
     } catch (error: any) {
       log.error('[Preview Proxy] Unexpected error:', error.message);
       if (!res.headersSent) {
@@ -73,16 +75,18 @@ export function createAssetProxy() {
         return;
       }
 
-      const session = await sessionService.get(projectId);
+      const session = await sessionService.getByProjectId(projectId);
       if (!session) {
         res.status(404).json({ error: 'No active session' });
         return;
       }
 
-      const containerHost = session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost';
-      log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${containerHost}:3000`);
+      // When previewPort is set, it's mapped to localhost (host network mode)
+      const previewPort = session.previewPort || 3000;
+      const containerHost = session.previewPort ? 'localhost' : (session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost');
+      log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${containerHost}:${previewPort}`);
 
-      await proxyRequest(req, res, 3000, req.url, projectId, containerHost);
+      await proxyRequest(req, res, previewPort, req.url, projectId, containerHost);
     } catch (error: any) {
       log.error('[Asset Proxy] Error:', error.message);
       if (!res.headersSent) {

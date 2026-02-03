@@ -155,6 +155,16 @@ class DockerService {
       `${nextCacheDir}:/home/coder/project/.next:rw`,
     ];
 
+    // Remove existing container with same name (409 conflict)
+    try {
+      const existing = client.getContainer(containerName);
+      await existing.stop().catch(() => {});
+      await existing.remove({ force: true });
+      log.info(`[Docker] Removed existing container: ${containerName}`);
+    } catch {
+      // No existing container — fine
+    }
+
     const container = await client.createContainer({
       Image: image,
       name: containerName,

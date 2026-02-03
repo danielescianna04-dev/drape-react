@@ -20,6 +20,7 @@ import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../shared/theme/colors';
 import { useAuthStore } from '../../core/auth/authStore';
+import * as AppleAuthentication from 'expo-apple-authentication';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -226,14 +227,20 @@ export const AuthScreen = () => {
   const [displayName, setDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
   const modalBottom = useRef(new RNAnimated.Value(90)).current;
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
   const keyboardHeight = useRef(0);
   const baseMarginBottom = useRef(90);
-  const { signIn, signUp, resetPassword, isLoading, error, clearError } = useAuthStore();
+  const { signIn, signUp, signInWithApple, resetPassword, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
+
+  // Check Apple Auth availability
+  useEffect(() => {
+    AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
+  }, []);
 
   // Manual keyboard handling to avoid KAV jitter when switching fields
   useEffect(() => {
@@ -264,9 +271,9 @@ export const AuthScreen = () => {
   }, [insets.bottom]);
 
   useEffect(() => {
-    let targetHeight = 200;
-    if (mode === 'login') targetHeight = 380;
-    if (mode === 'register') targetHeight = 480;
+    let targetHeight = 200; // Initial state
+    if (mode === 'login') targetHeight = 500; // Added Apple button
+    if (mode === 'register') targetHeight = 600; // Added Apple button
     if (mode === 'forgot') targetHeight = 300;
 
     const showBlur = mode !== 'initial';
@@ -279,17 +286,15 @@ export const AuthScreen = () => {
       : targetMarginBottom;
 
     RNAnimated.parallel([
-      RNAnimated.spring(modalHeight, {
+      RNAnimated.timing(modalHeight, {
         toValue: targetHeight,
+        duration: 300,
         useNativeDriver: false,
-        tension: 65,
-        friction: 12,
       }),
-      RNAnimated.spring(modalBottom, {
+      RNAnimated.timing(modalBottom, {
         toValue: bottomTarget,
+        duration: 300,
         useNativeDriver: false,
-        tension: 65,
-        friction: 12,
       }),
       RNAnimated.timing(blurOpacity, {
         toValue: showBlur ? 1 : 0,
@@ -356,8 +361,19 @@ export const AuthScreen = () => {
     setDisplayName('');
   };
 
-  const displayError = localError || error;
+  const handleAppleSignIn = async () => {
+    try {
+      setLocalError(null);
+      clearError();
+      await signInWithApple();
+    } catch (err: any) {
+      if (err.message !== 'Accesso annullato') {
+        setLocalError(err.message || 'Errore durante l\'accesso con Apple');
+      }
+    }
+  };
 
+  const displayError = localError || error;
 
   const renderModalContent = () => (
     <>
@@ -515,6 +531,26 @@ export const AuthScreen = () => {
               </Text>
             </TouchableOpacity>
           )}
+
+          {appleAuthAvailable && (mode === 'login' || mode === 'register') && (
+            <>
+              <View style={styles.dividerRowSmall}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>oppure</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity
+                style={styles.appleButton}
+                onPress={handleAppleSignIn}
+                activeOpacity={0.8}
+                disabled={isLoading}
+              >
+                <Ionicons name="logo-apple" size={20} color="#fff" />
+                <Text style={styles.appleButtonText}>Continua con Apple</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </Animated.View>
       )}
     </>
@@ -558,7 +594,7 @@ export const AuthScreen = () => {
 
       {/* Bottom Modal */}
       <View style={styles.modalContainer}>
-        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: modalBottom }]}>
+        <RNAnimated.View style={[styles.modal, { height: modalHeight, marginBottom: modalBottom, overflow: 'hidden' }]}>
           {isLiquidGlassSupported ? (
             <LiquidGlassView style={styles.liquidGlassModal} interactive={true} effect="clear" colorScheme="dark">
               <View style={styles.modalContent}>
@@ -892,5 +928,60 @@ const styles = StyleSheet.create({
   },
   footerLink: {
     color: AppColors.primary,
+  },
+  // Apple Sign In & Divider
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  dividerRowSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  dividerText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    marginHorizontal: 12,
+  },
+  appleButton: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 26,
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    gap: 10,
+  },
+  appleButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  appleButtonSmall: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    backgroundColor: '#000',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    gap: 8,
+  },
+  appleButtonTextSmall: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

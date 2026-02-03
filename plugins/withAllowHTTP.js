@@ -7,8 +7,8 @@ module.exports = function withAllowHTTP(config) {
       NSAllowsLocalNetworking: true,
       NSAllowsArbitraryLoadsInWebContent: true,
       NSExceptionDomains: {
-        '77.42.1.116': {
-          NSExceptionAllowsInsecureHTTPLoads: true,
+        'drape.info': {
+          NSExceptionAllowsInsecureHTTPLoads: false, // Only HTTPS
           NSIncludesSubdomains: true,
         },
       },

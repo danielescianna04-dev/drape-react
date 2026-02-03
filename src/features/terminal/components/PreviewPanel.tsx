@@ -451,7 +451,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         });
       }
       else if (event.type === 'text_delta') {
-        const delta = (event as any).delta;
+        const delta = (event as any).text;
         if (delta) {
           setAiMessages(prev => {
             const last = prev[prev.length - 1];
@@ -1653,7 +1653,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           repositoryUrl: repoUrl,
           githubToken: githubToken,
           userEmail: userEmail,
-          username: username
+          username: username,
+          userId: userEmail,
         }));
       });
 
@@ -1733,7 +1734,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           const response = await fetch(`${apiUrl}/fly/release`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: currentWorkstation.id }),
+            body: JSON.stringify({ projectId: currentWorkstation.id, userId: useAuthStore.getState().user?.email || 'anonymous' }),
           });
 
           if (response.ok) {
@@ -1891,8 +1892,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     // Clear previous response accumulator but keep messages history
     setAiResponse('');
     setIsAiLoading(true);
-    // Reset event processing index for new conversation
-    lastProcessedEventIndexRef.current = agentEvents.length - 1;
 
     const userMessage = message.trim();
 
@@ -1951,6 +1950,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     // Reset agent and start new session
     resetAgent();
+    lastProcessedEventIndexRef.current = -1;
 
     console.log('🚀 [PreviewPanel] Starting agent with:', { prompt: prompt.slice(0, 50), projectId: currentWorkstation.id, model: selectedModel });
 
@@ -2837,6 +2837,30 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                             setCanGoForward(navState.canGoForward);
                             setIsLoading(navState.loading);
                           }}
+                          onShouldStartLoadWithRequest={(request) => {
+                            const url = request.url;
+                            // Extract the preview base path from currentPreviewUrl
+                            const previewBase = currentPreviewUrl.split('?')[0].replace(/\/$/, '');
+                            const previewPathMatch = previewBase.match(/\/preview\/[^\/]+/);
+                            const previewPath = previewPathMatch ? previewPathMatch[0] : null;
+
+                            // If navigating to drape.info but NOT within the preview path, rewrite it
+                            if (previewPath && url.includes('drape.info') && !url.includes(previewPath)) {
+                              // Extract the path from the URL (e.g., /login from https://drape.info/login)
+                              const urlObj = new URL(url);
+                              const targetPath = urlObj.pathname;
+
+                              // Don't intercept preview paths or special routes
+                              if (!targetPath.startsWith('/preview/') && !targetPath.startsWith('/_next/') && !targetPath.startsWith('/@')) {
+                                // Rewrite to stay within preview
+                                const newUrl = `https://drape.info${previewPath}${targetPath}${urlObj.search}`;
+                                console.log(`🔄 [Preview] Rewriting navigation: ${url} → ${newUrl}`);
+                                setCurrentPreviewUrl(newUrl);
+                                return false; // Block original navigation, we'll load the rewritten URL
+                              }
+                            }
+                            return true; // Allow all other navigations
+                          }}
                           onMessage={(event) => {
                             try {
                               const data = JSON.parse(event.nativeEvent.data);
@@ -3132,8 +3156,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   isInputExpanded ? { width: '100%' } : { width: 44, height: 44 },
                 ]}
               >
-                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, isInputExpanded ? { alignItems: 'stretch', paddingHorizontal: 0 } : { paddingHorizontal: 0 }]}>
-                  {isInputExpanded ? (
+                {isInputExpanded ? (
+                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, { alignItems: 'stretch', paddingHorizontal: 0 }]}>
                     <Animated.View style={{ flex: 1, flexDirection: 'column', opacity: fabContentOpacity }}>
 
                       {/* AI Messages - integrated into FAB */}
@@ -3170,6 +3194,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 );
                               }
                               if (msg.type === 'tool_start' || msg.type === 'tool_result') {
+                                // Hide signal_completion from UI
+                                if (msg.tool === 'signal_completion') return null;
                                 const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
                                   'Read': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
                                   'Edit': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
@@ -3368,16 +3394,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         </TouchableOpacity>
                       </View>
                     </Animated.View>
-                  ) : (
-                    <TouchableOpacity
-                      onPress={expandFab}
-                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="pencil" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  )}
                 </BlurView>
+                ) : (
+                  <TouchableOpacity
+                    onPress={expandFab}
+                    style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 22 }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="pencil" size={18} color="#fff" />
+                  </TouchableOpacity>
+                )
+                }
               </Animated.View>
             </Reanimated.View>
           )}

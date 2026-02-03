@@ -40,6 +40,83 @@ import { useNavigationStore } from './src/core/navigation/navigationStore';
 
 console.log('App.tsx loaded');
 
+// Helper to parse Git URL from any provider
+type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'unknown';
+interface ParsedGitUrl {
+  provider: GitProvider;
+  owner: string;
+  repo: string;
+  fullName: string;
+}
+
+const parseGitUrl = (url: string): ParsedGitUrl => {
+  const lowerUrl = url.toLowerCase();
+  let provider: GitProvider = 'unknown';
+  let owner = 'unknown';
+  let repo = url.split('/').pop()?.replace('.git', '') || 'repository';
+
+  // Detect provider and extract owner/repo
+  if (lowerUrl.includes('github.com')) {
+    provider = 'github';
+    const match = url.match(/github\.com\/([^\/]+)\/([^\/\?#]+)/);
+    if (match) { owner = match[1]; repo = match[2].replace('.git', ''); }
+  } else if (lowerUrl.includes('gitlab.com') || lowerUrl.includes('gitlab.')) {
+    provider = 'gitlab';
+    const match = url.match(/gitlab[^\/]*\/([^\/]+)\/([^\/\?#]+)/);
+    if (match) { owner = match[1]; repo = match[2].replace('.git', ''); }
+  } else if (lowerUrl.includes('bitbucket.org') || lowerUrl.includes('bitbucket.')) {
+    provider = 'bitbucket';
+    const match = url.match(/bitbucket[^\/]*\/([^\/]+)\/([^\/\?#]+)/);
+    if (match) { owner = match[1]; repo = match[2].replace('.git', ''); }
+  } else if (lowerUrl.endsWith('.git') || lowerUrl.includes('/git/')) {
+    provider = 'gitea'; // Generic self-hosted
+    const match = url.match(/\/([^\/]+)\/([^\/\?#]+?)(?:\.git)?$/);
+    if (match) { owner = match[1]; repo = match[2]; }
+  }
+
+  return { provider, owner, repo, fullName: `${owner}/${repo}` };
+};
+
+// Check repo accessibility for any provider
+const checkRepoAccess = async (
+  url: string,
+  token: string | null,
+  parsed: ParsedGitUrl
+): Promise<{ accessible: boolean; status: number }> => {
+  try {
+    let apiUrl: string;
+    let headers: Record<string, string> = {};
+
+    switch (parsed.provider) {
+      case 'github':
+        apiUrl = `https://api.github.com/repos/${parsed.owner}/${parsed.repo}`;
+        headers['Accept'] = 'application/vnd.github.v3+json';
+        if (token) headers['Authorization'] = `token ${token}`;
+        break;
+      case 'gitlab':
+        apiUrl = `https://gitlab.com/api/v4/projects/${encodeURIComponent(parsed.fullName)}`;
+        if (token) headers['PRIVATE-TOKEN'] = token;
+        break;
+      case 'bitbucket':
+        apiUrl = `https://api.bitbucket.org/2.0/repositories/${parsed.owner}/${parsed.repo}`;
+        if (token) headers['Authorization'] = `Basic ${btoa(token)}`;
+        break;
+      default:
+        // For unknown providers, skip API check
+        return { accessible: true, status: 200 };
+    }
+
+    const response = await fetch(apiUrl, { headers });
+    return {
+      accessible: response.status >= 200 && response.status < 400,
+      status: response.status
+    };
+  } catch (e) {
+    console.warn('📥 [checkRepoAccess] Error:', e);
+    return { accessible: true, status: 200 }; // Allow clone attempt on network errors
+  }
+};
+
 type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 export default function App() {
@@ -297,7 +374,7 @@ export default function App() {
         } catch (authErr: any) {
           liveActivityService.endPreviewActivity().catch(() => {});
           // Only show error if user didn't just cancel
-          if (authErr.message !== 'User cancelled') {
+          if (authErr.message !== 'Authentication cancelled') {
             addTerminalItemToStore(tabId, {
               id: `error-${Date.now()}`,
               type: 'error',
@@ -406,9 +483,9 @@ export default function App() {
       setIsImporting(true);
       const userId = useTerminalStore.getState().userId || 'anonymous';
 
-      const match = url.match(/github\.com\/([^\/]+)\//);
-      const owner = match ? match[1] : 'unknown';
-      const repoName = url.split('/').pop()?.replace('.git', '') || 'repository';
+      // Parse URL for any Git provider
+      const parsed = parseGitUrl(url);
+      const { owner, repo: repoName, provider } = parsed;
 
       // Start Live Activity (Dynamic Island)
       liveActivityService.startPreviewActivity(repoName, {
@@ -417,7 +494,7 @@ export default function App() {
         progress: 0,
       }, 'clone').catch(() => {});
 
-      console.log('📥 [handleImportRepo] userId:', userId, 'owner:', owner, 'repoName:', repoName);
+      console.log('📥 [handleImportRepo] userId:', userId, 'provider:', provider, 'owner:', owner, 'repoName:', repoName);
 
       // Check if a project with this repo already exists (unless forceCopy is true)
       if (!forceCopy) {
@@ -547,7 +624,7 @@ export default function App() {
                       liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
                     } catch (authErr: any) {
                       liveActivityService.endPreviewActivity().catch(() => {});
-                      if (authErr.message !== 'User cancelled') {
+                      if (authErr.message !== 'Authentication cancelled') {
                         addTerminalItemToStore(currentTab.id, {
                           id: `error-${Date.now()}`,
                           type: 'error',
@@ -664,6 +741,75 @@ export default function App() {
         } catch (err) {
           console.warn('⚠️ Could not sync token to gitAccountService:', err);
         }
+      }
+
+      // Verify repo accessibility BEFORE creating the project
+      // This prevents creating empty projects for private repos without auth
+      try {
+        const { accessible, status } = await checkRepoAccess(url, githubToken, parsed);
+        console.log('📥 [handleImportRepo] Repo access check:', status, 'accessible:', accessible);
+
+        if (!accessible) {
+          // Repo is private or not accessible with current token
+          console.log('📥 [handleImportRepo] Repo not accessible, requesting auth...');
+
+          // Close the import modal FIRST to avoid iOS modal conflict
+          setShowImportModal(false);
+          // Wait for modal dismiss animation to complete
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Update Live Activity
+          liveActivityService.updatePreviewActivity({
+            remainingSeconds: 60,
+            currentStep: 'Autenticazione richiesta...',
+            progress: 0.2,
+          }).catch(() => {});
+
+          try {
+            const providerName = provider === 'github' ? 'GitHub' : provider === 'gitlab' ? 'GitLab' : provider === 'bitbucket' ? 'Bitbucket' : 'Git';
+            const authToken = await requestGitAuth(
+              `Repository privato o non accessibile.\nCollega un account ${providerName} per clonare "${repoName}".`,
+              { repositoryUrl: url, owner }
+            );
+
+            if (authToken) {
+              githubToken = authToken;
+
+              // Re-verify with new token
+              const recheck = await checkRepoAccess(url, authToken, parsed);
+              console.log('📥 [handleImportRepo] Re-check with new token:', recheck.status);
+
+              if (!recheck.accessible) {
+                throw new Error(`L'account collegato non ha accesso a questa repository.`);
+              }
+            }
+          } catch (authErr: any) {
+            liveActivityService.endPreviewActivity().catch(() => {});
+            if (authErr.message === 'Authentication cancelled') {
+              throw new Error('__CANCELLED__');
+            }
+            throw authErr;
+          }
+        }
+      } catch (accessErr: any) {
+        if (accessErr.message === '__CANCELLED__') {
+          // User cancelled — silent return
+          setIsImporting(false);
+          importInProgress.current = false;
+          setLoadingMessage('');
+          liveActivityService.endPreviewActivity().catch(() => {});
+          return;
+        }
+        if (accessErr.message?.includes('non ha accesso')) {
+          Alert.alert('Accesso negato', accessErr.message);
+          setIsImporting(false);
+          importInProgress.current = false;
+          setLoadingMessage('');
+          liveActivityService.endPreviewActivity().catch(() => {});
+          return;
+        }
+        // Network errors etc. — let clone try anyway
+        console.warn('📥 [handleImportRepo] Repo access check failed (network?):', accessErr.message);
       }
 
       // If creating a copy, count existing copies and use next number
@@ -845,7 +991,7 @@ export default function App() {
               } catch (authErr: any) {
                 liveActivityService.endPreviewActivity().catch(() => {});
                 // Only show error if user didn't just cancel
-                if (authErr.message !== 'User cancelled') {
+                if (authErr.message !== 'Authentication cancelled') {
                   addTerminalItemToStore(currentTab.id, {
                     id: `error-${Date.now()}`,
                     type: 'error',
@@ -1097,6 +1243,7 @@ export default function App() {
                                   workstationId: workstation.id,
                                   repositoryUrl: githubUrl,
                                   githubToken: authToken || null,
+                                  userId: useAuthStore.getState().user?.email || 'anonymous',
                                 }),
                               }).then(r => r.json()).then(result => {
                                 console.log('📦 [Clone] Response received:', result);

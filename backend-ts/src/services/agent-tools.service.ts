@@ -259,7 +259,7 @@ class AgentToolsService {
 
     // Get session if not provided
     if (!session) {
-      const fetchedSession = await sessionService.get(projectId);
+      const fetchedSession = await sessionService.getByProjectId(projectId);
       if (!fetchedSession) {
         return {
           success: false,

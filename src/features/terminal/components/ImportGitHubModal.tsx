@@ -50,10 +50,23 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
     }).start();
   }, [keyboardVisible]);
 
+  const isGitUrl = (url: string): boolean => {
+    if (!url || typeof url !== 'string') return false;
+    const lowerUrl = url.toLowerCase();
+    return (
+      lowerUrl.includes('github.com') ||
+      lowerUrl.includes('gitlab.com') ||
+      lowerUrl.includes('bitbucket.org') ||
+      lowerUrl.includes('gitea.') ||
+      lowerUrl.endsWith('.git') ||
+      /git[@:]/.test(lowerUrl)
+    );
+  };
+
   const checkClipboard = async () => {
     try {
       const text = await Clipboard.getStringAsync();
-      if (text && typeof text === 'string' && text.includes('github.com')) {
+      if (text && isGitUrl(text)) {
         setRepoUrl(text);
       }
     } catch (error) {

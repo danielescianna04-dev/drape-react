@@ -241,27 +241,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       {/* Outer glow effect */}
       <View style={styles.glowEffect} />
 
-      {isLiquidGlassSupported ? (
-        <LiquidGlassView
-          style={{ borderRadius: 24, overflow: 'hidden' }}
-          interactive={true}
-          effect="clear"
-          colorScheme="dark"
+      <BlurView intensity={40} tint="dark" style={styles.blurWrapper}>
+        <LinearGradient
+          colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
+          style={styles.inputGradient}
         >
-          <View style={styles.inputGradient}>
-            {renderInputContent()}
-          </View>
-        </LiquidGlassView>
-      ) : (
-        <BlurView intensity={40} tint="dark" style={styles.blurWrapper}>
-          <LinearGradient
-            colors={['rgba(35, 35, 40, 0.95)', 'rgba(25, 25, 30, 0.98)']}
-            style={styles.inputGradient}
-          >
-            {renderInputContent()}
-          </LinearGradient>
-        </BlurView>
-      )}
+          {renderInputContent()}
+        </LinearGradient>
+      </BlurView>
     </View>
   );
 };

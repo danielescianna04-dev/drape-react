@@ -6,6 +6,10 @@ import { debounce } from '../utils/helpers';
 
 const PERSIST_PATH = path.resolve(__dirname, '../../sessions.json');
 
+function sessionKey(userId: string, projectId: string): string {
+  return `${userId}:${projectId}`;
+}
+
 class SessionService {
   private sessions = new Map<string, Session>();
   private locks = new Map<string, Promise<void>>();
@@ -16,23 +20,52 @@ class SessionService {
     this.loadFromDisk();
   }
 
-  async get(projectId: string): Promise<Session | null> {
-    return this.sessions.get(projectId) || null;
+  async get(projectId: string, userId: string): Promise<Session | null> {
+    return this.sessions.get(sessionKey(userId, projectId)) || null;
   }
 
-  async set(projectId: string, session: Session): Promise<void> {
+  /**
+   * Find the most recent session for a projectId (regardless of userId).
+   * Used by routes that don't have userId context (preview proxy, file notifications, etc.)
+   * Returns the session with the latest lastUsed timestamp to avoid stale entries.
+   */
+  async getByProjectId(projectId: string): Promise<Session | null> {
+    let best: Session | null = null;
+    for (const session of this.sessions.values()) {
+      if (session.projectId === projectId) {
+        if (!best || (session.lastUsed || 0) > (best.lastUsed || 0)) {
+          best = session;
+        }
+      }
+    }
+    return best;
+  }
+
+  async set(projectId: string, userId: string, session: Session): Promise<void> {
     session.lastUsed = Date.now();
-    this.sessions.set(projectId, session);
+    this.sessions.set(sessionKey(userId, projectId), session);
     this.saveToDiskDebounced();
   }
 
-  async delete(projectId: string): Promise<void> {
-    this.sessions.delete(projectId);
+  async delete(projectId: string, userId: string): Promise<void> {
+    this.sessions.delete(sessionKey(userId, projectId));
     this.saveToDiskDebounced();
   }
 
   async getAll(): Promise<Session[]> {
     return Array.from(this.sessions.values());
+  }
+
+  /**
+   * Find all sessions for a userId (across all projects).
+   * Used to enforce 1-container-per-user limit.
+   */
+  async getByUserId(userId: string): Promise<Session[]> {
+    const results: Session[] = [];
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId) results.push(session);
+    }
+    return results;
   }
 
   async getByContainerId(containerId: string): Promise<Session | null> {
@@ -43,21 +76,22 @@ class SessionService {
   }
 
   /**
-   * Acquire a lock per projectId to prevent concurrent operations
+   * Acquire a lock per userId:projectId to prevent concurrent operations
    */
-  async withLock<T>(projectId: string, fn: () => Promise<T>): Promise<T> {
-    while (this.locks.has(projectId)) {
-      await this.locks.get(projectId);
+  async withLock<T>(projectId: string, userId: string, fn: () => Promise<T>): Promise<T> {
+    const key = sessionKey(userId, projectId);
+    while (this.locks.has(key)) {
+      await this.locks.get(key);
     }
 
     let resolve: () => void;
     const promise = new Promise<void>(r => { resolve = r; });
-    this.locks.set(projectId, promise);
+    this.locks.set(key, promise);
 
     try {
       return await fn();
     } finally {
-      this.locks.delete(projectId);
+      this.locks.delete(key);
       resolve!();
     }
   }
@@ -69,7 +103,10 @@ class SessionService {
         if (Array.isArray(data)) {
           for (const entry of data) {
             if (entry.projectId) {
-              this.sessions.set(entry.projectId, entry);
+              // Backward compat: old sessions without userId get 'legacy'
+              const uid = entry.userId || 'legacy';
+              entry.userId = uid;
+              this.sessions.set(sessionKey(uid, entry.projectId), entry);
             }
           }
           log.info(`[Sessions] Loaded ${this.sessions.size} sessions from disk`);

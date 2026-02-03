@@ -20,6 +20,8 @@ import { gitAccountService } from '../git/gitAccountService';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { pushNotificationService } from '../services/pushNotificationService';
+import { deviceService } from '../services/deviceService';
+import { Alert } from 'react-native';
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
@@ -39,6 +41,7 @@ interface AuthState {
   isInitialized: boolean;
   isNewUser: boolean;
   error: string | null;
+  deviceCheckFailed: boolean; // True if logged out due to another device
 
   // Actions
   initialize: () => void;
@@ -50,6 +53,7 @@ interface AuthState {
   resetPassword: (email: string) => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   clearError: () => void;
+  checkDeviceAccess: () => Promise<boolean>;
 }
 
 const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
@@ -67,6 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
   isNewUser: false,
   error: null,
+  deviceCheckFailed: false,
 
   initialize: () => {
     console.log('🔐 [AuthStore] Initializing auth listener...');
@@ -98,8 +103,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       previousUserId = newUserId;
 
       if (firebaseUser) {
+        // Check if this device is the active device
+        const isActive = await deviceService.isActiveDevice(firebaseUser.uid);
+
+        if (!isActive) {
+          console.log('🚫 [AuthStore] This device is not the active device, forcing logout');
+          set({ deviceCheckFailed: true, isInitialized: true, isLoading: false });
+
+          // Show alert and sign out
+          Alert.alert(
+            'Sessione terminata',
+            'Il tuo account è stato connesso da un altro dispositivo. Puoi usare un solo dispositivo per account.',
+            [{ text: 'OK', onPress: () => signOut(auth) }]
+          );
+          return;
+        }
+
         const drapeUser = mapFirebaseUser(firebaseUser);
-        set({ user: drapeUser, isInitialized: true, isLoading: false });
+        set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false });
 
         // Update terminalStore userId
         useTerminalStore.setState({ userId: firebaseUser.uid });
@@ -159,6 +180,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Update projectStore and reload user's projects
       useProjectStore.getState().setUserId(userCredential.user.uid);
       useProjectStore.getState().loadUserProjects();
+
+      // Register this device as the active device
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
       console.log('✅ [AuthStore] Sign in successful:', drapeUser.email);
     } catch (error: any) {
@@ -248,6 +272,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      const { user } = get();
       console.log('🔐 [AuthStore] Logging out...');
 
       // Reset tabs BEFORE signing out (so we have clean state for next user)
@@ -273,9 +298,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Unregister push notifications
       await pushNotificationService.unregisterToken().catch(() => {});
 
+      // Clear active device (only if not kicked by another device)
+      if (user && !get().deviceCheckFailed) {
+        await deviceService.clearActiveDevice(user.uid).catch(() => {});
+      }
+
       // Sign out from Firebase
       await signOut(auth);
-      set({ user: null, isLoading: false });
+      set({ user: null, isLoading: false, deviceCheckFailed: false });
 
       console.log('✅ [AuthStore] Logout successful, all state reset');
     } catch (error: any) {
@@ -362,6 +392,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         useProjectStore.getState().loadUserProjects();
       }
+
+      // Register this device as the active device
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
       console.log('✅ [AuthStore] Google sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
@@ -452,6 +485,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useProjectStore.getState().loadUserProjects();
       }
 
+      // Register this device as the active device
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+
       console.log('✅ [AuthStore] Apple sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
       console.error('❌ [AuthStore] Apple sign in error:', error);
@@ -467,4 +503,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  checkDeviceAccess: async () => {
+    const { user } = get();
+    if (!user) return true;
+
+    try {
+      const isActive = await deviceService.isActiveDevice(user.uid);
+
+      if (!isActive) {
+        console.log('🚫 [AuthStore] Device check failed - another device is active');
+        set({ deviceCheckFailed: true });
+
+        Alert.alert(
+          'Sessione terminata',
+          'Il tuo account è stato connesso da un altro dispositivo. Puoi usare un solo dispositivo per account.',
+          [{ text: 'OK', onPress: () => get().logout() }]
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[AuthStore] Device check error:', error);
+      return true; // Allow on error to prevent lockouts
+    }
+  },
 }));

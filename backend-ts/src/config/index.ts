@@ -50,7 +50,7 @@ export const config = {
   // Container defaults
   containerMemoryMb: optionalInt('CONTAINER_MEMORY_MB', 4096),
   containerCpus: optionalInt('CONTAINER_CPUS', 4),
-  containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 30 * 60 * 1000),
+  containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 15 * 60 * 1000),
 } as const;
 
 export type Config = typeof config;

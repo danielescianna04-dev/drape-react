@@ -277,10 +277,22 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     );
   };
 
+  const getRepoInfo = (url?: string) => {
+    if (!url) return null;
+    try {
+      const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+      if (match) {
+        return `${match[1]}/${match[2].replace('.git', '')}`;
+      }
+    } catch {}
+    return null;
+  };
+
   const renderProjectCard = (project: any) => {
     const langColor = getLanguageColor(project.language);
     const isSelected = selectedIds.has(project.id);
     const hasRepo = project.repositoryUrl || project.githubUrl;
+    const repoInfo = getRepoInfo(project.repositoryUrl || project.githubUrl);
 
     const cardContent = (
       <View style={styles.cardInner}>
@@ -302,7 +314,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           <View style={styles.projectInfo}>
             <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
             <View style={styles.projectMetaRow}>
-              <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+              <Text style={styles.projectLang} numberOfLines={1}>{repoInfo || project.language || 'Progetto'}</Text>
               <View style={styles.metaDot} />
               <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
             </View>
@@ -645,17 +657,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   projectCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
   },
   projectCardSelected: {
     backgroundColor: 'rgba(123, 107, 255, 0.12)',
     borderColor: 'rgba(123, 107, 255, 0.3)',
   },
   cardInner: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(20,20,22,0.5)',
+    borderRadius: 14,
   },
   cardMain: {
     flexDirection: 'row',

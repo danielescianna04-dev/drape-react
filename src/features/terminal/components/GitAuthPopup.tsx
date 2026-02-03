@@ -28,7 +28,7 @@ WebBrowser.maybeCompleteAuthSession();
 const API_BASE_URL = config.apiUrl;
 const GITHUB_CLIENT_ID = process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID || 'Ov23likDO7phRcPUBcrk';
 
-type AuthStep = 'select-account' | 'options' | 'pat' | 'device-flow';
+type AuthStep = 'select-account' | 'options' | 'pat' | 'device-flow' | 'other-providers';
 
 interface DeviceFlowData {
   device_code: string;
@@ -260,8 +260,18 @@ export const GitAuthPopup = React.memo(() => {
   const renderSelectAccount = () => (
     <>
       <Text style={styles.title}>Autenticazione Git</Text>
+
+      {currentRequest?.repositoryUrl && (
+        <View style={styles.privateRepoBanner}>
+          <Ionicons name="lock-closed" size={16} color="#FFB800" />
+          <Text style={styles.privateRepoText}>Repository privata</Text>
+        </View>
+      )}
+
       <Text style={styles.subtitle}>
-        {currentRequest?.reason || 'Seleziona un account o aggiungine uno nuovo'}
+        {currentRequest?.repositoryUrl
+          ? 'Per clonare questa repository privata è necessario autenticarsi con un account GitHub che ha accesso.'
+          : (currentRequest?.reason || 'Seleziona un account o aggiungine uno nuovo')}
       </Text>
 
       {currentRequest?.repositoryUrl && (
@@ -347,7 +357,19 @@ export const GitAuthPopup = React.memo(() => {
         </TouchableOpacity>
       )}
       <Text style={styles.title}>Aggiungi Account</Text>
-      <Text style={styles.subtitle}>Scegli come autenticarti con GitHub</Text>
+
+      {currentRequest?.repositoryUrl && (
+        <View style={styles.privateRepoBanner}>
+          <Ionicons name="lock-closed" size={16} color="#FFB800" />
+          <Text style={styles.privateRepoText}>Repository privata</Text>
+        </View>
+      )}
+
+      <Text style={styles.subtitle}>
+        {currentRequest?.repositoryUrl
+          ? 'Per clonare questa repository è necessario autenticarsi con GitHub.'
+          : 'Scegli come autenticarti con GitHub'}
+      </Text>
 
       <TouchableOpacity
         style={styles.optionButton}
@@ -372,7 +394,59 @@ export const GitAuthPopup = React.memo(() => {
         </View>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={styles.otherProvidersButton}
+        onPress={() => setStep('other-providers')}
+      >
+        <Text style={styles.otherProvidersText}>Altri provider Git</Text>
+        <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
+      </TouchableOpacity>
+
       {error && <Text style={styles.errorText}>{error}</Text>}
+    </>
+  );
+
+  const renderOtherProviders = () => (
+    <>
+      <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
+        <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
+        <Text style={styles.backButtonText}>Indietro</Text>
+      </TouchableOpacity>
+      <Text style={styles.title}>Altri Provider</Text>
+      <Text style={styles.subtitle}>Seleziona il tuo provider Git</Text>
+
+      <TouchableOpacity style={styles.providerOption} disabled>
+        <Ionicons name="logo-gitlab" size={24} color="#FC6D26" />
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionButtonText}>GitLab</Text>
+          <Text style={styles.optionSubtext}>Prossimamente</Text>
+        </View>
+        <View style={styles.comingSoonBadge}>
+          <Text style={styles.comingSoonText}>Soon</Text>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.providerOption} disabled>
+        <Ionicons name="logo-bitbucket" size={24} color="#2684FF" />
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionButtonText}>Bitbucket</Text>
+          <Text style={styles.optionSubtext}>Prossimamente</Text>
+        </View>
+        <View style={styles.comingSoonBadge}>
+          <Text style={styles.comingSoonText}>Soon</Text>
+        </View>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.providerOption} disabled>
+        <Ionicons name="git-branch" size={24} color="#F05032" />
+        <View style={styles.optionTextContainer}>
+          <Text style={styles.optionButtonText}>Self-Hosted Git</Text>
+          <Text style={styles.optionSubtext}>Server Git personalizzato</Text>
+        </View>
+        <View style={styles.comingSoonBadge}>
+          <Text style={styles.comingSoonText}>Soon</Text>
+        </View>
+      </TouchableOpacity>
     </>
   );
 
@@ -472,6 +546,7 @@ export const GitAuthPopup = React.memo(() => {
           {step === 'options' && renderOptions()}
           {step === 'pat' && renderPatInput()}
           {step === 'device-flow' && renderDeviceFlow()}
+          {step === 'other-providers' && renderOtherProviders()}
         </View>
       </View>
     </Modal>
@@ -726,5 +801,63 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 12,
     fontSize: 13,
+  },
+  // Private repo banner
+  privateRepoBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255, 184, 0, 0.1)',
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 184, 0, 0.2)',
+  },
+  privateRepoText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFB800',
+  },
+  // Other providers
+  otherProvidersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    marginTop: 8,
+  },
+  otherProvidersText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '500',
+  },
+  providerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    minHeight: 68,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    opacity: 0.6,
+  },
+  comingSoonBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 6,
+  },
+  comingSoonText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });

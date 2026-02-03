@@ -8,7 +8,7 @@ class PreviewService {
    * Get preview URL for a project (if running)
    */
   async getPreviewUrl(projectId: string): Promise<string | null> {
-    const session = await sessionService.get(projectId);
+    const session = await sessionService.getByProjectId(projectId);
     if (!session) return null;
 
     const isRunning = await devServerService.isRunning(session.agentUrl);
@@ -21,7 +21,7 @@ class PreviewService {
    * Quick check: is the preview ready? (for fast path)
    */
   async isReady(projectId: string): Promise<boolean> {
-    const session = await sessionService.get(projectId);
+    const session = await sessionService.getByProjectId(projectId);
     if (!session) return false;
     return devServerService.isRunning(session.agentUrl);
   }

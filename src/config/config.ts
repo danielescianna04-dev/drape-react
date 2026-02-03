@@ -3,9 +3,9 @@
 const PRODUCTION_URL = 'https://drape.info';
 const PRODUCTION_WS_URL = 'wss://drape.info';
 
-// Dev: localhost for tunnel, WS direct to Hetzner
-const LOCAL_URL = 'http://localhost:3001';
-const LOCAL_WS_URL = 'ws://77.42.1.116:3001';
+// Dev: point to Hetzner (same as production)
+const LOCAL_URL = 'https://drape.info';
+const LOCAL_WS_URL = 'wss://drape.info';
 
 // Coder (workspace) URL
 const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'http://drape.info';

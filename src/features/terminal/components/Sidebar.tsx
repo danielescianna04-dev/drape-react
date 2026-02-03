@@ -18,6 +18,7 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useAuthStore } from '../../../core/auth/authStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
@@ -146,7 +147,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       fetch(`${apiUrl}/fly/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, userId: useAuthStore.getState().user?.email || 'anonymous' }),
       }).catch(() => {
         // Silent fail - heartbeat is non-critical
       });

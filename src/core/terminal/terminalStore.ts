@@ -192,7 +192,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   isCreatingWorkstation: false,
   userId: null,
   currentProjectInfo: null,
-  selectedModel: 'claude-sonnet-4',
+  selectedModel: 'gemini-3-flash',
   isTerminalMode: true,
   autoApprove: false,
   isRecording: false,

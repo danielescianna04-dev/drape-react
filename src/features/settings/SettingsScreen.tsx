@@ -25,6 +25,7 @@ import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/git
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
+import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
@@ -158,6 +159,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [showEditName, setShowEditName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
 
   // Swipe-back gesture
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -234,6 +236,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   useEffect(() => {
     loadAccounts();
     fetchSystemStatus();
+    loadDeviceId();
 
     const shimmerLoop = Animated.loop(
       Animated.sequence([
@@ -287,6 +290,15 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       console.error('Error loading accounts:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDeviceId = async () => {
+    try {
+      const deviceId = await deviceService.getDeviceId();
+      setCurrentDeviceId(deviceId);
+    } catch (error) {
+      console.error('Error loading device ID:', error);
     }
   };
 
@@ -482,7 +494,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       {
         id: 'pro',
         name: 'Pro',
-        price: billingCycle === 'monthly' ? '€29.99' : '€23.99',
+        price: billingCycle === 'monthly' ? '€49.99' : '€39.99',
         description: 'Potenza massima per sviluppatori.',
         features: ['Progetti illimitati', 'Preview illimitate', 'Budget AI illimitato', '10GB Storage Cloud', 'Supporto prioritario'],
         color: '#F472B6'
@@ -498,8 +510,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       }]}>
         <LinearGradient colors={['#0A0A0C', '#0A0A0C']} style={StyleSheet.absoluteFill} />
 
-        {/* Decorative Background Elements */}
-        <View style={styles.planBgGlow} />
+        {/* Background is uniform #0A0A0C via LinearGradient */}
 
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity
@@ -1071,6 +1082,30 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 iconColor="#94A3B8"
                 title="Privacy Policy"
                 onPress={() => Linking.openURL('https://drape.app/privacy')}
+                isLast
+              />
+            </View>
+          </GlassCard>
+        </View>
+
+        {/* Device Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Dispositivo</Text>
+          <GlassCard key={loading ? 'loading-device' : 'loaded-device'}>
+            <View style={styles.sectionCard}>
+              <SettingItem
+                icon="phone-portrait-outline"
+                iconColor="#60A5FA"
+                title="Questo dispositivo"
+                subtitle={currentDeviceId ? `${currentDeviceId.substring(0, 20)}...` : 'Caricamento...'}
+                showChevron={false}
+              />
+              <SettingItem
+                icon="shield-checkmark-outline"
+                iconColor="#34D399"
+                title="Dispositivo attivo"
+                subtitle="Solo questo dispositivo può accedere"
+                showChevron={false}
                 isLast
               />
             </View>

@@ -384,7 +384,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           formattedOutput = `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
         }
         else if (event.tool === 'list_directory' || event.tool === 'list_files') {
-          const dir = input?.directory || input?.path || '.';
+          const dir = input?.directory || input?.dirPath || input?.path || '.';
           const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
           formattedOutput = `List files in ${dir}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
         }
@@ -2096,7 +2096,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       } else if (name === 'glob_files') {
                         formattedOutput = cleanResult;
                       } else if (name === 'list_directory') {
-                        formattedOutput = `List directory: ${args.dirPath || '.'}\n└─ Completed\n\n${cleanResult}`;
+                        const dirPath = args.dirPath || '.';
+                        const fileCount = cleanResult.split('\n').filter((line: string) => line.trim() && !line.startsWith('total')).length;
+                        formattedOutput = `List files in ${dirPath}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${cleanResult}`;
                       } else if (name === 'create_folder') {
                         formattedOutput = `Create folder: ${args.folderPath}\n└─ Completed\n\n${cleanResult}`;
                       } else if (name === 'delete_file') {

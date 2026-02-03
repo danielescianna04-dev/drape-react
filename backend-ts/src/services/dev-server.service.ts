@@ -76,6 +76,8 @@ class DevServerService {
    * Stop the dev server inside a container
    */
   async stop(session: Session): Promise<void> {
+    // Clear any pending start lock so new containers don't wait on dead promises
+    this.startLocks.delete(session.projectId);
     try {
       await dockerService.exec(
         session.agentUrl,

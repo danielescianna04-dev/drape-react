@@ -374,7 +374,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           const res = await fetch(`${config.apiUrl}/fly/release`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: releaseProjectId }),
+            body: JSON.stringify({ projectId: releaseProjectId, userId: user?.email || 'anonymous' }),
             signal: controller.signal,
           });
           clearTimeout(timeout);
@@ -534,6 +534,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               workstationId: project.id,
               repositoryUrl: repoUrl,
               githubToken: token,
+              userId: user?.email || 'anonymous',
             }),
             signal: controller.signal,
           });
@@ -1059,7 +1060,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               <View style={styles.upgradeCtaMain}>
                 <View style={styles.upgradeCtaContent}>
                   <View style={styles.upgradeCtaIconWrap}>
-                    <Ionicons name="diamond-outline" size={18} color={AppColors.primary} />
+                    <Ionicons name="rocket-outline" size={18} color={AppColors.primary} />
                   </View>
                   <View style={styles.upgradeCtaText}>
                     <Text style={styles.upgradeCtaTitle}>Sblocca Pro</Text>
@@ -1131,7 +1132,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               {/* See All Button */}
               <GlassWrapper key={`seeall-${focusKey}`} style={{ borderRadius: 100, overflow: 'hidden', alignSelf: 'center', marginTop: 32 }}>
                 <TouchableOpacity
-                  style={[styles.seeAllButton, { marginTop: 0, backgroundColor: 'rgba(255,255,255,0.1)' }]}
+                  style={[styles.seeAllButton, { marginTop: 0, backgroundColor: 'rgba(20,20,22,0.5)' }]}
                   activeOpacity={0.7}
                   onPress={onMyProjects}
                 >
@@ -2151,7 +2152,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: `${AppColors.primary}15`,
     alignItems: 'center',
     justifyContent: 'center',
   },

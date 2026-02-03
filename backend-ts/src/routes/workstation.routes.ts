@@ -57,7 +57,7 @@ workstationRouter.post('/write-file', asyncHandler(async (req, res) => {
   if (!result.success) return res.status(500).json(result);
 
   // Notify agent for hot reload
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.getByProjectId(projectId);
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, file, content || '').catch(() => {});
   }
@@ -83,7 +83,7 @@ workstationRouter.post('/edit-file', asyncHandler(async (req, res) => {
   const newContent = content.replace(oldString, newString || '');
   await fileService.writeFile(projectId, filePath, newContent);
 
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.getByProjectId(projectId);
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, filePath, newContent).catch(() => {});
   }
@@ -152,10 +152,11 @@ workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
 
 // POST /workstation/execute-command
 workstationRouter.post('/execute-command', asyncHandler(async (req, res) => {
-  const { projectId, command } = req.body;
+  const { projectId, command, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!projectId || !command) throw new ValidationError('projectId and command required');
 
-  const result = await workspaceService.exec(projectId, command);
+  const result = await workspaceService.exec(projectId, uid, command);
   res.json({ success: true, ...result });
 }));
 
@@ -211,7 +212,8 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
 // DELETE /workstation/:projectId
 workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  await workspaceService.release(projectId);
+  const userId = (req.query.userId as string) || req.body?.userId || 'anonymous';
+  await workspaceService.release(projectId, userId);
   await fileService.deleteProject(projectId);
   res.json({ success: true, message: 'Project deleted' });
 }));

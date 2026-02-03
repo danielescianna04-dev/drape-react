@@ -2,6 +2,7 @@ import { Express } from 'express';
 import { flyRouter } from './fly.routes';
 import { workstationRouter } from './workstation.routes';
 import { gitRouter } from './git.routes';
+import { githubRouter } from './github.routes';
 import { healthRouter } from './health.routes';
 import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
@@ -34,6 +35,7 @@ export function mountRoutes(app: Express): void {
   app.use('/fly', flyRouter);
   app.use('/workstation', workstationRouter);
   app.use('/git', gitRouter);
+  app.use('/github', githubRouter);
   app.use('/agent', agentRouter);
   app.use('/notifications', notificationRouter);
 

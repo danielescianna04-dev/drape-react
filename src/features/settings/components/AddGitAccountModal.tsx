@@ -31,6 +31,7 @@ type Step = 'select-provider' | 'enter-credentials';
 export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) => {
   const [step, setStep] = useState<Step>('select-provider');
   const [selectedProvider, setSelectedProvider] = useState<GitProvider | null>(null);
+  const [username, setUsername] = useState('');
   const [token, setToken] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,6 +46,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
   const handleBack = () => {
     setStep('select-provider');
     setSelectedProvider(null);
+    setUsername('');
     setToken('');
     setServerUrl('');
   };
@@ -52,6 +54,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
   const handleClose = () => {
     setStep('select-provider');
     setSelectedProvider(null);
+    setUsername('');
     setToken('');
     setServerUrl('');
     onClose();
@@ -65,12 +68,21 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       Alert.alert('Errore', 'Inserisci l\'URL del server');
       return;
     }
+    if (providerConfig?.requiresUsername && !username.trim()) {
+      Alert.alert('Errore', 'Inserisci il tuo username');
+      return;
+    }
 
     setLoading(true);
     try {
+      // For Bitbucket, combine username:password for Basic Auth
+      const finalToken = providerConfig?.requiresUsername
+        ? `${username.trim()}:${token.trim()}`
+        : token.trim();
+
       await gitAccountService.saveAccount(
         selectedProvider,
-        token.trim(),
+        finalToken,
         userId || 'anonymous',
         providerConfig?.requiresServerUrl ? serverUrl.trim() : undefined
       );
@@ -80,7 +92,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       handleClose();
     } catch (error: any) {
       console.error('Error adding account:', error);
-      Alert.alert('Errore', 'Token non valido o errore di connessione');
+      Alert.alert('Errore', 'Credenziali non valide o errore di connessione');
     } finally {
       setLoading(false);
     }
@@ -152,11 +164,28 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           </View>
         )}
 
+        {providerConfig?.requiresUsername && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Username</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Il tuo username Bitbucket"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        )}
+
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Personal Access Token</Text>
+          <Text style={styles.inputLabel}>
+            {providerConfig?.requiresUsername ? 'App Password' : 'Personal Access Token'}
+          </Text>
           <TextInput
             style={styles.input}
-            placeholder="ghp_xxxxxxxxxxxx"
+            placeholder={providerConfig?.requiresUsername ? 'La tua App Password' : 'ghp_xxxxxxxxxxxx'}
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={token}
             onChangeText={setToken}
@@ -184,9 +213,9 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.loginBtn, (!token.trim() || loading) && styles.loginBtnDisabled]}
+            style={[styles.loginBtn, (!token.trim() || loading || (providerConfig?.requiresUsername && !username.trim())) && styles.loginBtnDisabled]}
             onPress={handleLogin}
-            disabled={!token.trim() || loading}
+            disabled={!token.trim() || loading || (providerConfig?.requiresUsername && !username.trim())}
           >
             {loading ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -206,8 +235,9 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
       animationType="fade"
       onRequestClose={handleClose}
     >
-      <View style={styles.overlay}>
-        <BlurView intensity={40} tint="dark" style={styles.container}>
+      <BlurView intensity={50} tint="dark" style={styles.blurOverlay}>
+        <View style={styles.overlay}>
+          <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
@@ -224,16 +254,20 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           <View style={styles.contentWrapper}>
             {step === 'select-provider' ? renderProviderSelection() : renderCredentialsForm()}
           </View>
-        </BlurView>
-      </View>
+          </View>
+        </View>
+      </BlurView>
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
+  blurOverlay: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -241,7 +275,7 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: 'rgba(28,28,30,0.7)',
+    backgroundColor: 'rgba(28,28,30,0.85)',
     borderRadius: 32,
     overflow: 'hidden',
     borderWidth: 1.5,
@@ -295,10 +329,8 @@ const styles = StyleSheet.create({
     aspectRatio: 0.88,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
   },
   providerIcon: {
     width: 48,

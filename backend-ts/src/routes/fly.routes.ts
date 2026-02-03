@@ -15,12 +15,13 @@ export const flyRouter = Router();
 
 // POST /fly/clone — Quick warmup
 flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
-  const { workstationId, projectId, repositoryUrl, githubToken } = req.body;
+  const { workstationId, projectId, repositoryUrl, githubToken, userId } = req.body;
   const id = projectId || workstationId;
+  const uid = userId || 'anonymous';
   if (!id) throw new ValidationError('workstationId or projectId required');
 
-  const result = await workspaceService.warmProject(id, repositoryUrl, githubToken);
-  const session = await sessionService.get(id);
+  const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken);
+  const session = await sessionService.get(id, uid);
 
   res.json({
     success: true,
@@ -31,7 +32,8 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
 
 // ALL /fly/preview/start — Start preview (SSE streaming)
 flyRouter.all('/preview/start', asyncHandler(async (req: Request, res: Response) => {
-  const { projectId, repositoryUrl, githubToken } = req.method === 'GET' ? req.query : req.body;
+  const { projectId, repositoryUrl, githubToken, userId } = req.method === 'GET' ? req.query : req.body;
+  const uid = (userId as string) || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // SSE headers
@@ -48,6 +50,7 @@ flyRouter.all('/preview/start', asyncHandler(async (req: Request, res: Response)
   try {
     const result = await workspaceService.startPreview(
       projectId as string,
+      uid,
       (step, message) => send({ type: 'step', step, message }),
       repositoryUrl as string,
       githubToken as string,
@@ -72,9 +75,10 @@ flyRouter.all('/preview/start', asyncHandler(async (req: Request, res: Response)
 
 // POST /fly/preview/stop
 flyRouter.post('/preview/stop', asyncHandler(async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
-  await workspaceService.stopPreview(projectId);
+  await workspaceService.stopPreview(projectId, uid);
   res.json({ success: true, message: 'Preview stopped' });
 }));
 
@@ -119,8 +123,8 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
 
   await fileService.writeFile(projectId, filePath, content || '');
 
-  // Notify agent if container running (for hot reload)
-  const session = await sessionService.get(projectId);
+  // Notify agent if container running
+  const session = await sessionService.getByProjectId(projectId);
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, filePath, content || '').catch(() => {});
   }
@@ -131,10 +135,11 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
 // POST /fly/project/:id/exec
 flyRouter.post('/project/:id/exec', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
-  const { command, cwd } = req.body;
+  const { command, cwd, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!command) throw new ValidationError('command required');
 
-  const result = await workspaceService.exec(projectId, command, cwd);
+  const result = await workspaceService.exec(projectId, uid, command, cwd);
   res.json({ success: true, ...result });
 }));
 
@@ -190,22 +195,24 @@ flyRouter.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
 
 // POST /fly/heartbeat
 flyRouter.post('/heartbeat', asyncHandler(async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.get(projectId, uid);
   if (session) {
     session.lastUsed = Date.now();
-    await sessionService.set(projectId, session);
+    await sessionService.set(projectId, uid, session);
   }
   res.json({ success: true, machineId: session?.containerId, status: session ? 'active' : 'none' });
 }));
 
 // POST /fly/release
 flyRouter.post('/release', asyncHandler(async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
-  await workspaceService.release(projectId);
+  await workspaceService.release(projectId, uid);
   res.json({ success: true, message: 'Container released' });
 }));
 
@@ -214,7 +221,7 @@ flyRouter.post('/reload', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
   // With NVMe bind mounts, files are already synced — just notify agent
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.getByProjectId(projectId);
   if (session) {
     // Touch project to trigger file watcher
     res.json({ success: true, message: 'Files already synced via NVMe' });
@@ -286,7 +293,7 @@ flyRouter.post('/inspect', asyncHandler(async (req, res) => {
 // GET /fly/logs/:projectId — SSE log stream from container
 flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.getByProjectId(projectId);
   if (!session) return res.status(404).json({ error: 'No active session' });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -317,9 +324,10 @@ flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
 
 // POST /fly/session
 flyRouter.post('/session', asyncHandler(async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, userId } = req.body;
+  const uid = userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
-  const session = await sessionService.get(projectId);
+  const session = await sessionService.get(projectId, uid);
   res.json({ success: true, machineId: session?.containerId, message: session ? 'Session active' : 'No session' });
 }));
 
@@ -331,7 +339,7 @@ flyRouter.post('/pool/recycle', asyncHandler(async (req, res) => {
   for (const s of sessions) {
     const healthy = await devServerService.isRunning(s.agentUrl).catch(() => false);
     if (!healthy) {
-      await workspaceService.release(s.projectId).catch(() => {});
+      await workspaceService.release(s.projectId, s.userId).catch(() => {});
       destroyed++;
     }
   }

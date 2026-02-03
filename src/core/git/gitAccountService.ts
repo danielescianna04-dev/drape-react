@@ -23,6 +23,7 @@ export interface GitProviderConfig {
   apiUrl: string;
   authUrl?: string;
   requiresServerUrl?: boolean;  // For self-hosted instances
+  requiresUsername?: boolean;   // For Basic Auth (Bitbucket)
 }
 
 export const GIT_PROVIDERS: GitProviderConfig[] = [
@@ -62,6 +63,7 @@ export const GIT_PROVIDERS: GitProviderConfig[] = [
     icon: 'logo-bitbucket',
     color: '#0052CC',
     apiUrl: 'https://api.bitbucket.org/2.0',
+    requiresUsername: true,  // Uses Basic Auth with username:app_password
   },
   {
     id: 'bitbucket-server',
@@ -70,6 +72,7 @@ export const GIT_PROVIDERS: GitProviderConfig[] = [
     color: '#0052CC',
     apiUrl: '',
     requiresServerUrl: true,
+    requiresUsername: true,  // Uses Basic Auth
   },
   {
     id: 'gitea',
@@ -235,9 +238,12 @@ export const gitAccountService = {
 
       case 'bitbucket':
       case 'bitbucket-server': {
+        // Bitbucket uses Basic Auth with username:app_password
+        // Token is stored as "username:app_password"
+        const basicAuth = btoa(token);
         const response = await axios.get(`${baseUrl}/user`, {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Basic ${basicAuth}`,
           },
         });
         return {

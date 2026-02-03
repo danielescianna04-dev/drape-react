@@ -3,6 +3,7 @@ import { ProjectInfo } from './project';
 export interface Session {
   containerId: string;
   projectId: string;
+  userId: string;
   agentUrl: string;
   previewPort: number | null;
   serverId: string;

@@ -97,7 +97,7 @@ export class AgentLoop {
    */
   async executeTool(toolName: string, input: any): Promise<{ success: boolean; result: string }> {
     if (!this.session) {
-      this.session = await workspaceService.getOrCreateContainer(this.projectId);
+      this.session = await workspaceService.getOrCreateContainer(this.projectId, this.userId || 'anonymous');
     }
     const result = await agentToolsService.executeTool(toolName, input, this.projectId, this.session);
     return { success: result.success, result: result.content || result.error || '' };
@@ -136,7 +136,7 @@ export class AgentLoop {
 
       // 3. Ensure container exists and is ready
       log.info(`[AgentLoop] Starting agent for project ${this.projectId} with model ${this.model}`);
-      this.session = await workspaceService.getOrCreateContainer(this.projectId);
+      this.session = await workspaceService.getOrCreateContainer(this.projectId, this.userId || 'anonymous');
 
       // 3. Build system prompt with project context
       const systemPrompt = await this.buildSystemPrompt();

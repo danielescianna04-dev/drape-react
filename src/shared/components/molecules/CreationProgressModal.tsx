@@ -9,6 +9,7 @@ import {
     ScrollView,
     Easing
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,6 +28,8 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
     const progressAnim = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const [activityLog, setActivityLog] = useState<string[]>([]);
+    const [displayProgress, setDisplayProgress] = useState(0);
+    const targetProgressRef = useRef(0);
     const scrollRef = useRef<ScrollView>(null);
 
     // Fade in animation
@@ -39,18 +42,38 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             }).start();
         } else {
             fadeAnim.setValue(0);
+            setDisplayProgress(0);
+            targetProgressRef.current = 0;
         }
     }, [visible]);
 
-    // Animate progress bar smoothly
+    // Smooth 1-by-1 progress counting
+    useEffect(() => {
+        targetProgressRef.current = Math.round(progress);
+    }, [progress]);
+
+    useEffect(() => {
+        if (!visible) return;
+        const interval = setInterval(() => {
+            setDisplayProgress(prev => {
+                const target = targetProgressRef.current;
+                if (prev < target) return prev + 1;
+                if (prev > target) return target;
+                return prev;
+            });
+        }, 80);
+        return () => clearInterval(interval);
+    }, [visible]);
+
+    // Animate progress bar to match displayProgress
     useEffect(() => {
         Animated.timing(progressAnim, {
-            toValue: progress,
-            duration: 500,
-            easing: Easing.out(Easing.cubic),
+            toValue: displayProgress,
+            duration: 80,
+            easing: Easing.linear,
             useNativeDriver: false,
         }).start();
-    }, [progress]);
+    }, [displayProgress]);
 
     // Add status to activity log
     useEffect(() => {
@@ -180,7 +203,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             <View style={styles.progressContainer}>
                 <View style={styles.progressInfo}>
                     <Text style={styles.progressLabel}>Progresso</Text>
-                    <Text style={styles.progressValue}>{Math.round(progress)}%</Text>
+                    <Text style={styles.progressValue}>{displayProgress}%</Text>
                 </View>
                 <View style={styles.progressTrack}>
                     <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
@@ -204,6 +227,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             statusBarTranslucent={true}
         >
             <View style={styles.container}>
+                <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
                 <View style={styles.backdrop} />
 
                 <Animated.View style={[styles.cardWrapper, { opacity: fadeAnim }]}>
@@ -236,7 +260,7 @@ const styles = StyleSheet.create({
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
     cardWrapper: {
         width: '100%',
@@ -245,10 +269,15 @@ const styles = StyleSheet.create({
     card: {
         borderRadius: 24,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.08)',
+        borderColor: 'rgba(255,255,255,0.15)',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.6,
+        shadowRadius: 24,
+        elevation: 12,
     },
     cardInner: {
-        backgroundColor: 'rgba(26, 26, 46, 0.4)',
+        backgroundColor: 'rgba(20, 20, 40, 0.92)',
         borderRadius: 24,
     },
     header: {

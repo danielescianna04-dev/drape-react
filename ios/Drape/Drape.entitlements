@@ -8,11 +8,5 @@
     <array>
       <string>Default</string>
     </array>
-    <key>com.apple.developer.usernotifications.push-notifications</key>
-    <array>
-      <string>alert</string>
-      <string>badge</string>
-      <string>sound</string>
-    </array>
   </dict>
 </plist>
