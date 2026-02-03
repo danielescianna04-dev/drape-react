@@ -140,7 +140,7 @@ export const useAgentStream = () => {
       xhr.send(JSON.stringify({
         prompt,
         projectId,
-        userId: useTerminalStore.getState().userId || null,
+        userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
         userPlan: useAuthStore.getState().user?.plan || 'free',
       }));
     });
@@ -233,7 +233,7 @@ export const useAgentStream = () => {
       xhr.send(JSON.stringify({
         prompt,
         projectId,
-        userId: useTerminalStore.getState().userId || null,
+        userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
         userPlan: useAuthStore.getState().user?.plan || 'free',
       }));
     });
@@ -328,7 +328,7 @@ export const useAgentStream = () => {
 
       xhr.send(JSON.stringify({
         projectId,
-        userId: useTerminalStore.getState().userId || null,
+        userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
         userPlan: useAuthStore.getState().user?.plan || 'free',
       }));
     });

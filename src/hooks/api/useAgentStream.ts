@@ -269,7 +269,7 @@ export function useAgentStream(
           model,
           conversationHistory: conversationHistory || [], // Send ALL history, no limits
           images: images || [], // Send images for multimodal support
-          userId: useTerminalStore.getState().userId || null,
+          userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
           userPlan: useAuthStore.getState().user?.plan || 'free',
         }),
       });
