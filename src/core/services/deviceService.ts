@@ -5,6 +5,7 @@
 
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
+import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -63,6 +64,28 @@ class DeviceService {
       this.deviceId = fallbackId;
       return fallbackId;
     }
+  }
+
+  /**
+   * Get the device model name (e.g., "iPhone 16", "Pixel 8")
+   */
+  getDeviceModelName(): string {
+    // Device.modelName returns the marketing name (e.g., "iPhone 16 Pro Max")
+    // Device.modelId returns the internal identifier (e.g., "iPhone17,2")
+    const modelName = Device.modelName;
+
+    if (modelName) {
+      return modelName;
+    }
+
+    // Fallback to platform name if model not available
+    if (Platform.OS === 'ios') {
+      return 'iPhone';
+    } else if (Platform.OS === 'android') {
+      return Device.brand ? `${Device.brand} ${Device.designName || 'Device'}` : 'Android Device';
+    }
+
+    return 'Device';
   }
 
   /**

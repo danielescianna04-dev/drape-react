@@ -165,6 +165,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [showEditName, setShowEditName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
+  const [deviceModelName, setDeviceModelName] = useState<string>('');
 
   // Swipe-back gesture
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -307,6 +308,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     try {
       const deviceId = await deviceService.getDeviceId();
       setCurrentDeviceId(deviceId);
+      // Get device model name (e.g., "iPhone 16 Pro Max")
+      const modelName = deviceService.getDeviceModelName();
+      setDeviceModelName(modelName);
     } catch (error) {
       console.error('Error loading device ID:', error);
     }
@@ -1134,7 +1138,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <SettingItem
                 icon="phone-portrait-outline"
                 iconColor="#60A5FA"
-                title={t('device.thisDevice')}
+                title={deviceModelName || t('device.thisDevice')}
                 subtitle={currentDeviceId ? `${currentDeviceId.substring(0, 20)}...` : t('subscription.loading')}
                 showChevron={false}
               />
