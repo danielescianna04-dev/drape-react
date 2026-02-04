@@ -16,6 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.drape.app",
       "infoPlist": {
+        "UIUserInterfaceStyle": "Dark",
         "NSPhotoLibraryUsageDescription": "L'app necessita di accedere alla tua galleria per caricare immagini nella chat.",
         "NSPhotoLibraryAddUsageDescription": "L'app necessita di salvare immagini nella tua galleria.",
         "NSCameraUsageDescription": "L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat.",
