@@ -532,9 +532,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             style={styles.backButtonCompact}
             onPress={handleClosePlans}
           >
-            <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
-              <Ionicons name="close" size={20} color="#fff" />
-            </BlurView>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={styles.backButtonGlass}
+                interactive={true}
+                effect="regular"
+                colorScheme="dark"
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </LiquidGlassView>
+            ) : (
+              <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </BlurView>
+            )}
           </TouchableOpacity>
           <Text style={styles.headerTitleSmall}>Upgrade Plan</Text>
           <View style={{ width: 44 }} />
@@ -731,9 +742,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             style={styles.backButtonCompact}
             onPress={() => setShowResourceUsage(false)}
           >
-            <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
-              <Ionicons name="close" size={20} color="#fff" />
-            </BlurView>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={styles.backButtonGlass}
+                interactive={true}
+                effect="regular"
+                colorScheme="dark"
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </LiquidGlassView>
+            ) : (
+              <BlurView intensity={20} tint="dark" style={styles.backButtonBlurCompact}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </BlurView>
+            )}
           </TouchableOpacity>
           <Text style={styles.headerTitleSmall}>Utilizzo</Text>
           <View style={{ width: 44 }} />
