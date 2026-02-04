@@ -348,7 +348,29 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }
 
       // 3. TOOL COMPLETE -> Replace executing indicator with formatted result
-      // Filter out signal_completion as it's internal
+      // Handle signal_completion specially - show as completion message
+      else if (event.type === 'tool_complete' && event.tool === 'signal_completion') {
+        // Extract completion message from input
+        let completionMessage = '';
+        try {
+          const input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
+          completionMessage = input?.result || '';
+        } catch (e) {
+          console.warn('[ChatPage] Failed to parse signal_completion input:', e);
+        }
+
+        if (completionMessage) {
+          // Add completion message as an AI response
+          addTerminalItem({
+            id: `completion-${Date.now()}`,
+            content: completionMessage,
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(event.timestamp),
+            isAgentMessage: true,
+          });
+        }
+      }
+      // Handle other tool completions
       else if (event.type === 'tool_complete' && event.tool !== 'signal_completion') {
         const resultPreview = typeof event.result === 'string' ? event.result.substring(0, 100) : event.result;
         const resultLines = typeof event.result === 'string' ? event.result.split('\n').length : 0;
