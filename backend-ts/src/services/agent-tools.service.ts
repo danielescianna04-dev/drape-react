@@ -196,9 +196,20 @@ class AgentToolsService {
       await fileService.notifyAgent(session.agentUrl, file_path, newContent);
     }
 
+    // Format diff for display - frontend expects lines with "- " and "+ " prefixes
+    const formatDiffLines = (str: string, prefix: string) => {
+      return str.split('\n').map(line => `${prefix} ${line}`).join('\n');
+    };
+
+    const removedLines = formatDiffLines(old_string, '-');
+    const addedLines = formatDiffLines(new_string, '+');
+
+    // Extract just the filename for the header
+    const fileName = file_path.split('/').pop() || file_path;
+
     return {
       success: true,
-      content: `File edited successfully: ${file_path}\nReplaced 1 occurrence`,
+      content: `Edit ${fileName}\n└─ File modified\n\n${removedLines}\n${addedLines}`,
     };
   }
 
