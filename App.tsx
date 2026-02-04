@@ -1552,6 +1552,7 @@ export default function App() {
                       setCurrentScreen(prev || 'home');
                     }}
                     initialShowPlans={true}
+                    initialPlanIndex={1}
                   />
                 </Animated.View>
               )}
