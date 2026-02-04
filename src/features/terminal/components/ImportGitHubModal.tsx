@@ -404,6 +404,7 @@ const styles = StyleSheet.create({
   },
   importButton: {
     paddingVertical: 14,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
