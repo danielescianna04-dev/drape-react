@@ -221,12 +221,23 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   // Animated close for plan screen
   const handleClosePlans = () => {
-    Animated.parallel([
-      Animated.timing(planExitAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-    ]).start(() => {
+    Animated.timing(planExitAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start((finished) => {
+      // Reset animation for next open
+      planExitAnim.setValue(1);
+      planHeaderAnim.setValue(0);
+      planToggleAnim.setValue(0);
+      planCardsAnim.setValue(0);
+      planFooterAnim.setValue(0);
+
       if (initialShowPlans) {
+        // Came from onboarding or direct plans route - close entire settings
         onClose();
       } else {
+        // Came from settings "Piano Attuale" button - just hide plans overlay
         setShowPlanSelection(false);
       }
     });
@@ -1822,6 +1833,7 @@ const styles = StyleSheet.create({
   // Resource Dashboard Styles
   mainMonitorCard: {
     marginHorizontal: 16,
+    marginTop: 8,
     borderRadius: 24,
     backgroundColor: 'rgba(255,255,255,0.02)',
     padding: 16,
@@ -1938,7 +1950,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     marginHorizontal: 16,
     marginBottom: 12,
-    marginTop: 4,
+    marginTop: 24,
   },
   hudGridRefined: {
     paddingHorizontal: 16,

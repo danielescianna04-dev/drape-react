@@ -6,6 +6,7 @@ import { githubRouter } from './github.routes';
 import { healthRouter } from './health.routes';
 import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
+import { aiRouter } from './ai.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 
 export function mountRoutes(app: Express): void {
@@ -38,6 +39,7 @@ export function mountRoutes(app: Express): void {
   app.use('/github', githubRouter);
   app.use('/agent', agentRouter);
   app.use('/notifications', notificationRouter);
+  app.use('/ai', aiRouter);
 
   // Root info
   app.get('/', (req, res) => {
