@@ -19,7 +19,7 @@ export const useNavigationStore = create<NavigationStore>((set, get) => ({
   previousScreen: null,
 
   navigateTo: (screen) => set({
-    previousScreen: get().pendingNavigation,
+    // Don't overwrite previousScreen here - it's managed by App.tsx useEffect
     pendingNavigation: screen
   }),
 
