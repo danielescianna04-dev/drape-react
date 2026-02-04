@@ -18,11 +18,14 @@ function optionalInt(key: string, fallback: number): number {
   return v ? parseInt(v, 10) : fallback;
 }
 
+const nodeEnv = optional('NODE_ENV', 'development');
+const isProduction = nodeEnv === 'production';
+
 export const config = {
   port: optionalInt('PORT', 3001),
-  publicUrl: optional('PUBLIC_URL', ''),  // e.g. https://77-42-1-116.nip.io
-  nodeEnv: optional('NODE_ENV', 'development'),
-  isDev: optional('NODE_ENV', 'development') === 'development',
+  publicUrl: optional('PUBLIC_URL', isProduction ? 'https://drape.info' : ''),
+  nodeEnv,
+  isDev: nodeEnv === 'development',
 
   // Docker
   dockerServers: optional('DOCKER_SERVERS', 'local'),

@@ -47,9 +47,11 @@ export function createPreviewProxy() {
         proxyPath = '/' + proxyPath;
       }
 
-      // When previewPort is set, it's mapped to localhost (host network mode)
-      const previewPort = session.previewPort || 3000;
-      const containerHost = session.previewPort ? 'localhost' : (session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost');
+      // Use container IP directly via Docker network (agentUrl contains the container IP)
+      // Format: http://172.18.0.X:13338 -> extract IP and use internal port 3000
+      const containerIp = session.agentUrl?.replace('http://', '').split(':')[0];
+      const previewPort = containerIp ? (session.projectInfo?.port || 3000) : (session.previewPort || 3000);
+      const containerHost = containerIp || 'localhost';
       log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${containerHost}:${previewPort} (user: ${session.userId}, lastUsed: ${new Date(session.lastUsed).toISOString()})`);
 
       await proxyRequest(req, res, previewPort, proxyPath, projectId, containerHost, session);
@@ -81,9 +83,10 @@ export function createAssetProxy() {
         return;
       }
 
-      // When previewPort is set, it's mapped to localhost (host network mode)
-      const previewPort = session.previewPort || 3000;
-      const containerHost = session.previewPort ? 'localhost' : (session.agentUrl?.replace('http://', '').split(':')[0] || 'localhost');
+      // Use container IP directly via Docker network (agentUrl contains the container IP)
+      const containerIp = session.agentUrl?.replace('http://', '').split(':')[0];
+      const previewPort = containerIp ? (session.projectInfo?.port || 3000) : (session.previewPort || 3000);
+      const containerHost = containerIp || 'localhost';
       log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${containerHost}:${previewPort}`);
 
       await proxyRequest(req, res, previewPort, req.url, projectId, containerHost);

@@ -3167,67 +3167,73 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       const hasThinkingOptions = model.thinkingLevels && model.thinkingLevels.length > 0;
 
                       return (
-                        <View key={model.id}>
-                          <TouchableOpacity
-                            style={[
-                              styles.modelDropdownItem,
-                              isSelected && styles.modelDropdownItemActive
-                            ]}
-                            onPress={() => {
-                              setSelectedModel(model.id);
-                              // Set default thinking level when switching to Gemini 3
-                              if (hasThinkingOptions) {
-                                const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
-                                setThinkingLevel(defaultLevel);
-                              }
-                              if (!hasThinkingOptions) {
-                                closeDropdown();
-                              }
-                            }}
-                          >
-                            <IconComponent size={16} />
-                            <SafeText style={[
-                              styles.modelDropdownText,
-                              isSelected && styles.modelDropdownTextActive
-                            ]}>
-                              {model.name}
-                            </SafeText>
-                            {isSelected && (
-                              <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
-                            )}
-                          </TouchableOpacity>
-
-                          {/* Thinking Level Options (only for selected Gemini 3 models) */}
-                          {isSelected && hasThinkingOptions && (
-                            <View style={styles.thinkingLevelContainer}>
-                              <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
-                              <View style={styles.thinkingLevelOptions}>
-                                {model.thinkingLevels.map((level: string) => (
-                                  <TouchableOpacity
-                                    key={level}
-                                    style={[
-                                      styles.thinkingLevelChip,
-                                      thinkingLevel === level && styles.thinkingLevelChipActive
-                                    ]}
-                                    onPress={() => {
-                                      setThinkingLevel(level);
-                                      closeDropdown();
-                                    }}
-                                  >
-                                    <SafeText style={[
-                                      styles.thinkingLevelChipText,
-                                      thinkingLevel === level && styles.thinkingLevelChipTextActive
-                                    ]}>
-                                      {THINKING_LEVEL_LABELS[level] || level}
-                                    </SafeText>
-                                  </TouchableOpacity>
-                                ))}
-                              </View>
-                            </View>
+                        <TouchableOpacity
+                          key={model.id}
+                          style={[
+                            styles.modelDropdownItem,
+                            isSelected && styles.modelDropdownItemActive
+                          ]}
+                          onPress={() => {
+                            setSelectedModel(model.id);
+                            // Set default thinking level when switching to Gemini 3
+                            if (hasThinkingOptions) {
+                              const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
+                              setThinkingLevel(defaultLevel);
+                            }
+                            if (!hasThinkingOptions) {
+                              closeDropdown();
+                            }
+                          }}
+                        >
+                          <IconComponent size={16} />
+                          <SafeText style={[
+                            styles.modelDropdownText,
+                            isSelected && styles.modelDropdownTextActive
+                          ]}>
+                            {model.name}
+                          </SafeText>
+                          {isSelected && (
+                            <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
                           )}
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
+
+                    {/* Thinking Level Options - always at bottom for Gemini 3 models */}
+                    {(() => {
+                      const currentModel = AI_MODELS.find(m => m.id === selectedModel);
+                      const hasThinkingOptions = currentModel?.thinkingLevels && currentModel.thinkingLevels.length > 0;
+
+                      if (!hasThinkingOptions) return null;
+
+                      return (
+                        <View style={styles.thinkingLevelContainer}>
+                          <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
+                          <View style={styles.thinkingLevelOptions}>
+                            {currentModel.thinkingLevels.map((level: string) => (
+                              <TouchableOpacity
+                                key={level}
+                                style={[
+                                  styles.thinkingLevelChip,
+                                  thinkingLevel === level && styles.thinkingLevelChipActive
+                                ]}
+                                onPress={() => {
+                                  setThinkingLevel(level);
+                                  closeDropdown();
+                                }}
+                              >
+                                <SafeText style={[
+                                  styles.thinkingLevelChipText,
+                                  thinkingLevel === level && styles.thinkingLevelChipTextActive
+                                ]}>
+                                  {THINKING_LEVEL_LABELS[level] || level}
+                                </SafeText>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                      );
+                    })()}
                   </Animated.View>
                 </>
               )}

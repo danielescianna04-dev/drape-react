@@ -257,7 +257,8 @@ router.post('/chat', asyncHandler(async (req, res) => {
         repositoryUrl, selectedModel = DEFAULT_AI_MODEL,
         context: userContext,
         username,
-        userId
+        userId,
+        thinkingLevel  // Gemini reasoning level (minimal, low, medium, high)
     } = req.body;
 
     if (!prompt) {
@@ -268,6 +269,9 @@ router.post('/chat', asyncHandler(async (req, res) => {
     console.log(`   Model: ${selectedModel}`);
     console.log(`   Prompt: ${prompt.substring(0, 50)}...`);
     console.log(`   Project: ${projectId || workstationId}`);
+    if (thinkingLevel) {
+        console.log(`   Thinking Level: ${thinkingLevel}`);
+    }
 
     // Get provider for selected model
     const { provider, modelId, config } = getProviderForModel(selectedModel);
@@ -392,7 +396,8 @@ router.post('/chat', asyncHandler(async (req, res) => {
             for await (const chunk of provider.chatStream(currentMessages, {
                 model: modelId,
                 tools,
-                maxTokens: config.maxTokens || 8192
+                maxTokens: config.maxTokens || 8192,
+                thinkingLevel  // Pass thinking level for Gemini reasoning
             })) {
                 if (chunk.type === 'text') {
                     fullText += chunk.text;
@@ -524,7 +529,7 @@ router.post('/analyze', asyncHandler(async (req, res) => {
         return res.status(400).json({ error: 'code and question are required' });
     }
 
-    const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
+    const { provider, modelId } = getProviderForModel('gemini-3-flash');
 
     if (!provider.client) {
         await provider.initialize();
@@ -620,7 +625,7 @@ router.post('/recommend', asyncHandler(async (req, res) => {
 
     console.log('🤖 AI Recommendation Request for:', description.substring(0, 50) + '...');
 
-    const { provider, modelId } = getProviderForModel('gemini-2.5-flash');
+    const { provider, modelId } = getProviderForModel('gemini-3-flash');
 
     if (!provider.client) {
         await provider.initialize();
