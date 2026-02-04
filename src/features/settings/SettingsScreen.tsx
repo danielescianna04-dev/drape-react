@@ -19,6 +19,7 @@ import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, Rect, Lin
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
@@ -1110,7 +1111,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 icon="information-circle-outline"
                 iconColor="#94A3B8"
                 title={t('info.version')}
-                subtitle="1.0.0"
+                subtitle={Constants.expoConfig?.version || '1.0.0'}
                 showChevron={false}
               />
               <SettingItem
