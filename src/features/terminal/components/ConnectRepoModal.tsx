@@ -16,6 +16,7 @@ import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { Button } from '../../../shared/components/atoms/Button';
 import { Input } from '../../../shared/components/atoms/Input';
@@ -36,6 +37,7 @@ interface Props {
 type Tab = 'create' | 'existing';
 
 export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [activeTab, setActiveTab] = useState<Tab>('create');
   const [loading, setLoading] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
@@ -101,7 +103,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
 
   const handleCreateRepo = async () => {
     if (!selectedAccount || !repoName.trim()) {
-      Alert.alert('Errore', 'Inserisci un nome per il repository');
+      Alert.alert(t('common:error'), t('terminal:connectRepo.enterRepoName'));
       return;
     }
 
@@ -109,7 +111,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
     try {
       const token = await gitAccountService.getToken(selectedAccount, userId);
       if (!token) {
-        Alert.alert('Errore', 'Token non trovato');
+        Alert.alert(t('common:error'), t('terminal:connectRepo.tokenNotFound'));
         return;
       }
 
@@ -121,7 +123,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       });
 
       if (!result.success) {
-        Alert.alert('Errore', result.error || 'Impossibile creare il repository');
+        Alert.alert(t('common:error'), result.error || t('terminal:connectRepo.unableToCreate'));
         return;
       }
 
@@ -132,12 +134,12 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         // Initialize git on the VM
         await initGitOnVM(result.repoUrl, token);
 
-        Alert.alert('Successo', `Repository "${repoName}" creato e collegato!`);
+        Alert.alert(t('common:success'), t('terminal:connectRepo.repoCreated', { name: repoName }));
         onConnected(result.repoUrl);
         onClose();
       }
     } catch (error: any) {
-      Alert.alert('Errore', error.message || 'Errore durante la creazione');
+      Alert.alert(t('common:error'), error.message || t('terminal:connectRepo.errorCreating'));
     } finally {
       setLoading(false);
     }
@@ -159,11 +161,11 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         await initGitOnVM(repoUrl, token);
       }
 
-      Alert.alert('Successo', `Repository "${repo.name}" collegato!`);
+      Alert.alert(t('common:success'), t('terminal:connectRepo.repoConnected', { name: repo.name }));
       onConnected(repoUrl);
       onClose();
     } catch (error: any) {
-      Alert.alert('Errore', error.message || 'Errore durante il collegamento');
+      Alert.alert(t('common:error'), error.message || t('terminal:connectRepo.errorConnecting'));
     } finally {
       setLoading(false);
     }
@@ -234,7 +236,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
         <View style={styles.headerIcon}>
           <Ionicons name="logo-github" size={22} color="#fff" />
         </View>
-        <Text style={styles.headerTitle}>Connetti a GitHub</Text>
+        <Text style={styles.headerTitle}>{t('terminal:connectRepo.connectToGitHub')}</Text>
         <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
           <Ionicons name="close" size={20} color="rgba(255,255,255,0.6)" />
         </TouchableOpacity>
@@ -244,9 +246,9 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       {gitAccounts.length === 0 ? (
         <View style={styles.noAccountContainer}>
           <Ionicons name="person-outline" size={32} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.noAccountText}>Nessun account GitHub collegato</Text>
+          <Text style={styles.noAccountText}>{t('terminal:connectRepo.noGitHubAccount')}</Text>
           <Text style={styles.noAccountSubtext}>
-            Vai nelle impostazioni per aggiungere un account GitHub
+            {t('terminal:connectRepo.goToSettings')}
           </Text>
         </View>
       ) : (
@@ -269,7 +271,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                 color={activeTab === 'create' ? '#fff' : 'rgba(255,255,255,0.5)'}
               />
               <Text style={[styles.tabText, activeTab === 'create' && styles.tabTextActive]}>
-                Crea nuovo
+                {t('terminal:connectRepo.createNew')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -282,7 +284,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                 color={activeTab === 'existing' ? '#fff' : 'rgba(255,255,255,0.5)'}
               />
               <Text style={[styles.tabText, activeTab === 'existing' && styles.tabTextActive]}>
-                Esistente
+                {t('terminal:connectRepo.existing')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -295,7 +297,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
           >
             {activeTab === 'create' ? (
               <View style={styles.createForm}>
-                <Text style={styles.label}>Nome repository</Text>
+                <Text style={styles.label}>{t('terminal:connectRepo.repoName')}</Text>
                 <Input
                   value={repoName}
                   onChangeText={setRepoName}
@@ -305,11 +307,11 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                   inputStyle={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.06)' }}
                 />
 
-                <Text style={styles.label}>Descrizione (opzionale)</Text>
+                <Text style={styles.label}>{t('terminal:connectRepo.descriptionOptional')}</Text>
                 <Input
                   value={description}
                   onChangeText={setDescription}
-                  placeholder="Descrizione del progetto..."
+                  placeholder={t('terminal:connectRepo.descriptionPlaceholder')}
                   multiline
                   numberOfLines={2}
                   noGlass
@@ -326,12 +328,12 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                     />
                     <View>
                       <Text style={styles.switchLabel}>
-                        {isPrivate ? 'Repository privato' : 'Repository pubblico'}
+                        {isPrivate ? t('terminal:connectRepo.privateRepo') : t('terminal:connectRepo.publicRepo')}
                       </Text>
                       <Text style={styles.switchHint}>
                         {isPrivate
-                          ? 'Solo tu puoi vedere questo repository'
-                          : 'Visibile a tutti su GitHub'}
+                          ? t('terminal:connectRepo.privateHint')
+                          : t('terminal:connectRepo.publicHint')}
                       </Text>
                     </View>
                   </View>
@@ -344,7 +346,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                 </View>
 
                 <Button
-                  label={loading ? "" : "Crea e Collega"}
+                  label={loading ? "" : t('terminal:connectRepo.createAndConnect')}
                   onPress={handleCreateRepo}
                   disabled={loading || !repoName.trim()}
                   variant="primary"
@@ -357,7 +359,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                 <Input
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder="Cerca repository..."
+                  placeholder={t('terminal:connectRepo.searchRepos')}
                   style={{ marginBottom: 8 }}
                 />
 
@@ -369,7 +371,7 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
                   <View style={styles.emptyContainer}>
                     <Ionicons name="folder-open-outline" size={40} color="rgba(255,255,255,0.2)" />
                     <Text style={styles.emptyText}>
-                      {searchQuery ? 'Nessun repository trovato' : 'Nessun repository disponibile'}
+                      {searchQuery ? t('terminal:connectRepo.noReposFound') : t('terminal:connectRepo.noReposAvailable')}
                     </Text>
                   </View>
                 ) : (

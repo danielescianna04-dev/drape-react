@@ -1,0 +1,159 @@
+{
+  "title": "Settings",
+  "profile": {
+    "defaultName": "User",
+    "editName": "Edit Name",
+    "enterName": "Enter your display name"
+  },
+  "gitAccounts": {
+    "title": "Git Accounts",
+    "addAccount": "Add",
+    "addAccountTitle": "Add Account",
+    "authentication": "Authentication",
+    "noAccounts": "No accounts connected",
+    "connectDescription": "Connect GitHub, GitLab, Bitbucket or others",
+    "removeAccount": "Remove Account",
+    "removeConfirm": "Are you sure you want to remove the account {{account}}?",
+    "removeError": "Unable to remove account",
+    "connect": "Connect",
+    "back": "Back",
+    "serverUrl": "Server URL",
+    "username": "Username",
+    "usernamePlaceholder": "Your Bitbucket username",
+    "personalAccessToken": "Personal Access Token",
+    "appPassword": "App Password",
+    "appPasswordPlaceholder": "Your App Password",
+    "enterServerUrl": "Enter server URL",
+    "enterUsername": "Enter your username",
+    "accountConnected": "Account connected successfully!",
+    "invalidCredentials": "Invalid credentials or connection error",
+    "tokenHints": {
+      "github": "Create a token on GitHub > Settings > Developer settings > Personal access tokens",
+      "gitlab": "Create a token on GitLab > Preferences > Access Tokens",
+      "bitbucket": "Create an App Password on Bitbucket > Settings > App passwords",
+      "generic": "Create an access token in your account settings"
+    }
+  },
+  "subscription": {
+    "title": "Subscription & Usage",
+    "currentPlan": "Current Plan",
+    "aiBudget": "AI Budget",
+    "loading": "Loading...",
+    "resetsIn": "resets in",
+    "days": "days",
+    "usage": "Usage"
+  },
+  "appearance": {
+    "title": "Appearance",
+    "darkTheme": "Dark Theme",
+    "darkThemeDesc": "Use the app's dark theme"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "pushNotifications": "Push Notifications",
+    "pushDesc": "Receive notifications about projects",
+    "operations": "Completed Operations",
+    "operationsDesc": "Clone, project creation",
+    "github": "GitHub Activity",
+    "githubDesc": "Commits, PRs on your repos",
+    "reminders": "Reminders",
+    "remindersDesc": "Remind me to come back to Drape"
+  },
+  "info": {
+    "title": "Information",
+    "version": "Version",
+    "termsOfService": "Terms of Service",
+    "privacyPolicy": "Privacy Policy"
+  },
+  "device": {
+    "title": "Device",
+    "thisDevice": "This device",
+    "activeDevice": "Active device",
+    "onlyThisDevice": "Only this device can access"
+  },
+  "logout": {
+    "title": "Sign out",
+    "confirm": "Are you sure you want to sign out?",
+    "button": "Sign out",
+    "error": "Unable to sign out"
+  },
+  "plans": {
+    "starter": {
+      "name": "Starter",
+      "description": "For those wanting to explore the basics"
+    },
+    "go": {
+      "name": "Go",
+      "description": "For those who want to create seriously"
+    },
+    "pro": {
+      "name": "Pro",
+      "description": "Maximum power for developers"
+    },
+    "monthly": "Monthly",
+    "yearly": "Yearly",
+    "save20": "SAVE 20%",
+    "elevateTitle": "Elevate Your Development",
+    "elevateDesc": "Unleash AI power in your projects",
+    "secureTransactions": "Secure transactions via Stripe. Simple and fast subscription management from settings.",
+    "upgradeTo": "Upgrade to {{plan}}",
+    "upgradeFeatures": "5 projects, 20 previews/month and doubled AI budget."
+  },
+  "resources": {
+    "title": "System Resources",
+    "previews": "Previews",
+    "active": "active",
+    "projects": "Projects",
+    "projectsActive": "active"
+  },
+  "language": {
+    "title": "Language",
+    "select": "Select language"
+  },
+  "gitAuth": {
+    "title": "Git Authentication",
+    "privateRepo": "Private repository",
+    "selectOrAddAccount": "Select an account or add a new one",
+    "addNewAccount": "Add new account",
+    "shared": "Shared",
+    "addAccount": "Add Account",
+    "chooseAuthMethod": "Choose how to authenticate with GitHub",
+    "loginWithGitHub": "Sign in with GitHub",
+    "usePersonalAccessToken": "Use Personal Access Token",
+    "generateTokenFromGitHub": "Generate a token from GitHub",
+    "otherGitProviders": "Other Git providers",
+    "otherProviders": "Other Providers",
+    "selectProvider": "Select your Git provider",
+    "comingSoon": "Coming soon",
+    "patTitle": "Personal Access Token",
+    "patDescription": "Generate a token from GitHub settings and paste it here.",
+    "verifyAndSave": "Verify and Save",
+    "authenticate": "Authenticate",
+    "authorizeOnGitHub": "Authorize on GitHub",
+    "deviceFlowDescription": "Enter this code on the GitHub website to authorize access.",
+    "copyCode": "Copy Code",
+    "copied": "Copied!",
+    "openGitHub": "Open GitHub",
+    "openGitHubAuthorize": "Open GitHub and Authorize",
+    "waitingForAuthorization": "Waiting for authorization...",
+    "authRequired": "Authentication required",
+    "repoIsPrivate": "The repository \"{{name}}\" is private.",
+    "thisRepoIsPrivate": "This repository is private.",
+    "clonePrivateRepoDesc": "To clone this private repository, you need to authenticate with a GitHub account that has access.",
+    "authWithGitHub": "Authenticate with GitHub",
+    "selfHostedGit": "Self-Hosted Git",
+    "customGitServer": "Custom Git server",
+    "errors": {
+      "errorPrefix": "Error: {{message}}",
+      "authError": "Error during authentication. Try again.",
+      "tokenNotFound": "Token not found. Add a new account.",
+      "tokenRetrievalError": "Error retrieving token",
+      "tokenSaveError": "Error saving token",
+      "noTokenInResponse": "No token in response",
+      "authCancelled": "Authentication cancelled",
+      "authFailed": "Authentication failed: {{message}}",
+      "invalidToken": "Invalid token",
+      "tokenVerificationError": "Error verifying token"
+    }
+  }
+}

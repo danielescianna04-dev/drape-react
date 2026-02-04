@@ -1,0 +1,60 @@
+{
+  "generic": "An error occurred. Please try again.",
+  "network": "Network error. Check your connection.",
+  "timeout": "The request took too long. Try again.",
+  "notFound": "Resource not found.",
+  "unauthorized": "Unauthorized access.",
+  "forbidden": "Operation not allowed.",
+  "serverError": "Server error. Try again later.",
+  "validation": "Invalid data. Check the fields and try again.",
+  "ai": {
+    "quotaExceeded": "AI quota exceeded. Try again in a few minutes or upgrade your plan.",
+    "invalidRequest": "Invalid request. Try rephrasing your message.",
+    "safetyBlocked": "Request blocked for safety reasons. Try rephrasing your message.",
+    "modelUnavailable": "Model unavailable. Try a different model.",
+    "accessDenied": "Access denied. Check configuration.",
+    "serviceUnavailable": "Service temporarily unavailable. Try again shortly.",
+    "requestTooLong": "Request too long. Try a shorter message.",
+    "messageTooLong": "Message too long. Reduce the length or start a new conversation.",
+    "internalError": "Internal error. Try again in a few seconds.",
+    "reasoningError": "Reasoning error. Try rephrasing your message.",
+    "noResponse": "The model did not generate a response. Try a different prompt."
+  },
+  "git": {
+    "cloneFailed": "Unable to clone repository.",
+    "pushFailed": "Unable to push.",
+    "pullFailed": "Unable to pull.",
+    "authFailed": "Git authentication failed.",
+    "invalidCredentials": "Invalid credentials.",
+    "repoNotFound": "Repository not found.",
+    "branchNotFound": "Branch not found.",
+    "conflictError": "Conflicts to resolve.",
+    "mergeError": "Error during merge."
+  },
+  "project": {
+    "createFailed": "Unable to create project.",
+    "deleteFailed": "Unable to delete project.",
+    "loadFailed": "Unable to load project.",
+    "saveFailed": "Unable to save project.",
+    "limitReached": "Project limit reached."
+  },
+  "workspace": {
+    "startFailed": "Unable to start workspace.",
+    "stopFailed": "Unable to stop workspace.",
+    "connectionLost": "Connection to workspace lost.",
+    "notReady": "Workspace not ready."
+  },
+  "file": {
+    "readFailed": "Unable to read file.",
+    "writeFailed": "Unable to write file.",
+    "deleteFailed": "Unable to delete file.",
+    "notFound": "File not found.",
+    "accessDenied": "File access denied."
+  },
+  "auth": {
+    "loginFailed": "Login failed. Try again.",
+    "logoutFailed": "Unable to log out.",
+    "sessionExpired": "Session expired. Please log in again.",
+    "invalidCredentials": "Invalid credentials."
+  }
+}

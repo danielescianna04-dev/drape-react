@@ -43,18 +43,19 @@ const contextService = require('./services/context-service');
 // Import Express app
 const createApp = require('./app');
 
-// Initialize Firebase Admin if not already initialized (optional)
+// Initialize Firebase Admin with service account (needed for FCM)
 const admin = require('firebase-admin');
 if (!admin.apps.length) {
     try {
+        const serviceAccount = require('./service-account-key.json');
         admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
             projectId: 'drape-mobile-ide',
-            // Usa bucket di default per permessi automatici del service account
             storageBucket: 'drape-mobile-ide-workspaces'
         });
-        console.log('🔥 Firebase Admin initialized');
+        console.log('🔥 Firebase Admin initialized with service account');
     } catch (error) {
-        console.warn('⚠️ Firebase Admin not initialized (credentials missing). Some features may be unavailable.');
+        console.warn('⚠️ Firebase Admin not initialized:', error.message);
     }
 }
 

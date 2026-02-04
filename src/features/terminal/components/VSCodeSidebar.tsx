@@ -5,6 +5,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { Sidebar } from './Sidebar';
 import { MultitaskingPanel } from './MultitaskingPanel';
@@ -262,23 +263,23 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const sidebarSwipeGesture = Gesture.Pan()
     .onUpdate((event) => {
       'worklet';
-      if (event.translationX < 0 && Math.abs(event.translationX) > Math.abs(event.translationY)) {
-        sidebarTranslateX.value = Math.max(event.translationX, -50);
+      // Allow swipe left to close - follow finger with resistance
+      if (event.translationX < 0) {
+        sidebarTranslateX.value = Math.max(event.translationX * 0.8, -50);
       }
     })
     .onEnd((event) => {
       'worklet';
-      // Easier to close: smaller threshold (-15px instead of -25px) and lower velocity (-200 instead of -400)
-      if (event.translationX < -15 || event.velocityX < -200) {
+      // Close if swiped left enough or with velocity
+      if (event.translationX < -10 || event.velocityX < -150) {
         sidebarTranslateX.value = withTiming(-50, { duration: 200, easing: Easing.out(Easing.cubic) });
         runOnJS(setIsSidebarHidden)(true);
       } else {
         sidebarTranslateX.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
       }
     })
-    .activeOffsetX([-5, 1000])  // More sensitive to left swipes
-    .activeOffsetY([-80, 80])   // More tolerant of vertical movement
-    .hitSlop({ right: 200, top: 50, bottom: 50 });  // Larger touch area
+    .activeOffsetX([-3, 1000])  // Very sensitive to left swipes
+    .failOffsetY([-15, 15]);    // Cancel if vertical scroll detected
 
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: sidebarTranslateX.value }],
@@ -287,20 +288,22 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
       {isSidebarHidden && !forceHideToggle && (
-        <GestureDetector gesture={edgeSwipeGesture}>
-          <View style={styles.edgeSwipeArea}>
+        <View style={styles.edgeSwipeArea} pointerEvents="box-none">
+          <GestureDetector gesture={edgeSwipeGesture}>
             <Animated.View style={[styles.slidePillContainer, pillAnimatedStyle]}>
-              <View style={[styles.slidePillBlur, { backgroundColor: AppColors.dark.backgroundAlt, opacity: 0.9 }]} />
-              <LinearGradient
-                colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.05)', 'transparent']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.slidePillGradient}
-              />
-              <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.3)" />
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView style={styles.slidePillGlass}>
+                  <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.5)" />
+                </LiquidGlassView>
+              ) : (
+                <>
+                  <View style={[styles.slidePillBlur, { backgroundColor: AppColors.dark.backgroundAlt, opacity: 0.9 }]} />
+                  <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.3)" />
+                </>
+              )}
             </Animated.View>
-          </View>
-        </GestureDetector>
+          </GestureDetector>
+        </View>
       )}
 
       <GestureDetector gesture={sidebarSwipeGesture}>
@@ -458,8 +461,11 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   edgeSwipeArea: {
-    ...StyleSheet.absoluteFillObject,
-    width: 60, // Wider hit area for gestures
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 30, // Only cover the pill toggle area
     zIndex: 1210,
   },
   slidePillContainer: {
@@ -483,6 +489,11 @@ const styles = StyleSheet.create({
   },
   slidePillBlur: {
     ...StyleSheet.absoluteFillObject,
+  },
+  slidePillGlass: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   slidePillGradient: {
     ...StyleSheet.absoluteFillObject,

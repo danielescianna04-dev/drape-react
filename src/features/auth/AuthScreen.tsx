@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -220,6 +221,7 @@ const GlassBackButton = ({ onPress }: { onPress: () => void }) => {
 };
 
 export const AuthScreen = () => {
+  const { t } = useTranslation(['auth', 'common']);
   const [mode, setMode] = useState<AuthMode>('initial');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -309,26 +311,26 @@ export const AuthScreen = () => {
     clearError();
 
     if (!email.trim()) {
-      setLocalError('Inserisci la tua email');
+      setLocalError(t('auth:errors.enterEmail'));
       return;
     }
 
     if (mode !== 'forgot' && !password) {
-      setLocalError('Inserisci la password');
+      setLocalError(t('auth:errors.enterPassword'));
       return;
     }
 
     if (mode === 'register') {
       if (!displayName.trim()) {
-        setLocalError('Inserisci il tuo nome');
+        setLocalError(t('auth:errors.enterName'));
         return;
       }
       if (password !== confirmPassword) {
-        setLocalError('Le password non corrispondono');
+        setLocalError(t('auth:errors.passwordMismatch'));
         return;
       }
       if (password.length < 6) {
-        setLocalError('La password deve avere almeno 6 caratteri');
+        setLocalError(t('auth:errors.weakPassword'));
         return;
       }
     }
@@ -341,9 +343,9 @@ export const AuthScreen = () => {
       } else if (mode === 'forgot') {
         await resetPassword(email.trim());
         Alert.alert(
-          'Email inviata',
-          'Controlla la tua casella email per il link di reset.',
-          [{ text: 'OK', onPress: () => setMode('login') }]
+          t('auth:forgotPassword.sent'),
+          t('auth:forgotPassword.sentMessage'),
+          [{ text: t('common:ok'), onPress: () => setMode('login') }]
         );
       }
     } catch (err) {
@@ -367,8 +369,8 @@ export const AuthScreen = () => {
       clearError();
       await signInWithApple();
     } catch (err: any) {
-      if (err.message !== 'Accesso annullato') {
-        setLocalError(err.message || 'Errore durante l\'accesso con Apple');
+      if (err.message !== t('auth:errors.appleLoginCancelled')) {
+        setLocalError(err.message || t('auth:errors.appleLoginError'));
       }
     }
   };
@@ -393,7 +395,7 @@ export const AuthScreen = () => {
               end={{ x: 1, y: 0 }}
               style={styles.primaryButtonGradient}
             >
-              <Text style={styles.primaryButtonText}>Inizia Gratis</Text>
+              <Text style={styles.primaryButtonText}>{t('auth:startFree')}</Text>
             </LinearGradient>
           </TouchableOpacity>
 
@@ -402,7 +404,7 @@ export const AuthScreen = () => {
             onPress={() => switchMode('login')}
             activeOpacity={0.8}
           >
-            <Text style={styles.secondaryButtonText}>Ho già un account</Text>
+            <Text style={styles.secondaryButtonText}>{t('auth:alreadyHaveAccount')}</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
@@ -413,9 +415,9 @@ export const AuthScreen = () => {
           <View style={styles.formHeader}>
             <GlassBackButton onPress={() => switchMode('initial')} />
             <Text style={styles.formTitle}>
-              {mode === 'login' && 'Accedi'}
-              {mode === 'register' && 'Registrati'}
-              {mode === 'forgot' && 'Reset Password'}
+              {mode === 'login' && t('auth:login.title')}
+              {mode === 'register' && t('auth:register.title')}
+              {mode === 'forgot' && t('auth:resetPassword')}
             </Text>
             <View style={{ width: 40 }} />
           </View>
@@ -432,7 +434,7 @@ export const AuthScreen = () => {
               <Ionicons name="person-outline" size={18} color="rgba(255,255,255,0.4)" />
               <TextInput
                 style={styles.input}
-                placeholder="Nome"
+                placeholder={t('auth:register.name')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={displayName}
                 onChangeText={setDisplayName}
@@ -445,7 +447,7 @@ export const AuthScreen = () => {
             <Ionicons name="mail-outline" size={18} color="rgba(255,255,255,0.4)" />
             <TextInput
               style={styles.input}
-              placeholder="Email"
+              placeholder={t('auth:login.email')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={email}
               onChangeText={setEmail}
@@ -459,7 +461,7 @@ export const AuthScreen = () => {
               <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
               <TextInput
                 style={styles.input}
-                placeholder="Password"
+                placeholder={t('auth:login.password')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={password}
                 onChangeText={setPassword}
@@ -481,7 +483,7 @@ export const AuthScreen = () => {
               <Ionicons name="lock-closed-outline" size={18} color="rgba(255,255,255,0.4)" />
               <TextInput
                 style={styles.input}
-                placeholder="Conferma Password"
+                placeholder={t('auth:register.confirmPassword')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
@@ -496,7 +498,7 @@ export const AuthScreen = () => {
               style={styles.forgotLink}
               onPress={() => switchMode('forgot')}
             >
-              <Text style={styles.forgotLinkText}>Password dimenticata?</Text>
+              <Text style={styles.forgotLinkText}>{t('auth:login.forgotPassword')}</Text>
             </TouchableOpacity>
           )}
 
@@ -510,9 +512,9 @@ export const AuthScreen = () => {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.submitButtonText}>
-                {mode === 'login' && 'Accedi'}
-                {mode === 'register' && 'Crea Account'}
-                {mode === 'forgot' && 'Invia Email'}
+                {mode === 'login' && t('auth:login.loginButton')}
+                {mode === 'register' && t('auth:createAccount')}
+                {mode === 'forgot' && t('auth:sendEmail')}
               </Text>
             )}
           </TouchableOpacity>
@@ -520,14 +522,14 @@ export const AuthScreen = () => {
           {mode === 'login' && (
             <TouchableOpacity onPress={() => switchMode('register')} style={styles.switchMode}>
               <Text style={styles.switchModeText}>
-                Non hai un account? <Text style={styles.switchModeLink}>Registrati</Text>
+                {t('auth:login.noAccount')} <Text style={styles.switchModeLink}>{t('auth:login.signUp')}</Text>
               </Text>
             </TouchableOpacity>
           )}
           {mode === 'register' && (
             <TouchableOpacity onPress={() => switchMode('login')} style={styles.switchMode}>
               <Text style={styles.switchModeText}>
-                Hai già un account? <Text style={styles.switchModeLink}>Accedi</Text>
+                {t('auth:register.haveAccount')} <Text style={styles.switchModeLink}>{t('auth:register.login')}</Text>
               </Text>
             </TouchableOpacity>
           )}
@@ -536,7 +538,7 @@ export const AuthScreen = () => {
             <>
               <View style={styles.dividerRowSmall}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>oppure</Text>
+                <Text style={styles.dividerText}>{t('auth:login.or')}</Text>
                 <View style={styles.dividerLine} />
               </View>
 
@@ -547,7 +549,7 @@ export const AuthScreen = () => {
                 disabled={isLoading}
               >
                 <Ionicons name="logo-apple" size={20} color="#fff" />
-                <Text style={styles.appleButtonText}>Continua con Apple</Text>
+                <Text style={styles.appleButtonText}>{t('auth:continueWithApple')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -615,7 +617,7 @@ export const AuthScreen = () => {
       {mode === 'initial' && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
           <Text style={styles.footerText}>
-            Continuando accetti i <Text style={styles.footerLink}>Termini</Text> e la <Text style={styles.footerLink}>Privacy</Text>
+            {t('auth:termsFooter')} <Text style={styles.footerLink}>{t('auth:terms')}</Text> & <Text style={styles.footerLink}>{t('auth:privacy')}</Text>
           </Text>
         </View>
       )}

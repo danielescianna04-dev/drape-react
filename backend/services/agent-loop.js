@@ -86,7 +86,7 @@ const TOOLS_PLANNING = convertToolsFormat(
  * Manages the execution of AI tasks with tools
  */
 class AgentLoop {
-    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL, conversationHistory = [], userId = null, userPlan = 'free') {
+    constructor(projectId, mode = 'fast', model = DEFAULT_AI_MODEL, conversationHistory = [], userId = null, userPlan = 'free', thinkingLevel = null) {
         this.projectId = projectId;
         this.selectedModel = model;  // Model selected by user
         this.mode = mode;
@@ -105,6 +105,7 @@ class AgentLoop {
         this.conversationHistory = conversationHistory; // Previous conversation messages
         this.userId = userId; // User ID for budget tracking
         this.userPlan = userPlan; // User's plan (free, go, pro, enterprise)
+        this.thinkingLevel = thinkingLevel; // Gemini reasoning level (minimal, low, medium, high)
     }
 
     /**
@@ -587,6 +588,7 @@ class AgentLoop {
      */
     async *run(prompt, images = []) {
         console.log(`\n🤖 [AgentLoop] Starting ${this.mode} mode for project ${this.projectId}`);
+        console.log(`   Model: ${this.selectedModel}, ThinkingLevel: ${this.thinkingLevel || 'none'}`);
         if (images && images.length > 0) {
             console.log(`📷 [AgentLoop] Multimodal mode: ${images.length} images attached`);
         }
@@ -707,13 +709,31 @@ class AgentLoop {
                     maxTokens: 8000,
                     temperature: 0.1,  // Low temp for deterministic agent behavior
                     systemPrompt,
-                    tools
+                    tools,
+                    thinkingLevel: this.thinkingLevel // Gemini reasoning level
                 });
 
                 let deltaCounter = 0;
                 let textWasStreamed = false; // Track if text was already sent via text_delta
                 for await (const chunk of stream) {
-                    if (chunk.type === 'text') {
+                    // Handle thinking events (Gemini 2/3 reasoning)
+                    if (chunk.type === 'thinking_start') {
+                        yield {
+                            type: 'thinking_start',
+                            timestamp: new Date().toISOString()
+                        };
+                    } else if (chunk.type === 'thinking') {
+                        yield {
+                            type: 'thinking',
+                            text: chunk.text,
+                            timestamp: new Date().toISOString()
+                        };
+                    } else if (chunk.type === 'thinking_end') {
+                        yield {
+                            type: 'thinking_end',
+                            timestamp: new Date().toISOString()
+                        };
+                    } else if (chunk.type === 'text') {
                         responseText += chunk.text;
                         textWasStreamed = true; // Mark that we already streamed text
                         // Stream text chunks to frontend in real-time

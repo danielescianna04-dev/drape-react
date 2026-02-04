@@ -276,7 +276,7 @@ router.get('/status', (req, res) => {
  */
 const runFastHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model, conversationHistory, images, userId, userPlan } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory, images, userId, userPlan, thinkingLevel } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -322,7 +322,7 @@ const runFastHandler = async (req, res) => {
         // Create and initialize agent loop with selected model and conversation history
         // Force reload to get latest code changes
         const { AgentLoop } = getAgentLoop();
-        const agent = new AgentLoop(projectId, 'fast', model, history, userId, userPlan || 'free');
+        const agent = new AgentLoop(projectId, 'fast', model, history, userId, userPlan || 'free', thinkingLevel);
         await agent.initialize();
 
         // Run the loop and stream events (with images if provided)
@@ -362,7 +362,7 @@ router.post('/run/fast', runFastHandler);
  */
 const runPlanHandler = async (req, res) => {
     // Support both GET (query params) and POST (body)
-    const { prompt, projectId, model, conversationHistory, images, userId, userPlan } = req.method === 'GET' ? req.query : req.body;
+    const { prompt, projectId, model, conversationHistory, images, userId, userPlan, thinkingLevel } = req.method === 'GET' ? req.query : req.body;
 
     if (!prompt || !projectId) {
         return res.status(400).json({ error: 'prompt and projectId are required' });
@@ -407,7 +407,7 @@ const runPlanHandler = async (req, res) => {
         // Create and initialize agent loop in planning mode with selected model and conversation history
         // Force reload to get latest code changes
         const { AgentLoop } = getAgentLoop();
-        const agent = new AgentLoop(projectId, 'planning', model, history, userId, userPlan || 'free');
+        const agent = new AgentLoop(projectId, 'planning', model, history, userId, userPlan || 'free', thinkingLevel);
         await agent.initialize();
 
         // Run the loop and stream events (with images if provided)
@@ -652,7 +652,7 @@ router.post('/detect-industry', (req, res) => {
  * This is the endpoint the frontend CreateProjectScreen uses
  */
 router.post('/stream', async (req, res) => {
-    const { projectId, mode = 'fast', prompt, model, conversationHistory, images, userId, userPlan } = req.body;
+    const { projectId, mode = 'fast', prompt, model, conversationHistory, images, userId, userPlan, thinkingLevel } = req.body;
 
     if (!projectId || !prompt) {
         return res.status(400).json({ error: 'projectId and prompt are required' });
@@ -699,7 +699,7 @@ router.post('/stream', async (req, res) => {
         // Force reload to get latest code changes
         const { AgentLoop } = getAgentLoop();
         const agentMode = mode === 'planning' ? 'planning' : 'fast';
-        const agent = new AgentLoop(projectId, agentMode, model, history, userId, userPlan || 'free');
+        const agent = new AgentLoop(projectId, agentMode, model, history, userId, userPlan || 'free', thinkingLevel);
         await agent.initialize();
 
         // Run the loop and stream events

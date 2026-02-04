@@ -24,6 +24,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
+import { useTranslation } from 'react-i18next';
+import { useLanguageStore } from '../../i18n/languageStore';
+import { LANGUAGES, LanguageCode } from '../../i18n';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
@@ -130,6 +133,8 @@ const GlassCard = ({ children, style }: { children: React.ReactNode; style?: any
 export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanIndex = 0 }: Props) => {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuthStore();
+  const { t } = useTranslation('settings');
+  const { language, setLanguage: setAppLanguage } = useLanguageStore();
   const [darkMode, setDarkMode] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [notifOperations, setNotifOperations] = useState(true);
@@ -307,19 +312,19 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     const providerName = providerConfig?.name || account.provider;
 
     Alert.alert(
-      'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username} (${providerName})?`,
+      t('gitAccounts.removeAccount'),
+      t('gitAccounts.removeConfirm', { account: `${account.username} (${providerName})` }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Rimuovi',
+          text: t('common:delete'),
           style: 'destructive',
           onPress: async () => {
             try {
               await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
             } catch (error) {
-              Alert.alert('Errore', 'Impossibile rimuovere l\'account');
+              Alert.alert(t('common:error'), t('gitAccounts.removeError'));
             }
           },
         },
@@ -845,7 +850,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             </View>
           )}
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Impostazioni</Text>
+        <Text style={styles.headerTitle}>{t('title')}</Text>
         <View style={{ width: 44 }} />
       </View>
 
@@ -877,7 +882,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 </View>
                 <View style={styles.profileInfo}>
                   <View style={styles.profileNameRow}>
-                    <Text style={styles.profileName}>{user.displayName || 'Utente'}</Text>
+                    <Text style={styles.profileName}>{user.displayName || t('profile.defaultName')}</Text>
                     <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
                       <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
                         {currentPlan.toUpperCase()}
@@ -897,14 +902,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         {/* Account Git Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Account Git</Text>
+            <Text style={styles.sectionTitle}>{t('gitAccounts.title')}</Text>
             <TouchableOpacity
               style={styles.addButton}
               onPress={() => setShowAddModal(true)}
               activeOpacity={0.6}
             >
               <Ionicons name="add" size={20} color={AppColors.primary} />
-              <Text style={styles.addButtonText}>Aggiungi</Text>
+              <Text style={styles.addButtonText}>{t('gitAccounts.addAccount')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -919,9 +924,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               ) : (
                 <View style={styles.emptyAccounts}>
                   <Ionicons name="git-network-outline" size={32} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.emptyText}>Nessun account collegato</Text>
+                  <Text style={styles.emptyText}>{t('gitAccounts.noAccounts')}</Text>
                   <Text style={styles.emptySubtext}>
-                    Collega GitHub, GitLab, Bitbucket o altri
+                    {t('gitAccounts.connectDescription')}
                   </Text>
                 </View>
               )}
@@ -931,21 +936,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
         {/* Abbonamento & Utilizzo Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Abbonamento & Utilizzo</Text>
+          <Text style={styles.sectionTitle}>{t('subscription.title')}</Text>
           <GlassCard key={loading ? 'loading-sub' : 'loaded-sub'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="card-outline"
                 iconColor="#60A5FA"
-                title="Piano Attuale"
+                title={t('subscription.currentPlan')}
                 subtitle={currentPlan === 'free' ? 'Starter' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan.toUpperCase()}
                 onPress={() => setShowPlanSelection(true)}
               />
               <SettingItem
                 icon="wallet-outline"
                 iconColor="#34D399"
-                title="Budget AI"
-                subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% utilizzato` : 'Caricamento...'}
+                title={t('subscription.aiBudget')}
+                subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% ${t('subscription.usage')}` : t('subscription.loading')}
                 onPress={() => setShowResourceUsage(true)}
                 isLast
               />
@@ -955,14 +960,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
         {/* Aspetto Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Aspetto</Text>
+          <Text style={styles.sectionTitle}>{t('appearance.title')}</Text>
           <GlassCard key={loading ? 'loading-app' : 'loaded-app'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="moon-outline"
                 iconColor="#A78BFA"
-                title="Tema Scuro"
-                subtitle="Usa il tema scuro dell'app"
+                title={t('appearance.darkTheme')}
+                subtitle={t('appearance.darkThemeDesc')}
                 showChevron={false}
                 rightElement={
                   <Switch
@@ -975,6 +980,34 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     disabled={true}
                   />
                 }
+              />
+              <SettingItem
+                icon="language-outline"
+                iconColor="#60A5FA"
+                title={t('language.title')}
+                subtitle={LANGUAGES[language].nativeName}
+                showChevron={false}
+                rightElement={
+                  <View style={styles.languageSwitcher}>
+                    {(Object.keys(LANGUAGES) as LanguageCode[]).map((langCode) => (
+                      <TouchableOpacity
+                        key={langCode}
+                        style={[
+                          styles.languageOption,
+                          language === langCode && styles.languageOptionActive
+                        ]}
+                        onPress={() => setAppLanguage(langCode)}
+                      >
+                        <Text style={[
+                          styles.languageOptionText,
+                          language === langCode && styles.languageOptionTextActive
+                        ]}>
+                          {LANGUAGES[langCode].flag}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                }
                 isLast
               />
             </View>
@@ -983,14 +1016,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
         {/* Notifiche Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifiche</Text>
+          <Text style={styles.sectionTitle}>{t('notifications.title')}</Text>
           <GlassCard key={loading ? 'loading-notif' : 'loaded-notif'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="notifications-outline"
                 iconColor="#FBBF24"
-                title="Notifiche Push"
-                subtitle="Ricevi notifiche sui progetti"
+                title={t('notifications.pushNotifications')}
+                subtitle={t('notifications.pushDesc')}
                 showChevron={false}
                 rightElement={
                   <Switch
@@ -1006,8 +1039,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <SettingItem
                 icon="build-outline"
                 iconColor="#34D399"
-                title="Operazioni completate"
-                subtitle="Clone, creazione progetto"
+                title={t('notifications.operations')}
+                subtitle={t('notifications.operationsDesc')}
                 showChevron={false}
                 rightElement={
                   <Switch
@@ -1023,8 +1056,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <SettingItem
                 icon="logo-github"
                 iconColor="#A78BFA"
-                title="Attivita' GitHub"
-                subtitle="Commit, PR sui tuoi repo"
+                title={t('notifications.github')}
+                subtitle={t('notifications.githubDesc')}
                 showChevron={false}
                 rightElement={
                   <Switch
@@ -1040,8 +1073,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <SettingItem
                 icon="time-outline"
                 iconColor="#60A5FA"
-                title="Promemoria"
-                subtitle="Ricordami di tornare su Drape"
+                title={t('notifications.reminders')}
+                subtitle={t('notifications.remindersDesc')}
                 showChevron={false}
                 rightElement={
                   <Switch
@@ -1061,26 +1094,26 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
         {/* Info Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Informazioni</Text>
+          <Text style={styles.sectionTitle}>{t('info.title')}</Text>
           <GlassCard key={loading ? 'loading-info' : 'loaded-info'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="information-circle-outline"
                 iconColor="#94A3B8"
-                title="Versione"
+                title={t('info.version')}
                 subtitle="1.0.0"
                 showChevron={false}
               />
               <SettingItem
                 icon="document-text-outline"
                 iconColor="#94A3B8"
-                title="Termini di Servizio"
+                title={t('info.termsOfService')}
                 onPress={() => Linking.openURL('https://drape.app/terms')}
               />
               <SettingItem
                 icon="shield-checkmark-outline"
                 iconColor="#94A3B8"
-                title="Privacy Policy"
+                title={t('info.privacyPolicy')}
                 onPress={() => Linking.openURL('https://drape.app/privacy')}
                 isLast
               />
@@ -1090,21 +1123,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
         {/* Device Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Dispositivo</Text>
+          <Text style={styles.sectionTitle}>{t('device.title')}</Text>
           <GlassCard key={loading ? 'loading-device' : 'loaded-device'}>
             <View style={styles.sectionCard}>
               <SettingItem
                 icon="phone-portrait-outline"
                 iconColor="#60A5FA"
-                title="Questo dispositivo"
-                subtitle={currentDeviceId ? `${currentDeviceId.substring(0, 20)}...` : 'Caricamento...'}
+                title={t('device.thisDevice')}
+                subtitle={currentDeviceId ? `${currentDeviceId.substring(0, 20)}...` : t('subscription.loading')}
                 showChevron={false}
               />
               <SettingItem
                 icon="shield-checkmark-outline"
                 iconColor="#34D399"
-                title="Dispositivo attivo"
-                subtitle="Solo questo dispositivo può accedere"
+                title={t('device.activeDevice')}
+                subtitle={t('device.onlyThisDevice')}
                 showChevron={false}
                 isLast
               />
@@ -1119,17 +1152,17 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               <SettingItem
                 icon="log-out-outline"
                 iconColor="#F87171"
-                title="Esci dall'account"
+                title={t('logout.title')}
                 subtitle={user?.email || undefined}
-                onPress={() => Alert.alert('Esci', 'Sei sicuro di voler uscire dal tuo account?', [
-                  { text: 'Annulla', style: 'cancel' },
+                onPress={() => Alert.alert(t('logout.title'), t('logout.confirm'), [
+                  { text: t('common:cancel'), style: 'cancel' },
                   {
-                    text: 'Esci', style: 'destructive', onPress: async () => {
+                    text: t('logout.button'), style: 'destructive', onPress: async () => {
                       try {
                         await logout();
                         onClose();
                       } catch (error) {
-                        Alert.alert('Errore', 'Impossibile effettuare il logout');
+                        Alert.alert(t('common:error'), t('logout.error'));
                       }
                     }
                   },
@@ -1171,14 +1204,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             >
               <View style={styles.editNameInner}>
                 <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
-                <Text style={styles.editNameTitle}>Modifica Nome</Text>
-                <Text style={styles.editNameSubtitle}>Inserisci il tuo nome visualizzato</Text>
+                <Text style={styles.editNameTitle}>{t('profile.editName')}</Text>
+                <Text style={styles.editNameSubtitle}>{t('profile.enterName')}</Text>
                 <View style={styles.editNameInputWrap}>
                   <TextInput
                     style={styles.editNameInput}
                     value={editNameValue}
                     onChangeText={setEditNameValue}
-                    placeholder="Nome"
+                    placeholder={t('profile.defaultName')}
                     placeholderTextColor="rgba(255,255,255,0.3)"
                     autoFocus
                     selectionColor={AppColors.primary}
@@ -1189,7 +1222,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     style={styles.editNameBtn}
                     onPress={() => setShowEditName(false)}
                   >
-                    <Text style={styles.editNameBtnTextCancel}>Annulla</Text>
+                    <Text style={styles.editNameBtnTextCancel}>{t('common:cancel')}</Text>
                   </TouchableOpacity>
                   <LinearGradient
                     colors={[AppColors.primary, AppColors.primaryShade]}
@@ -1204,7 +1237,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                         setShowEditName(false);
                       }}
                     >
-                      <Text style={styles.editNameBtnTextConfirm}>Salva</Text>
+                      <Text style={styles.editNameBtnTextConfirm}>{t('common:save')}</Text>
                     </TouchableOpacity>
                   </LinearGradient>
                 </View>
@@ -1214,14 +1247,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             <View style={[styles.editNameCard, { backgroundColor: '#1C1C1E' }]}>
               <View style={styles.editNameInner}>
                 <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
-                <Text style={styles.editNameTitle}>Modifica Nome</Text>
-                <Text style={styles.editNameSubtitle}>Inserisci il tuo nome visualizzato</Text>
+                <Text style={styles.editNameTitle}>{t('profile.editName')}</Text>
+                <Text style={styles.editNameSubtitle}>{t('profile.enterName')}</Text>
                 <View style={styles.editNameInputWrap}>
                   <TextInput
                     style={styles.editNameInput}
                     value={editNameValue}
                     onChangeText={setEditNameValue}
-                    placeholder="Nome"
+                    placeholder={t('profile.defaultName')}
                     placeholderTextColor="rgba(255,255,255,0.3)"
                     autoFocus
                     selectionColor={AppColors.primary}
@@ -1232,7 +1265,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     style={styles.editNameBtn}
                     onPress={() => setShowEditName(false)}
                   >
-                    <Text style={styles.editNameBtnTextCancel}>Annulla</Text>
+                    <Text style={styles.editNameBtnTextCancel}>{t('common:cancel')}</Text>
                   </TouchableOpacity>
                   <LinearGradient
                     colors={[AppColors.primary, AppColors.primaryShade]}
@@ -1247,7 +1280,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                         setShowEditName(false);
                       }}
                     >
-                      <Text style={styles.editNameBtnTextConfirm}>Salva</Text>
+                      <Text style={styles.editNameBtnTextConfirm}>{t('common:save')}</Text>
                     </TouchableOpacity>
                   </LinearGradient>
                 </View>
@@ -2103,5 +2136,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  // Language Switcher
+  languageSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10,
+    padding: 2,
+  },
+  languageOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  languageOptionActive: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  languageOptionText: {
+    fontSize: 16,
+    opacity: 0.5,
+  },
+  languageOptionTextActive: {
+    opacity: 1,
   },
 });

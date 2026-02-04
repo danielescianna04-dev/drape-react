@@ -16,6 +16,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { SafeText } from '../../../shared/components/SafeText';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useAuthStore } from '../../../core/auth/authStore';
@@ -47,6 +48,7 @@ interface Props {
 }
 
 export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
+  const { t } = useTranslation(['projects', 'common']);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
@@ -223,7 +225,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     e.stopPropagation();
 
     // Store the target for deletion
-    setDeleteTarget({ id, name: name || 'Progetto' });
+    setDeleteTarget({ id, name: name || t('projects:project') });
     setIsCheckingGit(true);
     setShowDeleteModal(true);
     setDeleteWarning(null);
@@ -360,7 +362,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           size={20}
           color={AppColors.white.w40}
           onPress={handleClose}
-          accessibilityLabel="Chiudi sidebar"
+          accessibilityLabel={t('projects:sidebar.closeSidebar')}
         />
       </View>
 
@@ -400,8 +402,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         ) : (
           <EmptyState
             icon="folder-open-outline"
-            title="Nessun progetto aperto"
-            subtitle="Apri un progetto dalla Home per vedere i file"
+            title={t('projects:sidebar.noProjectOpen')}
+            subtitle={t('projects:sidebar.openProjectFromHome')}
           />
         )}
       </ScrollView>
@@ -468,7 +470,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
           disabled={isCheckingGit}
         >
           <Text style={styles.deleteModalDeleteText}>
-            {deleteWarning?.hasChanges ? 'Elimina comunque' : 'Elimina'}
+            {deleteWarning?.hasChanges ? t('projects:sidebar.deleteAnyway') : t('common:delete')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -526,11 +528,12 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 };
 
 const ChatList = ({ chats }: any) => {
+  const { t } = useTranslation(['projects']);
   if (chats.length === 0) {
     return (
       <EmptyState
         icon="chatbubbles-outline"
-        title="No chats yet"
+        title={t('projects:sidebar.noChatsYet')}
       />
     );
   }
@@ -541,7 +544,7 @@ const ChatList = ({ chats }: any) => {
         <TouchableOpacity key={chat.id} style={styles.listItem}>
           <View style={styles.listItemContent}>
             <Text style={styles.listItemTitle}>{chat.title}</Text>
-            <Text style={styles.listItemSubtitle}>{chat.messages.length} messages</Text>
+            <Text style={styles.listItemSubtitle}>{chat.messages.length} {t('projects:sidebar.messages')}</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={AppColors.white.w40} />
         </TouchableOpacity>
@@ -551,6 +554,7 @@ const ChatList = ({ chats }: any) => {
 };
 
 const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRepo }: any) => {
+  const { t } = useTranslation(['projects']);
   if (!isConnected) {
     return <GitHubConnect />;
   }
@@ -562,7 +566,7 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
           <Ionicons name="person-circle" size={40} color={AppColors.primary} />
           <View style={styles.userDetails}>
             <Text style={styles.userName}>{user.name || user.login}</Text>
-            <SafeText style={styles.userRepos}>{(repositories || []).length} repositories</SafeText>
+            <SafeText style={styles.userRepos}>{(repositories || []).length} {t('projects:sidebar.repositories')}</SafeText>
           </View>
         </View>
       )}
@@ -570,7 +574,7 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
       {(repositories || []).length === 0 ? (
         <EmptyState
           icon="logo-github"
-          title="Nessuna repository trovata"
+          title={t('projects:sidebar.noReposFound')}
         />
       ) : (
         (repositories || []).map((repo: any) => (

@@ -36,6 +36,8 @@ export interface AgentStreamState {
   currentTool: string | null;
   error: string | null;
   plan: any | null;
+  originalPrompt: string | null;
+  projectId: string | null;
 }
 
 export const useAgentStream = () => {
@@ -45,6 +47,8 @@ export const useAgentStream = () => {
     currentTool: null,
     error: null,
     plan: null,
+    originalPrompt: null,
+    projectId: null,
   });
 
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -57,6 +61,8 @@ export const useAgentStream = () => {
       currentTool: null,
       error: null,
       plan: null,
+      originalPrompt: null,
+      projectId: null,
     });
 
     return new Promise<void>((resolve, reject) => {
@@ -147,13 +153,15 @@ export const useAgentStream = () => {
   }, []);
 
   const runPlan = useCallback(async (prompt: string, projectId: string) => {
-    // Reset state
+    // Reset state and save prompt/projectId for later execution
     setState({
       status: 'running',
       events: [],
       currentTool: null,
       error: null,
       plan: null,
+      originalPrompt: prompt,
+      projectId: projectId,
     });
 
     return new Promise<void>((resolve, reject) => {
@@ -239,8 +247,28 @@ export const useAgentStream = () => {
     });
   }, []);
 
-  const executePlan = useCallback(async (projectId: string) => {
-    // Reset events but keep plan
+  const executePlan = useCallback(async (projectIdOverride?: string) => {
+    // Get stored prompt and projectId from state
+    const currentState = state;
+    const pid = projectIdOverride || currentState.projectId;
+    const prompt = currentState.originalPrompt;
+    const plan = currentState.plan;
+
+    if (!pid) {
+      console.error('[useAgentStream] No projectId available for execution');
+      setState((prev) => ({ ...prev, status: 'error', error: 'No project ID' }));
+      return Promise.reject(new Error('No project ID'));
+    }
+
+    if (!prompt) {
+      console.error('[useAgentStream] No prompt available for execution');
+      setState((prev) => ({ ...prev, status: 'error', error: 'No prompt saved' }));
+      return Promise.reject(new Error('No prompt saved'));
+    }
+
+    console.log('[useAgentStream] Executing plan with prompt:', prompt.substring(0, 50) + '...');
+
+    // Reset events but keep plan and prompt
     setState((prev) => ({
       ...prev,
       status: 'running',
@@ -326,13 +354,16 @@ export const useAgentStream = () => {
         reject(new Error('Request timeout'));
       };
 
+      // Send prompt, plan, and project info for execution
       xhr.send(JSON.stringify({
-        projectId,
+        prompt,
+        projectId: pid,
+        plan,
         userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
         userPlan: useAuthStore.getState().user?.plan || 'free',
       }));
     });
-  }, []);
+  }, [state]);
 
   const cancel = useCallback(() => {
     if (xhrRef.current) {
@@ -352,6 +383,8 @@ export const useAgentStream = () => {
       currentTool: null,
       error: null,
       plan: null,
+      originalPrompt: null,
+      projectId: null,
     });
   }, []);
 

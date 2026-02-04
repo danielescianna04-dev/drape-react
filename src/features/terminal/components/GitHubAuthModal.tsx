@@ -4,6 +4,7 @@ import * as AuthSession from 'expo-auth-session';
 import React, { useState, useEffect } from 'react';
 import { View, Text, Modal, StyleSheet, TouchableOpacity, TextInput, Linking, ActivityIndicator, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import axios from 'axios';
@@ -32,6 +33,7 @@ interface DeviceFlowData {
 }
 
 export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryUrl }: Props) => {
+  const { t } = useTranslation(['settings', 'common']);
   const [step, setStep] = useState<AuthStep>('options');
   const [pat, setPat] = useState('');
   const [deviceFlow, setDeviceFlow] = useState<DeviceFlowData | null>(null);
@@ -190,10 +192,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
 
   const renderOptions = () => (
     <>
-      <Text style={styles.title}>Autenticazione richiesta</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.authRequired')}</Text>
       <Text style={styles.subtitle}>
-        {repositoryUrl ? `Il repository "${repositoryUrl.split('/').pop()?.replace('.git', '')}" è privato.` : 'Questo repository è privato.'}
-        {' '}Scegli un metodo di autenticazione.
+        {repositoryUrl ? t('settings:gitAuth.repoIsPrivate', { name: repositoryUrl.split('/').pop()?.replace('.git', '') }) : t('settings:gitAuth.thisRepoIsPrivate')}
+        {' '}{t('settings:gitAuth.chooseAuthMethod')}
       </Text>
       <TouchableOpacity
         style={styles.optionButton}
@@ -202,7 +204,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       >
         <Ionicons name="logo-github" size={24} color="#FFFFFF" />
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionButtonText}>Autentica con GitHub</Text>
+          <Text style={styles.optionButtonText}>{t('settings:gitAuth.authWithGitHub')}</Text>
           {(Platform.OS === 'ios' || Platform.OS === 'android') && (
             <Text style={styles.optionSubtext}>Via Device Flow</Text>
           )}
@@ -212,7 +214,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       <TouchableOpacity style={styles.optionButton} onPress={() => setStep('pat')}>
         <Ionicons name="key-outline" size={24} color="#FFFFFF" />
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionButtonText}>Usa un Personal Access Token</Text>
+          <Text style={styles.optionButtonText}>{t('settings:gitAuth.usePersonalAccessToken')}</Text>
           <Text style={styles.optionSubtext}>Genera un token da GitHub</Text>
         </View>
       </TouchableOpacity>
@@ -224,10 +226,10 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     <>
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.6)" />
-        <Text style={styles.backButtonText}>Indietro</Text>
+        <Text style={styles.backButtonText}>{t('common:back')}</Text>
       </TouchableOpacity>
-      <Text style={styles.title}>Personal Access Token</Text>
-      <Text style={styles.subtitle}>Genera un token dalle impostazioni di GitHub e incollalo qui sotto.</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.patTitle')}</Text>
+      <Text style={styles.subtitle}>{t('settings:gitAuth.patDescription')}</Text>
       <TextInput
         style={styles.input}
         placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
@@ -242,7 +244,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
         onPress={handlePatSubmit}
         disabled={!pat.trim()}
       >
-        <Text style={styles.submitButtonText}>Autentica</Text>
+        <Text style={styles.submitButtonText}>{t('settings:gitAuth.authenticate')}</Text>
       </TouchableOpacity>
     </>
   );
@@ -252,25 +254,25 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255, 255, 255, 0.6)" />
       </TouchableOpacity>
-      <Text style={styles.title}>Autorizza su GitHub</Text>
-      <Text style={styles.subtitle}>Inserisci il codice qui sotto sul sito di GitHub per concedere l'accesso.</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.authorizeOnGitHub')}</Text>
+      <Text style={styles.subtitle}>{t('settings:gitAuth.deviceFlowDescription')}</Text>
 
       <View style={styles.deviceCodeContainer}>
         <Text style={styles.deviceCode}>{deviceFlow?.user_code}</Text>
         <TouchableOpacity style={styles.copyButton} onPress={() => Clipboard.setStringAsync(deviceFlow?.user_code || '')}>
           <Ionicons name="copy-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.copyButtonText}>Copia Codice</Text>
+          <Text style={styles.copyButtonText}>{t('settings:gitAuth.copyCode')}</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.linkButton} onPress={handleOpenVerification}>
         <Ionicons name="open-outline" size={16} color="#FFFFFF" />
-        <Text style={styles.linkText}>Apri GitHub e Autorizza</Text>
+        <Text style={styles.linkText}>{t('settings:gitAuth.openGitHubAuthorize')}</Text>
       </TouchableOpacity>
 
       <View style={styles.pollingIndicator}>
         <ActivityIndicator color={AppColors.primary} />
-        <Text style={styles.pollingText}>In attesa dell'autorizzazione...</Text>
+        <Text style={styles.pollingText}>{t('settings:gitAuth.waitingForAuthorization')}</Text>
       </View>
       {error && <Text style={styles.errorText}>{error}</Text>}
     </>

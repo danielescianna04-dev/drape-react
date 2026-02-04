@@ -15,6 +15,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { AppColors } from '../../../shared/theme/colors';
 import { useGitAuthStore } from '../../../core/github/gitAuthStore';
@@ -39,6 +40,7 @@ interface DeviceFlowData {
 }
 
 export const GitAuthPopup = React.memo(() => {
+  const { t } = useTranslation(['settings', 'common']);
   // Usa selettori specifici per evitare re-render non necessari
   const showAuthPopup = useGitAuthStore((state) => state.showAuthPopup);
   const currentRequest = useGitAuthStore((state) => state.currentRequest);
@@ -93,13 +95,13 @@ export const GitAuthPopup = React.memo(() => {
             // Continue polling
           } else if (response.data.error) {
             console.log('❌ Error:', response.data.error);
-            setError(`Errore: ${response.data.error_description || response.data.error}`);
+            setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description || response.data.error }));
             if (intervalId) clearInterval(intervalId);
             setIsLoading(false);
           }
         } catch (err: any) {
           console.error('❌ Poll error:', err.message);
-          setError('Errore durante l\'autenticazione. Riprova.');
+          setError(t('settings:gitAuth.errors.authError'));
           if (intervalId) clearInterval(intervalId);
           setIsLoading(false);
         }
@@ -142,11 +144,11 @@ export const GitAuthPopup = React.memo(() => {
       if (token) {
         completeAuth(token);
       } else {
-        setError('Token non trovato. Aggiungi un nuovo account.');
+        setError(t('settings:gitAuth.errors.tokenNotFound'));
         setStep('options');
       }
     } catch (error) {
-      setError('Errore nel recupero del token');
+      setError(t('settings:gitAuth.errors.tokenRetrievalError'));
     } finally {
       setIsLoading(false);
     }
@@ -177,7 +179,7 @@ export const GitAuthPopup = React.memo(() => {
       console.log('✅ [handleAuthSuccess] completeAuth called - popup should close now');
     } catch (error) {
       console.error('❌ [handleAuthSuccess] Error:', error);
-      setError('Errore nel salvataggio del token');
+      setError(t('settings:gitAuth.errors.tokenSaveError'));
     }
   };
 
@@ -207,14 +209,14 @@ export const GitAuthPopup = React.memo(() => {
           if (response.data.access_token) {
             await handleAuthSuccess(response.data.access_token);
           } else {
-            throw new Error('Nessun token nella risposta');
+            throw new Error(t('settings:gitAuth.errors.noTokenInResponse'));
           }
         }
       } else if (result.type === 'cancel') {
-        setError('Autenticazione annullata');
+        setError(t('settings:gitAuth.errors.authCancelled'));
       }
     } catch (err: any) {
-      setError(`Autenticazione fallita: ${err.message}`);
+      setError(t('settings:gitAuth.errors.authFailed', { message: err.message }));
     } finally {
       setIsLoading(false);
     }
@@ -233,7 +235,7 @@ export const GitAuthPopup = React.memo(() => {
       setStep('device-flow');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error || err.message;
-      setError(`Errore: ${errorMessage}`);
+      setError(t('settings:gitAuth.errors.errorPrefix', { message: errorMessage }));
     } finally {
       setIsLoading(false);
     }
@@ -247,10 +249,10 @@ export const GitAuthPopup = React.memo(() => {
         if (validation.valid) {
           await handleAuthSuccess(pat.trim());
         } else {
-          setError('Token non valido');
+          setError(t('settings:gitAuth.errors.invalidToken'));
         }
       } catch (error) {
-        setError('Errore nella verifica del token');
+        setError(t('settings:gitAuth.errors.tokenVerificationError'));
       } finally {
         setIsLoading(false);
       }
@@ -259,19 +261,19 @@ export const GitAuthPopup = React.memo(() => {
 
   const renderSelectAccount = () => (
     <>
-      <Text style={styles.title}>Autenticazione Git</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.title')}</Text>
 
       {currentRequest?.repositoryUrl && (
         <View style={styles.privateRepoBanner}>
           <Ionicons name="lock-closed" size={16} color="#FFB800" />
-          <Text style={styles.privateRepoText}>Repository privata</Text>
+          <Text style={styles.privateRepoText}>{t('settings:gitAuth.privateRepo')}</Text>
         </View>
       )}
 
       <Text style={styles.subtitle}>
         {currentRequest?.repositoryUrl
-          ? 'Per clonare questa repository privata è necessario autenticarsi con un account GitHub che ha accesso.'
-          : (currentRequest?.reason || 'Seleziona un account o aggiungine uno nuovo')}
+          ? t('settings:gitAuth.clonePrivateRepoDesc')
+          : (currentRequest?.reason || t('settings:gitAuth.selectOrAddAccount'))}
       </Text>
 
       {currentRequest?.repositoryUrl && (
@@ -309,7 +311,7 @@ export const GitAuthPopup = React.memo(() => {
                   <Text style={styles.accountOptionName}>{account.username}</Text>
                   <Text style={styles.accountOptionMeta}>
                     {account.provider === 'github' ? 'GitHub' : account.provider}
-                    {isShared && ' • Condiviso'}
+                    {isShared && ` • ${t('settings:gitAuth.shared')}`}
                   </Text>
                 </View>
                 {isLoading ? (
@@ -330,7 +332,7 @@ export const GitAuthPopup = React.memo(() => {
             <View style={styles.addAccountIcon}>
               <Ionicons name="add" size={20} color={AppColors.primary} />
             </View>
-            <Text style={styles.addAccountText}>Aggiungi nuovo account</Text>
+            <Text style={styles.addAccountText}>{t('settings:gitAuth.addNewAccount')}</Text>
           </TouchableOpacity>
         </>
       )}
@@ -353,22 +355,22 @@ export const GitAuthPopup = React.memo(() => {
       {accounts.length > 0 && (
         <TouchableOpacity onPress={() => setStep('select-account')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
-          <Text style={styles.backButtonText}>Indietro</Text>
+          <Text style={styles.backButtonText}>{t('common:back')}</Text>
         </TouchableOpacity>
       )}
-      <Text style={styles.title}>Aggiungi Account</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.addAccount')}</Text>
 
       {currentRequest?.repositoryUrl && (
         <View style={styles.privateRepoBanner}>
           <Ionicons name="lock-closed" size={16} color="#FFB800" />
-          <Text style={styles.privateRepoText}>Repository privata</Text>
+          <Text style={styles.privateRepoText}>{t('settings:gitAuth.privateRepo')}</Text>
         </View>
       )}
 
       <Text style={styles.subtitle}>
         {currentRequest?.repositoryUrl
-          ? 'Per clonare questa repository è necessario autenticarsi con GitHub.'
-          : 'Scegli come autenticarti con GitHub'}
+          ? t('settings:gitAuth.clonePrivateRepoDesc')
+          : t('settings:gitAuth.chooseAuthMethod')}
       </Text>
 
       <TouchableOpacity
@@ -378,7 +380,7 @@ export const GitAuthPopup = React.memo(() => {
       >
         <Ionicons name="logo-github" size={24} color="#FFFFFF" />
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionButtonText}>Accedi con GitHub</Text>
+          <Text style={styles.optionButtonText}>{t('settings:gitAuth.loginWithGitHub')}</Text>
           {(Platform.OS === 'ios' || Platform.OS === 'android') && (
             <Text style={styles.optionSubtext}>Via Device Flow</Text>
           )}
@@ -389,8 +391,8 @@ export const GitAuthPopup = React.memo(() => {
       <TouchableOpacity style={styles.optionButton} onPress={() => setStep('pat')}>
         <Ionicons name="key-outline" size={24} color="#FFFFFF" />
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionButtonText}>Usa Personal Access Token</Text>
-          <Text style={styles.optionSubtext}>Genera un token da GitHub</Text>
+          <Text style={styles.optionButtonText}>{t('settings:gitAuth.usePersonalAccessToken')}</Text>
+          <Text style={styles.optionSubtext}>{t('settings:gitAuth.generateTokenFromGitHub')}</Text>
         </View>
       </TouchableOpacity>
 
@@ -398,7 +400,7 @@ export const GitAuthPopup = React.memo(() => {
         style={styles.otherProvidersButton}
         onPress={() => setStep('other-providers')}
       >
-        <Text style={styles.otherProvidersText}>Altri provider Git</Text>
+        <Text style={styles.otherProvidersText}>{t('settings:gitAuth.otherGitProviders')}</Text>
         <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
       </TouchableOpacity>
 
@@ -410,16 +412,16 @@ export const GitAuthPopup = React.memo(() => {
     <>
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
-        <Text style={styles.backButtonText}>Indietro</Text>
+        <Text style={styles.backButtonText}>{t('common:back')}</Text>
       </TouchableOpacity>
-      <Text style={styles.title}>Altri Provider</Text>
-      <Text style={styles.subtitle}>Seleziona il tuo provider Git</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.otherProviders')}</Text>
+      <Text style={styles.subtitle}>{t('settings:gitAuth.selectProvider')}</Text>
 
       <TouchableOpacity style={styles.providerOption} disabled>
         <Ionicons name="logo-gitlab" size={24} color="#FC6D26" />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>GitLab</Text>
-          <Text style={styles.optionSubtext}>Prossimamente</Text>
+          <Text style={styles.optionSubtext}>{t('settings:gitAuth.comingSoon')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
           <Text style={styles.comingSoonText}>Soon</Text>
@@ -430,7 +432,7 @@ export const GitAuthPopup = React.memo(() => {
         <Ionicons name="logo-bitbucket" size={24} color="#2684FF" />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>Bitbucket</Text>
-          <Text style={styles.optionSubtext}>Prossimamente</Text>
+          <Text style={styles.optionSubtext}>{t('settings:gitAuth.comingSoon')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
           <Text style={styles.comingSoonText}>Soon</Text>
@@ -441,7 +443,7 @@ export const GitAuthPopup = React.memo(() => {
         <Ionicons name="git-branch" size={24} color="#F05032" />
         <View style={styles.optionTextContainer}>
           <Text style={styles.optionButtonText}>Self-Hosted Git</Text>
-          <Text style={styles.optionSubtext}>Server Git personalizzato</Text>
+          <Text style={styles.optionSubtext}>{t('settings:gitAuth.customGitServer')}</Text>
         </View>
         <View style={styles.comingSoonBadge}>
           <Text style={styles.comingSoonText}>Soon</Text>
@@ -454,11 +456,11 @@ export const GitAuthPopup = React.memo(() => {
     <>
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
-        <Text style={styles.backButtonText}>Indietro</Text>
+        <Text style={styles.backButtonText}>{t('common:back')}</Text>
       </TouchableOpacity>
-      <Text style={styles.title}>Personal Access Token</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.patTitle')}</Text>
       <Text style={styles.subtitle}>
-        Genera un token dalle impostazioni di GitHub e incollalo qui.
+        {t('settings:gitAuth.patDescription')}
       </Text>
       <TextInput
         style={styles.input}
@@ -477,7 +479,7 @@ export const GitAuthPopup = React.memo(() => {
         {isLoading ? (
           <ActivityIndicator color="#FFFFFF" />
         ) : (
-          <Text style={styles.submitButtonText}>Verifica e Salva</Text>
+          <Text style={styles.submitButtonText}>{t('settings:gitAuth.verifyAndSave')}</Text>
         )}
       </TouchableOpacity>
       {error && <Text style={styles.errorText}>{error}</Text>}
@@ -489,9 +491,9 @@ export const GitAuthPopup = React.memo(() => {
       <TouchableOpacity onPress={() => setStep('options')} style={styles.backButton}>
         <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.6)" />
       </TouchableOpacity>
-      <Text style={styles.title}>Autorizza su GitHub</Text>
+      <Text style={styles.title}>{t('settings:gitAuth.authorizeOnGitHub')}</Text>
       <Text style={styles.subtitle}>
-        Inserisci questo codice sul sito GitHub per autorizzare l'accesso.
+        {t('settings:gitAuth.deviceFlowDescription')}
       </Text>
 
       <View style={styles.deviceCodeContainer}>
@@ -510,7 +512,7 @@ export const GitAuthPopup = React.memo(() => {
             color={copied ? "#4CAF50" : "#FFFFFF"}
           />
           <Text style={[styles.copyButtonText, copied && styles.copyButtonTextSuccess]}>
-            {copied ? 'Copiato!' : 'Copia Codice'}
+            {copied ? t('settings:gitAuth.copied') : t('settings:gitAuth.copyCode')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -520,12 +522,12 @@ export const GitAuthPopup = React.memo(() => {
         onPress={() => deviceFlow?.verification_uri && Linking.openURL(deviceFlow.verification_uri)}
       >
         <Ionicons name="open-outline" size={16} color="#fff" />
-        <Text style={styles.linkText}>Apri GitHub</Text>
+        <Text style={styles.linkText}>{t('settings:gitAuth.openGitHub')}</Text>
       </TouchableOpacity>
 
       <View style={styles.pollingIndicator}>
         <ActivityIndicator color={AppColors.primary} />
-        <Text style={styles.pollingText}>In attesa di autorizzazione...</Text>
+        <Text style={styles.pollingText}>{t('settings:gitAuth.waitingForAuthorization')}</Text>
       </View>
 
       {error && <Text style={styles.errorText}>{error}</Text>}

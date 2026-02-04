@@ -18,10 +18,8 @@ const USD_TO_EUR = 0.92;
 
 // AI Model Pricing (USD per 1M tokens)
 const AI_PRICING: Record<string, { input: number; output: number; cachedInput: number }> = {
-  'gemini-3-flash':          { input: 0.10,  output: 0.40,  cachedInput: 0.025 },
-  'gemini-3-pro':            { input: 1.25,  output: 5.00,  cachedInput: 0.3125 },
-  'gemini-2.5-flash':        { input: 0.15,  output: 0.60,  cachedInput: 0.04 },
-  'gemini-2.5-flash-image':  { input: 0.15,  output: 0.60,  cachedInput: 0.04 },
+  'gemini-3-flash':          { input: 0.50,  output: 3.00,  cachedInput: 0.125 },
+  'gemini-3-pro':            { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
   'claude-sonnet-4':         { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-4-5-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-3.5-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
@@ -46,6 +44,7 @@ export class AgentLoop {
   private projectId: string;
   private mode: AgentMode;
   private model: string;
+  private thinkingLevel: string | null;
   private conversationHistory: ChatMessage[];
   private userId: string | null;
   private userPlan: string;
@@ -53,6 +52,7 @@ export class AgentLoop {
   private filesModified: string[] = [];
   private session: Session | null = null;
   private totalTokensUsed: { input: number; output: number } = { input: 0, output: 0 };
+  private totalCostEur: number = 0;
   private iterationCount: number = 0;
 
   // Budget limits per plan (monthly EUR)
@@ -67,6 +67,7 @@ export class AgentLoop {
     this.projectId = options.projectId;
     this.mode = options.mode || 'fast';
     this.model = options.model || 'claude-sonnet-4';
+    this.thinkingLevel = options.thinkingLevel || null;
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
     this.conversationHistory = options.conversationHistory || [];
@@ -148,7 +149,7 @@ export class AgentLoop {
       // 5. Main reasoning loop
       let shouldContinue = true;
       let consecutiveSameToolCount = 0;
-      let lastToolName = '';
+      let lastToolSignature = ''; // Track tool name + key input to detect actual loops
 
       while (shouldContinue && this.iterationCount < MAX_ITERATIONS) {
         this.iterationCount++;
@@ -161,8 +162,20 @@ export class AgentLoop {
 
         // Call AI model with streaming
         let fullText = '';
-        let toolCalls: Array<{ id: string; name: string; input: any }> = [];
+        let toolCalls: Array<{ id: string; name: string; input: any; thoughtSignature?: string }> = [];
         let stopReason = '';
+
+        // In planning mode, buffer tool events until we know they're read-only
+        const readOnlyTools = ['read_file', 'list_directory', 'glob_search', 'grep_search'];
+        const bufferedToolEvents: AgentEvent[] = [];
+
+        // Models with native thinking support - no need to simulate
+        // Claude Opus/Sonnet-4 and Gemini 3 have native thinking
+        const hasNativeThinking =
+          (this.model.toLowerCase().includes('claude') && (this.model.includes('opus') || this.model.includes('sonnet-4'))) ||
+          this.model.includes('gemini-3');
+
+        log.info(`[AgentLoop] Model: ${this.model}, hasNativeThinking: ${hasNativeThinking}`);
 
         try {
           const tools = getToolDefinitions();
@@ -172,7 +185,7 @@ export class AgentLoop {
             this.conversationHistory,
             tools,
             systemPrompt,
-            { temperature: 0.7 }
+            { temperature: 0.7, thinkingLevel: this.thinkingLevel }
           )) {
             switch (chunk.type) {
               case 'thinking_start':
@@ -193,11 +206,20 @@ export class AgentLoop {
                 break;
 
               case 'tool_start':
-                yield {
-                  type: 'tool_start',
-                  id: chunk.id,
-                  tool: chunk.name,
-                };
+                // In planning mode, buffer tool events; otherwise yield immediately
+                if (this.mode === 'plan') {
+                  bufferedToolEvents.push({
+                    type: 'tool_start' as const,
+                    id: chunk.id,
+                    tool: chunk.name,
+                  });
+                } else {
+                  yield {
+                    type: 'tool_start',
+                    id: chunk.id,
+                    tool: chunk.name,
+                  };
+                }
                 break;
 
               case 'tool_use':
@@ -206,12 +228,22 @@ export class AgentLoop {
                   name: chunk.name,
                   input: chunk.input,
                 });
-                yield {
-                  type: 'tool_input',
-                  id: chunk.id,
-                  tool: chunk.name,
-                  input: chunk.input,
-                };
+                // In planning mode, buffer tool events; otherwise yield immediately
+                if (this.mode === 'plan') {
+                  bufferedToolEvents.push({
+                    type: 'tool_input' as const,
+                    id: chunk.id,
+                    tool: chunk.name,
+                    input: chunk.input,
+                  });
+                } else {
+                  yield {
+                    type: 'tool_input',
+                    id: chunk.id,
+                    tool: chunk.name,
+                    input: chunk.input,
+                  };
+                }
                 break;
 
               case 'done':
@@ -224,20 +256,34 @@ export class AgentLoop {
                 // Track AI usage for budget monitoring
                 {
                   const cachedTokens = (chunk.usage.cacheReadTokens || 0);
-                  const costEur = calculateCostEur(
+                  const iterationCostEur = calculateCostEur(
                     this.model,
                     chunk.usage.inputTokens,
                     chunk.usage.outputTokens,
                     cachedTokens
                   );
+                  this.totalCostEur += iterationCostEur;
+
                   metricsService.trackAIUsage({
                     userId: this.userId || 'anonymous',
                     model: this.model,
                     inputTokens: chunk.usage.inputTokens,
                     outputTokens: chunk.usage.outputTokens,
                     cachedTokens,
-                    costEur,
+                    costEur: iterationCostEur,
                   });
+
+                  // Emit usage event for real-time cost tracking
+                  yield {
+                    type: 'usage',
+                    inputTokens: chunk.usage.inputTokens,
+                    outputTokens: chunk.usage.outputTokens,
+                    cachedTokens,
+                    iterationCostEur,
+                    totalCostEur: this.totalCostEur,
+                    totalInputTokens: this.totalTokensUsed.input,
+                    totalOutputTokens: this.totalTokensUsed.output,
+                  };
                 }
                 break;
             }
@@ -251,6 +297,18 @@ export class AgentLoop {
           return;
         }
 
+        // In planning mode: check if all tools are read-only before yielding buffered events
+        if (this.mode === 'plan' && bufferedToolEvents.length > 0) {
+          const hasWriteTools = toolCalls.some(tc => !readOnlyTools.includes(tc.name));
+          if (!hasWriteTools) {
+            // Only read-only tools - yield the buffered events
+            for (const event of bufferedToolEvents) {
+              yield event;
+            }
+          }
+          // If hasWriteTools, don't yield the events - plan_ready will be emitted below
+        }
+
         // Add assistant message to history
         const assistantContent: ContentBlock[] = [];
 
@@ -260,12 +318,17 @@ export class AgentLoop {
 
         if (toolCalls.length > 0) {
           for (const tool of toolCalls) {
-            assistantContent.push({
+            const toolUseBlock: any = {
               type: 'tool_use',
               id: tool.id,
               name: tool.name,
               input: tool.input,
-            });
+            };
+            // Include thoughtSignature for Gemini 3
+            if (tool.thoughtSignature) {
+              toolUseBlock.thoughtSignature = tool.thoughtSignature;
+            }
+            assistantContent.push(toolUseBlock);
           }
         }
 
@@ -276,14 +339,112 @@ export class AgentLoop {
           });
         }
 
+        // PLANNING MODE: Don't execute write tools, gather context then generate plan
+        if (this.mode === 'plan') {
+          const hasWriteTools = toolCalls.some(tc => !readOnlyTools.includes(tc.name));
+
+          // If AI tries to use write tools, stop and emit the plan
+          if (hasWriteTools) {
+            log.info(`[AgentLoop] Planning mode - write tools requested, emitting plan`);
+            const plan = this.extractPlanFromResponse(fullText, toolCalls);
+
+            yield {
+              type: 'plan_ready',
+              plan,
+              planContent: fullText,
+              filesCreated: [],
+              filesModified: [],
+            };
+            return;
+          }
+
+          // If AI has NO tool calls (just text), the plan is ready
+          if (toolCalls.length === 0 && fullText) {
+            log.info(`[AgentLoop] Planning mode - no more tools, plan is ready`);
+            const plan = this.extractPlanFromResponse(fullText, toolCalls);
+
+            yield {
+              type: 'plan_ready',
+              plan,
+              planContent: fullText,
+              filesCreated: [],
+              filesModified: [],
+            };
+            return;
+          }
+
+          // Handle empty responses from Gemini - if no text AND no tool calls, emit plan with accumulated context
+          if (toolCalls.length === 0 && !fullText) {
+            log.warn(`[AgentLoop] Planning mode - empty response from model (likely Gemini), emitting plan with accumulated context`);
+
+            // Try to extract plan from conversation history
+            let accumulatedPlanText = '';
+            for (const msg of this.conversationHistory) {
+              if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+                for (const block of msg.content) {
+                  if (block.type === 'text' && block.text) {
+                    accumulatedPlanText += block.text + '\n';
+                  }
+                }
+              } else if (msg.role === 'assistant' && typeof msg.content === 'string') {
+                accumulatedPlanText += msg.content + '\n';
+              }
+            }
+
+            const plan = this.extractPlanFromResponse(accumulatedPlanText || 'Plan generation incomplete - please try again', toolCalls);
+
+            yield {
+              type: 'plan_ready',
+              plan,
+              planContent: accumulatedPlanText || 'Plan generation incomplete',
+              filesCreated: [],
+              filesModified: [],
+            };
+            return;
+          }
+
+          // Safety limit: max 5 iterations of context gathering
+          if (this.iterationCount >= 5) {
+            log.info(`[AgentLoop] Planning mode - max iterations reached, emitting plan`);
+            const plan = this.extractPlanFromResponse(fullText, toolCalls);
+
+            yield {
+              type: 'plan_ready',
+              plan,
+              planContent: fullText,
+              filesCreated: [],
+              filesModified: [],
+            };
+            return;
+          }
+
+          // Continue with read-only tools for context gathering
+          if (toolCalls.length > 0) {
+            log.info(`[AgentLoop] Planning mode - executing ${toolCalls.length} read-only tools for context`);
+          }
+        }
+
         // Handle tool calls
         if (toolCalls.length > 0) {
-          // Check for infinite loops (same tool called repeatedly)
-          const currentToolName = toolCalls[0].name;
-          if (currentToolName === lastToolName) {
+          // Check for infinite loops (same tool called with same params repeatedly)
+          const currentTool = toolCalls[0];
+          const currentToolName = currentTool.name;
+
+          // Build a signature that includes key input params to avoid false positives
+          // For read_file, include file_path - reading different files is NOT a loop
+          let toolSignature = currentToolName;
+          if (currentToolName === 'read_file' && currentTool.input?.file_path) {
+            toolSignature = `${currentToolName}:${currentTool.input.file_path}`;
+          } else if (currentToolName === 'glob_files' && currentTool.input?.pattern) {
+            toolSignature = `${currentToolName}:${currentTool.input.pattern}`;
+          } else if (currentToolName === 'search_files' && currentTool.input?.pattern) {
+            toolSignature = `${currentToolName}:${currentTool.input.pattern}`;
+          }
+
+          if (toolSignature === lastToolSignature) {
             consecutiveSameToolCount++;
             if (consecutiveSameToolCount >= 5) {
-              log.warn(`[AgentLoop] Detected potential infinite loop with tool: ${currentToolName}`);
+              log.warn(`[AgentLoop] Detected potential infinite loop with tool: ${toolSignature}`);
               yield {
                 type: 'error',
                 error: `Agent appears stuck in a loop calling ${currentToolName}. Stopping.`,
@@ -293,7 +454,7 @@ export class AgentLoop {
           } else {
             consecutiveSameToolCount = 0;
           }
-          lastToolName = currentToolName;
+          lastToolSignature = toolSignature;
 
           // Execute each tool
           const toolResults: ContentBlock[] = [];
@@ -326,6 +487,7 @@ export class AgentLoop {
                   filesCreated: this.filesCreated,
                   filesModified: this.filesModified,
                   tokensUsed: this.totalTokensUsed,
+                  costEur: this.totalCostEur,
                   iterations: this.iterationCount,
                 };
                 return;
@@ -366,12 +528,16 @@ export class AgentLoop {
                 input: toolCall.input,
               };
 
-              // Add tool result to conversation
-              toolResults.push({
+              // Add tool result to conversation (include thoughtSignature for Gemini 3)
+              const toolResultBlock: any = {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
                 content: result.content || JSON.stringify(result),
-              });
+              };
+              if (toolCall.thoughtSignature) {
+                toolResultBlock.thoughtSignature = toolCall.thoughtSignature;
+              }
+              toolResults.push(toolResultBlock);
             } catch (error: any) {
               log.error(`[AgentLoop] Tool ${toolCall.name} error: ${error.message}`);
               yield {
@@ -381,12 +547,16 @@ export class AgentLoop {
                 error: error.message,
               };
 
-              // Add error result to conversation so agent can recover
-              toolResults.push({
+              // Add error result to conversation (include thoughtSignature for Gemini 3)
+              const errorResultBlock: any = {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
                 content: `Error: ${error.message}`,
-              });
+              };
+              if (toolCall.thoughtSignature) {
+                errorResultBlock.thoughtSignature = toolCall.thoughtSignature;
+              }
+              toolResults.push(errorResultBlock);
             }
           }
 
@@ -401,15 +571,46 @@ export class AgentLoop {
           // Continue loop to get next agent response
           shouldContinue = true;
         } else {
-          // No tool calls - agent is done
+          // No tool calls - check if we got a valid response
+          if (!fullText || fullText.trim() === '') {
+            // Empty response from model - this sometimes happens with Gemini
+            log.warn(`[AgentLoop] Empty response from model, iteration ${this.iterationCount}`);
+
+            // If first iteration, try to continue (might be model warming up)
+            if (this.iterationCount <= 2) {
+              log.info(`[AgentLoop] Retrying after empty response...`);
+              // Add a nudge message to get the model to respond
+              this.conversationHistory.push({
+                role: 'user',
+                content: 'Please continue with the task. Provide your response or use tools to complete the work.',
+              });
+              shouldContinue = true;
+              continue;
+            }
+
+            // After retries, emit completion with error
+            yield {
+              type: 'complete',
+              result: 'Il modello non ha generato una risposta. Riprova con un prompt diverso.',
+              filesCreated: this.filesCreated,
+              filesModified: this.filesModified,
+              tokensUsed: this.totalTokensUsed,
+              costEur: this.totalCostEur,
+              iterations: this.iterationCount,
+            };
+            return;
+          }
+
+          // Valid response - agent is done
           shouldContinue = false;
 
           yield {
             type: 'complete',
-            result: fullText || 'Task completed',
+            result: fullText,
             filesCreated: this.filesCreated,
             filesModified: this.filesModified,
             tokensUsed: this.totalTokensUsed,
+            costEur: this.totalCostEur,
             iterations: this.iterationCount,
           };
         }
@@ -520,13 +721,28 @@ You are in FAST mode. Prioritize speed and efficiency:
 
 ## Mode: Plan
 
-You are in PLAN mode. Your goal is to create a detailed plan:
-- Analyze the request thoroughly
-- Break down into clear steps
-- Use todo_write to create a structured plan
-- Don't execute yet - just plan
-- Ask clarifying questions if needed
-- When the plan is ready, use signal_completion
+You are in PLANNING mode. Your goal is to create a detailed execution plan WITHOUT making any changes.
+
+### Instructions:
+1. First, use read-only tools (read_file, list_directory, glob_search, grep_search) to understand the codebase
+2. Analyze the user's request thoroughly
+3. Create a numbered plan with specific, actionable steps
+4. Each step should describe exactly what will be done
+
+### Output Format:
+After gathering context, respond with a clear plan in this format:
+
+## Piano di Esecuzione
+
+1. **[Step title]**: Description of what will be done
+2. **[Step title]**: Description of what will be done
+3. ...
+
+### Important:
+- DO NOT execute any write operations (edit_file, write_file, run_command)
+- DO NOT make any actual changes to files
+- ONLY analyze and create the plan
+- Be specific about which files will be modified and how
 `;
 
       case 'execute':
@@ -545,6 +761,80 @@ You are in EXECUTE mode. Follow plans carefully:
       default:
         return commonInstructions;
     }
+  }
+
+  /**
+   * Extract a structured plan from the AI's response
+   */
+  private extractPlanFromResponse(text: string, toolCalls: Array<{ id: string; name: string; input: any; thoughtSignature?: string }>): {
+    id: string;
+    steps: Array<{ id: string; description: string; tool?: string; status: 'pending' }>;
+    summary: string;
+  } {
+    const steps: Array<{ id: string; description: string; tool?: string; status: 'pending' }> = [];
+
+    // Try to extract numbered steps from the text
+    // Match patterns like "1. **Title**: Description" or "1. Title: Description" or "- Step description"
+    const stepPatterns = [
+      /^\d+\.\s*\*\*([^*]+)\*\*:?\s*(.*)$/gm,  // 1. **Title**: Description
+      /^\d+\.\s*([^:]+):\s*(.*)$/gm,           // 1. Title: Description
+      /^[-•]\s*\*\*([^*]+)\*\*:?\s*(.*)$/gm,   // - **Title**: Description
+      /^[-•]\s*(.+)$/gm,                        // - Step description
+    ];
+
+    let matched = false;
+
+    for (const pattern of stepPatterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        matched = true;
+        const title = match[1]?.trim() || '';
+        const description = match[2]?.trim() || match[1]?.trim() || '';
+
+        steps.push({
+          id: `step-${steps.length + 1}`,
+          description: title && description !== title ? `${title}: ${description}` : description,
+          status: 'pending',
+        });
+      }
+      if (matched) break;
+    }
+
+    // If no steps were extracted, create a single step from the full text
+    if (steps.length === 0) {
+      // Split by newlines and filter meaningful lines
+      const lines = text.split('\n').filter(line => {
+        const trimmed = line.trim();
+        return trimmed.length > 10 && !trimmed.startsWith('#') && !trimmed.startsWith('```');
+      });
+
+      if (lines.length > 0) {
+        lines.slice(0, 10).forEach((line, idx) => {
+          steps.push({
+            id: `step-${idx + 1}`,
+            description: line.trim(),
+            status: 'pending',
+          });
+        });
+      } else {
+        steps.push({
+          id: 'step-1',
+          description: text.slice(0, 200) + (text.length > 200 ? '...' : ''),
+          status: 'pending',
+        });
+      }
+    }
+
+    // Generate summary
+    const summary = steps.length > 0
+      ? `Piano con ${steps.length} passaggi`
+      : 'Piano generato';
+
+    return {
+      id: `plan-${Date.now()}`,
+      steps,
+      summary,
+    };
   }
 
   /**

@@ -32,6 +32,7 @@ import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal';
 import { config } from '../../config/config';
+import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -49,6 +50,7 @@ const languages = [
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
+  const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
@@ -246,11 +248,11 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const handleNext = () => {
     if (step === 1) {
       if (!projectName.trim()) {
-        Alert.alert('Attenzione', 'Inserisci un nome per il progetto');
+        Alert.alert(t('common:warning'), t('create.enterName'));
         return;
       }
       if (!description.trim()) {
-        Alert.alert('Attenzione', 'Inserisci una descrizione per l\'applicazione');
+        Alert.alert(t('common:warning'), t('create.enterDescription'));
         return;
       }
 
@@ -271,12 +273,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         }
 
         Alert.alert(
-          'Nome già esistente',
-          `Esiste già un progetto chiamato "${trimmedName}". Il nuovo progetto verrà chiamato "${newName}".`,
+          t('create.nameExists'),
+          t('create.nameExistsDesc', { name: trimmedName }) + ' ' + t('create.newProjectWillBeCalled', { name: newName }),
           [
-            { text: 'Cambia nome', style: 'cancel' },
+            { text: t('create.changeName'), style: 'cancel' },
             {
-              text: 'OK',
+              text: t('common:ok'),
               onPress: () => {
                 setProjectName(newName);
                 Keyboard.dismiss();
@@ -630,8 +632,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       ]}
     >
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Nuovo Progetto</Text>
-        <Text style={styles.stepSubtitle}>Dai un nome e descrivi cosa vuoi creare</Text>
+        <Text style={styles.stepTitle}>{t('create.title')}</Text>
+        <Text style={styles.stepSubtitle}>{t('create.subtitle')}</Text>
       </View>
 
       <View style={styles.inputSection}>
@@ -659,7 +661,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
               <TextInput
                 ref={inputRef}
                 style={styles.textInput}
-                placeholder="Nome del progetto"
+                placeholder={t('create.namePlaceholder')}
                 placeholderTextColor="rgba(255,255,255,0.3)"
                 value={projectName}
                 onChangeText={setProjectName}
@@ -693,7 +695,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             <TextInput
               ref={inputRef}
               style={styles.textInput}
-              placeholder="Nome del progetto"
+              placeholder={t('create.namePlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={projectName}
               onChangeText={setProjectName}
@@ -719,7 +721,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         <DescriptionInput
           value={description}
           onChangeText={setDescription}
-          placeholder="Descrivi la tua app... Es. Una landing page per vendere scarpe con galleria e form di contatto"
+          placeholder={t('create.descriptionPlaceholder')}
         />
       </View>
     </Animated.View>
@@ -733,8 +735,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       ]}
     >
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Tecnologia Consigliata</Text>
-        <Text style={styles.stepSubtitle}>L'IA suggerisce lo stack migliore per la tua idea</Text>
+        <Text style={styles.stepTitle}>{t('create.recommendedTech')}</Text>
+        <Text style={styles.stepSubtitle}>{t('create.aiSuggests')}</Text>
       </View>
 
       <View style={styles.languagesGrid}>
@@ -780,8 +782,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       ]}
     >
       <View style={styles.stepHeader}>
-        <Text style={styles.stepTitle}>Tutto pronto!</Text>
-        <Text style={styles.stepSubtitle}>Verifica i dettagli prima di creare</Text>
+        <Text style={styles.stepTitle}>{t('create.allSet')}</Text>
+        <Text style={styles.stepSubtitle}>{t('create.verifyDetails')}</Text>
       </View>
 
       <View style={styles.summaryCard}>
@@ -790,7 +792,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             <Ionicons name="folder-outline" size={24} color="#fff" />
           </View>
           <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>Nome Progetto</Text>
+            <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
             <Text style={styles.summaryValue}>{projectName}</Text>
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
@@ -805,7 +807,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             <Ionicons name="document-text-outline" size={24} color="#fff" />
           </View>
           <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>Descrizione</Text>
+            <Text style={styles.summaryLabel}>{t('create.description')}</Text>
             <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
@@ -820,7 +822,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
           </View>
           <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>Tecnologia</Text>
+            <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
             <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
           </View>
           <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
@@ -830,7 +832,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       </View>
       <View style={styles.readyBanner}>
         <Text style={styles.readyText}>
-          Tutto corretto? Clicca <Text style={styles.readyHighlight}>Crea Progetto</Text> per iniziare.
+          {t('create.allCorrect')} <Text style={styles.readyHighlight}>{t('create.createButton')}</Text> {t('create.toStart')}
         </Text>
       </View>
     </Animated.View>
@@ -855,7 +857,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Nuovo Progetto</Text>
+          <Text style={styles.headerTitle}>{t('create.title')}</Text>
         </View>
 
         <View style={{ width: 44 }} />
@@ -943,7 +945,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             ) : (
               <>
                 <Text style={[styles.actionBtnText, !canProceed && styles.actionBtnTextDisabled]}>
-                  {step === 3 ? 'Crea Progetto' : 'Continua'}
+                  {step === 3 ? t('create.createButton') : t('common:continue')}
                 </Text>
                 {canProceed && (
                   <View style={styles.actionBtnIconBox}>
@@ -1021,16 +1023,16 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                   <Ionicons name="rocket" size={32} color="#fff" />
                 </LinearGradient>
               </View>
-              <Text style={styles.upgradeTitle}>Limite raggiunto</Text>
+              <Text style={styles.upgradeTitle}>{t('limit.reached')}</Text>
               <Text style={styles.upgradeSubtitle}>
-                Hai raggiunto il massimo di {projectLimit} progetti con il piano Free.{'\n'}
-                Passa a <Text style={styles.upgradeHighlight}>Go</Text> per crearne fino a 5.
+                {t('limit.maxProjects', { count: projectLimit })}{'\n'}
+                {t('limit.upgradeTo', { plan: 'Go' })} {t('limit.upgradeToCreate')}
               </Text>
               <View style={styles.upgradeFeatures}>
                 {[
-                  { icon: 'folder-open', text: '5 progetti + 3 clonati' },
-                  { icon: 'eye', text: 'Fino a 20 preview/mese' },
-                  { icon: 'sparkles', text: 'Budget AI raddoppiato' },
+                  { icon: 'folder-open', text: t('limit.features.projects') },
+                  { icon: 'eye', text: t('limit.features.previews') },
+                  { icon: 'sparkles', text: t('limit.features.budget') },
                 ].map((f, i) => (
                   <View key={i} style={styles.upgradeFeatureRow}>
                     <LinearGradient
@@ -1062,14 +1064,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                   style={styles.upgradeCtaGradient}
                 >
                   <Ionicons name="arrow-up-circle" size={20} color="#fff" />
-                  <Text style={styles.upgradeCtaText}>Passa a Go</Text>
+                  <Text style={styles.upgradeCtaText}>{t('limit.upgradeTo', { plan: 'Go' })}</Text>
                 </LinearGradient>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.upgradeDismiss}
                 onPress={() => setShowUpgradeModal(false)}
               >
-                <Text style={styles.upgradeDismissText}>Non ora</Text>
+                <Text style={styles.upgradeDismissText}>{t('limit.notNow')}</Text>
               </TouchableOpacity>
             </View>
           </View>

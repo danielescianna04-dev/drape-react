@@ -14,6 +14,7 @@ export interface AgentOptions {
   userPlan?: string;
   conversationHistory?: ChatMessage[];
   images?: string[];
+  thinkingLevel?: string; // Gemini 3 thinking level: minimal, low, medium, high
 }
 
 export interface ToolDefinition {
@@ -42,6 +43,7 @@ export type AgentEventType =
   | 'todo_update'
   | 'ask_user_question'
   | 'plan_ready'
+  | 'usage'
   | 'complete'
   | 'budget_exceeded'
   | 'error'

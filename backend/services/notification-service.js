@@ -1,13 +1,15 @@
 /**
  * Notification Service
- * Sends push notifications via Firebase Admin (APNs/FCM)
+ * Sends push notifications via Expo Push API
  */
 
 const admin = require('firebase-admin');
 
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
 class NotificationService {
   /**
-   * Send a push notification to a specific user
+   * Send a push notification to a specific user via Expo Push API
    * @param {string} userId - Firebase user ID
    * @param {Object} notification - { title, body, type }
    * @param {Object} data - Extra data payload (for deep linking)
@@ -23,12 +25,24 @@ class NotificationService {
       }
 
       const userData = userDoc.data();
-      const tokens = (userData.pushTokens || [])
-        .map(t => t.token)
-        .filter(Boolean);
 
-      if (tokens.length === 0) {
-        console.log(`[Notify] User ${userId} has no push tokens`);
+      // Get token - check pushToken first, then pushTokens array
+      let token = userData.pushToken;
+      if (!token && userData.pushTokens?.length > 0) {
+        const sorted = [...userData.pushTokens].sort((a, b) =>
+          (b.updatedAt || '').localeCompare(a.updatedAt || '')
+        );
+        token = sorted[0]?.token;
+      }
+
+      if (!token) {
+        console.log(`[Notify] User ${userId} has no push token`);
+        return null;
+      }
+
+      // Validate Expo token format
+      if (!token.startsWith('ExponentPushToken[') && !token.startsWith('ExpoPushToken[')) {
+        console.log(`[Notify] Invalid Expo token for ${userId}: ${token.substring(0, 25)}...`);
         return null;
       }
 
@@ -41,33 +55,44 @@ class NotificationService {
       if ((type === 'operation_complete' || type === 'clone_complete' || type === 'project_created') && prefs.operations === false) return null;
 
       const message = {
-        notification: {
-          title: notification.title,
-          body: notification.body,
-        },
+        to: token,
+        title: notification.title,
+        body: notification.body,
         data: {
-          ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+          ...data,
           type: type,
         },
-        apns: {
-          payload: {
-            aps: {
-              sound: 'default',
-              badge: 1,
-              'mutable-content': 1,
-            },
-          },
-        },
-        tokens: tokens,
+        sound: 'default',
+        badge: 1,
       };
 
-      const response = await admin.messaging().sendEachForMulticast(message);
-      console.log(`[Notify] Sent to ${userId}: ${notification.title} (${response.successCount}/${tokens.length} delivered)`);
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(message),
+      });
 
-      // Clean up invalid tokens
-      await this._cleanupFailedTokens(userId, tokens, response);
+      const result = await response.json();
 
-      return response;
+      if (result.data?.[0]?.status === 'ok') {
+        console.log(`[Notify] Sent to ${userId}: ${notification.title}`);
+        return result;
+      }
+
+      if (result.data?.[0]?.status === 'error') {
+        const error = result.data[0];
+        console.error(`[Notify] Failed for ${userId}: ${error.message}`);
+
+        if (error.details?.error === 'DeviceNotRegistered') {
+          await this._removeToken(userId);
+        }
+      }
+
+      return null;
     } catch (error) {
       console.error(`[Notify] Error sending to ${userId}:`, error.message);
       return null;
@@ -85,40 +110,18 @@ class NotificationService {
   }
 
   /**
-   * Remove tokens that are no longer valid
+   * Remove invalid token
    */
-  async _cleanupFailedTokens(userId, tokens, response) {
-    const tokensToRemove = [];
-
-    response.responses.forEach((resp, idx) => {
-      if (!resp.success) {
-        const code = resp.error?.code;
-        if (
-          code === 'messaging/registration-token-not-registered' ||
-          code === 'messaging/invalid-registration-token'
-        ) {
-          tokensToRemove.push(tokens[idx]);
-        }
-      }
-    });
-
-    if (tokensToRemove.length > 0) {
-      try {
-        const db = admin.firestore();
-        const userRef = db.collection('users').doc(userId);
-        const userDoc = await userRef.get();
-        const userData = userDoc.data();
-        const currentTokens = userData.pushTokens || [];
-
-        const updatedTokens = currentTokens.filter(
-          t => !tokensToRemove.includes(t.token)
-        );
-
-        await userRef.update({ pushTokens: updatedTokens });
-        console.log(`[Notify] Removed ${tokensToRemove.length} invalid tokens for ${userId}`);
-      } catch (error) {
-        console.warn(`[Notify] Failed to cleanup tokens for ${userId}:`, error.message);
-      }
+  async _removeToken(userId) {
+    try {
+      const db = admin.firestore();
+      await db.collection('users').doc(userId).update({
+        pushToken: null,
+        pushTokenRemovedAt: new Date().toISOString(),
+      });
+      console.log(`[Notify] Removed invalid token for ${userId}`);
+    } catch (error) {
+      console.warn(`[Notify] Failed to remove token for ${userId}:`, error.message);
     }
   }
 }

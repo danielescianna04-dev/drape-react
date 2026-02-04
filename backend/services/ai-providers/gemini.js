@@ -176,6 +176,17 @@ class GeminiProvider extends BaseAIProvider {
             maxOutputTokens: options.maxTokens || 8192
         };
 
+        // Add thinking configuration for Gemini 2/3 models with reasoning capabilities
+        if (options.thinkingLevel && this._supportsThinking(options.model)) {
+            const thinkingBudget = this._getThinkingBudget(options.thinkingLevel);
+            if (thinkingBudget > 0) {
+                generationConfig.thinkingConfig = {
+                    thinkingBudget: thinkingBudget,
+                    includeThoughts: true
+                };
+            }
+        }
+
         const config = {
             generationConfig,
             ...(systemInstruction && {
@@ -213,6 +224,19 @@ class GeminiProvider extends BaseAIProvider {
             maxOutputTokens: options.maxTokens || 8192
         };
 
+        // Add thinking configuration for Gemini 2/3 models with reasoning capabilities
+        if (options.thinkingLevel && this._supportsThinking(options.model)) {
+            const thinkingBudget = this._getThinkingBudget(options.thinkingLevel);
+            if (thinkingBudget > 0) {
+                generationConfig.thinkingConfig = {
+                    thinkingBudget: thinkingBudget,
+                    includeThoughts: true
+                };
+                console.log(`[Gemini] Thinking enabled with budget: ${thinkingBudget} tokens (level: ${options.thinkingLevel}, model: ${options.model})`);
+                console.log('[Gemini] generationConfig:', JSON.stringify(generationConfig, null, 2));
+            }
+        }
+
         const config = {
             generationConfig,
             ...(systemInstruction && {
@@ -242,6 +266,17 @@ class GeminiProvider extends BaseAIProvider {
         for await (const chunk of result.stream) {
             // Check for thinking/reasoning metadata
             const candidate = chunk.candidates?.[0];
+
+            // DEBUG: Log first chunk structure to understand Gemini's response format
+            if (!hasStartedThinking && candidate?.content?.parts) {
+                const firstPart = candidate.content.parts[0];
+                if (firstPart) {
+                    console.log('[Gemini DEBUG] First part keys:', Object.keys(firstPart));
+                    if (firstPart.thought !== undefined) {
+                        console.log('[Gemini DEBUG] thought field:', firstPart.thought);
+                    }
+                }
+            }
 
             // CRITICAL: Check for modelVersion or thinking indicators
             if (candidate) {
@@ -400,6 +435,34 @@ class GeminiProvider extends BaseAIProvider {
             cachedTokens: metadata?.cachedContentTokenCount || 0
         };
     }
+
+    /**
+     * Check if the model supports thinking/reasoning
+     */
+    _supportsThinking(modelId) {
+        if (!modelId) return false;
+        const id = modelId.toLowerCase();
+        // Gemini 2.0 Pro/Flash and Gemini 3.0 models support thinking
+        return id.includes('gemini-2') ||
+               id.includes('gemini-3') ||
+               id.includes('gemini-exp');
+    }
+
+    /**
+     * Convert thinking level to token budget
+     * @param {string} level - 'minimal', 'low', 'medium', 'high'
+     * @returns {number} Token budget for thinking
+     */
+    _getThinkingBudget(level) {
+        const budgets = {
+            'minimal': 1024,
+            'low': 4096,
+            'medium': 8192,
+            'high': 24576  // Max thinking budget
+        };
+        return budgets[level] || 0;
+    }
+
     async embed(text) {
         if (!this.client) {
             await this.initialize();

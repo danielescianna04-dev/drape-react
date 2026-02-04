@@ -6,6 +6,9 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SplashScreen } from './src/features/splash/SplashScreen';
 import * as Linking from 'expo-linking';
 import Animated, { FadeIn, FadeOut, SlideInRight, FadeInDown } from 'react-native-reanimated';
+import { I18nextProvider } from 'react-i18next';
+import i18n from './src/i18n';
+import { useLanguageStore } from './src/i18n/languageStore';
 
 import { ProjectsHomeScreen } from './src/features/projects/ProjectsHomeScreen';
 import { NavigationContainer } from '@react-navigation/native';
@@ -146,6 +149,9 @@ export default function App() {
   // Initialize auth listener on app start
   useEffect(() => {
     initialize();
+
+    // Initialize language from storage
+    useLanguageStore.getState().initialize();
 
     // Richiedi permesso notifiche push all'avvio (non-blocking)
     liveActivityService.requestNotificationPermission().catch(() => {});
@@ -1106,40 +1112,45 @@ export default function App() {
   // Show auth screen only when initialized and no user
   if (!user) {
     return (
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-          <AuthScreen />
-          <StatusBar style="light" />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
+      <I18nextProvider i18n={i18n}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+          <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+            <AuthScreen />
+            <StatusBar style="light" />
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </I18nextProvider>
     );
   }
 
   if (currentScreen === 'onboarding') {
     return (
-      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-          <SettingsScreen
-            onClose={() => {
-              console.log('📋 [App] User closed plans, going to home');
-              useAuthStore.setState({ isNewUser: false });
-              setCurrentScreen('home');
-            }}
-            initialShowPlans={true}
-            initialPlanIndex={1}
-          />
-          <StatusBar style="light" />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
+      <I18nextProvider i18n={i18n}>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+          <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+            <SettingsScreen
+              onClose={() => {
+                console.log('📋 [App] User closed plans, going to home');
+                useAuthStore.setState({ isNewUser: false });
+                setCurrentScreen('home');
+              }}
+              initialShowPlans={true}
+              initialPlanIndex={1}
+            />
+            <StatusBar style="light" />
+          </SafeAreaProvider>
+        </GestureHandlerRootView>
+      </I18nextProvider>
     );
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
-      <SafeAreaProvider style={{ backgroundColor: '#000' }}>
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-          <NetworkConfigProvider>
-            <ErrorBoundary>
+    <I18nextProvider i18n={i18n}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#000' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#000' }}>
+          <View style={{ flex: 1, backgroundColor: '#000' }}>
+            <NetworkConfigProvider>
+              <ErrorBoundary>
               {(currentScreen === 'home' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'home')) && (
                 <Animated.View
                   key="home-screen"
@@ -1576,5 +1587,6 @@ export default function App() {
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  </I18nextProvider>
   );
 }

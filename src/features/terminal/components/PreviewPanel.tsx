@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState, LayoutAnimation, UIManager } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, FadeInUp, FadeOutUp, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { WebView } from 'react-native-webview';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
 import { config } from '../../../config/config';
@@ -34,6 +35,7 @@ interface Props {
 }
 
 export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, projectPath }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   // Usa selettori specifici per evitare re-render su ogni log del backend
   const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
   const globalServerStatus = useTerminalStore((state) => state.previewServerStatus);
@@ -183,6 +185,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string } | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isChatMinimized, setIsChatMinimized] = useState(false);
+  const [isMessagesCollapsed, setIsMessagesCollapsed] = useState(false); // Toggle to collapse/expand messages area
   const [webCompatibilityError, setWebCompatibilityError] = useState<string | null>(null);
   const [aiResponse, setAiResponse] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -208,13 +211,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const fabOpacityAnim = useRef(new Animated.Value(1)).current;
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const defaultSteps = [
-    { id: 'analyzing', label: 'Analisi progetto', status: 'pending' as const },
-    { id: 'cloning', label: 'Preparazione file', status: 'pending' as const },
-    { id: 'detecting', label: 'Configurazione', status: 'pending' as const },
-    { id: 'booting', label: 'Accensione server', status: 'pending' as const },
-    { id: 'installing', label: 'Installazione dipendenze', status: 'pending' as const },
-    { id: 'starting', label: 'Avvio dev server', status: 'pending' as const },
-    { id: 'ready', label: 'Ci siamo quasi', status: 'pending' as const },
+    { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
+    { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
+    { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
+    { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
+    { id: 'installing', label: t('terminal:preview.steps.installing'), status: 'pending' as const },
+    { id: 'starting', label: t('terminal:preview.steps.starting'), status: 'pending' as const },
+    { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
   ];
   const [startupSteps, setStartupStepsLocal] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>(
     Array.isArray(persistedState?.startupSteps) ? persistedState.startupSteps : defaultSteps
@@ -315,36 +318,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   };
 
-  // Rich Loading Messages
+  // Rich Loading Messages - Use translations
   const LOADING_MESSAGES: Record<string, string[]> = {
-    analyzing: [
-      "Analisi del workspace...",
-      "Lettura configurazione...",
-      "Verifica requisiti..."
-    ],
-    cloning: [
-      "Recupero file sorgente...",
-      "Sincronizzazione repository...",
-      "Ottimizzazione risorse...",
-      "Verifica integrità..."
-    ],
-    detecting: [
-      "Identificazione framework...",
-      "Configurazione ambiente...",
-      "Preparazione runtime..."
-    ],
-    booting: [
-      "Allocazione risorse cloud...",
-      "Avvio container isolato...",
-      "Inizializzazione servizi...",
-      "Collegamento network...",
-      "Attesa risposta server..."
-    ],
-    ready: [
-      "Finalizzazione...",
-      "Apertura connessione sicura...",
-      "Ci siamo!"
-    ]
+    analyzing: t('terminal:preview.loadingMessages.analyzing', { returnObjects: true }) as string[],
+    cloning: t('terminal:preview.loadingMessages.cloning', { returnObjects: true }) as string[],
+    detecting: t('terminal:preview.loadingMessages.detecting', { returnObjects: true }) as string[],
+    booting: t('terminal:preview.loadingMessages.booting', { returnObjects: true }) as string[],
+    ready: t('terminal:preview.loadingMessages.ready', { returnObjects: true }) as string[],
   };
 
   // Process agent events and update aiMessages (like ChatPage)
@@ -675,7 +655,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       console.log(`✅ [PreviewPanel] Preview ready, clearing persisted startup state for ${projectId}`);
       clearPreviewStartupState(projectId);
 
-      const projectName = currentWorkstation?.name || 'Progetto';
+      const projectName = currentWorkstation?.name || t('terminal:preview.project');
 
       // 🟣 Dynamic Island: mostra "Pronto!" al 100% poi scompare
       if (liveActivityService.isActivityActive()) {
@@ -684,8 +664,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
       // 🔔 Notifica push locale (appare solo se l'app e' in background)
       liveActivityService.sendNotification(
-        'Preview pronta!',
-        `${projectName} e' pronto per la preview`
+        t('terminal:preview.ready'),
+        t('terminal:preview.projectReadyForPreview', { name: projectName })
       ).catch(() => {});
     }
   }, [serverStatus, webViewReady, projectId]);
@@ -707,7 +687,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   // iOS richiede che Activity.request() venga chiamato in foreground
   useEffect(() => {
     if (isStarting && currentWorkstation?.name && !liveActivityService.isActivityActive()) {
-      const currentStepLabel = startupSteps.find(s => s.id === currentStepId)?.label || 'Caricamento...';
+      const currentStepLabel = startupSteps.find(s => s.id === currentStepId)?.label || t('terminal:preview.loading');
       console.log('🟣 [Dynamic Island] Starting Live Activity in foreground');
 
       liveActivityService.startPreviewActivity(
@@ -743,7 +723,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     const updateInterval = setInterval(() => {
       if (liveActivityService.isActivityActive()) {
         try {
-          const currentStepLabel = startupStepsRef.current.find(s => s.id === currentStepIdRef.current)?.label || 'Caricamento...';
+          const currentStepLabel = startupStepsRef.current.find(s => s.id === currentStepIdRef.current)?.label || t('terminal:preview.loading');
           liveActivityService.updatePreviewActivity({
             remainingSeconds: estimatedRemainingSecondsRef.current,
             currentStep: currentStepLabel,
@@ -1214,7 +1194,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         if (agentStatus === 'waiting') {
           // Still installing dependencies - update UI to show this phase
           console.log('📡 Agent is in waiting mode (installing dependencies)...');
-          setStartingMessage('Installazione dipendenze...');
+          setStartingMessage(t('terminal:preview.installingDeps'));
           if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
             setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
           }
@@ -1237,7 +1217,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       } else if (response.status === 403 || response.status === 503) {
         // 403 often means Vite Host Check blocked, 503 means booting/npm install
         // Update UI to show what's happening
-        setStartingMessage(response.status === 503 ? 'Avvio server di sviluppo...' : 'Configurazione server...');
+        setStartingMessage(response.status === 503 ? t('terminal:preview.startingDevServer') : t('terminal:preview.configuringServer'));
 
         // Try to reach the agent's health endpoint to confirm VM is alive
         try {
@@ -1261,7 +1241,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         }
       } else {
         console.log(`⚠️ Server returned status: ${response.status}. Retrying...`);
-        setStartingMessage('Attesa risposta server...');
+        setStartingMessage(t('terminal:preview.waitingForServer'));
         if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
           setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
@@ -1269,10 +1249,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log(`❌ Server check timed out after 30s (Attempt ${retryCount + 1})`);
-        setStartingMessage('Connessione in corso...');
+        setStartingMessage(t('terminal:preview.connecting'));
       } else {
         console.log(`❌ Server check failed: ${error.message} (Attempt ${retryCount + 1})`);
-        setStartingMessage('Riprovando connessione...');
+        setStartingMessage(t('terminal:preview.retryingConnection'));
       }
 
       // Retry if server isn't ready yet and we're still in checking mode
@@ -1321,11 +1301,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     setReportSent(false);
     // Reset steps to initial state
     setStartupSteps([
-      { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
-      { id: 'cloning', label: 'Preparazione file', status: 'pending' },
-      { id: 'detecting', label: 'Configurazione', status: 'pending' },
-      { id: 'booting', label: 'Accensione server', status: 'pending' },
-      { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
+      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
+      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
+      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
+      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
+      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
     ]);
     setSmoothProgress(0);
     // Start server again
@@ -1386,14 +1366,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     // Reset and initialize steps
     setStartupSteps([
-      { id: 'analyzing', label: 'Analisi progetto', status: 'pending' },
-      { id: 'cloning', label: 'Preparazione file', status: 'pending' },
-      { id: 'detecting', label: 'Configurazione', status: 'pending' },
-      { id: 'booting', label: 'Accensione server', status: 'pending' },
-      { id: 'ready', label: 'Ci siamo quasi', status: 'pending' },
+      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
+      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
+      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
+      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
+      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
     ]);
     setCurrentStepId('analyzing');
-    setStartingMessage('Analisi del progetto...');
+    setStartingMessage(t('terminal:preview.analyzingProject'));
     setTargetProgress(5); // Start at 5% for analyzing step
     setIsNextJsProject(false); // Reset - will be detected from backend response
 
@@ -1660,10 +1640,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     } catch (error: any) {
       console.error('❌ Preview failed:', error);
-      logError(error.message || 'Errore durante l\'avvio', 'preview');
+      logError(error.message || t('terminal:preview.errorDuringStartup'), 'preview');
       setServerStatus('stopped');
       setIsStarting(false);
-      setPreviewError({ message: error.message || 'Errore durante l\'avvio della preview', timestamp: new Date() });
+      setPreviewError({ message: error.message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
     }
   };
 
@@ -1672,7 +1652,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     if (!currentWorkstation?.id) return;
 
     setIsSavingEnv(true);
-    logSystem('Salvataggio variabili d\'ambiente...', 'preview');
+    logSystem(t('terminal:preview.savingEnvVars'), 'preview');
 
     try {
       const response = await fetch(`${apiUrl}/preview/env`, {
@@ -1688,25 +1668,25 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       });
 
       if (!response.ok) {
-        throw new Error('Errore nel salvataggio');
+        throw new Error(t('terminal:preview.saveError'));
       }
 
       const result = await response.json();
       console.log('✅ Env vars saved:', result);
 
-      logOutput(`Variabili salvate in ${result.file}`, 'preview', 0);
+      logOutput(t('terminal:preview.varsSavedIn', { file: result.file }), 'preview', 0);
 
       // Clear the form and restart
       setRequiredEnvVars(null);
       setEnvVarValues({});
 
       // Restart server
-      logSystem('Riavvio del server...', 'preview');
+      logSystem(t('terminal:preview.restartingServer'), 'preview');
       handleStartServer();
 
     } catch (error: any) {
       console.error('Error saving env vars:', error);
-      logError(`Errore: ${error.message}`, 'preview');
+      logError(t('terminal:preview.errorWithMessage', { message: error.message }), 'preview');
     } finally {
       setIsSavingEnv(false);
     }
@@ -1821,32 +1801,44 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     checkServerStatus();
   };
 
-  // FAB expand animation - width depends on sidebar state
+  // FAB expand animation - smooth spring animation
   const expandFab = () => {
+    // Configure smooth spring animation
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.7 },
+    });
     isExpandedShared.value = true;
     setIsInputExpanded(true);
     fabContentOpacity.setValue(0);
     Animated.timing(fabContentOpacity, {
       toValue: 1,
-      duration: 180,
-      delay: 80,
+      duration: 200,
+      delay: 100,
       useNativeDriver: false,
     }).start(() => {
       inputRef.current?.focus();
     });
   };
 
-  // FAB collapse animation - slower and smoother than expand
+  // FAB collapse animation - smooth spring animation
   const collapseFab = () => {
-    isExpandedShared.value = false;
-    setIsInputExpanded(false);
-    fabContentOpacity.setValue(0);
-    Animated.spring(fabWidthAnim, {
-      toValue: 44,
+    // Configure smooth spring animation
+    LayoutAnimation.configureNext({
+      duration: 250,
+      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+      update: { type: LayoutAnimation.Types.spring, springDamping: 0.8 },
+    });
+    // Fade out content first
+    Animated.timing(fabContentOpacity, {
+      toValue: 0,
+      duration: 100,
       useNativeDriver: false,
-      damping: 22,
-      stiffness: 140,
-    }).start();
+    }).start(() => {
+      isExpandedShared.value = false;
+      setIsInputExpanded(false);
+    });
   };
 
   const handleGoBack = () => {
@@ -1889,6 +1881,16 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       return;
     }
 
+    // Expand messages area if collapsed
+    if (isMessagesCollapsed) {
+      LayoutAnimation.configureNext({
+        duration: 200,
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+      });
+      setIsMessagesCollapsed(false);
+    }
+
     // Clear previous response accumulator but keep messages history
     setAiResponse('');
     setIsAiLoading(true);
@@ -1921,7 +1923,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const newChat = {
         id: chatId,
         title: title,
-        description: `Preview: ${currentWorkstation.name || 'Progetto'}`,
+        description: `Preview: ${currentWorkstation.name || t('terminal:preview.project')}`,
         createdAt: new Date(),
         lastUsed: new Date(),
         messages: [],
@@ -2270,9 +2272,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     keyboardShouldPersistTaps="handled"
                   >
                     <View style={styles.envVarsHeader}>
-                      <Text style={styles.envVarsTitle}>Variabili d'Ambiente</Text>
+                      <Text style={styles.envVarsTitle}>{t('terminal:preview.envVarsTitle')}</Text>
                       <Text style={styles.envVarsSubtitle}>
-                        Richieste per l'avvio del progetto
+                        {t('terminal:preview.envVarsSubtitle')}
                       </Text>
                     </View>
 
@@ -2295,7 +2297,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                               ...prev,
                               [envVar.key]: text
                             }))}
-                            placeholder={envVar.defaultValue || 'Inserisci valore...'}
+                            placeholder={envVar.defaultValue || t('terminal:preview.enterValue')}
                             placeholderTextColor="rgba(255, 255, 255, 0.3)"
                             autoCapitalize="none"
                             autoCorrect={false}
@@ -2401,7 +2403,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       </TouchableOpacity>
 
                       <Text style={[styles.cosmicSubtitle, { marginTop: 8 }]}>
-                        Tocca per riavviare
+                        {t('terminal:preview.tapToRestart')}
                       </Text>
                     </View>
 
@@ -2436,7 +2438,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       <View style={styles.errorIconContainer}>
                         <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
                       </View>
-                      <Text style={styles.errorTitle}>Avvio preview fallito</Text>
+                      <Text style={styles.errorTitle}>{t('terminal:preview.startupFailed')}</Text>
                       <Text style={styles.errorMessage} numberOfLines={8}>
                         {previewError.message}
                       </Text>
@@ -2448,7 +2450,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           activeOpacity={0.7}
                         >
                           <Ionicons name="refresh" size={18} color="#fff" />
-                          <Text style={styles.retryButtonText}>Riprova</Text>
+                          <Text style={styles.retryButtonText}>{t('common:retry')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -2524,7 +2526,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
                       </View>
                       <Text style={styles.devWindowTitle}>
-                        {currentWorkstation?.name || 'Progetto'} — preview
+                        {currentWorkstation?.name || t('terminal:preview.project')} — preview
                       </Text>
                       <View style={{ width: 44 }} />
                     </View>
@@ -2551,7 +2553,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           />
                         </View>
                         <Text style={styles.devProjectName} numberOfLines={1}>
-                          {currentWorkstation?.name || 'Progetto'}
+                          {currentWorkstation?.name || t('terminal:preview.project')}
                         </Text>
                         <View style={styles.devStatusRow}>
                           <View style={styles.devTechBadge}>
@@ -2562,7 +2564,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           <View style={styles.devDot} />
                           <View style={styles.devStatusBadge}>
                             <View style={[styles.devStatusDot, isStartTransitioning && { backgroundColor: '#FBBF24' }]} />
-                            <Text style={styles.devStatusText}>{isStartTransitioning ? 'Avvio...' : 'Pronto'}</Text>
+                            <Text style={styles.devStatusText}>{isStartTransitioning ? t('terminal:preview.starting') : t('terminal:preview.readyShort')}</Text>
                           </View>
                         </View>
                       </View>
@@ -2570,7 +2572,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       {/* Info Card */}
                       <View style={styles.devInfoCard}>
                         <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>Tecnologia</Text>
+                          <Text style={styles.devInfoLabel}>{t('terminal:preview.technology')}</Text>
                           <Text style={styles.devInfoValue}>
                             {currentWorkstation?.technology === 'react' ? 'React' :
                              currentWorkstation?.technology === 'vue' ? 'Vue.js' :
@@ -2581,14 +2583,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         </View>
                         <View style={styles.devInfoDivider} />
                         <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>Porta</Text>
+                          <Text style={styles.devInfoLabel}>{t('terminal:preview.port')}</Text>
                           <Text style={styles.devInfoValue}>
                             {currentWorkstation?.technology === 'nextjs' ? '3000' : '5173'}
                           </Text>
                         </View>
                         <View style={styles.devInfoDivider} />
                         <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>Ambiente</Text>
+                          <Text style={styles.devInfoLabel}>{t('terminal:preview.environment')}</Text>
                           <View style={styles.devEnvBadge}>
                             <Text style={styles.devEnvBadgeText}>development</Text>
                           </View>
@@ -2875,11 +2877,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 let userMsg = rawMsg;
                                 // Translate common proxy errors to user-friendly Italian messages
                                 if (rawMsg.includes('ECONNREFUSED')) {
-                                  userMsg = 'Il dev server non è riuscito ad avviarsi.\n\nPotrebbe esserci un errore nel progetto (dipendenze mancanti, errori di build o variabili d\'ambiente non configurate).';
+                                  userMsg = t('terminal:preview.errorServerFailed');
                                 } else if (rawMsg.includes('timeout') || rawMsg.includes('Timeout')) {
-                                  userMsg = 'Il dev server non ha risposto in tempo.\n\nIl progetto potrebbe richiedere più tempo per la compilazione, oppure c\'è un errore durante il build.';
+                                  userMsg = t('terminal:preview.errorTimeout');
                                 } else if (rawMsg.includes('ENOTFOUND') || rawMsg.includes('EHOSTUNREACH')) {
-                                  userMsg = 'Container non raggiungibile.\n\nIl container potrebbe essere stato rilasciato. Prova a riavviare la preview.';
+                                  userMsg = t('terminal:preview.errorContainerUnreachable');
                                 }
                                 setPreviewError({ message: userMsg, timestamp: new Date() });
                                 setServerStatus('stopped');
@@ -2941,8 +2943,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                           <View style={styles.terminalEmpty}>
                             <Ionicons name="terminal" size={48} color="rgba(255,255,255,0.2)" />
                             <Text style={styles.terminalEmptyText}>
-                              Questo progetto non ha una web UI.{'\n'}
-                              L'output del terminale apparirà qui.
+                              {t('terminal:preview.noWebUI')}
                             </Text>
                           </View>
                         ) : (
@@ -3000,7 +3001,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 <View style={styles.errorIconContainer}>
                                   <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
                                 </View>
-                                <Text style={styles.errorTitle}>Si è verificato un errore</Text>
+                                <Text style={styles.errorTitle}>{t('terminal:preview.errorOccurred')}</Text>
                                 <Text style={styles.errorMessage} numberOfLines={3}>
                                   {previewError.message}
                                 </Text>
@@ -3012,7 +3013,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                     activeOpacity={0.7}
                                   >
                                     <Ionicons name="refresh" size={18} color="#fff" />
-                                    <Text style={styles.retryButtonText}>Riprova</Text>
+                                    <Text style={styles.retryButtonText}>{t('common:retry')}</Text>
                                   </TouchableOpacity>
 
                                   <TouchableOpacity
@@ -3084,7 +3085,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                     </>
                                   ) : (
                                     <Text style={styles.terminalLogText}>
-                                      {displayedMessage || 'Inizializzazione ambiente...'}
+                                      {displayedMessage || t('terminal:preview.initializingEnv')}
                                     </Text>
                                   )}
                                 </ScrollView>
@@ -3098,7 +3099,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                     ]} />
                                   </View>
                                   <Text style={styles.terminalProgressText} numberOfLines={1}>
-                                    {startingMessage || 'Caricamento...'}
+                                    {startingMessage || t('terminal:preview.loading')}
                                   </Text>
                                   {elapsedSeconds > 0 && (
                                     <Text style={styles.terminalRemainingText}>
@@ -3173,10 +3174,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 <ActivityIndicator size="small" color={AppColors.primary} />
                               )}
                             </View>
-                            <TouchableOpacity onPress={() => { setAiResponse(''); setAiMessages([]); }} style={{ padding: 4 }} activeOpacity={0.7}>
-                              <Ionicons name="close" size={14} color="rgba(255,255,255,0.35)" />
+                            <TouchableOpacity onPress={() => {
+                              LayoutAnimation.configureNext({
+                                duration: 200,
+                                create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                                update: { type: LayoutAnimation.Types.easeInEaseOut },
+                                delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
+                              });
+                              setIsMessagesCollapsed(!isMessagesCollapsed);
+                            }} style={{ padding: 4 }} activeOpacity={0.7}>
+                              <Ionicons name={isMessagesCollapsed ? "chevron-up" : "chevron-down"} size={16} color="rgba(255,255,255,0.5)" />
                             </TouchableOpacity>
                           </View>
+                          {!isMessagesCollapsed && (
                           <ScrollView
                             ref={aiScrollViewRef}
                             style={{ maxHeight: 200, paddingHorizontal: 8 }}
@@ -3264,6 +3274,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                               </View>
                             )}
                           </ScrollView>
+                          )}
                           <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 8 }} />
                         </>
                       )}
@@ -3285,44 +3296,48 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                               style={{
                                 padding: 6,
                                 borderRadius: 6,
-                                backgroundColor: 'rgba(255,255,255,0.08)',
+                                backgroundColor: 'rgba(255,255,255,0.1)',
+                                borderWidth: 1,
+                                borderColor: 'rgba(255,255,255,0.15)',
                               }}
                               activeOpacity={0.7}
                             >
-                              <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.5)" />
+                              <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.6)" />
                             </TouchableOpacity>
                             {/* Element tag badge */}
                             <View style={{
                               flex: 1,
                               flexShrink: 1,
-                              backgroundColor: 'rgba(139, 124, 246, 0.2)',
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 6,
+                              backgroundColor: 'rgba(139, 124, 246, 0.15)',
+                              borderWidth: 1,
+                              borderColor: 'rgba(139, 124, 246, 0.3)',
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderRadius: 8,
                             }}>
-                              <Text style={{ color: AppColors.primary, fontSize: 12, fontFamily: 'Inter-SemiBold' }} numberOfLines={1}>
+                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
                                 {selectedElement.selector}
                               </Text>
                             </View>
                             {/* Close button */}
                             <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4, flexShrink: 0 }}>
-                              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.35)" />
+                              <Ionicons name="close" size={16} color="rgba(255,255,255,0.5)" />
                             </TouchableOpacity>
                           </View>
                           {/* Divider */}
-                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.06)', marginHorizontal: 12 }} />
+                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 12 }} />
                         </>
                       )}
 
                       <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingRight: 4, paddingTop: 2 }}>
-                        {/* Close Button */}
+                        {/* Collapse Button */}
                         <TouchableOpacity
                           onPress={collapseFab}
                           style={styles.previewInputButton}
                           activeOpacity={0.7}
                         >
                           <Ionicons
-                            name="close"
+                            name="chevron-forward"
                             size={20}
                             color="rgba(255, 255, 255, 0.5)"
                           />

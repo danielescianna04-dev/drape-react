@@ -17,6 +17,7 @@ import { AddGitAccountModal } from '../../settings/components/AddGitAccountModal
 import { githubService, GitHubCommit } from '../../../core/github/githubService';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { ConnectRepoModal } from './ConnectRepoModal';
+import { useTranslation } from 'react-i18next';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -57,6 +58,7 @@ interface GitStatus {
 }
 
 export const GitSheet = ({ visible, onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>('commits');
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [linkedAccount, setLinkedAccount] = useState<GitAccount | null>(null);
@@ -314,7 +316,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     } catch (error) {
       console.error('Error loading git data:', error);
       if (commits.length === 0) {
-        setErrorMsg('Impossibile caricare i dati');
+        setErrorMsg(t('terminal:git.unableToLoadData'));
       }
     } finally {
       console.log(`🏁 [GitSheet] loadGitData FINALLY - TOTAL: ${Date.now() - totalStart}ms`);
@@ -372,34 +374,34 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
     if (!currentWorkstation?.id) {
-      Alert.alert('Errore', 'Nessun workspace attivo');
+      Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
     }
 
     // Check if user has any Git accounts
     if (gitAccounts.length === 0) {
       Alert.alert(
-        'Autenticazione richiesta',
-        `Per eseguire ${action === 'pull' ? 'pull' : action === 'push' ? 'push' : 'fetch'} devi prima collegare un account GitHub.`,
+        t('terminal:git.authRequired'),
+        t('terminal:git.authRequiredForAction', { action }),
         [
-          { text: 'Annulla', style: 'cancel' },
-          { text: 'Collega account', onPress: () => setShowAddAccountModal(true) },
+          { text: t('common:cancel'), style: 'cancel' },
+          { text: t('terminal:git.linkAccount'), onPress: () => setShowAddAccountModal(true) },
         ]
       );
       return;
     }
 
     if (!linkedAccount) {
-      Alert.alert('Errore', 'Seleziona un account Git per questa repository');
+      Alert.alert(t('common:error'), t('terminal:git.selectAccount'));
       return;
     }
 
     // Check if user can push to this repo
     if (action === 'push' && !isOwnRepo) {
       Alert.alert(
-        'Repository non tuo',
-        `Non puoi pushare direttamente su "${repoOwner}/${repoName}" perché non sei il proprietario.\n\nPer contribuire:\n1. Fai fork del repo\n2. Pusha sul tuo fork\n3. Crea una Pull Request`,
-        [{ text: 'OK' }]
+        t('terminal:git.notYourRepo'),
+        t('terminal:git.notYourRepoDesc', { owner: repoOwner, repo: repoName }) + '\n\n' + t('terminal:git.forkInstructions'),
+        [{ text: t('common:ok') }]
       );
       return;
     }
@@ -407,16 +409,16 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     // Check for local changes before pull
     if (action === 'pull' && allChangedFiles.length > 0) {
       Alert.alert(
-        'Modifiche locali rilevate',
-        `Hai ${allChangedFiles.length} file modificati che potrebbero essere sovrascritti dal pull.\n\nCosa vuoi fare?`,
+        t('terminal:git.localChangesDetected'),
+        t('terminal:git.localChangesWarning', { count: allChangedFiles.length }) + '\n\n' + t('terminal:git.whatToDo'),
         [
-          { text: 'Annulla', style: 'cancel' },
+          { text: t('common:cancel'), style: 'cancel' },
           {
-            text: 'Stash & Pull',
+            text: t('terminal:git.stashSave'),
             onPress: () => executeGitActionWithStash(action),
           },
           {
-            text: 'Pull comunque',
+            text: t('terminal:git.pullAnyway'),
             style: 'destructive',
             onPress: () => executeGitAction(action),
           },
@@ -444,7 +446,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (!stashResponse.ok) {
-        Alert.alert('Errore', 'Impossibile salvare le modifiche in stash');
+        Alert.alert(t('common:error'), t('terminal:git.stashError'));
         return;
       }
 
@@ -469,9 +471,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         });
 
         if (popResponse.ok) {
-          Alert.alert('Successo', `${action.charAt(0).toUpperCase() + action.slice(1)} completato e modifiche ripristinate`);
+          Alert.alert(t('common:success'), t('terminal:git.actionCompletedWithRestore', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
         } else {
-          Alert.alert('Attenzione', `${action.charAt(0).toUpperCase() + action.slice(1)} completato ma ci potrebbero essere conflitti. Controlla lo stash.`);
+          Alert.alert(t('common:warning'), t('terminal:git.actionCompletedWithConflict', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
         }
         await loadGitData();
       } else {
@@ -485,10 +487,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           body: JSON.stringify({ action: 'pop' }),
         });
         const error = await response.json();
-        Alert.alert('Errore', error.message || `Errore durante ${action}`);
+        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action }));
       }
     } catch (error) {
-      Alert.alert('Errore', `Impossibile eseguire ${action}`);
+      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action }));
     } finally {
       setActionLoading(null);
     }
@@ -508,14 +510,14 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (response.ok) {
-        Alert.alert('Successo', `${action.charAt(0).toUpperCase() + action.slice(1)} completato`);
+        Alert.alert(t('common:success'), t('terminal:git.actionCompleted', { action: action.charAt(0).toUpperCase() + action.slice(1) }));
         await loadGitData();
       } else {
         const error = await response.json();
-        Alert.alert('Errore', error.message || `Errore durante ${action}`);
+        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action }));
       }
     } catch (error) {
-      Alert.alert('Errore', `Impossibile eseguire ${action}`);
+      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action }));
     } finally {
       setActionLoading(null);
     }
@@ -550,17 +552,17 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   const handleCommit = async () => {
     if (!currentWorkstation?.id || !linkedAccount) {
-      Alert.alert('Errore', 'Collega un account Git per eseguire commit');
+      Alert.alert(t('common:error'), t('terminal:git.authRequiredForCommit'));
       return;
     }
 
     if (selectedFiles.size === 0) {
-      Alert.alert('Errore', 'Seleziona almeno un file da committare');
+      Alert.alert(t('common:error'), t('terminal:git.selectAtLeastOneFile'));
       return;
     }
 
     if (!commitMessage.trim()) {
-      Alert.alert('Errore', 'Inserisci un messaggio di commit');
+      Alert.alert(t('common:error'), t('terminal:git.enterCommitMessage'));
       return;
     }
 
@@ -581,16 +583,16 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (response.ok) {
-        Alert.alert('Successo', 'Commit creato con successo');
+        Alert.alert(t('common:success'), t('terminal:git.commitSuccess'));
         setCommitMessage('');
         setSelectedFiles(new Set());
         await loadGitData();
       } else {
         const error = await response.json();
-        Alert.alert('Errore', error.message || 'Errore durante il commit');
+        Alert.alert(t('common:error'), error.message || t('terminal:git.commitError'));
       }
     } catch (error) {
-      Alert.alert('Errore', 'Impossibile eseguire il commit');
+      Alert.alert(t('common:error'), t('terminal:git.unableToCommit'));
     } finally {
       setActionLoading(null);
     }
@@ -720,7 +722,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 onPress={() => setActiveSection(section)}
               >
                 <Text style={[styles.tabText, activeSection === section && styles.tabTextActive]}>
-                  {section === 'commits' ? 'Commit' : section === 'branches' ? 'Branch' : 'Changes'}
+                  {section === 'commits' ? t('git.commit') : section === 'branches' ? t('git.branch') : t('git.changes')}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -811,16 +813,16 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         <View style={styles.connectGitIcon}>
                           <Ionicons name="logo-github" size={32} color="rgba(255,255,255,0.4)" />
                         </View>
-                        <Text style={styles.connectGitTitle}>Connetti a GitHub</Text>
+                        <Text style={styles.connectGitTitle}>{t('connectRepo.title')}</Text>
                         <Text style={styles.connectGitSubtitle}>
-                          Questo progetto non è ancora collegato a un repository GitHub
+                          {t('connectRepo.noAccountsAvailable')}
                         </Text>
                         <TouchableOpacity
                           style={styles.connectGitButton}
                           onPress={() => setShowConnectModal(true)}
                         >
                           <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                          <Text style={styles.connectGitButtonText}>Collega Repository</Text>
+                          <Text style={styles.connectGitButtonText}>{t('connectRepo.title')}</Text>
                         </TouchableOpacity>
                       </>
                     ) : (
@@ -828,11 +830,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                       <>
                         <Ionicons name="git-commit-outline" size={40} color="rgba(255,255,255,0.2)" />
                         <Text style={styles.emptyStateText}>
-                          {errorMsg || 'Nessun commit trovato'}
+                          {errorMsg || t('terminal:git.noCommitsFound')}
                         </Text>
                         {errorMsg && (
                           <TouchableOpacity onPress={() => loadGitData()} style={styles.retryButton}>
-                            <Text style={styles.retryText}>Riprova</Text>
+                            <Text style={styles.retryText}>{t('common:retry')}</Text>
                           </TouchableOpacity>
                         )}
                       </>
@@ -841,7 +843,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 )}
                 {commits.length > 10 && (
                   <TouchableOpacity style={styles.showMoreBtn} onPress={expandToTab}>
-                    <Text style={styles.showMoreText}>Mostra tutti i {commits.length} commit</Text>
+                    <Text style={styles.showMoreText}>{t('terminal:git.showAllCommits', { count: commits.length })}</Text>
                     <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
                   </TouchableOpacity>
                 )}
@@ -862,7 +864,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     </View>
                     {branch.isCurrent && (
                       <View style={styles.currentBadge}>
-                        <Text style={styles.currentBadgeText}>current</Text>
+                        <Text style={styles.currentBadgeText}>{t('terminal:git.current')}</Text>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -880,7 +882,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         color={selectedFiles.size === allChangedFiles.length ? AppColors.primary : 'rgba(255,255,255,0.4)'}
                       />
                       <Text style={styles.selectAllText}>
-                        {selectedFiles.size === allChangedFiles.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
+                        {selectedFiles.size === allChangedFiles.length ? t('common:deselectAll') : t('common:selectAll')}
                       </Text>
                       <Text style={styles.selectedCount}>{selectedFiles.size}/{allChangedFiles.length}</Text>
                     </TouchableOpacity>
@@ -888,7 +890,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     {/* File List with Checkboxes */}
                     {(gitStatus?.modified?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>MODIFICATI</Text>
+                        <Text style={styles.changeSectionTitle}>{t('terminal:git.modified')}</Text>
                         {gitStatus!.modified.map((file) => (
                           <TouchableOpacity key={`mod-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
@@ -904,7 +906,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                     {(gitStatus?.untracked?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>NUOVI</Text>
+                        <Text style={styles.changeSectionTitle}>{t('terminal:git.new')}</Text>
                         {gitStatus!.untracked.map((file) => (
                           <TouchableOpacity key={`untracked-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
@@ -920,7 +922,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                     )}
                     {(gitStatus?.deleted?.length ?? 0) > 0 && (
                       <View style={styles.changeSection}>
-                        <Text style={styles.changeSectionTitle}>ELIMINATI</Text>
+                        <Text style={styles.changeSectionTitle}>{t('common:deleted').toUpperCase()}</Text>
                         {gitStatus!.deleted.map((file) => (
                           <TouchableOpacity key={`del-${file}`} style={styles.changeItem} onPress={() => toggleFileSelection(file)}>
                             <Ionicons
@@ -941,7 +943,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         <View style={styles.authRequiredBanner}>
                           <Ionicons name="lock-closed" size={16} color="#FFB800" />
                           <Text style={styles.authRequiredText}>
-                            Autenticazione richiesta per creare commit
+                            {t('terminal:git.authRequiredForCommit')}
                           </Text>
                         </View>
                         <TouchableOpacity
@@ -949,7 +951,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                           onPress={() => setShowAddAccountModal(true)}
                         >
                           <Ionicons name="log-in-outline" size={18} color="#fff" />
-                          <Text style={styles.authRequiredBtnText}>Collega account GitHub</Text>
+                          <Text style={styles.authRequiredBtnText}>{t('terminal:git.linkGitHubAccount')}</Text>
                         </TouchableOpacity>
                       </View>
                     ) : (
@@ -957,7 +959,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         style={[styles.createCommitBtn, selectedFiles.size === 0 && styles.createCommitBtnDisabled]}
                         onPress={() => {
                           if (selectedFiles.size === 0) {
-                            Alert.alert('Seleziona file', 'Seleziona almeno un file da committare');
+                            Alert.alert(t('terminal:git.selectFiles'), t('terminal:git.selectAtLeastOneFile'));
                             return;
                           }
                           setShowCommitModal(true);
@@ -965,7 +967,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                       >
                         <Ionicons name="git-commit-outline" size={18} color="#fff" />
                         <Text style={styles.createCommitBtnText}>
-                          Crea Commit ({selectedFiles.size} {selectedFiles.size === 1 ? 'file' : 'file'})
+                          {t('terminal:git.createCommit')} ({selectedFiles.size === 1 ? t('terminal:git.filesSelected', { count: selectedFiles.size }) : t('terminal:git.filesSelectedPlural', { count: selectedFiles.size })})
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -973,7 +975,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 ) : (
                   <View style={styles.emptyState}>
                     <Ionicons name="checkmark-circle-outline" size={40} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.emptyStateText}>Nessuna modifica</Text>
+                    <Text style={styles.emptyStateText}>{t('terminal:git.noChanges')}</Text>
                   </View>
                 )}
               </View>
@@ -1032,7 +1034,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             entering={SlideInDown.duration(250)}
             exiting={SlideOutDown.duration(200)}
           >
-            <Text style={styles.pickerTitle}>Seleziona Account</Text>
+            <Text style={styles.pickerTitle}>{t('git.selectAccount')}</Text>
             <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
               {gitAccounts.map((account) => (
                 <TouchableOpacity
@@ -1065,7 +1067,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               }}
             >
               <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
-              <Text style={styles.pickerAddText}>Aggiungi account</Text>
+              <Text style={styles.pickerAddText}>{t('git.linkAccount')}</Text>
             </TouchableOpacity>
           </Animated.View>
         </Animated.View>
@@ -1091,7 +1093,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             exiting={FadeOut.duration(200)}
           >
             <View style={styles.commitModalHeader}>
-              <Text style={styles.commitModalTitle}>Nuovo Commit</Text>
+              <Text style={styles.commitModalTitle}>{t('git.commit')}</Text>
               <TouchableOpacity onPress={() => setShowCommitModal(false)}>
                 <Ionicons name="close" size={20} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
@@ -1100,13 +1102,13 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             <View style={styles.commitModalFilesSummary}>
               <Ionicons name="documents-outline" size={16} color={AppColors.primary} />
               <Text style={styles.commitModalFilesText}>
-                {selectedFiles.size} file selezionat{selectedFiles.size === 1 ? 'o' : 'i'}
+                {selectedFiles.size === 1 ? t('terminal:git.filesSelected', { count: selectedFiles.size }) : t('terminal:git.filesSelectedPlural', { count: selectedFiles.size })}
               </Text>
             </View>
 
             <TextInput
               style={styles.commitModalInput}
-              placeholder="Messaggio di commit..."
+              placeholder={t('terminal:git.commitMessagePlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={commitMessage}
               onChangeText={setCommitMessage}

@@ -25,6 +25,7 @@ import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   onCreateProject: () => void;
@@ -82,6 +83,7 @@ const GlassWrapper = ({ children, style }: { children: React.ReactNode; style?: 
 export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProjects, onOpenProject, onSettings, onOpenPlans }: Props) => {
   const { user } = useAuthStore();
   const { gitHubUser, loadWorkstations } = useTerminalStore();
+  const { t } = useTranslation('projects');
 
   // Debug: log when component mounts
   useEffect(() => {
@@ -119,7 +121,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   }, []);
 
   const currentHour = new Date().getHours();
-  const greeting = (currentHour >= 5 && currentHour < 18) ? 'Buongiorno' : 'Buonasera';
+  const greeting = (currentHour >= 5 && currentHour < 18) ? t('goodMorning') : t('goodEvening');
 
   // Prioritize Auth user, fallback to GitHub user, then default
   const userName = user?.displayName || gitHubUser?.name || user?.email?.split('@')[0] || 'Developer';
@@ -282,9 +284,9 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (days > 0) return `${days}g fa`;
-    if (hours > 0) return `${hours}h fa`;
-    return 'ora';
+    if (days > 0) return t('daysAgo', { count: days });
+    if (hours > 0) return t('hoursAgo', { count: hours });
+    return t('now');
   };
 
   const handleBrowseFiles = async () => {
@@ -296,11 +298,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
-        Alert.alert('File Selezionato', `${file.name}\nDimensione: ${((file.size || 0) / 1024).toFixed(1)} KB`);
+        Alert.alert(t('file.selected'), `${file.name}\n${((file.size || 0) / 1024).toFixed(1)} KB`);
       }
     } catch (error) {
       console.error('Error picking document:', error);
-      Alert.alert('Errore', 'Impossibile aprire il file picker');
+      Alert.alert(t('common:error'), t('file.unableToOpen'));
     }
   };
 
@@ -710,7 +712,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     currentProgressRef.current = 0;
     setLoadingProgress(0);
     setLoadingStep('');
-    Alert.alert('Errore', error.message || 'Impossibile aprire il progetto');
+    Alert.alert(t('common:error'), error.message || t('all.unableToLoad'));
    }
   };
 
@@ -748,12 +750,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     if (!selectedProject) return;
 
     Alert.alert(
-      'Elimina Progetto',
-      `Sei sicuro di voler eliminare "${selectedProject.name}"?`,
+      t('actions.delete'),
+      t('actions.deleteConfirm', { name: selectedProject.name }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Elimina',
+          text: t('common:delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -767,7 +769,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               console.log('✅ [Home] Project deleted:', selectedProject.id);
             } catch (error) {
               console.error('❌ [Home] Error deleting project:', error);
-              Alert.alert('Errore', 'Impossibile eliminare il progetto');
+              Alert.alert(t('common:error'), t('all.unableToLoad'));
             }
           },
         },
@@ -785,17 +787,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       const duplicatedProject = {
         ...selectedProject,
         id: undefined, // Sarà generato dal servizio
-        name: `${selectedProject.name} (copia)`,
+        name: `${selectedProject.name} (${t('common:copy')})`,
         createdAt: new Date().toISOString(),
       };
 
       const newWorkstation = await workstationService.createWorkstation(duplicatedProject);
       handleCloseMenu();
       loadRecentProjects();
-      Alert.alert('Successo', `Progetto duplicato come "${newWorkstation.name}"`);
+      Alert.alert(t('common:success'), `${t('actions.duplicate')}: "${newWorkstation.name}"`);
     } catch (error) {
       console.error('Error duplicating project:', error);
-      Alert.alert('Errore', 'Impossibile duplicare il progetto');
+      Alert.alert(t('common:error'), t('all.unableToLoad'));
     } finally {
       setIsDuplicating(false);
     }
@@ -850,10 +852,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setShowRenameModal(false);
       setSelectedProject(null);
       loadRecentProjects();
-      Alert.alert('Successo', 'Progetto rinominato');
+      Alert.alert(t('common:success'), t('actions.renameProject'));
     } catch (error) {
       console.error('Error renaming project:', error);
-      Alert.alert('Errore', 'Impossibile rinominare il progetto');
+      Alert.alert(t('common:error'), t('all.unableToLoad'));
     }
   };
 
@@ -989,7 +991,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       >
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>
-          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>Inizia</Text>
+          <Text style={[styles.sectionLabel, { marginBottom: 14 }]}>{t('home.getStarted')}</Text>
 
           <View style={styles.quickActionsRow}>
             {/* New Project */}
@@ -1005,8 +1007,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 style={styles.actionCardGradient}
               >
                 <Ionicons name="add" size={26} color="#fff" />
-                <Text style={styles.actionCardTitle}>Nuovo</Text>
-                <Text style={styles.actionCardSubtitle}>Crea progetto</Text>
+                <Text style={styles.actionCardTitle}>{t('home.newProject')}</Text>
+                <Text style={styles.actionCardSubtitle}>{t('home.createProject')}</Text>
               </LinearGradient>
             </TouchableOpacity>
 
@@ -1018,8 +1020,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 onPress={onImportProject}
               >
                 <Ionicons name="logo-github" size={24} color="#fff" />
-                <Text style={styles.actionCardTitle}>Clona</Text>
-                <Text style={styles.actionCardSubtitle}>clona repo</Text>
+                <Text style={styles.actionCardTitle}>{t('home.clone')}</Text>
+                <Text style={styles.actionCardSubtitle}>{t('home.cloneRepo')}</Text>
               </TouchableOpacity>
             </GlassWrapper>
 
@@ -1031,8 +1033,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 onPress={handleBrowseFiles}
               >
                 <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.actionCardTitle}>File</Text>
-                <Text style={styles.actionCardSubtitle}>Apri locale</Text>
+                <Text style={styles.actionCardTitle}>{t('home.files')}</Text>
+                <Text style={styles.actionCardSubtitle}>{t('home.openLocal')}</Text>
               </TouchableOpacity>
             </GlassWrapper>
           </View>
@@ -1063,8 +1065,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                     <Ionicons name="rocket-outline" size={18} color={AppColors.primary} />
                   </View>
                   <View style={styles.upgradeCtaText}>
-                    <Text style={styles.upgradeCtaTitle}>Sblocca Pro</Text>
-                    <Text style={styles.upgradeCtaSubtitle}>Progetti illimitati e 6x budget AI</Text>
+                    <Text style={styles.upgradeCtaTitle}>{t('home.unlockPro')}</Text>
+                    <Text style={styles.upgradeCtaSubtitle}>{t('home.unlockProDesc')}</Text>
                   </View>
                 </View>
                 <View style={styles.upgradeCtaArrow}>
@@ -1080,7 +1082,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <Ionicons name="time-outline" size={16} color="rgba(255,255,255,0.4)" />
-              <Text style={styles.sectionLabel}>Recenti</Text>
+              <Text style={styles.sectionLabel}>{t('home.recent')}</Text>
             </View>
 
           </View>
@@ -1118,7 +1120,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           {repoInfo ? (
                             <Text style={styles.projectRepoText} numberOfLines={1}>{repoInfo.full}</Text>
                           ) : (
-                            <Text style={styles.projectLang}>{project.language || 'Progetto'}</Text>
+                            <Text style={styles.projectLang}>{project.language || t('project')}</Text>
                           )}
                           <View style={styles.metaDot} />
                           <Text style={styles.projectTime}>{getTimeAgo(project.lastOpened || project.createdAt)}</Text>
@@ -1136,7 +1138,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                   activeOpacity={0.7}
                   onPress={onMyProjects}
                 >
-                  <Text style={styles.seeAllButtonText}>Vedi tutti</Text>
+                  <Text style={styles.seeAllButtonText}>{t('seeAll')}</Text>
                   <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.6)" />
                 </TouchableOpacity>
               </GlassWrapper>
@@ -1144,8 +1146,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="folder-open-outline" size={48} color="rgba(255,255,255,0.1)" />
-              <Text style={styles.emptyTitle}>Nessun progetto</Text>
-              <Text style={styles.emptySubtitle}>Crea il tuo primo progetto usando i pulsanti sopra</Text>
+              <Text style={styles.emptyTitle}>{t('home.noProjects')}</Text>
+              <Text style={styles.emptySubtitle}>{t('home.createFirstProject')}</Text>
             </View>
           )}
         </View>
@@ -1188,7 +1190,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                         </View>
                         <View style={styles.sheetProjectInfo}>
                           <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
-                          <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
+                          <Text style={styles.sheetProjectMeta}>{selectedProject.language || t('project')}</Text>
                         </View>
                       </View>
 
@@ -1204,7 +1206,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                               onPress={async () => {
                                 const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
                                 await Clipboard.setStringAsync(url);
-                                Alert.alert('Copiato', 'Link repository copiato negli appunti');
+                                Alert.alert(t('common:copied'), t('file.linkCopied'));
                               }}
                               style={styles.copyButton}
                             >
@@ -1217,12 +1219,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                             ) : repoVisibility === 'public' ? (
                               <View style={styles.visibilityBadge}>
                                 <Ionicons name="globe-outline" size={12} color="#4ade80" />
-                                <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                                <Text style={[styles.visibilityText, { color: '#4ade80' }]}>{t('common:public')}</Text>
                               </View>
                             ) : repoVisibility === 'private' ? (
                               <View style={styles.visibilityBadge}>
                                 <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
-                                <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                                <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>{t('common:private')}</Text>
                               </View>
                             ) : null}
                           </View>
@@ -1237,7 +1239,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
                             <Ionicons name="open-outline" size={20} color="#fff" />
                           </LiquidGlassView>
-                          <Text style={styles.sheetActionText}>Apri</Text>
+                          <Text style={styles.sheetActionText}>{t('common:open')}</Text>
                         </TouchableOpacity>
 
                         {(selectedProject.repositoryUrl || selectedProject.githubUrl) && (
@@ -1248,7 +1250,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                             <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
                               <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
                             </LiquidGlassView>
-                            <Text style={styles.sheetActionText}>Commit</Text>
+                            <Text style={styles.sheetActionText}>{t('common:commits')}</Text>
                           </TouchableOpacity>
                         )}
 
@@ -1260,21 +1262,21 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                               <Ionicons name="copy-outline" size={20} color="#fff" />
                             )}
                           </LiquidGlassView>
-                          <Text style={styles.sheetActionText}>Duplica</Text>
+                          <Text style={styles.sheetActionText}>{t('actions.duplicate')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
                           <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
                             <Ionicons name="share-outline" size={20} color="#fff" />
                           </LiquidGlassView>
-                          <Text style={styles.sheetActionText}>Condividi</Text>
+                          <Text style={styles.sheetActionText}>{t('actions.share')}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
                           <LiquidGlassView style={styles.sheetActionIconGlass} interactive={true} effect="clear" colorScheme="dark">
                             <Ionicons name="create-outline" size={20} color="#fff" />
                           </LiquidGlassView>
-                          <Text style={styles.sheetActionText}>Rinomina</Text>
+                          <Text style={styles.sheetActionText}>{t('actions.rename')}</Text>
                         </TouchableOpacity>
                       </View>
 
@@ -1284,13 +1286,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                         onPress={handleDeleteProject}
                       >
                         <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-                        <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                        <Text style={styles.sheetDeleteText}>{t('actions.delete')}</Text>
                       </TouchableOpacity>
                     </>
                   )}
 
                   <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
-                    <Text style={styles.sheetCancelText}>Annulla</Text>
+                    <Text style={styles.sheetCancelText}>{t('common:cancel')}</Text>
                   </TouchableOpacity>
                 </View>
               </LiquidGlassView>
@@ -1312,7 +1314,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                       </View>
                       <View style={styles.sheetProjectInfo}>
                         <Text style={styles.sheetProjectName} numberOfLines={1}>{selectedProject.name}</Text>
-                        <Text style={styles.sheetProjectMeta}>{selectedProject.language || 'Progetto'}</Text>
+                        <Text style={styles.sheetProjectMeta}>{selectedProject.language || t('project')}</Text>
                       </View>
                     </View>
 
@@ -1328,7 +1330,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                             onPress={async () => {
                               const url = selectedProject.repositoryUrl || selectedProject.githubUrl;
                               await Clipboard.setStringAsync(url);
-                              Alert.alert('Copiato', 'Link repository copiato negli appunti');
+                              Alert.alert(t('common:copied'), t('file.linkCopied'));
                             }}
                             style={styles.copyButton}
                           >
@@ -1341,12 +1343,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           ) : repoVisibility === 'public' ? (
                             <View style={styles.visibilityBadge}>
                               <Ionicons name="globe-outline" size={12} color="#4ade80" />
-                              <Text style={[styles.visibilityText, { color: '#4ade80' }]}>Pubblica</Text>
+                              <Text style={[styles.visibilityText, { color: '#4ade80' }]}>{t('common:public')}</Text>
                             </View>
                           ) : repoVisibility === 'private' ? (
                             <View style={styles.visibilityBadge}>
                               <Ionicons name="lock-closed-outline" size={12} color="#f59e0b" />
-                              <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>Privata</Text>
+                              <Text style={[styles.visibilityText, { color: '#f59e0b' }]}>{t('common:private')}</Text>
                             </View>
                           ) : null}
                         </View>
@@ -1372,7 +1374,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                           <View style={[styles.sheetActionIcon, { backgroundColor: `${AppColors.primary}15` }]}>
                             <Ionicons name="git-commit-outline" size={20} color={AppColors.primary} />
                           </View>
-                          <Text style={styles.sheetActionText}>Commit</Text>
+                          <Text style={styles.sheetActionText}>{t('common:commits')}</Text>
                         </TouchableOpacity>
                       )}
 
@@ -1384,21 +1386,21 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                             <Ionicons name="copy-outline" size={20} color="#fff" />
                           )}
                         </View>
-                        <Text style={styles.sheetActionText}>Duplica</Text>
+                        <Text style={styles.sheetActionText}>{t('actions.duplicate')}</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleShareProject}>
                         <View style={styles.sheetActionIcon}>
                           <Ionicons name="share-outline" size={20} color="#fff" />
                         </View>
-                        <Text style={styles.sheetActionText}>Condividi</Text>
+                        <Text style={styles.sheetActionText}>{t('actions.share')}</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity style={styles.sheetActionItem} activeOpacity={0.7} onPress={handleOpenRename}>
                         <View style={styles.sheetActionIcon}>
                           <Ionicons name="create-outline" size={20} color="#fff" />
                         </View>
-                        <Text style={styles.sheetActionText}>Rinomina</Text>
+                        <Text style={styles.sheetActionText}>{t('actions.rename')}</Text>
                       </TouchableOpacity>
                     </View>
 
@@ -1408,13 +1410,13 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                       onPress={handleDeleteProject}
                     >
                       <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-                      <Text style={styles.sheetDeleteText}>Elimina progetto</Text>
+                      <Text style={styles.sheetDeleteText}>{t('actions.delete')}</Text>
                     </TouchableOpacity>
                   </>
                 )}
 
                 <TouchableOpacity style={styles.sheetCancelButton} activeOpacity={0.7} onPress={handleCloseMenu}>
-                  <Text style={styles.sheetCancelText}>Annulla</Text>
+                  <Text style={styles.sheetCancelText}>{t('common:cancel')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1457,23 +1459,23 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 style={{ padding: 24, backgroundColor: 'rgba(255,255,255,0.05)' }}
                 onPress={() => { }}
               >
-                <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
+                <Text style={styles.renameModalTitle}>{t('actions.renameProject')}</Text>
                 <Input
                   value={newProjectName}
                   onChangeText={setNewProjectName}
-                  placeholder="Nome progetto"
+                  placeholder={t('create.namePlaceholder')}
                   autoFocus
                   style={{ marginBottom: 20 }}
                 />
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <Button
-                    label="Annulla"
+                    label={t('common:cancel')}
                     onPress={() => setShowRenameModal(false)}
                     variant="ghost"
                     style={{ flex: 1 }}
                   />
                   <Button
-                    label="Conferma"
+                    label={t('common:confirm')}
                     onPress={handleConfirmRename}
                     variant="primary"
                     disabled={!newProjectName.trim()}
@@ -1484,23 +1486,23 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
             </LiquidGlassView>
           ) : (
             <Pressable style={styles.renameModalContent} onPress={() => { }}>
-              <Text style={styles.renameModalTitle}>Rinomina Progetto</Text>
+              <Text style={styles.renameModalTitle}>{t('actions.renameProject')}</Text>
               <Input
                 value={newProjectName}
                 onChangeText={setNewProjectName}
-                placeholder="Nome progetto"
+                placeholder={t('create.namePlaceholder')}
                 autoFocus
                 style={{ marginBottom: 20 }}
               />
               <View style={styles.renameModalActions}>
                 <Button
-                  label="Annulla"
+                  label={t('common:cancel')}
                   onPress={() => setShowRenameModal(false)}
                   variant="ghost"
                   style={{ flex: 1 }}
                 />
                 <Button
-                  label="Conferma"
+                  label={t('common:confirm')}
                   onPress={handleConfirmRename}
                   variant="primary"
                   disabled={!newProjectName.trim()}
@@ -1514,14 +1516,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       <LoadingModal
         visible={isDuplicating}
-        message="Duplicating project..."
+        message={t('actions.deleting')}
       />
 
       {/* Project Loading Overlay - shows until VM is ready */}
       <ProjectLoadingOverlay
         visible={isLoadingProject}
         projectName={loadingProjectName}
-        message="Avvio ambiente..."
+        message={t('actions.startingEnv')}
         progress={loadingProgress}
         currentStep={loadingStep}
         showTips={true}

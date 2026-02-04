@@ -238,6 +238,8 @@ PODS:
     - ExpoModulesCore
   - ExpoLiquidGlass (0.1.9):
     - ExpoModulesCore
+  - ExpoLocalization (17.0.8):
+    - ExpoModulesCore
   - ExpoMediaLibrary (18.2.1):
     - ExpoModulesCore
     - React-Core
@@ -2342,6 +2344,7 @@ DEPENDENCIES:
   - ExpoLinearGradient (from `../node_modules/expo-linear-gradient/ios`)
   - ExpoLinking (from `../node_modules/expo-linking/ios`)
   - ExpoLiquidGlass (from `../node_modules/expo-liquid-glass-view/ios`)
+  - ExpoLocalization (from `../node_modules/expo-localization/ios`)
   - ExpoMediaLibrary (from `../node_modules/expo-media-library/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
@@ -2482,6 +2485,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-linking/ios"
   ExpoLiquidGlass:
     :path: "../node_modules/expo-liquid-glass-view/ios"
+  ExpoLocalization:
+    :path: "../node_modules/expo-localization/ios"
   ExpoMediaLibrary:
     :path: "../node_modules/expo-media-library/ios"
   ExpoModulesCore:
@@ -2672,6 +2677,7 @@ SPEC CHECKSUMS:
   ExpoLinearGradient: 809102bdb979f590083af49f7fa4805cd931bd58
   ExpoLinking: 8f0aaf69aa56f832913030503b6263dc6f647f37
   ExpoLiquidGlass: 118c039a8314f96d15aabb8b4dd313d0a3af0182
+  ExpoLocalization: d9168d5300a5b03e5e78b986124d11fb6ec3ebbd
   ExpoMediaLibrary: a3093b04365b245bb23b25b6eba84eb6ab55fecb
   ExpoModulesCore: 031cf9b42fab2e84dcf34087dbd12ae666c100e0
   ExpoSecureStore: d32f751874a2ceb5aaeebeb3578e165c1ba2b24a

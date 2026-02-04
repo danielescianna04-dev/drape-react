@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export const ChatPanel = ({ onClose }: Props) => {
+  const { t } = useTranslation(['terminal', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export const ChatPanel = ({ onClose }: Props) => {
     const chatId = Date.now().toString();
     const newChat = {
       id: chatId,
-      title: 'Nuova Conversazione',
+      title: t('terminal:chat.newConversation'),
       createdAt: new Date(),
       lastUsed: new Date(),
       messages: [],
@@ -89,7 +91,7 @@ export const ChatPanel = ({ onClose }: Props) => {
     addTab({
       id: `chat-${chatId}`,
       type: 'chat',
-      title: 'Nuova Conversazione',
+      title: t('terminal:chat.newConversation'),
       data: { chatId: chatId }
     });
     handleClose();
@@ -102,10 +104,10 @@ export const ChatPanel = ({ onClose }: Props) => {
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (days > 0) return `${days}g fa`;
-    if (hours > 0) return `${hours}h fa`;
-    if (minutes > 0) return `${minutes}m fa`;
-    return 'ora';
+    if (days > 0) return t('terminal:chat.daysAgo', { count: days });
+    if (hours > 0) return t('terminal:chat.hoursAgo', { count: hours });
+    if (minutes > 0) return t('terminal:chat.minutesAgo', { count: minutes });
+    return t('terminal:chat.justNow');
   };
 
   const handleMenuToggle = (chatId: string) => {
@@ -164,7 +166,7 @@ export const ChatPanel = ({ onClose }: Props) => {
             )}
             <View style={styles.newChatButtonInner}>
               <Ionicons name="add" size={18} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.newChatText}>Nuova chat</Text>
+              <Text style={styles.newChatText}>{t('terminal:chat.newChat')}</Text>
             </View>
           </TouchableOpacity>
 
@@ -186,7 +188,7 @@ export const ChatPanel = ({ onClose }: Props) => {
                     style={styles.searchInput}
                     value={searchQuery}
                     onChangeText={setSearchQuery}
-                    placeholder="Cerca nelle chat..."
+                    placeholder={t('terminal:chat.searchChats')}
                     placeholderTextColor="rgba(255,255,255,0.4)"
                   />
                 </View>
@@ -198,7 +200,7 @@ export const ChatPanel = ({ onClose }: Props) => {
                   style={styles.searchInput}
                   value={searchQuery}
                   onChangeText={setSearchQuery}
-                  placeholder="Cerca nelle chat..."
+                  placeholder={t('terminal:chat.searchChats')}
                   placeholderTextColor="rgba(255,255,255,0.4)"
                 />
               </View>
@@ -215,13 +217,13 @@ export const ChatPanel = ({ onClose }: Props) => {
               <View style={styles.emptyState}>
                 <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
                 <Text style={styles.emptyText}>
-                  {searchQuery ? 'Nessun risultato' : 'Nessuna chat'}
+                  {searchQuery ? t('terminal:chat.noResults') : t('terminal:chat.noChats')}
                 </Text>
               </View>
             ) : (
               <>
                 {/* Today section */}
-                <Text style={styles.sectionTitle}>Recenti</Text>
+                <Text style={styles.sectionTitle}>{t('terminal:chat.recent')}</Text>
                 {filteredChats.map((chat) => (
                   <View key={chat.id} style={styles.chatItemWrapper}>
                     {renamingChatId === chat.id ? (
@@ -242,7 +244,7 @@ export const ChatPanel = ({ onClose }: Props) => {
                               onChangeText={setRenamingValue}
                               onSubmitEditing={() => handleRenameSubmit(chat.id)}
                               autoFocus
-                              placeholder="Nome chat"
+                              placeholder={t('terminal:chat.chatName')}
                               placeholderTextColor="rgba(255,255,255,0.4)"
                             />
                             <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
@@ -261,7 +263,7 @@ export const ChatPanel = ({ onClose }: Props) => {
                             onChangeText={setRenamingValue}
                             onSubmitEditing={() => handleRenameSubmit(chat.id)}
                             autoFocus
-                            placeholder="Nome chat"
+                            placeholder={t('terminal:chat.chatName')}
                             placeholderTextColor="rgba(255,255,255,0.4)"
                           />
                           <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
@@ -304,12 +306,12 @@ export const ChatPanel = ({ onClose }: Props) => {
                         <View style={styles.dropdownInner}>
                           <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
                             <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
-                            <Text style={styles.dropdownText}>Rinomina</Text>
+                            <Text style={styles.dropdownText}>{t('common:rename')}</Text>
                           </TouchableOpacity>
                           <View style={styles.dropdownDivider} />
                           <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
                             <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                            <Text style={[styles.dropdownText, { color: '#ef4444' }]}>Elimina</Text>
+                            <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -323,7 +325,7 @@ export const ChatPanel = ({ onClose }: Props) => {
           {/* Bottom close button */}
           <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>
             <Ionicons name="chevron-back" size={18} color="rgba(255,255,255,0.5)" />
-            <Text style={styles.bottomCloseText}>Chiudi</Text>
+            <Text style={styles.bottomCloseText}>{t('terminal:chat.close')}</Text>
           </TouchableOpacity>
         </View>
       </View>

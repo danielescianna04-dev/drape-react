@@ -20,10 +20,13 @@ export type AgentEventType =
   | 'tool_error'
   | 'iteration_start'
   | 'budget_exceeded'
+  | 'thinking_start'
   | 'thinking'
+  | 'thinking_end'
   | 'message'
   | 'text_delta'
   | 'plan_ready'
+  | 'usage'
   | 'complete'
   | 'error'
   | 'fatal_error'
@@ -76,7 +79,11 @@ interface UseAgentStreamReturn {
   error: string | null;
   plan: AgentPlan | null;
   summary: string | null;
-  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => void;
+  currentPrompt: string | null;
+  currentProjectId: string | null;
+  currentModel: string | null;
+  start: (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => void;
+  startExecuting: () => void;
   stop: () => void;
   reset: () => void;
 }
@@ -100,6 +107,13 @@ export function useAgentStream(
   const [error, setError] = useState<string | null>(null);
   const [plan, setAgentPlan] = useState<AgentPlan | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+
+  // Store prompt/project/model/history for execute mode
+  const [currentPrompt, setCurrentPrompt] = useState<string | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentModel, setCurrentModel] = useState<string | null>(null);
+  const [currentConversationHistory, setCurrentConversationHistory] = useState<any[]>([]);
+  const [currentThinkingLevel, setCurrentThinkingLevel] = useState<string | null>(null);
 
   // Refs for connection management
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -168,16 +182,26 @@ export function useAgentStream(
       getAgentStore().setIteration(event.iteration);
     }
 
-    // Handle plan ready
-    if (event.type === 'plan_ready' && event.output) {
-      const newAgentPlan: AgentPlan = {
-        id: `plan-${Date.now()}`,
-        steps: event.output.steps || [],
-        estimatedDuration: event.output.estimatedDuration,
-        createdAt: new Date(),
-      };
-      setAgentPlan(newAgentPlan);
-      getAgentStore().setAgentPlan(newAgentPlan);
+    // Handle plan ready - backend sends 'plan', not 'output'
+    if (event.type === 'plan_ready') {
+      const planData = (event as any).plan || (event as any).output;
+      if (planData) {
+        const newAgentPlan: AgentPlan = {
+          id: planData.id || `plan-${Date.now()}`,
+          steps: (planData.steps || []).map((step: any, idx: number) => ({
+            id: step.id || `step-${idx + 1}`,
+            description: step.description || step,
+            tool: step.tool,
+            status: step.status || 'pending',
+            order: idx,
+          })),
+          estimatedDuration: planData.estimatedDuration,
+          createdAt: new Date(),
+        };
+        console.log('[AgentStream] Plan ready with', newAgentPlan.steps.length, 'steps');
+        setAgentPlan(newAgentPlan);
+        getAgentStore().setAgentPlan(newAgentPlan);
+      }
     }
 
     // Handle file changes
@@ -225,7 +249,7 @@ export function useAgentStream(
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => {
+  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
@@ -269,6 +293,7 @@ export function useAgentStream(
           model,
           conversationHistory: conversationHistory || [], // Send ALL history, no limits
           images: images || [], // Send images for multimodal support
+          thinkingLevel: thinkingLevel || null, // Gemini 3 thinking level
           userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
           userPlan: useAuthStore.getState().user?.plan || 'free',
         }),
@@ -285,10 +310,13 @@ export function useAgentStream(
         'tool_complete',
         'tool_error',
         'iteration_start',
+        'thinking_start',
         'thinking',
+        'thinking_end',
         'message',
         'text_delta',
         'plan_ready',
+        'usage',
         'budget_exceeded',
         'complete',
         'error',
@@ -349,7 +377,7 @@ export function useAgentStream(
 
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
-            connect(prompt, projectId, model, conversationHistory, images);
+            connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
           }, delay);
         } else {
           const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
@@ -395,7 +423,7 @@ export function useAgentStream(
   /**
    * Start agent execution
    */
-  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[]) => {
+  const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
     // Reset state
     setEvents([]);
     setError(null);
@@ -405,9 +433,115 @@ export function useAgentStream(
     getAgentStore().reset();
     getAgentStore().setMode(mode);
 
-    // Connect with selected model, conversation history, and images
-    connect(prompt, projectId, model, conversationHistory, images);
+    // Save prompt/project/model/history for potential execute mode later
+    setCurrentPrompt(prompt);
+    setCurrentProjectId(projectId);
+    setCurrentModel(model || null);
+    setCurrentConversationHistory(conversationHistory || []);
+    setCurrentThinkingLevel(thinkingLevel || null);
+
+    // Connect with selected model, conversation history, images, and thinking level
+    connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
   }, [mode, connect, getAgentStore]);
+
+  /**
+   * Start executing a previously created plan
+   * Uses the stored prompt/project/model to call /agent/run/execute directly
+   */
+  const startExecuting = useCallback(() => {
+    if (!currentPrompt || !currentProjectId) {
+      console.error('[AgentStream] Cannot execute: no prompt or projectId stored');
+      setError('Cannot execute plan: missing prompt or project');
+      return;
+    }
+
+    console.log('[AgentStream] Starting execution with stored prompt:', currentPrompt.substring(0, 50) + '...');
+
+    // Reset state but keep the plan
+    setEvents([]);
+    setError(null);
+    setSummary(null);
+    setCurrentTool(null);
+    getAgentStore().reset();
+    getAgentStore().setMode('executing');
+
+    // Connect directly to execute endpoint
+    const executeEndpoint = '/agent/run/execute';
+    const url = `${config.apiUrl}${executeEndpoint}`;
+
+    console.log(`[AgentStream] Connecting to execute endpoint`);
+
+    const es = new EventSource(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      },
+      body: JSON.stringify({
+        prompt: currentPrompt,
+        projectId: currentProjectId,
+        model: currentModel,
+        plan: plan, // Send the plan for context
+        conversationHistory: currentConversationHistory,
+        images: [],
+        thinkingLevel: currentThinkingLevel,
+        userId: useAuthStore.getState().user?.uid || useTerminalStore.getState().userId || null,
+        userPlan: useAuthStore.getState().user?.plan || 'free',
+      }),
+    });
+
+    eventSourceRef.current = es;
+    setIsRunning(true);
+    getAgentStore().startAgent();
+
+    // Handle all event types (same as connect function)
+    const eventTypes: AgentEventType[] = [
+      'tool_start',
+      'tool_input',
+      'tool_complete',
+      'tool_error',
+      'iteration_start',
+      'thinking_start',
+      'thinking',
+      'thinking_end',
+      'message',
+      'text_delta',
+      'plan_ready',
+      'usage',
+      'budget_exceeded',
+      'complete',
+      'error',
+      'fatal_error',
+      'done',
+    ];
+
+    eventTypes.forEach((eventType) => {
+      es.addEventListener(eventType as any, (event: any) => {
+        if (event.data && event.data !== '[DONE]') {
+          handleEvent(eventType, event.data);
+        }
+        if (eventType === 'done' || eventType === 'complete') {
+          es.close();
+        }
+      });
+    });
+
+    es.addEventListener('open', () => {
+      console.log('[AgentStream] Connected to execute mode');
+      reconnectAttemptsRef.current = 0;
+    });
+
+    es.addEventListener('error', (error: any) => {
+      console.error('[AgentStream] Execute error:', error);
+      es.close();
+      eventSourceRef.current = null;
+      setIsRunning(false);
+      getAgentStore().stopAgent();
+      const errorMsg = error.message || 'Execution failed';
+      setError(errorMsg);
+      onError?.(errorMsg);
+    });
+  }, [currentPrompt, currentProjectId, currentModel, currentConversationHistory, currentThinkingLevel, plan, handleEvent, getAgentStore, onError]);
 
   /**
    * Stop agent execution
@@ -426,6 +560,11 @@ export function useAgentStream(
     setError(null);
     setAgentPlan(null);
     setSummary(null);
+    setCurrentPrompt(null);
+    setCurrentProjectId(null);
+    setCurrentModel(null);
+    setCurrentConversationHistory([]);
+    setCurrentThinkingLevel(null);
     getAgentStore().reset();
   }, [getAgentStore]);
 
@@ -443,7 +582,11 @@ export function useAgentStream(
     error,
     plan,
     summary,
+    currentPrompt,
+    currentProjectId,
+    currentModel,
     start,
+    startExecuting,
     stop,
     reset,
   };

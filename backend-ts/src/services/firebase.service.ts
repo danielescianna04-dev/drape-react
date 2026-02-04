@@ -1,6 +1,8 @@
 import admin from 'firebase-admin';
 import { config } from '../config';
 import { log } from '../utils/logger';
+import * as path from 'path';
+import * as fs from 'fs';
 
 class FirebaseService {
   private app: admin.app.App | null = null;
@@ -10,11 +12,24 @@ class FirebaseService {
     if (this.app) return;
 
     try {
-      this.app = admin.initializeApp({
-        projectId: config.googleCloudProject,
-      });
+      // Load service account for FCM support
+      const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
+
+      if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccount = require(serviceAccountPath);
+        this.app = admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          projectId: config.googleCloudProject,
+        });
+        log.info('[Firebase] Initialized with service account (FCM enabled)');
+      } else {
+        this.app = admin.initializeApp({
+          projectId: config.googleCloudProject,
+        });
+        log.warn('[Firebase] Initialized without service account (FCM disabled)');
+      }
+
       this.db = admin.firestore();
-      log.info('[Firebase] Initialized');
     } catch (err: any) {
       if (err.code === 'app/duplicate-app') {
         this.app = admin.app();

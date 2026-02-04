@@ -10,12 +10,17 @@
     },
     "preview": {
       "distribution": "internal",
+      "developmentClient": false,
       "android": {
         "buildType": "apk"
+      },
+      "ios": {
+        "buildConfiguration": "Release"
       }
     },
     "production": {
       "node": "20.11.0",
+      "developmentClient": false,
       "env": {
         "EXPO_PUBLIC_ENV": "production"
       },

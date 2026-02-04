@@ -1,0 +1,60 @@
+{
+  "generic": "Si è verificato un errore. Riprova.",
+  "network": "Errore di rete. Controlla la tua connessione.",
+  "timeout": "La richiesta ha impiegato troppo tempo. Riprova.",
+  "notFound": "Risorsa non trovata.",
+  "unauthorized": "Accesso non autorizzato.",
+  "forbidden": "Operazione non permessa.",
+  "serverError": "Errore del server. Riprova più tardi.",
+  "validation": "Dati non validi. Controlla i campi e riprova.",
+  "ai": {
+    "quotaExceeded": "Quota AI esaurita. Riprova tra qualche minuto o passa a un piano superiore.",
+    "invalidRequest": "Richiesta non valida. Prova a riformulare il messaggio.",
+    "safetyBlocked": "Richiesta bloccata per motivi di sicurezza. Prova a riformulare il messaggio.",
+    "modelUnavailable": "Modello non disponibile. Prova con un altro modello.",
+    "accessDenied": "Accesso negato. Verifica la configurazione.",
+    "serviceUnavailable": "Servizio temporaneamente non disponibile. Riprova tra poco.",
+    "requestTooLong": "Richiesta troppo lunga. Prova con un messaggio più breve.",
+    "messageTooLong": "Messaggio troppo lungo. Riduci la lunghezza o inizia una nuova conversazione.",
+    "internalError": "Errore interno. Riprova tra qualche secondo.",
+    "reasoningError": "Errore nel ragionamento. Prova a riformulare il messaggio.",
+    "noResponse": "Il modello non ha generato una risposta. Riprova con un prompt diverso."
+  },
+  "git": {
+    "cloneFailed": "Impossibile clonare la repository.",
+    "pushFailed": "Impossibile effettuare il push.",
+    "pullFailed": "Impossibile effettuare il pull.",
+    "authFailed": "Autenticazione Git fallita.",
+    "invalidCredentials": "Credenziali non valide.",
+    "repoNotFound": "Repository non trovata.",
+    "branchNotFound": "Branch non trovato.",
+    "conflictError": "Conflitti da risolvere.",
+    "mergeError": "Errore durante il merge."
+  },
+  "project": {
+    "createFailed": "Impossibile creare il progetto.",
+    "deleteFailed": "Impossibile eliminare il progetto.",
+    "loadFailed": "Impossibile caricare il progetto.",
+    "saveFailed": "Impossibile salvare il progetto.",
+    "limitReached": "Limite progetti raggiunto."
+  },
+  "workspace": {
+    "startFailed": "Impossibile avviare il workspace.",
+    "stopFailed": "Impossibile arrestare il workspace.",
+    "connectionLost": "Connessione al workspace persa.",
+    "notReady": "Workspace non pronto."
+  },
+  "file": {
+    "readFailed": "Impossibile leggere il file.",
+    "writeFailed": "Impossibile scrivere il file.",
+    "deleteFailed": "Impossibile eliminare il file.",
+    "notFound": "File non trovato.",
+    "accessDenied": "Accesso al file negato."
+  },
+  "auth": {
+    "loginFailed": "Accesso fallito. Riprova.",
+    "logoutFailed": "Impossibile effettuare il logout.",
+    "sessionExpired": "Sessione scaduta. Effettua nuovamente l'accesso.",
+    "invalidCredentials": "Credenziali non valide."
+  }
+}

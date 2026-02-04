@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import {
   GitProvider,
@@ -29,6 +30,7 @@ interface Props {
 type Step = 'select-provider' | 'enter-credentials';
 
 export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) => {
+  const { t } = useTranslation(['settings', 'common']);
   const [step, setStep] = useState<Step>('select-provider');
   const [selectedProvider, setSelectedProvider] = useState<GitProvider | null>(null);
   const [username, setUsername] = useState('');
@@ -65,11 +67,11 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
     const providerConfig = GIT_PROVIDERS.find(p => p.id === selectedProvider);
     if (providerConfig?.requiresServerUrl && !serverUrl.trim()) {
-      Alert.alert('Errore', 'Inserisci l\'URL del server');
+      Alert.alert(t('common:error'), t('settings:gitAccounts.enterServerUrl'));
       return;
     }
     if (providerConfig?.requiresUsername && !username.trim()) {
-      Alert.alert('Errore', 'Inserisci il tuo username');
+      Alert.alert(t('common:error'), t('settings:gitAccounts.enterUsername'));
       return;
     }
 
@@ -87,12 +89,12 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         providerConfig?.requiresServerUrl ? serverUrl.trim() : undefined
       );
 
-      Alert.alert('Successo', 'Account collegato con successo!');
+      Alert.alert(t('common:success'), t('settings:gitAccounts.accountConnected'));
       onAccountAdded();
       handleClose();
     } catch (error: any) {
       console.error('Error adding account:', error);
-      Alert.alert('Errore', 'Credenziali non valide o errore di connessione');
+      Alert.alert(t('common:error'), t('settings:gitAccounts.invalidCredentials'));
     } finally {
       setLoading(false);
     }
@@ -151,7 +153,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
         {providerConfig?.requiresServerUrl && (
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Server URL</Text>
+            <Text style={styles.inputLabel}>{t('settings:gitAccounts.serverUrl')}</Text>
             <TextInput
               style={styles.input}
               placeholder="https://gitlab.mycompany.com"
@@ -166,10 +168,10 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
         {providerConfig?.requiresUsername && (
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Username</Text>
+            <Text style={styles.inputLabel}>{t('settings:gitAccounts.username')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Il tuo username Bitbucket"
+              placeholder={t('settings:gitAccounts.usernamePlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.3)"
               value={username}
               onChangeText={setUsername}
@@ -181,11 +183,11 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
 
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>
-            {providerConfig?.requiresUsername ? 'App Password' : 'Personal Access Token'}
+            {providerConfig?.requiresUsername ? t('settings:gitAccounts.appPassword') : t('settings:gitAccounts.personalAccessToken')}
           </Text>
           <TextInput
             style={styles.input}
-            placeholder={providerConfig?.requiresUsername ? 'La tua App Password' : 'ghp_xxxxxxxxxxxx'}
+            placeholder={providerConfig?.requiresUsername ? t('settings:gitAccounts.appPasswordPlaceholder') : 'ghp_xxxxxxxxxxxx'}
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={token}
             onChangeText={setToken}
@@ -195,12 +197,12 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           />
           <Text style={styles.inputHint}>
             {selectedProvider === 'github' || selectedProvider === 'github-enterprise'
-              ? 'Crea un token su GitHub > Settings > Developer settings > Personal access tokens'
+              ? t('settings:gitAccounts.tokenHints.github')
               : selectedProvider === 'gitlab' || selectedProvider === 'gitlab-server'
-                ? 'Crea un token su GitLab > Preferences > Access Tokens'
+                ? t('settings:gitAccounts.tokenHints.gitlab')
                 : selectedProvider === 'bitbucket' || selectedProvider === 'bitbucket-server'
-                  ? 'Crea un App Password su Bitbucket > Settings > App passwords'
-                  : 'Crea un access token nelle impostazioni del tuo account'}
+                  ? t('settings:gitAccounts.tokenHints.bitbucket')
+                  : t('settings:gitAccounts.tokenHints.generic')}
           </Text>
         </View>
 
@@ -209,7 +211,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
             style={styles.cancelBtn}
             onPress={handleBack}
           >
-            <Text style={styles.cancelBtnText}>Indietro</Text>
+            <Text style={styles.cancelBtnText}>{t('settings:gitAccounts.back')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -220,7 +222,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
             {loading ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.loginBtnText}>Collega</Text>
+              <Text style={styles.loginBtnText}>{t('settings:gitAccounts.connect')}</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -241,7 +243,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.title}>
-              {step === 'select-provider' ? 'Aggiungi Account' : 'Autenticazione'}
+              {step === 'select-provider' ? t('settings:gitAccounts.addAccountTitle') : t('settings:gitAccounts.authentication')}
             </Text>
             <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
               <View style={styles.closeBtnInner}>

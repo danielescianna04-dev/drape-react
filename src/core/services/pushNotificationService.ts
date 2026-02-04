@@ -69,10 +69,12 @@ class PushNotificationService {
         return;
       }
 
-      // Get device push token (APNs for iOS, FCM for Android)
-      const tokenData = await N.getDevicePushTokenAsync();
+      // Get Expo push token (works with Expo's push service)
+      const tokenData = await N.getExpoPushTokenAsync({
+        projectId: 'ec6c855f-5325-47b4-8d13-982ba9a83a1c',
+      });
       this.token = tokenData.data;
-      console.log('[Push] Device token obtained');
+      console.log('[Push] Expo push token obtained:', this.token.substring(0, 30) + '...');
 
       // Register token in Firestore and backend
       await this.registerToken(userId, this.token);

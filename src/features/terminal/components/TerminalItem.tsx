@@ -16,9 +16,11 @@ interface Props {
   isNextItemOutput?: boolean;
   outputItem?: TerminalItemType; // For terminal commands, include the output
   isLoading?: boolean; // For animated loading indicator
+  onPlanApprove?: () => void; // Callback when plan is approved
+  onPlanReject?: () => void; // Callback when plan is rejected
 }
 
-export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = false }: Props) => {
+export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = false, onPlanApprove, onPlanReject }: Props) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -28,6 +30,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const [loadingDots, setLoadingDots] = useState('.');
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string>('');
+  const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
 
   // 🔍 LOGGING DETTAGLIATO - Disabled for performance
   // useEffect(() => {
@@ -1180,23 +1183,33 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   ) : (
                   <View style={styles.assistantMessageContent}>
                     {showThinking && !item.content ? (
-                      <View>
-                        <Text style={styles.loadingText}>Thinking{loadingDots}</Text>
-                        {item.thinkingContent && (
-                          <Text style={styles.thinkingText}>{item.thinkingContent}</Text>
+                      // Active thinking - show streaming text in gray
+                      <View style={styles.thinkingStreamContainer}>
+                        {item.thinkingContent ? (
+                          <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
+                        ) : (
+                          <Text style={styles.thinkingStreamText}>Thinking{loadingDots}</Text>
                         )}
                       </View>
                     ) : (
                       <View>
+                        {/* Show thinking content in gray before the main response */}
                         {item.thinkingContent && (
-                          <View style={styles.thinkingContainer}>
-                            <Text style={styles.thinkingLabel}>Thinking:</Text>
-                            <Text style={styles.thinkingText}>{item.thinkingContent}</Text>
-                          </View>
+                          <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
                         )}
                         <View style={{ overflow: 'hidden', flex: 1 }}>
                           <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
                         </View>
+                        {/* Cost indicator for AI responses */}
+                        {item.costEur !== undefined && item.costEur > 0 && (
+                          <View style={styles.costIndicator}>
+                            <Ionicons name="flash-outline" size={11} color="rgba(255, 255, 255, 0.35)" />
+                            <Text style={styles.costText}>
+                              €{item.costEur < 0.01 ? item.costEur.toFixed(4) : item.costEur.toFixed(3)}
+                              {item.tokensUsed && ` · ${((item.tokensUsed.input + item.tokensUsed.output) / 1000).toFixed(1)}k tok`}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     )}
                   </View>
@@ -1260,6 +1273,46 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             </View>
             <Text style={styles.backendLogText}>{item.content || ''}</Text>
           </View>
+        )}
+
+        {item.type === ItemType.PLAN_APPROVAL && item.planInfo && (
+          <>
+            {/* Action Buttons - only show if pending */}
+            {item.planInfo.status === 'pending' && (
+              <View style={styles.planApprovalActions}>
+                <TouchableOpacity
+                  style={[styles.planApprovalButton, styles.planApprovalButtonReject]}
+                  onPress={onPlanReject}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle-outline" size={18} color="#F85149" />
+                  <Text style={[styles.planApprovalButtonText, { color: '#F85149' }]}>Rifiuta</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.planApprovalButton, styles.planApprovalButtonApprove]}
+                  onPress={onPlanApprove}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={[styles.planApprovalButtonText, { color: '#fff' }]}>Approva</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {/* Show status badge when approved/rejected */}
+            {item.planInfo.status === 'approved' && (
+              <View style={styles.planApprovalStatusBadge}>
+                <Ionicons name="checkmark-circle" size={16} color="#3FB950" />
+                <Text style={[styles.planApprovalStatusText, { color: '#3FB950' }]}>Piano approvato</Text>
+              </View>
+            )}
+            {item.planInfo.status === 'rejected' && (
+              <View style={styles.planApprovalStatusBadge}>
+                <Ionicons name="close-circle" size={16} color="#F85149" />
+                <Text style={[styles.planApprovalStatusText, { color: '#F85149' }]}>Piano rifiutato</Text>
+              </View>
+            )}
+          </>
         )}
       </View>
 
@@ -1974,6 +2027,96 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.5)',
     fontStyle: 'italic',
   },
+  // Active thinking (while AI is thinking)
+  thinkingActiveContainer: {
+    backgroundColor: 'rgba(139, 124, 246, 0.08)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.2)',
+  },
+  thinkingActiveHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  thinkingActiveLabel: {
+    fontSize: 14,
+    color: AppColors.primary,
+    fontWeight: '600',
+  },
+  thinkingActiveText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+  // Simple streaming thinking style
+  thinkingStreamContainer: {
+    paddingVertical: 2,
+  },
+  thinkingStreamText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontStyle: 'italic',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  // Collapsible thinking (after completion)
+  thinkingCollapsible: {
+    backgroundColor: 'rgba(139, 124, 246, 0.06)',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.15)',
+  },
+  thinkingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  thinkingHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  thinkingHeaderText: {
+    fontSize: 12,
+    color: 'rgba(139, 124, 246, 0.8)',
+    fontWeight: '600',
+  },
+  thinkingPreviewText: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontStyle: 'italic',
+    marginTop: 6,
+    lineHeight: 16,
+  },
+  thinkingExpandedText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontStyle: 'italic',
+    marginTop: 10,
+    lineHeight: 18,
+  },
+  // Cost indicator styles
+  costIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  costText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  // Legacy styles (kept for compatibility)
   thinkingContainer: {
     marginTop: 8,
     marginBottom: 12,
@@ -2088,6 +2231,73 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: 'rgba(139, 124, 246, 0.9)',
     lineHeight: 18,
+  },
+  // Backend Log styles
+  backendLogBlock: {
+    backgroundColor: 'rgba(30, 35, 45, 0.6)',
+    borderRadius: 8,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#58A6FF',
+  },
+  backendLogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  backendLogLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#58A6FF',
+    letterSpacing: 0.5,
+    flex: 1,
+  },
+  backendLogTime: {
+    fontSize: 10,
+    color: '#8B949E',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  backendLogText: {
+    fontSize: 12,
+    color: '#C9D1D9',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 18,
+  },
+  // Plan Approval Styles
+  planApprovalActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+  planApprovalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+  },
+  planApprovalButtonReject: {
+    backgroundColor: 'rgba(248, 81, 73, 0.15)',
+  },
+  planApprovalButtonApprove: {
+    backgroundColor: AppColors.primary,
+  },
+  planApprovalButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  planApprovalStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  planApprovalStatusText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 });
 
@@ -2269,37 +2479,5 @@ const markdownStyles = {
   td: {
     padding: 8,
     color: 'rgba(255, 255, 255, 0.85)',
-  },
-  // Backend Log styles
-  backendLogBlock: {
-    backgroundColor: 'rgba(30, 35, 45, 0.6)',
-    borderRadius: 8,
-    padding: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#58A6FF',
-  },
-  backendLogHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  backendLogLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#58A6FF',
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  backendLogTime: {
-    fontSize: 10,
-    color: '#8B949E',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  backendLogText: {
-    fontSize: 12,
-    color: '#C9D1D9',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    lineHeight: 18,
   },
 };

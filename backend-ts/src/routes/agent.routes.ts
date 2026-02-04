@@ -37,6 +37,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     model,
     conversationHistory,
     images,
+    thinkingLevel,
     userId,
     userPlan
   } = req.body;
@@ -46,6 +47,15 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   }
   if (!projectId) {
     throw new ValidationError('projectId is required');
+  }
+
+  // Determine mode from URL path
+  const path = req.path;
+  let mode: 'fast' | 'plan' | 'execute' = 'fast';
+  if (path.includes('/run/plan')) {
+    mode = 'plan';
+  } else if (path.includes('/run/execute')) {
+    mode = 'execute';
   }
 
   // Set SSE headers and flush immediately so client receives them
@@ -59,7 +69,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   // Send initial SSE comment to confirm connection
   res.write(': connected\n\n');
 
-  log.info(`[Agent] SSE headers flushed for project ${projectId}`);
+  log.info(`[Agent] SSE headers flushed for project ${projectId}, mode: ${mode}`);
 
   // Keep-alive interval
   const keepAliveInterval = setInterval(() => {
@@ -89,16 +99,18 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   });
 
   try {
-    // Create AgentLoop with options
+    // Create AgentLoop with options and mode
     const agentLoop = new AgentLoop({
       projectId,
+      mode,
       model: model || 'claude-3-5-sonnet-20241022',
       conversationHistory: conversationHistory || [],
+      thinkingLevel,
       userId,
       userPlan,
     });
 
-    log.info(`[Agent] Starting stream for project ${projectId}, model: ${model || 'default'}`);
+    log.info(`[Agent] Starting stream for project ${projectId}, mode: ${mode}, model: ${model || 'default'}`);
 
     // Stream events from agent loop
     for await (const event of agentLoop.run(prompt, images)) {

@@ -58,10 +58,10 @@
       <true/>
       <key>NSExceptionDomains</key>
       <dict>
-        <key>77.42.1.116</key>
+        <key>drape.info</key>
         <dict>
           <key>NSExceptionAllowsInsecureHTTPLoads</key>
-          <true/>
+          <false/>
           <key>NSIncludesSubdomains</key>
           <true/>
         </dict>
@@ -105,5 +105,9 @@
     <string>Light</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <false/>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>remote-notification</string>
+    </array>
   </dict>
 </plist>

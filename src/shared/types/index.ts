@@ -7,6 +7,7 @@ export enum TerminalItemType {
   USER_MESSAGE = 'user_message', // User message in chat (not a terminal command)
   BACKEND_LOG = 'backend_log', // Real-time backend log
   TOOL_USE = 'tool_use', // Rich visualization for agent tool tools
+  PLAN_APPROVAL = 'plan_approval', // Plan waiting for user approval
 }
 
 export type TerminalSource = 'preview' | 'chat' | 'terminal' | 'ai' | 'system';
@@ -25,6 +26,8 @@ export interface TerminalItem {
   isAgentProgress?: boolean; // Show agent progress UI for this item
   agentEvents?: any[]; // Snapshot of tool events for this specific run
   isExecuting?: boolean; // Show pulsing animation for tool being executed
+  costEur?: number; // Cost of AI response in EUR
+  tokensUsed?: { input: number; output: number }; // Tokens used for this response
   images?: {
     uri: string;
     base64?: string;
@@ -35,6 +38,11 @@ export interface TerminalItem {
     input: any;
     output?: any;
     status: 'running' | 'completed' | 'error';
+  };
+  planInfo?: {
+    title: string;
+    steps: string[];
+    status: 'pending' | 'approved' | 'rejected';
   };
 }
 

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
 import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
@@ -59,6 +60,7 @@ const getLanguageColor = (language: string): string => {
 };
 
 export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
+  const { t } = useTranslation(['projects', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,10 +70,10 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const [activeFilter, setActiveFilter] = useState<'all' | 'git' | 'personal' | 'local'>('all');
 
   const filterOptions = [
-    { id: 'all' as const, label: 'Tutti', icon: 'layers-outline' },
-    { id: 'git' as const, label: 'Git', icon: 'logo-github' },
-    { id: 'personal' as const, label: 'Creati', icon: 'create-outline' },
-    { id: 'local' as const, label: 'Local', icon: 'phone-portrait-outline' },
+    { id: 'all' as const, label: t('projects:all.filter.all'), icon: 'layers-outline' },
+    { id: 'git' as const, label: t('projects:all.filter.git'), icon: 'logo-github' },
+    { id: 'personal' as const, label: t('projects:all.filter.created'), icon: 'create-outline' },
+    { id: 'local' as const, label: t('projects:all.filter.local'), icon: 'phone-portrait-outline' },
   ];
 
   // Skeleton animation
@@ -114,7 +116,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
       setProjects(sorted);
     } catch (error) {
       console.error('Error loading projects:', error);
-      Alert.alert('Errore', 'Impossibile caricare i progetti');
+      Alert.alert(t('common:error'), t('projects:all.unableToLoad'));
     } finally {
       setLoading(false);
     }
@@ -138,7 +140,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         loadProjects();
       } catch (error) {
         console.error('Error deleting project:', error);
-        Alert.alert('Errore', 'Impossibile eliminare il progetto');
+        Alert.alert(t('common:error'), t('common:unableToDelete'));
       }
     };
 
@@ -148,11 +150,11 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     }
 
     Alert.alert(
-      'Elimina Progetto',
-      'Sei sicuro di voler eliminare questo progetto?',
+      t('projects:actions.delete'),
+      t('projects:all.deleteConfirmSingle'),
       [
-        { text: 'Annulla', style: 'cancel' },
-        { text: 'Elimina', style: 'destructive', onPress: doDelete },
+        { text: t('common:cancel'), style: 'cancel' },
+        { text: t('common:delete'), style: 'destructive', onPress: doDelete },
       ]
     );
   };
@@ -186,12 +188,12 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     if (selectedIds.size === 0) return;
 
     Alert.alert(
-      'Elimina Progetti',
-      `Sei sicuro di voler eliminare ${selectedIds.size} progett${selectedIds.size === 1 ? 'o' : 'i'}?`,
+      t('projects:all.deleteMultiple'),
+      t('projects:all.deleteMultipleConfirm', { count: selectedIds.size }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Elimina',
+          text: t('common:delete'),
           style: 'destructive',
           onPress: async () => {
             setIsDeleting(true);
@@ -204,7 +206,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
               exitSelectionMode();
             } catch (error) {
               console.error('Error deleting projects:', error);
-              Alert.alert('Errore', 'Impossibile eliminare alcuni progetti');
+              Alert.alert(t('common:error'), t('projects:actions.unableToDelete'));
             } finally {
               setIsDeleting(false);
             }
@@ -235,7 +237,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   };
 
   const getTimeAgo = (date: any) => {
-    if (!date) return 'ora';
+    if (!date) return t('projects:now');
     const now = new Date();
     const then = new Date(date);
     const diff = now.getTime() - then.getTime();
@@ -243,10 +245,10 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
 
-    if (days > 0) return `${days}g fa`;
-    if (hours > 0) return `${hours}h fa`;
-    if (minutes > 1) return `${minutes}m fa`;
-    return 'ora';
+    if (days > 0) return t('projects:daysAgo', { count: days });
+    if (hours > 0) return t('projects:hoursAgo', { count: hours });
+    if (minutes > 1) return `${minutes}m`;
+    return t('projects:now');
   };
 
   const filteredProjects = projects.filter((ws) => {
@@ -314,7 +316,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           <View style={styles.projectInfo}>
             <Text style={styles.projectName} numberOfLines={1}>{project.name}</Text>
             <View style={styles.projectMetaRow}>
-              <Text style={styles.projectLang} numberOfLines={1}>{repoInfo || project.language || 'Progetto'}</Text>
+              <Text style={styles.projectLang} numberOfLines={1}>{repoInfo || project.language || t('projects:project')}</Text>
               <View style={styles.metaDot} />
               <Text style={styles.projectTime}>{getTimeAgo(project.createdAt)}</Text>
             </View>
@@ -405,8 +407,8 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
 
         <Text style={styles.headerTitle}>
           {selectionMode
-            ? `${selectedIds.size} selezionati`
-            : 'Tutti i Progetti'
+            ? t('projects:all.selected', { count: selectedIds.size })
+            : t('projects:all.title')
           }
         </Text>
 
@@ -417,8 +419,8 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
         >
           <Text style={styles.selectHeaderBtnText}>
             {selectionMode
-              ? (selectedIds.size === filteredProjects.length ? 'Nessuno' : 'Tutti')
-              : 'Modifica'
+              ? (selectedIds.size === filteredProjects.length ? t('projects:all.selectNone') : t('projects:all.selectAll'))
+              : t('projects:all.edit')
             }
           </Text>
         </TouchableOpacity>
@@ -437,7 +439,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
               <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search projects..."
+                placeholder={t('common:searchPlaceholder')}
                 placeholderTextColor="rgba(255,255,255,0.25)"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -455,7 +457,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             <Ionicons name="search" size={18} color="rgba(255,255,255,0.3)" />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search projects..."
+              placeholder={t('common:searchPlaceholder')}
               placeholderTextColor="rgba(255,255,255,0.25)"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -535,12 +537,12 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           <View style={styles.emptyState}>
             <Ionicons name="folder-open-outline" size={64} color="rgba(255,255,255,0.05)" />
             <Text style={styles.emptyText}>
-              {searchQuery ? 'Nessun risultato' : 'Ancora nessun progetto'}
+              {searchQuery ? t('projects:all.noResults') : t('projects:all.noProjectsYet')}
             </Text>
             <Text style={styles.emptySubtext}>
               {searchQuery
-                ? `Non abbiamo trovato nulla per "${searchQuery}"`
-                : 'I tuoi progetti appariranno qui'
+                ? `${t('projects:all.nothingFound')} "${searchQuery}"`
+                : t('projects:all.projectsWillAppear')
               }
             </Text>
           </View>
@@ -567,7 +569,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
               >
                 <Ionicons name="trash-outline" size={20} color="#fff" />
                 <Text style={styles.deleteSelectedText}>
-                  {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+                  {isDeleting ? t('projects:actions.deleting') : (selectedIds.size === 1 ? t('projects:all.deleteSelected', { count: selectedIds.size }) : t('projects:all.deleteSelectedPlural', { count: selectedIds.size }))}
                 </Text>
               </TouchableOpacity>
             </LiquidGlassView>
@@ -580,7 +582,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
             >
               <Ionicons name="trash-outline" size={20} color="#fff" />
               <Text style={styles.deleteSelectedText}>
-                {isDeleting ? 'Eliminazione...' : `Elimina ${selectedIds.size} Progett${selectedIds.size === 1 ? 'o' : 'i'}`}
+                {isDeleting ? t('projects:actions.deleting') : (selectedIds.size === 1 ? t('projects:all.deleteSelected', { count: selectedIds.size }) : t('projects:all.deleteSelectedPlural', { count: selectedIds.size }))}
               </Text>
             </TouchableOpacity>
           )}

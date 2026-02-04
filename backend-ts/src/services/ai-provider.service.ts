@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import Groq from 'groq-sdk';
 import { config } from '../config';
 import { log } from '../utils/logger';
@@ -13,8 +14,8 @@ export interface ChatMessage {
 export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64' | 'url'; media_type?: string; data?: string; url?: string } }
-  | { type: 'tool_use'; id: string; name: string; input: any }
-  | { type: 'tool_result'; tool_use_id: string; content: string };
+  | { type: 'tool_use'; id: string; name: string; input: any; thoughtSignature?: string }
+  | { type: 'tool_result'; tool_use_id: string; content: string; thoughtSignature?: string };
 
 export interface ToolDefinition {
   name: string;
@@ -30,6 +31,7 @@ export interface ToolCall {
   id: string;
   name: string;
   input: any;
+  thoughtSignature?: string; // Gemini 3 thought signature for tool calls
 }
 
 export interface UsageInfo {
@@ -45,7 +47,7 @@ export type StreamChunk =
   | { type: 'thinking'; text: string }
   | { type: 'thinking_end' }
   | { type: 'tool_start'; id: string; name: string }
-  | { type: 'tool_use'; id: string; name: string; input: any }
+  | { type: 'tool_use'; id: string; name: string; input: any; thoughtSignature?: string }
   | { type: 'done'; fullText: string; toolCalls: ToolCall[]; stopReason: string; usage: UsageInfo };
 
 export interface ModelConfig {
@@ -66,6 +68,7 @@ class AIProviderService {
   private static instance: AIProviderService;
   private anthropicClient: Anthropic | null = null;
   private geminiClient: GoogleGenerativeAI | null = null;
+  private geminiGenAI: GoogleGenAI | null = null; // New SDK for Gemini 3 with thinking
   private groqClient: Groq | null = null;
 
   private readonly modelRegistry: Record<string, ModelConfig> = {
@@ -79,6 +82,26 @@ class AIProviderService {
       costPerMInputToken: 3.0,
       costPerMOutputToken: 15.0,
     },
+    'claude-4-5-sonnet': {
+      provider: 'anthropic',
+      modelId: 'claude-sonnet-4-20250514',
+      maxTokens: 8192,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 3.0,
+      costPerMOutputToken: 15.0,
+    },
+    'claude-4-5-opus': {
+      provider: 'anthropic',
+      modelId: 'claude-opus-4-20250514',
+      maxTokens: 8192,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 15.0,
+      costPerMOutputToken: 75.0,
+    },
     'claude-haiku-3.5': {
       provider: 'anthropic',
       modelId: 'claude-3-5-haiku-20241022',
@@ -89,35 +112,25 @@ class AIProviderService {
       costPerMInputToken: 0.8,
       costPerMOutputToken: 4.0,
     },
-    'gemini-2.5-flash': {
-      provider: 'gemini',
-      modelId: 'gemini-2.5-flash',
-      maxTokens: 8192,
-      supportsTools: true,
-      supportsStreaming: true,
-      supportsImages: true,
-      costPerMInputToken: 0.075,
-      costPerMOutputToken: 0.3,
-    },
     'gemini-3-flash': {
       provider: 'gemini',
-      modelId: 'gemini-2.5-flash',
-      maxTokens: 8192,
+      modelId: 'gemini-3-flash-preview',
+      maxTokens: 65536, // Gemini 3 supports up to 1M context
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
-      costPerMInputToken: 0.075,
-      costPerMOutputToken: 0.3,
+      costPerMInputToken: 0.5,
+      costPerMOutputToken: 3.0,
     },
-    'gemini-2.5-pro': {
+    'gemini-3-pro': {
       provider: 'gemini',
-      modelId: 'gemini-2.5-pro',
-      maxTokens: 8192,
+      modelId: 'gemini-3-pro-preview',
+      maxTokens: 65536, // Gemini 3 supports up to 1M context
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
       costPerMInputToken: 1.25,
-      costPerMOutputToken: 5.0,
+      costPerMOutputToken: 10.0,
     },
     'llama-3.3-70b': {
       provider: 'groq',
@@ -153,7 +166,9 @@ class AIProviderService {
 
       if (config.geminiApiKey) {
         this.geminiClient = new GoogleGenerativeAI(config.geminiApiKey);
-        log.info('Gemini client initialized');
+        // New SDK for Gemini 3 with thinking support
+        this.geminiGenAI = new GoogleGenAI({ apiKey: config.geminiApiKey });
+        log.info('Gemini clients initialized (legacy + GenAI with thinking)');
       }
 
       if (config.groqApiKey) {
@@ -183,7 +198,7 @@ class AIProviderService {
     messages: ChatMessage[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    options?: { temperature?: number; maxTokens?: number }
+    options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null }
   ): AsyncGenerator<StreamChunk> {
     const modelConfig = this.getModelConfig(model);
     if (!modelConfig) {
@@ -364,14 +379,25 @@ class AIProviderService {
 
   /**
    * Gemini streaming implementation
+   * Uses new @google/genai SDK for Gemini 3 with thinking support
    */
   private async *geminiStream(
     modelConfig: ModelConfig,
     messages: ChatMessage[],
     tools?: ToolDefinition[],
     systemPrompt?: string,
-    options?: { temperature?: number; maxTokens?: number }
+    options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null }
   ): AsyncGenerator<StreamChunk> {
+    // Check if this is a Gemini 3 model (supports native thinking via new SDK)
+    const isGemini3 = modelConfig.modelId.includes('gemini-3');
+
+    // Use new SDK for Gemini 3 with thinking, fall back to legacy for older models
+    if (isGemini3 && this.geminiGenAI) {
+      yield* this.gemini3StreamWithThinking(modelConfig, messages, tools, systemPrompt, options);
+      return;
+    }
+
+    // Legacy implementation for non-Gemini-3 models
     if (!this.geminiClient) {
       throw new Error('Gemini client not initialized. Check API key configuration.');
     }
@@ -392,42 +418,35 @@ class AIProviderService {
         generationConfig.temperature = options.temperature;
       }
 
+      // Build safety settings
+      const safetySettings = [
+        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      ];
+
+      if ((HarmCategory as any).HARM_CATEGORY_CIVIC_INTEGRITY) {
+        safetySettings.push({
+          category: (HarmCategory as any).HARM_CATEGORY_CIVIC_INTEGRITY,
+          threshold: HarmBlockThreshold.BLOCK_NONE,
+        });
+      }
+
       const requestParams: any = {
         contents: formattedMessages,
         generationConfig,
-        safetySettings: [
-          {
-            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-        ],
+        safetySettings,
       };
 
       if (tools && tools.length > 0) {
-        requestParams.tools = [
-          {
-            functionDeclarations: this.formatToolsForProvider(tools, 'gemini'),
-          },
-        ];
+        requestParams.tools = [{ functionDeclarations: this.formatToolsForProvider(tools, 'gemini') }];
       }
 
       const streamingResult = await model.generateContentStream(requestParams);
 
       let fullText = '';
       const toolCalls: ToolCall[] = [];
-      let inThinking = false;
       let usage: UsageInfo = { inputTokens: 0, outputTokens: 0 };
 
       for await (const chunk of streamingResult.stream) {
@@ -438,48 +457,23 @@ class AIProviderService {
         if (!content?.parts) continue;
 
         for (const part of content.parts) {
-          // Handle text content
-          if (part.text) {
-            // Check if this is thinking/reasoning content
-            if (part.text.includes('<thinking>') || inThinking) {
-              if (!inThinking) {
-                inThinking = true;
-                yield { type: 'thinking_start' };
-              }
-
-              const thinkingText = part.text.replace(/<\/?thinking>/g, '');
-              if (thinkingText) {
-                yield { type: 'thinking', text: thinkingText };
-              }
-
-              if (part.text.includes('</thinking>')) {
-                inThinking = false;
-                yield { type: 'thinking_end' };
-              }
-            } else {
-              fullText += part.text;
-              yield { type: 'text', text: part.text };
-            }
+          if (part.text !== undefined && part.text !== null && part.text !== '') {
+            fullText += part.text;
+            yield { type: 'text', text: part.text };
           }
 
-          // Handle function calls (tool use)
-          if (part.functionCall) {
+          if ((part as any).functionCall) {
             const toolId = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const toolName = part.functionCall.name;
-            const toolInput = part.functionCall.args;
+            const toolName = (part as any).functionCall.name;
+            const toolInput = (part as any).functionCall.args;
 
             yield { type: 'tool_start', id: toolId, name: toolName };
             yield { type: 'tool_use', id: toolId, name: toolName, input: toolInput };
 
-            toolCalls.push({
-              id: toolId,
-              name: toolName,
-              input: toolInput,
-            });
+            toolCalls.push({ id: toolId, name: toolName, input: toolInput });
           }
         }
 
-        // Extract usage information
         if (chunk.usageMetadata) {
           usage.inputTokens = chunk.usageMetadata.promptTokenCount || 0;
           usage.outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
@@ -489,17 +483,243 @@ class AIProviderService {
       const response = await streamingResult.response;
       const finishReason = response.candidates?.[0]?.finishReason || 'STOP';
 
-      yield {
-        type: 'done',
-        fullText,
-        toolCalls,
-        stopReason: finishReason,
-        usage,
-      };
-    } catch (error) {
-      log.error('Gemini streaming error:', error);
-      throw error;
+      yield { type: 'done', fullText, toolCalls, stopReason: finishReason, usage };
+    } catch (error: any) {
+      log.error('[Gemini Legacy] Streaming error:', error.message);
+      throw new Error(`Errore Gemini: ${error.message?.substring(0, 100)}`);
     }
+  }
+
+  /**
+   * Gemini 3 streaming with thinking support using new @google/genai SDK
+   */
+  private async *gemini3StreamWithThinking(
+    modelConfig: ModelConfig,
+    messages: ChatMessage[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string,
+    options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null }
+  ): AsyncGenerator<StreamChunk> {
+    if (!this.geminiGenAI) {
+      throw new Error('Gemini GenAI client not initialized.');
+    }
+
+    try {
+      const isFlash = modelConfig.modelId.includes('flash');
+
+      // Determine thinking level
+      let thinkingLevel = options?.thinkingLevel || (isFlash ? 'medium' : 'low');
+      const validFlashLevels = ['minimal', 'low', 'medium', 'high'];
+      const validProLevels = ['low', 'high'];
+      const validLevels = isFlash ? validFlashLevels : validProLevels;
+
+      if (!validLevels.includes(thinkingLevel)) {
+        thinkingLevel = isFlash ? 'medium' : 'low';
+      }
+
+      log.info(`[Gemini 3] Using new SDK with thinking (level: ${thinkingLevel}, includeThoughts: true)`);
+
+      // Format contents for the new SDK
+      const contents = this.formatContentsForGenAI(messages, systemPrompt);
+
+      // Build config with thinking
+      const config: any = {
+        thinkingConfig: {
+          thinkingLevel,
+          includeThoughts: true,
+        },
+        maxOutputTokens: options?.maxTokens || 65536,
+      };
+
+      if (options?.temperature !== undefined) {
+        config.temperature = options.temperature;
+      }
+
+      // Add tools if provided
+      if (tools && tools.length > 0) {
+        config.tools = [{
+          functionDeclarations: tools.map(t => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.input_schema,
+          })),
+        }];
+      }
+
+      // Use the new SDK's streaming method
+      const response = await this.geminiGenAI.models.generateContentStream({
+        model: modelConfig.modelId,
+        contents,
+        config,
+      });
+
+      let fullText = '';
+      const toolCalls: ToolCall[] = [];
+      let thinkingStarted = false;
+      let usage: UsageInfo = { inputTokens: 0, outputTokens: 0 };
+
+      let chunkIndex = 0;
+      for await (const chunk of response) {
+        chunkIndex++;
+        // Debug: Log raw chunk structure for first few chunks
+        if (chunkIndex <= 3) {
+          log.info(`[Gemini 3] Chunk ${chunkIndex} keys: ${Object.keys(chunk).join(', ')}`);
+          const candidates = (chunk as any).candidates;
+          if (candidates?.[0]) {
+            const c = candidates[0];
+            log.info(`[Gemini 3] Candidate keys: ${Object.keys(c).join(', ')}`);
+            if (c.content) {
+              log.info(`[Gemini 3] Content keys: ${Object.keys(c.content).join(', ')}`);
+            }
+            if (c.content?.parts) {
+              const parts = c.content.parts;
+              log.info(`[Gemini 3] Parts count: ${parts.length}`);
+              for (let i = 0; i < parts.length; i++) {
+                const p = parts[i];
+                log.info(`[Gemini 3] Part ${i}: ${JSON.stringify(p).substring(0, 200)}`);
+              }
+            }
+          }
+        }
+
+        // Handle candidates from the new SDK response format
+        const candidates = (chunk as any).candidates;
+        if (!candidates || candidates.length === 0) continue;
+
+        const candidate = candidates[0];
+        const content = candidate.content;
+        if (!content?.parts) continue;
+
+        for (const part of content.parts) {
+          // Check for thinking part (thought: true indicates thinking content)
+          if (part.thought === true && part.text) {
+            if (!thinkingStarted) {
+              thinkingStarted = true;
+              yield { type: 'thinking_start' };
+            }
+            yield { type: 'thinking', text: part.text };
+            log.info(`[Gemini 3] Thinking: ${part.text.substring(0, 80)}...`);
+            continue;
+          }
+
+          // Handle regular text (not thinking)
+          if (part.text !== undefined && part.text !== null && part.text !== '') {
+            // End thinking phase when regular text starts
+            if (thinkingStarted) {
+              yield { type: 'thinking_end' };
+              thinkingStarted = false;
+            }
+            fullText += part.text;
+            yield { type: 'text', text: part.text };
+          }
+
+          // Handle function calls
+          if (part.functionCall) {
+            if (thinkingStarted) {
+              yield { type: 'thinking_end' };
+              thinkingStarted = false;
+            }
+
+            const toolId = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const toolName = part.functionCall.name;
+            const toolInput = part.functionCall.args;
+            const thoughtSignature = part.thoughtSignature;
+
+            yield { type: 'tool_start', id: toolId, name: toolName };
+            yield { type: 'tool_use', id: toolId, name: toolName, input: toolInput, thoughtSignature };
+
+            toolCalls.push({ id: toolId, name: toolName, input: toolInput, thoughtSignature });
+          }
+        }
+
+        // Extract usage from chunk
+        const usageMetadata = (chunk as any).usageMetadata;
+        if (usageMetadata) {
+          usage.inputTokens = usageMetadata.promptTokenCount || 0;
+          usage.outputTokens = usageMetadata.candidatesTokenCount || 0;
+        }
+      }
+
+      // Ensure thinking is ended
+      if (thinkingStarted) {
+        yield { type: 'thinking_end' };
+      }
+
+      yield { type: 'done', fullText, toolCalls, stopReason: 'STOP', usage };
+    } catch (error: any) {
+      const errorMessage = error.message || String(error);
+      log.error('[Gemini 3] Streaming error:', errorMessage);
+
+      if (errorMessage.includes('thinkingConfig') || errorMessage.includes('Unknown name')) {
+        throw new Error('Errore configurazione thinking Gemini 3. Verifica la versione del SDK.');
+      }
+
+      throw new Error(`Errore Gemini 3: ${errorMessage.substring(0, 100)}`);
+    }
+  }
+
+  /**
+   * Format messages for the new @google/genai SDK
+   */
+  private formatContentsForGenAI(messages: ChatMessage[], systemPrompt?: string): any[] {
+    const contents: any[] = [];
+
+    // Add system prompt as first user message if provided
+    const system = this.extractSystemPrompt(messages, systemPrompt);
+    if (system) {
+      contents.push({
+        role: 'user',
+        parts: [{ text: `System: ${system}` }],
+      });
+      contents.push({
+        role: 'model',
+        parts: [{ text: 'Understood. I will follow these instructions.' }],
+      });
+    }
+
+    // Filter out system messages and format
+    const nonSystemMessages = messages.filter(m => m.role !== 'system');
+
+    for (const msg of nonSystemMessages) {
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      const parts: any[] = [];
+
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            parts.push({ text: block.text });
+          } else if (block.type === 'image' && block.source.type === 'base64' && block.source.data) {
+            parts.push({
+              inlineData: {
+                mimeType: block.source.media_type || 'image/jpeg',
+                data: block.source.data,
+              },
+            });
+          } else if (block.type === 'tool_use') {
+            const part: any = {
+              functionCall: { name: block.name, args: block.input },
+            };
+            // Include thoughtSignature at part level for Gemini 3 thinking
+            if ((block as any).thoughtSignature) {
+              part.thoughtSignature = (block as any).thoughtSignature;
+            }
+            parts.push(part);
+          } else if (block.type === 'tool_result') {
+            parts.push({
+              functionResponse: { name: block.tool_use_id, response: { result: block.content } },
+            });
+          }
+        }
+      } else {
+        parts.push({ text: msg.content });
+      }
+
+      if (parts.length > 0) {
+        contents.push({ role, parts });
+      }
+    }
+
+    return contents;
   }
 
   /**
@@ -689,6 +909,22 @@ class AIProviderService {
         }));
 
       case 'gemini':
+        // Build maps of tool_use_id -> function_name and tool_use_id -> thoughtSignature
+        const toolIdToName: Record<string, string> = {};
+        const toolIdToSignature: Record<string, string> = {};
+        for (const msg of nonSystemMessages) {
+          if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+              if (block.type === 'tool_use') {
+                toolIdToName[block.id] = block.name;
+                if (block.thoughtSignature) {
+                  toolIdToSignature[block.id] = block.thoughtSignature;
+                }
+              }
+            }
+          }
+        }
+
         return nonSystemMessages.map((msg) => {
           const role = msg.role === 'assistant' ? 'model' : 'user';
           const parts: any[] = [];
@@ -711,19 +947,33 @@ class AIProviderService {
                   parts.push({ text: `[Image: ${block.source.url}]` });
                 }
               } else if (block.type === 'tool_use') {
-                parts.push({
+                // Include thoughtSignature for Gemini 3 if present
+                const functionCallPart: any = {
                   functionCall: {
                     name: block.name,
                     args: block.input,
                   },
-                });
+                };
+                if (block.thoughtSignature) {
+                  functionCallPart.thoughtSignature = block.thoughtSignature;
+                }
+                parts.push(functionCallPart);
               } else if (block.type === 'tool_result') {
-                parts.push({
+                // Use the function name and thoughtSignature from our maps
+                const functionName = toolIdToName[block.tool_use_id] || block.tool_use_id;
+                const thoughtSignature = block.thoughtSignature || toolIdToSignature[block.tool_use_id];
+
+                const functionResponsePart: any = {
                   functionResponse: {
-                    name: block.tool_use_id,
+                    name: functionName,
                     response: { result: block.content },
                   },
-                });
+                };
+                // Include thoughtSignature for Gemini 3 if present
+                if (thoughtSignature) {
+                  functionResponsePart.thoughtSignature = thoughtSignature;
+                }
+                parts.push(functionResponsePart);
               }
             }
           } else {
