@@ -3221,32 +3221,38 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       );
                     })}
 
-                    {/* Thinking Level Options - always at bottom for Gemini 3 models */}
+                    {/* Thinking Level Options - always reserve space to prevent modal resize */}
                     {(() => {
                       const currentModel = AI_MODELS.find(m => m.id === selectedModel);
                       const hasThinkingOptions = currentModel?.thinkingLevels && currentModel.thinkingLevels.length > 0;
-
-                      if (!hasThinkingOptions) return null;
+                      // Use Gemini Flash levels as default for consistent spacing
+                      const defaultLevels = ['minimal', 'low', 'medium', 'high'];
+                      const levels = hasThinkingOptions ? currentModel.thinkingLevels : defaultLevels;
 
                       return (
-                        <View style={styles.thinkingLevelContainer}>
+                        <View style={[
+                          styles.thinkingLevelContainer,
+                          !hasThinkingOptions && { opacity: 0.3, pointerEvents: 'none' as const }
+                        ]}>
                           <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
                           <View style={styles.thinkingLevelOptions}>
-                            {currentModel.thinkingLevels.map((level: string) => (
+                            {levels.map((level: string) => (
                               <TouchableOpacity
                                 key={level}
                                 style={[
                                   styles.thinkingLevelChip,
-                                  thinkingLevel === level && styles.thinkingLevelChipActive
+                                  hasThinkingOptions && thinkingLevel === level && styles.thinkingLevelChipActive
                                 ]}
                                 onPress={() => {
-                                  setThinkingLevel(level);
-                                  closeDropdown();
+                                  if (hasThinkingOptions) {
+                                    setThinkingLevel(level);
+                                    closeDropdown();
+                                  }
                                 }}
                               >
                                 <SafeText style={[
                                   styles.thinkingLevelChipText,
-                                  thinkingLevel === level && styles.thinkingLevelChipTextActive
+                                  hasThinkingOptions && thinkingLevel === level && styles.thinkingLevelChipTextActive
                                 ]}>
                                   {THINKING_LEVEL_LABELS[level] || level}
                                 </SafeText>
