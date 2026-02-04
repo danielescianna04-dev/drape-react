@@ -3221,43 +3221,46 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       );
                     })}
 
-                    {/* Thinking Level Options - always reserve space to prevent modal resize */}
+                    {/* Thinking Level Options - always show all 4 levels to prevent modal resize */}
                     {(() => {
                       const currentModel = AI_MODELS.find(m => m.id === selectedModel);
-                      const hasThinkingOptions = currentModel?.thinkingLevels && currentModel.thinkingLevels.length > 0;
-                      // Use Gemini Flash levels as default for consistent spacing
-                      const defaultLevels = ['minimal', 'low', 'medium', 'high'];
-                      const levels = hasThinkingOptions ? currentModel.thinkingLevels : defaultLevels;
+                      const modelLevels = currentModel?.thinkingLevels || [];
+                      // Always show all 4 levels for consistent sizing
+                      const allLevels = ['minimal', 'low', 'medium', 'high'];
 
                       return (
-                        <View style={[
-                          styles.thinkingLevelContainer,
-                          !hasThinkingOptions && { opacity: 0.3, pointerEvents: 'none' as const }
-                        ]}>
+                        <View style={styles.thinkingLevelContainer}>
                           <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
                           <View style={styles.thinkingLevelOptions}>
-                            {levels.map((level: string) => (
-                              <TouchableOpacity
-                                key={level}
-                                style={[
-                                  styles.thinkingLevelChip,
-                                  hasThinkingOptions && thinkingLevel === level && styles.thinkingLevelChipActive
-                                ]}
-                                onPress={() => {
-                                  if (hasThinkingOptions) {
-                                    setThinkingLevel(level);
-                                    closeDropdown();
-                                  }
-                                }}
-                              >
-                                <SafeText style={[
-                                  styles.thinkingLevelChipText,
-                                  hasThinkingOptions && thinkingLevel === level && styles.thinkingLevelChipTextActive
-                                ]}>
-                                  {THINKING_LEVEL_LABELS[level] || level}
-                                </SafeText>
-                              </TouchableOpacity>
-                            ))}
+                            {allLevels.map((level: string) => {
+                              const isAvailable = modelLevels.includes(level);
+                              const isSelected = isAvailable && thinkingLevel === level;
+
+                              return (
+                                <TouchableOpacity
+                                  key={level}
+                                  style={[
+                                    styles.thinkingLevelChip,
+                                    isSelected && styles.thinkingLevelChipActive,
+                                    !isAvailable && { opacity: 0.25 }
+                                  ]}
+                                  onPress={() => {
+                                    if (isAvailable) {
+                                      setThinkingLevel(level);
+                                      closeDropdown();
+                                    }
+                                  }}
+                                  disabled={!isAvailable}
+                                >
+                                  <SafeText style={[
+                                    styles.thinkingLevelChipText,
+                                    isSelected && styles.thinkingLevelChipTextActive
+                                  ]}>
+                                    {THINKING_LEVEL_LABELS[level] || level}
+                                  </SafeText>
+                                </TouchableOpacity>
+                              );
+                            })}
                           </View>
                         </View>
                       );
