@@ -44,7 +44,7 @@ import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
-import { PlanApprovalModal } from '../../shared/components/molecules/PlanApprovalModal';
+// PlanApprovalModal removed - plans now shown inline in chat
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
 import { TodoList } from '../../shared/components/molecules/TodoList';
 import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQuestionModal';
@@ -74,11 +74,19 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 
 // Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-4-5-opus', name: 'Claude 4.5 Opus', IconComponent: AnthropicIcon },
-  { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon },
-  { id: 'gemini-3-pro', name: 'Gemini 3.0', IconComponent: GoogleIcon },
-  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon },
+  { id: 'claude-4-5-opus', name: 'Claude 4.5 Opus', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
+  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
+
+// Thinking level labels for display
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  minimal: 'Minimo',
+  low: 'Basso',
+  medium: 'Medio',
+  high: 'Alto',
+};
 
 interface ChatPageProps {
   tab?: Tab;
@@ -105,6 +113,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setForcedMode,
     selectedModel,
     setSelectedModel,
+    thinkingLevel,
+    setThinkingLevel,
     conversationHistory,
     setConversationHistory,
     scrollPaddingBottom,
@@ -131,6 +141,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const navigateTo = useNavigationStore((state) => state.navigateTo);
   const {
     start: startAgent,
+    startExecuting: executeAgentPlan,
     stop: stopAgent,
     isRunning: agentStreaming,
     events: agentEvents,
@@ -139,7 +150,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     reset: resetAgent
   } = useAgentStream(agentMode);
   // const [activeAgentProgressId, setActiveAgentProgressId] = useState<string | null>(null); // REMOVED
-  const [showPlanApproval, setShowPlanApproval] = useState(false);
+  const [planItemId, setPlanItemId] = useState<string | null>(null);
   const [showNextJsWarning, setShowNextJsWarning] = useState(false);
   const [nextJsWarningData, setNextJsWarningData] = useState<any>(null);
 
@@ -173,6 +184,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Track accumulated streaming content (to avoid losing deltas due to async state updates)
   const streamingContentRef = useRef<string>('');
 
+  // Track accumulated thinking content for real-time streaming
+  const thinkingContentRef = useRef<string>('');
+
+  // Track accumulated cost for the current agent session
+  const sessionCostRef = useRef<{ costEur: number; inputTokens: number; outputTokens: number }>({
+    costEur: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+  });
+
   // Effect to map agent events to terminal items (Old School Style - Restored UI)
   useEffect(() => {
     if (!agentEvents || agentEvents.length === 0) return;
@@ -182,6 +203,64 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       const eventKey = `${event.id}-${event.type}`;
       if (processedEventIdsRef.current.has(eventKey)) return;
       processedEventIdsRef.current.add(eventKey);
+
+      // 0. ITERATION_START -> Reset thinking for new iteration (so each iteration has separate thinking)
+      if (event.type === 'iteration_start') {
+        const iteration = (event as any).iteration || 1;
+        // After first iteration, close previous thinking and create new placeholder immediately
+        if (iteration > 1) {
+          // Close previous thinking if exists
+          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+            updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
+              isThinking: false, // Mark as complete
+            });
+          }
+
+          // IMMEDIATELY create new thinking placeholder - never leave user waiting
+          const newThinkingId = `agent-thinking-${Date.now()}`;
+          currentAgentMessageIdRef.current = newThinkingId;
+          thinkingContentRef.current = ''; // Reset thinking content for new iteration
+
+          addTerminalItem({
+            id: newThinkingId,
+            content: '',
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(),
+            isThinking: true,
+            thinkingContent: '',
+          });
+        }
+        return;
+      }
+
+      // 0.5. THINKING -> Stream thinking content in real-time (letter by letter effect)
+      if (event.type === 'thinking' && (event as any).text) {
+        const thinkingText = (event as any).text;
+
+        // Create thinking item if not exists
+        if (!currentAgentMessageIdRef.current || !currentAgentMessageIdRef.current.startsWith('agent-thinking-')) {
+          currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+          thinkingContentRef.current = ''; // Reset for new thinking
+
+          // Add new thinking item
+          addTerminalItem({
+            id: currentAgentMessageIdRef.current,
+            content: '',
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(),
+            isThinking: true,
+            thinkingContent: thinkingText,
+          });
+          thinkingContentRef.current = thinkingText;
+        } else {
+          // Accumulate and update existing thinking item in real-time
+          thinkingContentRef.current += thinkingText;
+          updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
+            thinkingContent: thinkingContentRef.current,
+          });
+        }
+        return;
+      }
 
       // 1. TOOL START -> Show executing indicator for ALL tools
       if (event.type === 'tool_start') {
@@ -610,8 +689,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           // Check if we need to transition from thinking to streaming
           const wasThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-');
           if (wasThinking) {
-            // Remove thinking placeholder
-            removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+            // DON'T remove thinking - update it to mark as completed (stays in place)
+            updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
+              isThinking: false, // Mark thinking as done but keep it visible
+            });
             // Create new streaming message ID immediately (before accumulating)
             const newStreamingId = `streaming-msg-${Date.now()}`;
             currentAgentMessageIdRef.current = newStreamingId;
@@ -656,9 +737,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
 
         if (content && content.trim()) {
-          // Remove any "Thinking..." placeholder when first message arrives
+          // Mark thinking as completed (keep it visible in place)
           if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-            removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+            updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
+              isThinking: false,
+            });
             currentAgentMessageIdRef.current = null;
           }
 
@@ -692,9 +775,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Handle errors explicitly
       // Budget exceeded — show upgrade CTA instead of error
       else if (event.type === 'budget_exceeded') {
-        // Remove any thinking placeholder
-        if (currentAgentMessageIdRef.current) {
-          removeTerminalItemById(currentTab.id, currentAgentMessageIdRef.current);
+        // Mark thinking as completed (keep visible)
+        if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+          updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
+            isThinking: false,
+          });
           currentAgentMessageIdRef.current = null;
         }
 
@@ -713,6 +798,47 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           type: TerminalItemType.ERROR,
           timestamp: new Date(event.timestamp),
         });
+      }
+
+      // Handle usage events to track cost
+      else if (event.type === 'usage') {
+        sessionCostRef.current = {
+          costEur: (event as any).totalCostEur || 0,
+          inputTokens: (event as any).totalInputTokens || 0,
+          outputTokens: (event as any).totalOutputTokens || 0,
+        };
+      }
+
+      // Handle complete/done events to finalize the streaming message with cost
+      else if (event.type === 'complete' || event.type === 'done') {
+        const currentMessageId = currentAgentMessageIdRef.current;
+        if (currentMessageId && currentTab?.id && sessionCostRef.current.costEur > 0) {
+          // Update the terminal item with cost information
+          useTabStore.setState((state) => ({
+            tabs: state.tabs.map(t =>
+              t.id === currentTab.id
+                ? {
+                    ...t,
+                    terminalItems: t.terminalItems?.map(item =>
+                      item.id === currentMessageId
+                        ? {
+                            ...item,
+                            costEur: sessionCostRef.current.costEur,
+                            tokensUsed: {
+                              input: sessionCostRef.current.inputTokens,
+                              output: sessionCostRef.current.outputTokens,
+                            },
+                          }
+                        : item
+                    ) || [],
+                  }
+                : t
+            ),
+          }));
+        }
+
+        // Reset session cost for next run
+        sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
       }
     });
   }, [agentEvents]);
@@ -794,6 +920,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         setSelectedPhotoIds(new Set()); // Clear selection when closing
       }, 300);
     } else {
+      Keyboard.dismiss(); // Close keyboard when opening sheet
       if (hideSidebar) hideSidebar();
       if (setForceHideToggle) setForceHideToggle(true);
       setShowToolsSheet(true);
@@ -1020,6 +1147,51 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
 
+  // Handle plan approval
+  const handlePlanApprove = useCallback(() => {
+    if (!currentTab?.id || !planItemId) return;
+
+    console.log('[ChatPage] Approving plan');
+
+    // Update plan item status to approved
+    updateTerminalItemById(currentTab.id, planItemId, {
+      planInfo: {
+        title: agentCurrentPrompt || 'Task',
+        steps: agentPlan?.steps?.map((s: any) => s.description || s) || [],
+        status: 'approved',
+      },
+    });
+
+    // Execute the plan
+    executeAgentPlan();
+
+    // Don't reset planItemId here - it prevents duplicate plan items during execution
+    // It will be reset when a new user message is sent
+  }, [currentTab?.id, planItemId, agentCurrentPrompt, agentPlan, executeAgentPlan, updateTerminalItemById]);
+
+  // Handle plan rejection
+  const handlePlanReject = useCallback(() => {
+    if (!currentTab?.id || !planItemId) return;
+
+    console.log('[ChatPage] Rejecting plan');
+
+    // Update plan item status to rejected
+    updateTerminalItemById(currentTab.id, planItemId, {
+      planInfo: {
+        title: agentCurrentPrompt || 'Task',
+        steps: agentPlan?.steps?.map((s: any) => s.description || s) || [],
+        status: 'rejected',
+      },
+    });
+
+    // Reset agent state
+    resetAgent();
+    setLoading(false);
+
+    // Reset plan item ID
+    setPlanItemId(null);
+  }, [currentTab?.id, planItemId, agentCurrentPrompt, agentPlan, resetAgent, updateTerminalItemById]);
+
   // Scroll to end when items count changes OR last item content updates (streaming)
   const lastItemContent = terminalItems[terminalItems.length - 1]?.content;
   useEffect(() => {
@@ -1034,12 +1206,26 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     useFileHistoryStore.getState().loadHistory();
   }, []);
 
-  // Handle plan approval modal for planning mode
+  // Handle plan approval - add inline plan item to chat
   useEffect(() => {
-    if (agentMode === 'planning' && agentPlan && !showPlanApproval) {
-      setShowPlanApproval(true);
+    if (agentMode === 'planning' && agentPlan && !planItemId && currentTab?.id) {
+      const itemId = `plan-${Date.now()}`;
+      setPlanItemId(itemId);
+
+      // Add plan approval item to terminal
+      addTerminalItem({
+        id: itemId,
+        content: `Piano: ${agentPlan.steps?.length || 0} passaggi`,
+        type: TerminalItemType.PLAN_APPROVAL,
+        timestamp: new Date(),
+        planInfo: {
+          title: agentCurrentPrompt || 'Task',
+          steps: agentPlan.steps?.map((s: any) => s.description || s) || [],
+          status: 'pending',
+        },
+      });
     }
-  }, [agentPlan, agentMode, showPlanApproval]);
+  }, [agentPlan, agentMode, planItemId, currentTab?.id, agentCurrentPrompt]);
 
   // Process agent events for todos, questions, and sub-agents
   useEffect(() => {
@@ -1116,51 +1302,25 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   //   }
   // }, [currentProjectInfo]);
 
-  // Handle "Thinking..." placeholder when agent is streaming but no messages yet
-  // Messages are now handled in the main agentEvents useEffect to preserve order
+  // Mark thinking as complete when agent finishes
+  // The actual thinking content is now handled in real-time in the main agentEvents useEffect
   useEffect(() => {
-    if (agentEvents.length > 0 && currentTab?.id) {
-      const hasThinking = agentEvents.some(e => e.type === 'thinking');
-      // Include text_delta as "message" since streaming text means we have content
-      const hasMessages = agentEvents.some(e => e.type === 'message' || e.type === 'response' || e.type === 'text_delta');
+    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
       const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
-      const stillThinking = agentStreaming && hasThinking && !hasMessages;
 
-      // If thinking but no messages yet, show thinking placeholder
-      if (stillThinking) {
-        if (!currentAgentMessageIdRef.current) {
-          currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
-        }
-
+      // Mark all thinking items as done when agent completes
+      if (isComplete) {
         useTabStore.setState((state) => ({
           tabs: state.tabs.map(t =>
             t.id === currentTab.id
               ? {
                 ...t,
-                terminalItems: [
-                  ...(t.terminalItems || []).filter(item => item.id !== currentAgentMessageIdRef.current),
-                  {
-                    id: currentAgentMessageIdRef.current!,
-                    content: '',
-                    type: TerminalItemType.OUTPUT,
-                    timestamp: new Date(),
-                    isThinking: true,
-                  }
-                ]
-              }
-              : t
-          )
-        }));
-      }
-      // If complete but no message was ever sent, remove the thinking placeholder
-      else if (isComplete && !agentStreaming) {
-        useTabStore.setState((state) => ({
-          tabs: state.tabs.map(t =>
-            t.id === currentTab.id
-              ? {
-                ...t,
-                terminalItems: t.terminalItems?.filter(item =>
-                  item.id !== 'agent-streaming' && !item.id?.startsWith('agent-thinking-')
+                terminalItems: t.terminalItems?.map(item =>
+                  item.id?.startsWith('agent-thinking-')
+                    ? { ...item, isThinking: false }
+                    : item
+                ).filter(item =>
+                  item.id !== 'agent-streaming'
                 ) || []
               }
               : t
@@ -1168,7 +1328,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }));
       }
     }
-  }, [agentStreaming, agentEvents, currentTab?.id, agentCurrentPrompt]);
+  }, [agentStreaming, agentEvents, currentTab?.id]);
 
   // Effect for cache invalidation and chat saving on agent completion
   useEffect(() => {
@@ -1211,6 +1371,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       currentAgentMessageIdRef.current = null;
       shownAgentMessagesCountRef.current = 0;
       streamingContentRef.current = '';
+      thinkingContentRef.current = '';
     }
   }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId]);
 
@@ -1578,16 +1739,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     });
 
     // Reset refs for new agent session
-    currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+    const thinkingId = `agent-thinking-${Date.now()}`;
+    currentAgentMessageIdRef.current = thinkingId;
     shownAgentMessagesCountRef.current = 0;
     streamingContentRef.current = '';
+    thinkingContentRef.current = '';
     processedEventIdsRef.current.clear();
+
+    // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+    addTerminalItem({
+      id: thinkingId,
+      content: '',
+      type: TerminalItemType.OUTPUT,
+      timestamp: new Date(),
+      isThinking: true,
+      thinkingContent: '',
+    });
 
     console.log('[handleDowngradeAccept] Starting agent with message');
 
     // Start agent with downgrade message
     const conversationHistory: any[] = [];
-    startAgent(downgradeMessage, currentWorkstation.id, selectedModel, conversationHistory);
+    startAgent(downgradeMessage, currentWorkstation.id, selectedModel, conversationHistory, undefined, thinkingLevel);
 
     console.log('✅ [ChatPage] Auto-downgrade message sent to AI');
   };
@@ -1621,6 +1794,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Reset the agent message refs
     currentAgentMessageIdRef.current = null;
     streamingContentRef.current = '';
+    thinkingContentRef.current = '';
   }, [stopAgent, currentTab?.id]);
 
   const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
@@ -1638,6 +1812,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Reset tool processing flag for new message
     isProcessingToolsRef.current = false;
+
+    // Reset plan item ID so new plans can be displayed
+    setPlanItemId(null);
 
     // Animate input to bottom on first send - Apple-style smooth animation
     if (!hasChatStarted) {
@@ -1742,10 +1919,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // If agent mode AND we have a workstation, use agent stream
     if (isAgentMode && currentWorkstation?.id) {
       // Reset ALL refs for new agent session (CRITICAL: prevents event ID collisions)
-      // Use agent-thinking- prefix so it gets properly removed when text arrives
-      currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+      const thinkingId = `agent-thinking-${Date.now()}`;
+      currentAgentMessageIdRef.current = thinkingId;
       shownAgentMessagesCountRef.current = 0;
       streamingContentRef.current = '';
+      thinkingContentRef.current = ''; // Reset thinking content for new session
       processedEventIdsRef.current.clear(); // CRITICAL: Clear processed events for new session
 
       // Add user message to terminal with images
@@ -1762,6 +1940,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         type: TerminalItemType.USER_MESSAGE,
         timestamp: new Date(),
         images: cleanImagesForStore, // Attach cleaned images to terminal item
+      });
+
+      // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+      addTerminalItem({
+        id: thinkingId,
+        content: '',
+        type: TerminalItemType.OUTPUT,
+        timestamp: new Date(),
+        isThinking: true,
+        thinkingContent: '', // Will be updated when real thinking arrives
       });
 
       setInput('');
@@ -1813,7 +2001,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         type: String(img.type || 'image/jpeg')
       })) : undefined;
 
-      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, cleanImages);
+      startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, cleanImages, thinkingLevel);
 
       // (AgentProgress placeholder removed - events will be streamed as items)
 
@@ -2320,6 +2508,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             userId: useTerminalStore.getState().userId || null,
             // Include username for multi-user context
             username: (useTerminalStore.getState().userId || 'anonymous').split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase(),
+            // Include thinking level for Gemini reasoning
+            thinkingLevel: thinkingLevel || null,
             context: currentWorkstation ? {
               projectName: currentWorkstation.name || 'Unnamed Project',
               language: currentWorkstation.language || 'Unknown',
@@ -2719,6 +2909,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           isNextItemOutput={isNextItemAI}
                           outputItem={outputItem}
                           isLoading={shouldShowLoading}
+                          onPlanApprove={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanApprove : undefined}
+                          onPlanReject={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanReject : undefined}
                         />
                       );
                       return acc;
@@ -2759,12 +2951,32 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 // Resume agent with the answers by sending as a new message
                 if (currentWorkstation?.id) {
                   // Reset refs for new agent session
-                  currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
+                  const thinkingId = `agent-thinking-${Date.now()}`;
+                  currentAgentMessageIdRef.current = thinkingId;
                   shownAgentMessagesCountRef.current = 0;
                   streamingContentRef.current = '';
+                  thinkingContentRef.current = '';
                   processedEventIdsRef.current.clear();
 
-                  startAgent(responseMessage, currentWorkstation.id, selectedModel, conversationHistory);
+                  // Add user response to terminal
+                  addTerminalItem({
+                    id: Date.now().toString(),
+                    content: responseMessage,
+                    type: TerminalItemType.USER_MESSAGE,
+                    timestamp: new Date(),
+                  });
+
+                  // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+                  addTerminalItem({
+                    id: thinkingId,
+                    content: '',
+                    type: TerminalItemType.OUTPUT,
+                    timestamp: new Date(),
+                    isThinking: true,
+                    thinkingContent: '',
+                  });
+
+                  startAgent(responseMessage, currentWorkstation.id, selectedModel, conversationHistory, undefined, thinkingLevel);
                 }
               }}
               onCancel={() => {
@@ -2951,29 +3163,69 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   <Animated.View style={[styles.modelDropdown, dropdownAnimatedStyle]}>
                     {AI_MODELS.map((model) => {
                       const IconComponent = model.IconComponent;
+                      const isSelected = selectedModel === model.id;
+                      const hasThinkingOptions = model.thinkingLevels && model.thinkingLevels.length > 0;
+
                       return (
-                        <TouchableOpacity
-                          key={model.id}
-                          style={[
-                            styles.modelDropdownItem,
-                            selectedModel === model.id && styles.modelDropdownItemActive
-                          ]}
-                          onPress={() => {
-                            setSelectedModel(model.id);
-                            closeDropdown();
-                          }}
-                        >
-                          <IconComponent size={16} />
-                          <SafeText style={[
-                            styles.modelDropdownText,
-                            selectedModel === model.id && styles.modelDropdownTextActive
-                          ]}>
-                            {model.name}
-                          </SafeText>
-                          {selectedModel === model.id && (
-                            <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
+                        <View key={model.id}>
+                          <TouchableOpacity
+                            style={[
+                              styles.modelDropdownItem,
+                              isSelected && styles.modelDropdownItemActive
+                            ]}
+                            onPress={() => {
+                              setSelectedModel(model.id);
+                              // Set default thinking level when switching to Gemini 3
+                              if (hasThinkingOptions) {
+                                const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
+                                setThinkingLevel(defaultLevel);
+                              }
+                              if (!hasThinkingOptions) {
+                                closeDropdown();
+                              }
+                            }}
+                          >
+                            <IconComponent size={16} />
+                            <SafeText style={[
+                              styles.modelDropdownText,
+                              isSelected && styles.modelDropdownTextActive
+                            ]}>
+                              {model.name}
+                            </SafeText>
+                            {isSelected && (
+                              <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
+                            )}
+                          </TouchableOpacity>
+
+                          {/* Thinking Level Options (only for selected Gemini 3 models) */}
+                          {isSelected && hasThinkingOptions && (
+                            <View style={styles.thinkingLevelContainer}>
+                              <SafeText style={styles.thinkingLevelLabel}>Livello ragionamento:</SafeText>
+                              <View style={styles.thinkingLevelOptions}>
+                                {model.thinkingLevels.map((level: string) => (
+                                  <TouchableOpacity
+                                    key={level}
+                                    style={[
+                                      styles.thinkingLevelChip,
+                                      thinkingLevel === level && styles.thinkingLevelChipActive
+                                    ]}
+                                    onPress={() => {
+                                      setThinkingLevel(level);
+                                      closeDropdown();
+                                    }}
+                                  >
+                                    <SafeText style={[
+                                      styles.thinkingLevelChipText,
+                                      thinkingLevel === level && styles.thinkingLevelChipTextActive
+                                    ]}>
+                                      {THINKING_LEVEL_LABELS[level] || level}
+                                    </SafeText>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
+                            </View>
                           )}
-                        </TouchableOpacity>
+                        </View>
                       );
                     })}
                   </Animated.View>
@@ -3115,30 +3367,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         </BlurView>
       </Animated.View>
 
-      {/* Plan Approval Modal - for planning mode */}
-      <PlanApprovalModal
-        visible={showPlanApproval}
-        plan={agentPlan ? {
-          title: `Plan for: ${agentCurrentPrompt || 'Task'}`,
-          steps: agentPlan.steps.map(s => s.description),
-          estimated_files: agentFilesCreated.length + agentFilesModified.length,
-        } : null}
-        onApprove={() => {
-          setShowPlanApproval(false);
-          // Execute the plan - switch to executing mode
-          if (currentWorkstation?.id && agentCurrentPrompt) {
-            // The agent will continue automatically
-          }
-        }}
-        onReject={() => {
-          setShowPlanApproval(false);
-          resetAgent();
-          setLoading(false);
-        }}
-        onClose={() => {
-          setShowPlanApproval(false);
-        }}
-      />
     </Animated.View >
   );
 };
@@ -3606,6 +3834,47 @@ const styles = StyleSheet.create({
   modelDropdownTextActive: {
     color: AppColors.white.full,
     fontWeight: '700',
+  },
+  // Thinking level selector styles
+  thinkingLevelContainer: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    marginTop: 4,
+  },
+  thinkingLevelLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  thinkingLevelOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  thinkingLevelChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  thinkingLevelChipActive: {
+    backgroundColor: AppColors.primaryAlpha.a25,
+    borderColor: AppColors.primary,
+  },
+  thinkingLevelChipText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  thinkingLevelChipTextActive: {
+    color: AppColors.primary,
+    fontWeight: '600',
   },
   imagePreviewContainer: {
     maxHeight: 100,
