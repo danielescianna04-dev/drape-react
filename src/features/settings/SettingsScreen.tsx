@@ -534,6 +534,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           >
             {isLiquidGlassSupported ? (
               <LiquidGlassView
+                key="plans-close-btn"
                 style={styles.backButtonGlass}
                 interactive={true}
                 effect="regular"
@@ -744,6 +745,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           >
             {isLiquidGlassSupported ? (
               <LiquidGlassView
+                key="usage-close-btn"
                 style={styles.backButtonGlass}
                 interactive={true}
                 effect="regular"
