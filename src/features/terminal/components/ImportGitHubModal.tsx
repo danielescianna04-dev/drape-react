@@ -305,11 +305,13 @@ const styles = StyleSheet.create({
   },
   modalContentInner: {
     padding: 24,
+    paddingBottom: 28,
   },
   modalGradient: {
     backgroundColor: AppColors.dark.backgroundAlt,
     borderRadius: 20,
     padding: 24,
+    paddingBottom: 28,
     borderWidth: 1,
     borderColor: AppColors.primaryAlpha.a20,
   },
