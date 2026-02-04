@@ -385,7 +385,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     flex: 1,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 22,
     backgroundColor: AppColors.white.w04,
     borderWidth: 1,
     borderColor: AppColors.white.w10,
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   },
   importButtonContainer: {
     flex: 1,
-    borderRadius: 12,
+    borderRadius: 22,
     overflow: 'hidden',
   },
   importButton: {
