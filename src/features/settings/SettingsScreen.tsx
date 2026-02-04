@@ -221,26 +221,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   // Animated close for plan screen
   const handleClosePlans = () => {
-    Animated.timing(planExitAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start((finished) => {
-      // Reset animation for next open
-      planExitAnim.setValue(1);
-      planHeaderAnim.setValue(0);
-      planToggleAnim.setValue(0);
-      planCardsAnim.setValue(0);
-      planFooterAnim.setValue(0);
-
-      if (initialShowPlans) {
-        // Came from onboarding or direct plans route - close entire settings
-        onClose();
-      } else {
-        // Came from settings "Piano Attuale" button - just hide plans overlay
-        setShowPlanSelection(false);
-      }
-    });
+    // First update state, then animate out
+    // The useEffect will reset animations when plans open again
+    if (initialShowPlans) {
+      // Came from onboarding or direct plans route - animate then close entire settings
+      Animated.timing(planExitAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => onClose());
+    } else {
+      // Came from settings "Piano Attuale" - just hide plans overlay immediately
+      // No animation needed since we're just swapping views within settings
+      setShowPlanSelection(false);
+    }
   };
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
