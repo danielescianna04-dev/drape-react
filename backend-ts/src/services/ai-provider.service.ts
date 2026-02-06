@@ -507,14 +507,14 @@ class AIProviderService {
     try {
       const isFlash = modelConfig.modelId.includes('flash');
 
-      // Determine thinking level
-      let thinkingLevel = options?.thinkingLevel || (isFlash ? 'medium' : 'low');
+      // Determine thinking level - default to 'minimal' for speed
+      let thinkingLevel = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
       const validFlashLevels = ['minimal', 'low', 'medium', 'high'];
       const validProLevels = ['low', 'high'];
       const validLevels = isFlash ? validFlashLevels : validProLevels;
 
       if (!validLevels.includes(thinkingLevel)) {
-        thinkingLevel = isFlash ? 'medium' : 'low';
+        thinkingLevel = isFlash ? 'minimal' : 'low';
       }
 
       log.info(`[Gemini 3] Using new SDK with thinking (level: ${thinkingLevel}, includeThoughts: true)`);

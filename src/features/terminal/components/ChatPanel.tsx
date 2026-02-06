@@ -14,9 +14,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 interface Props {
   onClose: () => void;
+  onHidePreview?: () => void;
 }
 
-export const ChatPanel = ({ onClose }: Props) => {
+export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -67,6 +68,8 @@ export const ChatPanel = ({ onClose }: Props) => {
         terminalItems: chat.messages || [] // Load previous messages
       });
     }
+    // Hide preview panel to show the chat
+    onHidePreview?.();
     handleClose();
   };
 

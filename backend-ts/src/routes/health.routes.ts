@@ -120,7 +120,7 @@ healthRouter.get('/ai/budget/:userId', async (req, res) => {
     const planId = req.query.planId as string || 'free';
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      free:    { name: 'Free', monthlyBudgetEur: 1.50 },
+      free:    { name: 'Free', monthlyBudgetEur: 2.00 },
       go:      { name: 'Go', monthlyBudgetEur: 7.50 },
       starter: { name: 'Starter', monthlyBudgetEur: 10.00 },
       pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },

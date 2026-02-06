@@ -233,6 +233,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         return;
       }
 
+      // 0.4. THINKING_START -> Create thinking placeholder if not exists
+      if (event.type === 'thinking_start') {
+        console.log('[ChatPage] thinking_start event - ensuring thinking block exists');
+        // Only create if we don't already have a thinking item
+        if (!currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+          const newThinkingId = `agent-thinking-${Date.now()}`;
+          currentAgentMessageIdRef.current = newThinkingId;
+          thinkingContentRef.current = '';
+
+          addTerminalItem({
+            id: newThinkingId,
+            content: '',
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(),
+            isThinking: true,
+            thinkingContent: '',
+          });
+        }
+        return;
+      }
+
       // 0.5. THINKING -> Stream thinking content in real-time (letter by letter effect)
       if (event.type === 'thinking' && (event as any).text) {
         const thinkingText = (event as any).text;
@@ -257,6 +278,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           thinkingContentRef.current += thinkingText;
           updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
             thinkingContent: thinkingContentRef.current,
+          });
+        }
+        return;
+      }
+
+      // 0.6. THINKING END -> Mark thinking as complete (keep content visible)
+      if (event.type === 'thinking_end') {
+        console.log('[ChatPage] thinking_end event - marking thinking complete');
+        if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+          updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
+            isThinking: false, // Mark as complete but keep content
           });
         }
         return;
@@ -299,7 +331,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             'execute_command': (i) => `Run command\n└─ ${(i?.command || '?').substring(0, 50)}...`,
             'web_search': (i) => `Web search\n└─ "${i?.query || '?'}"...`,
             'web_fetch': (i) => `Fetch URL\n└─ Loading...`,
-            'ask_user_question': () => `User Question\n└─ Waiting for response...`,
+            'ask_user_question': (i) => {
+              const questions = i?.questions;
+              if (Array.isArray(questions) && questions.length > 0) {
+                const questionText = questions.map((q: any) => q?.question || q).join('\n   ');
+                return `User Question\n└─ ${questionText}`;
+              }
+              return `User Question\n└─ Waiting for response...`;
+            },
             'todo_write': () => `Todo List\n└─ Updating...`,
             'signal_completion': () => `Completion\n└─ Finishing...`,
           };
@@ -833,6 +872,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // Handle complete/done events to finalize the streaming message with cost
       else if (event.type === 'complete' || event.type === 'done') {
+        // Show the completion message ONLY if there's no existing streaming message
+        const completionResult = (event as any).result;
+        const hasStreamingMessage = currentAgentMessageIdRef.current?.startsWith('streaming-msg-');
+
+        if (completionResult && typeof completionResult === 'string' && completionResult.trim() && !hasStreamingMessage) {
+          addTerminalItem({
+            id: `completion-${Date.now()}`,
+            content: completionResult,
+            type: TerminalItemType.OUTPUT,
+            timestamp: new Date(),
+            isAgentMessage: true,
+          });
+        }
+
         const currentMessageId = currentAgentMessageIdRef.current;
         if (currentMessageId && currentTab?.id && sessionCostRef.current.costEur > 0) {
           // Update the terminal item with cost information
@@ -861,6 +914,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
         // Reset session cost for next run
         sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
+
+        // SAFETY: Close any remaining thinking blocks that weren't closed by thinking_end
+        if (currentTab?.id) {
+          useTabStore.setState((state) => ({
+            tabs: state.tabs.map(t =>
+              t.id === currentTab.id
+                ? {
+                    ...t,
+                    terminalItems: t.terminalItems?.map(item =>
+                      item.isThinking ? { ...item, isThinking: false } : item
+                    ) || [],
+                  }
+                : t
+            ),
+          }));
+        }
       }
     });
   }, [agentEvents]);
@@ -3160,7 +3229,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   />
 
                   <TouchableOpacity
-                    onPress={agentStreaming || isLoading ? handleStop : handleSend}
+                    onPress={agentStreaming || isLoading ? handleStop : () => handleSend()}
                     disabled={!agentStreaming && !isLoading && !input.trim() && selectedInputImages.length === 0}
                     style={styles.sendButton}
                     activeOpacity={0.7}

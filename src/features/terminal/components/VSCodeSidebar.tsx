@@ -388,7 +388,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
         {/* Global Panels Container - ensures all menus are above the blur */}
         <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
           {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} />}
-          {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} />}
+          {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />}
           {renderedPanel === 'settings' && <SettingsPanel onClose={handleClosePanel} />}
           {renderedPanel === 'git' && <GitPanel onClose={handleClosePanel} />}
         </Animated.View>

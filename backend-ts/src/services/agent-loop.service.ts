@@ -8,7 +8,12 @@ import { getToolDefinitions } from '../tools';
 import { log } from '../utils/logger';
 import { AgentEvent, AgentMode, AgentOptions, Session, ToolResult } from '../types';
 import path from 'path';
+import fs from 'fs';
 import { config } from '../config';
+
+// Load the universal system prompt from file
+const SYSTEM_PROMPT_PATH = path.join(__dirname, 'claude-code-system-prompt.txt');
+const BASE_SYSTEM_PROMPT = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf-8');
 
 const MAX_ITERATIONS = 50;
 const TOOL_TIMEOUT = 60000;
@@ -67,7 +72,8 @@ export class AgentLoop {
     this.projectId = options.projectId;
     this.mode = options.mode || 'fast';
     this.model = options.model || 'claude-sonnet-4';
-    this.thinkingLevel = options.thinkingLevel || null;
+    // For 'fast' mode, use minimal thinking by default for speed
+    this.thinkingLevel = options.thinkingLevel || (this.mode === 'fast' ? 'minimal' : null);
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
     this.conversationHistory = options.conversationHistory || [];
@@ -431,9 +437,18 @@ export class AgentLoop {
           const currentToolName = currentTool.name;
 
           // Build a signature that includes key input params to avoid false positives
-          // For read_file, include file_path - reading different files is NOT a loop
+          // Include file_path for file operations - operating on different files is NOT a loop
+          // For edit_file, include old_string hash to distinguish different edits to same file
           let toolSignature = currentToolName;
           if (currentToolName === 'read_file' && currentTool.input?.file_path) {
+            toolSignature = `${currentToolName}:${currentTool.input.file_path}`;
+          } else if (currentToolName === 'edit_file' && currentTool.input) {
+            // Include file_path + hash of old_string to distinguish different edits
+            const oldStringHash = currentTool.input.old_string
+              ? currentTool.input.old_string.substring(0, 50).replace(/\s+/g, '')
+              : '';
+            toolSignature = `${currentToolName}:${currentTool.input.file_path}:${oldStringHash}`;
+          } else if (currentToolName === 'write_file' && currentTool.input?.file_path) {
             toolSignature = `${currentToolName}:${currentTool.input.file_path}`;
           } else if (currentToolName === 'glob_files' && currentTool.input?.pattern) {
             toolSignature = `${currentToolName}:${currentTool.input.pattern}`;
@@ -571,42 +586,27 @@ export class AgentLoop {
           // Continue loop to get next agent response
           shouldContinue = true;
         } else {
-          // No tool calls - check if we got a valid response
-          if (!fullText || fullText.trim() === '') {
-            // Empty response from model - this sometimes happens with Gemini
-            log.warn(`[AgentLoop] Empty response from model, iteration ${this.iterationCount}`);
-
-            // If first iteration, try to continue (might be model warming up)
-            if (this.iterationCount <= 2) {
-              log.info(`[AgentLoop] Retrying after empty response...`);
-              // Add a nudge message to get the model to respond
-              this.conversationHistory.push({
-                role: 'user',
-                content: 'Please continue with the task. Provide your response or use tools to complete the work.',
-              });
-              shouldContinue = true;
-              continue;
-            }
-
-            // After retries, emit completion with error
-            yield {
-              type: 'complete',
-              result: 'Il modello non ha generato una risposta. Riprova con un prompt diverso.',
-              filesCreated: this.filesCreated,
-              filesModified: this.filesModified,
-              tokensUsed: this.totalTokensUsed,
-              costEur: this.totalCostEur,
-              iterations: this.iterationCount,
-            };
-            return;
-          }
-
-          // Valid response - agent is done
+          // No tool calls - agent is done
           shouldContinue = false;
+
+          // Generate summary if model didn't provide final text
+          let finalResult = fullText;
+          if (!finalResult || finalResult.trim().length === 0) {
+            const changes: string[] = [];
+            if (this.filesCreated.length > 0) {
+              changes.push(`File creati: ${this.filesCreated.join(', ')}`);
+            }
+            if (this.filesModified.length > 0) {
+              changes.push(`File modificati: ${this.filesModified.join(', ')}`);
+            }
+            finalResult = changes.length > 0
+              ? `Task completato.\n\n${changes.join('\n')}`
+              : 'Task completato.';
+          }
 
           yield {
             type: 'complete',
-            result: fullText,
+            result: finalResult,
             filesCreated: this.filesCreated,
             filesModified: this.filesModified,
             tokensUsed: this.totalTokensUsed,
@@ -678,46 +678,30 @@ export class AgentLoop {
 
   /**
    * Get base prompt based on agent mode
+   * Uses the universal system prompt from claude-code-system-prompt.txt for ALL models
    */
   private getBasePromptForMode(): string {
-    const commonInstructions = `
-You are an AI coding assistant with access to a development environment. You can read and write files, run commands, search code, and more.
+    // Use the same prompt for ALL models (Claude, Gemini, etc.)
+    let prompt = BASE_SYSTEM_PROMPT;
 
-## Guidelines
-
-- Be concise and efficient
-- Always read files before editing them
-- When making changes, explain what you're doing
-- If you encounter errors, debug them systematically
-- Use the todo_write tool to track progress on multi-step tasks
-- Use signal_completion when the task is fully complete
-
-## Available Tools
-
-You have access to tools for:
-- File operations (read, write, edit, list)
-- Code search (glob patterns, grep)
-- Command execution (run tests, install deps, build)
-- Task tracking (todo list)
-- Web search (documentation lookup)
-- User interaction (ask questions)
-`;
-
+    // Add mode-specific instructions
     switch (this.mode) {
       case 'fast':
-        return `${commonInstructions}
+        prompt += `
 
 ## Mode: Fast
 
 You are in FAST mode. Prioritize speed and efficiency:
 - Get to the solution quickly
 - Don't overthink - make reasonable assumptions
-- Skip verbose explanations
-- Use the most direct approach
+- **MINIMIZE TOOL CALLS** - Use write_file to rewrite entire files instead of multiple edit_file calls
+- Complete the task in as few iterations as possible
+- When done, call signal_completion with a summary
 `;
+        break;
 
       case 'plan':
-        return `${commonInstructions}
+        prompt += `
 
 ## Mode: Plan
 
@@ -727,40 +711,29 @@ You are in PLANNING mode. Your goal is to create a detailed execution plan WITHO
 1. First, use read-only tools (read_file, list_directory, glob_search, grep_search) to understand the codebase
 2. Analyze the user's request thoroughly
 3. Create a numbered plan with specific, actionable steps
-4. Each step should describe exactly what will be done
-
-### Output Format:
-After gathering context, respond with a clear plan in this format:
-
-## Piano di Esecuzione
-
-1. **[Step title]**: Description of what will be done
-2. **[Step title]**: Description of what will be done
-3. ...
 
 ### Important:
 - DO NOT execute any write operations (edit_file, write_file, run_command)
 - DO NOT make any actual changes to files
 - ONLY analyze and create the plan
-- Be specific about which files will be modified and how
 `;
+        break;
 
       case 'execute':
-        return `${commonInstructions}
+        prompt += `
 
 ## Mode: Execute
 
 You are in EXECUTE mode. Follow plans carefully:
 - Execute each step methodically
 - Update the todo list as you progress
-- Verify each step before moving to the next
-- Handle errors gracefully and adapt
-- Provide detailed progress updates
+- Handle errors gracefully
+- When done, call signal_completion with a summary
 `;
-
-      default:
-        return commonInstructions;
+        break;
     }
+
+    return prompt;
   }
 
   /**

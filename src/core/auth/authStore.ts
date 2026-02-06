@@ -11,7 +11,8 @@ import {
   OAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { AppState } from 'react-native';
 import { auth, db } from '../../config/firebase';
 import { useTerminalStore } from '../terminal/terminalStore';
 import { useProjectStore } from '../projects/projectStore';
@@ -25,6 +26,76 @@ import { Alert } from 'react-native';
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
+
+// Presence tracking cleanup function
+let presenceCleanup: (() => void) | null = null;
+
+/**
+ * Start presence tracking for admin dashboard
+ * Writes to Firestore 'presence/{userId}' collection
+ * Backend considers user online if lastSeen < 2 minutes ago
+ */
+function startPresenceTracking(userId: string) {
+  const presenceRef = doc(db, 'presence', userId);
+  let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+  const startHeartbeat = () => {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(() => {
+      setDoc(presenceRef, { lastSeen: serverTimestamp() }, { merge: true })
+        .catch(() => {});
+    }, 30000);
+  };
+
+  const stopHeartbeat = () => {
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+  };
+
+  // Write initial presence with sessionStart
+  setDoc(presenceRef, {
+    lastSeen: serverTimestamp(),
+    sessionStart: serverTimestamp(),
+    email: auth.currentUser?.email || ''
+  }).catch(err => console.warn('[Presence] Failed to set presence:', err));
+
+  startHeartbeat();
+
+  // Handle app state changes (background/inactive)
+  const appStateSubscription = AppState.addEventListener('change', (state) => {
+    if (state === 'background' || state === 'inactive') {
+      // Stop heartbeat only — lastSeen becomes stale, backend sees user as offline after 2 min
+      stopHeartbeat();
+    } else if (state === 'active') {
+      // Re-establish presence and restart heartbeat
+      setDoc(presenceRef, {
+        lastSeen: serverTimestamp(),
+        sessionStart: serverTimestamp(),
+        email: auth.currentUser?.email || ''
+      }).catch(() => {});
+      startHeartbeat();
+    }
+  });
+
+  // Return cleanup for logout
+  return () => {
+    stopHeartbeat();
+    appStateSubscription.remove();
+  };
+}
+
+/**
+ * Stop presence tracking on logout — deletes the presence document
+ */
+function stopPresenceTracking(userId: string) {
+  if (presenceCleanup) {
+    presenceCleanup();
+    presenceCleanup = null;
+  }
+  deleteDoc(doc(db, 'presence', userId)).catch(() => {});
+}
 
 export interface DrapeUser {
   uid: string;
@@ -138,7 +209,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Initialize push notifications (non-blocking)
         pushNotificationService.initialize(firebaseUser.uid).catch(() => {});
+
+        // Start presence tracking for admin dashboard
+        if (presenceCleanup) presenceCleanup(); // Clean up any existing
+        presenceCleanup = startPresenceTracking(firebaseUser.uid);
       } else {
+        // Stop presence tracking if active
+        if (presenceCleanup) {
+          presenceCleanup();
+          presenceCleanup = null;
+        }
+
         set({ user: null, isInitialized: true, isLoading: false });
         useTerminalStore.setState({ userId: null });
 
@@ -297,6 +378,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Unregister push notifications
       await pushNotificationService.unregisterToken().catch(() => {});
+
+      // Stop presence tracking
+      if (user) {
+        stopPresenceTracking(user.uid);
+      }
 
       // Clear active device (only if not kicked by another device)
       if (user && !get().deviceCheckFailed) {

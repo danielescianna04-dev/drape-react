@@ -23,6 +23,8 @@ import { fileWatcherService } from '../../../core/services/agentService';
 import { useAgentStream } from '../../../hooks/api/useAgentStream';
 import { usePreviewLogs } from '../../../hooks/api/usePreviewLogs';
 import { liveActivityService } from '../../../core/services/liveActivityService';
+import { TodoList } from '../../../shared/components/molecules/TodoList';
+import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQuestionModal';
 
 // 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
 const USE_HOLY_GRAIL = true;
@@ -191,16 +193,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [activeTools, setActiveTools] = useState<string[]>([]);
   const [aiMessages, setAiMessages] = useState<Array<{
-    type: 'text' | 'tool_start' | 'tool_result' | 'user';
+    type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded';
     content: string;
     tool?: string;
     toolId?: string;
     success?: boolean;
     filePath?: string;
     pattern?: string;
+    selectedElement?: { selector: string; tag?: string };
+    isThinking?: boolean;
   }>>([]);
   // Chat ID for saving preview conversations to chat history
   const [previewChatId, setPreviewChatId] = useState<string | null>(null);
+  // Todos and questions from agent
+  const [currentTodos, setCurrentTodos] = useState<any[]>([]);
+  const [pendingQuestion, setPendingQuestion] = useState<any[] | null>(null);
   const [coderToken, setCoderToken] = useState<string | null>(null);
   // Use global store for machine ID to persist across navigation
   const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
@@ -430,6 +437,57 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           return updated;
         });
       }
+      else if (event.type === 'thinking_start') {
+        console.log('🧠 [Preview] thinking_start');
+        setAiMessages(prev => [...prev, {
+          type: 'thinking',
+          content: '',
+          isThinking: true
+        }]);
+      }
+      else if (event.type === 'thinking') {
+        const thinkingText = (event as any).text;
+        if (thinkingText) {
+          setAiMessages(prev => {
+            const updated = [...prev];
+            // Find last thinking message
+            for (let j = updated.length - 1; j >= 0; j--) {
+              if (updated[j].type === 'thinking' && updated[j].isThinking) {
+                updated[j] = {
+                  ...updated[j],
+                  content: (updated[j].content || '') + thinkingText
+                };
+                break;
+              }
+            }
+            return updated;
+          });
+        }
+      }
+      else if (event.type === 'thinking_end') {
+        console.log('🧠 [Preview] thinking_end');
+        setAiMessages(prev => {
+          const updated = [...prev];
+          for (let j = updated.length - 1; j >= 0; j--) {
+            if (updated[j].type === 'thinking' && updated[j].isThinking) {
+              updated[j] = { ...updated[j], isThinking: false };
+              break;
+            }
+          }
+          return updated;
+        });
+      }
+      else if (event.type === 'iteration_start') {
+        console.log('🔄 [Preview] iteration_start:', (event as any).iteration);
+      }
+      else if (event.type === 'budget_exceeded') {
+        console.log('⚠️ [Preview] budget_exceeded');
+        setIsAiLoading(false);
+        setAiMessages(prev => [...prev, {
+          type: 'budget_exceeded',
+          content: 'Budget AI esaurito'
+        }]);
+      }
       else if (event.type === 'text_delta') {
         const delta = (event as any).text;
         if (delta) {
@@ -463,6 +521,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       else if (event.type === 'complete' || event.type === 'done') {
         setIsAiLoading(false);
         setActiveTools([]);
+        // SAFETY: Close any remaining thinking blocks that weren't closed by thinking_end
+        setAiMessages(prev => prev.map(msg =>
+          msg.type === 'thinking' && msg.isThinking
+            ? { ...msg, isThinking: false }
+            : msg
+        ));
       }
       else if (event.type === 'error' || event.type === 'fatal_error') {
         setIsAiLoading(false);
@@ -475,6 +539,35 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     // Update last processed index
     lastProcessedEventIndexRef.current = agentEvents.length - 1;
   }, [agentEvents]);
+
+  // Process agent events for todos and questions (like ChatPage)
+  useEffect(() => {
+    if (!agentEvents || agentEvents.length === 0) return;
+
+    // Extract latest todo_update event
+    const todoEvents = agentEvents.filter((e: any) => e.type === 'todo_update');
+    if (todoEvents.length > 0) {
+      const latestTodo = todoEvents[todoEvents.length - 1];
+      setCurrentTodos((latestTodo as any).todos || []);
+    }
+
+    // Extract latest ask_user_question event
+    const questionEvents = agentEvents.filter((e: any) => e.type === 'ask_user_question');
+    if (questionEvents.length > 0) {
+      const latestQuestion = questionEvents[questionEvents.length - 1];
+      setPendingQuestion((latestQuestion as any).questions || null);
+    }
+  }, [agentEvents]);
+
+  // Clear todos when agent completes
+  useEffect(() => {
+    if (!agentStreaming && agentEvents.length > 0) {
+      const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
+      if (isComplete) {
+        setCurrentTodos([]);
+      }
+    }
+  }, [agentStreaming, agentEvents]);
 
   // Save chat messages when agent completes
   useEffect(() => {
@@ -1903,8 +1996,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       prompt = `[Elemento selezionato: <${selectedElement.tag}> class="${selectedElement.className}" id="${selectedElement.id}" text="${selectedElement.text?.slice(0, 100)}"]\n\n${userMessage}`;
     }
 
-    // Add user message to history locally
-    const newUserMsg = { type: 'user' as const, content: userMessage };
+    // Add user message to history locally (include selected element if any)
+    const newUserMsg = {
+      type: 'user' as const,
+      content: userMessage,
+      selectedElement: selectedElement ? { selector: selectedElement.selector, tag: selectedElement.tag } : undefined
+    };
     setAiMessages(prev => [...prev, newUserMsg]);
 
     // Create or update chat in history (like ChatPage)
@@ -1947,17 +2044,24 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         content: m.content || ''
       }));
 
-    // Clear input immediately
+    // Clear input and selection immediately
     setMessage('');
+    // Clear selected element and its visual overlay in WebView
+    clearSelectedElement();
+    // Turn off inspect mode button
+    setIsInspectMode(false);
 
     // Reset agent and start new session
     resetAgent();
     lastProcessedEventIndexRef.current = -1;
 
-    console.log('🚀 [PreviewPanel] Starting agent with:', { prompt: prompt.slice(0, 50), projectId: currentWorkstation.id, model: selectedModel });
+    // Preview always uses Gemini 3 Flash with minimal thinking for speed
+    const previewModel = 'gemini-3-flash';
+    const previewThinkingLevel = 'minimal';
+    console.log('🚀 [PreviewPanel] Starting agent with:', { prompt: prompt.slice(0, 50), projectId: currentWorkstation.id, model: previewModel, thinkingLevel: previewThinkingLevel });
 
-    // Start the agent stream (same as ChatPage)
-    startAgent(prompt, currentWorkstation.id, selectedModel, conversationHistory);
+    // Start the agent stream with Gemini 3 Flash and minimal thinking
+    startAgent(prompt, currentWorkstation.id, previewModel, conversationHistory, [], previewThinkingLevel);
   };
 
   const toggleInspectMode = () => {
@@ -3196,10 +3300,47 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                             {(aiMessages || []).map((msg, index) => {
                               if (msg.type === 'user') {
                                 return (
-                                  <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10 }]}>
-                                    <LinearGradient colors={['#007AFF', '#0055FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.userMessageBubble}>
-                                      <Text style={styles.userMessageText}>{msg.content}</Text>
-                                    </LinearGradient>
+                                  <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10, alignItems: 'flex-end' }]}>
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                      {msg.selectedElement && (
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(138, 43, 226, 0.2)', borderRadius: 8 }}>
+                                          <Ionicons name="code-slash" size={10} color="#A855F7" style={{ marginRight: 4 }} />
+                                          <Text style={{ color: '#A855F7', fontSize: 10 }}>{`<${msg.selectedElement.tag}>`}</Text>
+                                        </View>
+                                      )}
+                                      <LinearGradient colors={['#007AFF', '#0055FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.userMessageBubble}>
+                                        <Text style={styles.userMessageText}>{msg.content}</Text>
+                                      </LinearGradient>
+                                    </View>
+                                  </View>
+                                );
+                              }
+                              if (msg.type === 'thinking') {
+                                // Thinking block - show with gray italic text
+                                return (
+                                  <View key={index} style={styles.aiMessageRow}>
+                                    <View style={styles.aiThreadContainer}>
+                                      <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
+                                    </View>
+                                    <View style={styles.aiMessageContent}>
+                                      <Text style={styles.aiThinkingText}>
+                                        {msg.content || (msg.isThinking ? 'Thinking...' : '')}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                );
+                              }
+                              if (msg.type === 'budget_exceeded') {
+                                // Budget exceeded - show compact card
+                                return (
+                                  <View key={index} style={{ marginVertical: 8, marginHorizontal: 4, backgroundColor: 'rgba(139, 124, 246, 0.1)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(139, 124, 246, 0.2)' }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                      <Ionicons name="flash" size={14} color={AppColors.primary} style={{ marginRight: 8 }} />
+                                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>Budget AI esaurito</Text>
+                                    </View>
+                                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
+                                      Passa a Go per continuare
+                                    </Text>
                                   </View>
                                 );
                               }
@@ -3252,6 +3393,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                   </View>
                                 );
                               }
+                              // Default: text message
                               return (
                                 <View key={index} style={styles.aiMessageRow}>
                                   <View style={styles.aiThreadContainer}>
@@ -3271,6 +3413,12 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 <View style={styles.aiMessageContent}>
                                   <Text style={styles.aiThinkingText}>Thinking...</Text>
                                 </View>
+                              </View>
+                            )}
+                            {/* TodoList - show current todos from agent */}
+                            {currentTodos.length > 0 && (
+                              <View style={{ paddingHorizontal: 4, paddingTop: 8 }}>
+                                <TodoList todos={currentTodos} />
                               </View>
                             )}
                           </ScrollView>
@@ -3425,6 +3573,35 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           )}
         </Animated.View >
       </Reanimated.View >
+
+      {/* AskUserQuestion Modal */}
+      <AskUserQuestionModal
+        visible={!!pendingQuestion}
+        questions={pendingQuestion || []}
+        onAnswer={(answers) => {
+          // Format answers as response
+          const questions = pendingQuestion || [];
+          const responseLines = questions.map((q: any, idx: number) => {
+            const answer = answers[`q${idx}`] || '';
+            return `${q.question}: ${answer}`;
+          }).join('\n');
+
+          const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
+          console.log('[Preview] User answers:', responseMessage);
+
+          // Clear pending question
+          setPendingQuestion(null);
+
+          // Resume agent with the answers
+          if (currentWorkstation?.id) {
+            lastProcessedEventIndexRef.current = -1;
+            resetAgent();
+            setAiMessages(prev => [...prev, { type: 'user', content: responseMessage }]);
+            startAgent(responseMessage, currentWorkstation.id, 'gemini-3-flash', [], [], 'minimal');
+          }
+        }}
+        onCancel={() => setPendingQuestion(null)}
+      />
     </>
   );
 });

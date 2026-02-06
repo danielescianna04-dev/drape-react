@@ -338,7 +338,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
   update(30, 'Generazione componenti...', 'AI Generating');
 
-  const models = ['gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash'];
+  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
   const systemPrompt = 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
   const chatMessages = [{ role: 'user' as const, content: prompt }];
   const chatOptions = { temperature: 0.7, maxTokens: 32000 };

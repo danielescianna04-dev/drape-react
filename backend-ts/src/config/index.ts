@@ -50,6 +50,16 @@ export const config = {
   githubClientId: optional('GITHUB_CLIENT_ID', ''),
   githubClientSecret: optional('GITHUB_CLIENT_SECRET', ''),
 
+  // GitLab
+  gitlabClientId: optional('GITLAB_CLIENT_ID', ''),
+  gitlabClientSecret: optional('GITLAB_CLIENT_SECRET', ''),
+  gitlabRedirectUri: optional('GITLAB_REDIRECT_URI', 'drape://oauth/gitlab/callback'),
+
+  // Bitbucket
+  bitbucketClientId: optional('BITBUCKET_CLIENT_ID', ''),
+  bitbucketClientSecret: optional('BITBUCKET_CLIENT_SECRET', ''),
+  bitbucketRedirectUri: optional('BITBUCKET_REDIRECT_URI', 'drape://oauth/bitbucket/callback'),
+
   // Container defaults
   containerMemoryMb: optionalInt('CONTAINER_MEMORY_MB', 4096),
   containerCpus: optionalInt('CONTAINER_CPUS', 4),

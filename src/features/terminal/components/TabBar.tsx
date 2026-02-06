@@ -2,7 +2,6 @@ import React, { useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated as RNAnimated, ScrollView, Keyboard } from 'react-native';
 import Animated, { useAnimatedStyle, interpolate, Extrapolate } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -112,14 +111,6 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
               onPress={() => handleTabPress(tab.id)}
               activeOpacity={0.7}
             >
-              {isActive && isLiquidGlassSupported ? (
-                <LiquidGlassView
-                  style={StyleSheet.absoluteFill}
-                  interactive={true}
-                  effect="clear"
-                  colorScheme="dark"
-                />
-              ) : null}
               <View style={styles.tabContentInner}>
                 <Ionicons
                   name={getTabIcon(tab.type)}

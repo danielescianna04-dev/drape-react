@@ -3,6 +3,8 @@ import { flyRouter } from './fly.routes';
 import { workstationRouter } from './workstation.routes';
 import { gitRouter } from './git.routes';
 import { githubRouter } from './github.routes';
+import { gitlabRouter } from './gitlab.routes';
+import { bitbucketRouter } from './bitbucket.routes';
 import { healthRouter } from './health.routes';
 import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
@@ -37,6 +39,8 @@ export function mountRoutes(app: Express): void {
   app.use('/workstation', workstationRouter);
   app.use('/git', gitRouter);
   app.use('/github', githubRouter);
+  app.use('/oauth/gitlab', gitlabRouter);
+  app.use('/oauth/bitbucket', bitbucketRouter);
   app.use('/agent', agentRouter);
   app.use('/notifications', notificationRouter);
   app.use('/ai', aiRouter);

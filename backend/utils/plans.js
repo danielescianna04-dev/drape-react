@@ -88,7 +88,7 @@ const PLANS = {
         name: 'Free',
         price: 0,
         models: ['gemini-3-flash', 'gemini-3-pro', 'claude-sonnet-4', 'claude-opus-4'],
-        monthlyBudgetEur: 1.50,
+        monthlyBudgetEur: 2.00,
         maxProjects: 3,           // Totale massimo progetti (2 creati + 1 clonato)
         maxCreatedProjects: 2,    // Massimo progetti creati in app
         maxImportedProjects: 1,   // Massimo progetti clonati da GitHub

@@ -20,7 +20,7 @@
 		13B07F961A680F5B00A75B9A /* Drape.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Drape.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Drape/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Drape/Info.plist; sourceTree = "<group>"; };
-		25887DB28599B1030F39D34B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Drape/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		25887DB28599B1030F39D34B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Drape/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		2D0A6AB48362C0BD22DA429E /* Pods-Drape.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Drape.release.xcconfig"; path = "Target Support Files/Pods-Drape/Pods-Drape.release.xcconfig"; sourceTree = "<group>"; };
 		68B7FF265AF87A6AD3010154 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Drape/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		7F52FFB2D46239BFD823AAC0 /* Pods_Drape.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Drape.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,7 +73,6 @@
 				BDAA1F4A97C5240D3339B21B /* Pods-Drape.debug.xcconfig */,
 				2D0A6AB48362C0BD22DA429E /* Pods-Drape.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -357,7 +356,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Drape/Drape.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3699SN779P;
+				DEVELOPMENT_TEAM = S84DZA2LR9;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -394,7 +393,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Drape/Drape.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 3699SN779P;
+				DEVELOPMENT_TEAM = S84DZA2LR9;
 				INFOPLIST_FILE = Drape/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
