@@ -110,6 +110,24 @@
     "title": "Lingua",
     "select": "Seleziona lingua"
   },
+  "aiModel": {
+    "title": "Modello AI",
+    "description": "Scegli l'intelligenza che potenzia il tuo codice"
+  },
+  "behavior": {
+    "title": "Comportamento",
+    "autoApprove": "Approvazione Automatica",
+    "autoApproveDesc": "Esegui suggerimenti AI senza conferma",
+    "terminalMode": "Modalità Terminale",
+    "terminalModeDesc": "Output dei comandi in tempo reale",
+    "expandedTools": "Strumenti Espansi",
+    "expandedToolsDesc": "Mostra toolbar completa"
+  },
+  "system": {
+    "title": "Sistema",
+    "version": "Versione",
+    "region": "Regione"
+  },
   "gitAuth": {
     "title": "Autenticazione Git",
     "privateRepo": "Repository privata",

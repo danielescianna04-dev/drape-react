@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { useAnimatedStyle, interpolate } from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
+import { useTranslation } from 'react-i18next';
+import Constants from 'expo-constants';
 import { AppColors, withOpacity } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../../../features/terminal/context/SidebarContext';
 import { useUIStore } from '../../../core/terminal/uiStore';
@@ -18,6 +20,7 @@ interface Props {
  * AI model selection, behavior settings, and app info
  */
 export const SettingsPanel = ({ onClose }: Props) => {
+  const { t } = useTranslation();
   const { sidebarTranslateX } = useSidebarOffset();
   const {
     selectedModel,
@@ -64,7 +67,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
       </BlurView>
 
       <PanelHeader
-        title="Impostazioni"
+        title={t('settings:title')}
         icon="settings-outline"
         onClose={onClose}
         style={styles.header}
@@ -74,13 +77,13 @@ export const SettingsPanel = ({ onClose }: Props) => {
         {/* Modello AI */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitle}>Modello AI</Text>
+            <Text style={styles.sectionTitle}>{t('settings:aiModel.title')}</Text>
             <View style={styles.proBadge}>
               <Text style={styles.proBadgeText}>PRO</Text>
             </View>
           </View>
           <Text style={styles.sectionDescription}>
-            Scegli l'intelligenza che potenzia il tuo codice
+            {t('settings:aiModel.description')}
           </Text>
 
           {models.map((model) => {
@@ -131,7 +134,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
 
         {/* Comportamento */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Comportamento</Text>
+          <Text style={styles.sectionTitle}>{t('settings:behavior.title')}</Text>
 
           <View style={styles.settingsGroup}>
             <View style={styles.settingItem}>
@@ -139,9 +142,9 @@ export const SettingsPanel = ({ onClose }: Props) => {
                 <Ionicons name="flash-outline" size={18} color={autoApprove ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingName}>Approvazione Automatica</Text>
+                <Text style={styles.settingName}>{t('settings:behavior.autoApprove')}</Text>
                 <Text style={styles.settingDescription}>
-                  Esegui suggerimenti AI senza conferma
+                  {t('settings:behavior.autoApproveDesc')}
                 </Text>
               </View>
               <Switch
@@ -158,9 +161,9 @@ export const SettingsPanel = ({ onClose }: Props) => {
                 <Ionicons name="terminal-outline" size={18} color={isTerminalMode ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingName}>Modalità Terminale</Text>
+                <Text style={styles.settingName}>{t('settings:behavior.terminalMode')}</Text>
                 <Text style={styles.settingDescription}>
-                  Output dei comandi in tempo reale
+                  {t('settings:behavior.terminalModeDesc')}
                 </Text>
               </View>
               <Switch
@@ -177,9 +180,9 @@ export const SettingsPanel = ({ onClose }: Props) => {
                 <Ionicons name="grid-outline" size={18} color={isToolsExpanded ? AppColors.primary : "rgba(255, 255, 255, 0.4)"} />
               </View>
               <View style={styles.settingInfo}>
-                <Text style={styles.settingName}>Strumenti Espansi</Text>
+                <Text style={styles.settingName}>{t('settings:behavior.expandedTools')}</Text>
                 <Text style={styles.settingDescription}>
-                  Mostra toolbar completa
+                  {t('settings:behavior.expandedToolsDesc')}
                 </Text>
               </View>
               <Switch
@@ -195,18 +198,18 @@ export const SettingsPanel = ({ onClose }: Props) => {
 
         {/* Sistema */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sistema</Text>
+          <Text style={styles.sectionTitle}>{t('settings:system.title')}</Text>
 
           <BlurView intensity={10} tint="light" style={styles.infoGroup}>
             <View style={styles.infoItem}>
               <Ionicons name="cube-outline" size={16} color="rgba(255,255,255,0.4)" />
-              <Text style={styles.infoLabel}>Versione</Text>
-              <Text style={styles.infoValue}>1.0.0-build.72</Text>
+              <Text style={styles.infoLabel}>{t('settings:system.version')}</Text>
+              <Text style={styles.infoValue}>{Constants.expoConfig?.version || '1.0.0'}</Text>
             </View>
 
             <View style={[styles.infoItem, { borderBottomWidth: 0 }]}>
               <Ionicons name="earth-outline" size={16} color="rgba(255,255,255,0.4)" />
-              <Text style={styles.infoLabel}>Regione</Text>
+              <Text style={styles.infoLabel}>{t('settings:system.region')}</Text>
               <Text style={styles.infoValue}>Europe (Milan)</Text>
             </View>
           </BlurView>

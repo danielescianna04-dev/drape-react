@@ -92,7 +92,9 @@
   "file": {
     "selected": "File Selezionato",
     "unableToOpen": "Impossibile aprire il file picker",
-    "linkCopied": "Link repository copiato negli appunti"
+    "linkCopied": "Link repository copiato negli appunti",
+    "noValidFileSelected": "Nessun file valido selezionato",
+    "errorOpeningProject": "Errore durante l'apertura del progetto"
   },
   "all": {
     "title": "Tutti i Progetti",

@@ -1,6 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, View } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { AppColors } from '../../theme/colors';
 
 interface ButtonProps {
   /** Button label text */
@@ -93,8 +94,8 @@ export const Button: React.FC<ButtonProps> = ({
         <TouchableOpacity
           style={[
             styles.innerButton,
-            { 
-              backgroundColor: variant === 'primary' ? 'rgba(139, 124, 246, 0.6)' : 'rgba(255, 255, 255, 0.1)' 
+            {
+              backgroundColor: variant === 'primary' ? 'rgba(155, 138, 255, 0.6)' : 'rgba(255, 255, 255, 0.1)'
             }
           ]}
           onPress={onPress}
@@ -143,12 +144,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   primaryButton: {
-    backgroundColor: '#8B7CF6',
+    backgroundColor: AppColors.primary,
   },
   secondaryButton: {
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
+    backgroundColor: 'rgba(155, 138, 255, 0.2)',
     borderWidth: 1,
-    borderColor: '#8B7CF6',
+    borderColor: AppColors.primary,
   },
   ghostButton: {
     backgroundColor: 'transparent',
@@ -163,7 +164,7 @@ const styles = StyleSheet.create({
   },
   secondaryLabel: {
     fontSize: 15,
-    color: '#8B7CF6',
+    color: AppColors.primary,
     fontWeight: '600',
   },
   ghostLabel: {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
@@ -139,13 +140,26 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   };
 
   const handleDelete = (chatId: string) => {
-    deleteChat(chatId);
-    // Close any open tabs for this chat
-    const chatTab = tabs.find(t => t.data?.chatId === chatId);
-    if (chatTab) {
-      removeTab(chatTab.id);
-    }
-    setOpenMenuId(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      'Elimina conversazione',
+      'Sei sicuro di voler eliminare questa conversazione? L\'azione non può essere annullata.',
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Elimina',
+          style: 'destructive',
+          onPress: () => {
+            deleteChat(chatId);
+            const chatTab = tabs.find(t => t.data?.chatId === chatId);
+            if (chatTab) {
+              removeTab(chatTab.id);
+            }
+            setOpenMenuId(null);
+          }
+        }
+      ]
+    );
   };
 
   const handleClose = () => {

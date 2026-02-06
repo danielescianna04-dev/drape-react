@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, TextInput, Platform, LayoutAnimation, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -9,6 +10,7 @@ import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { websocketService } from '../../../core/websocket/websocketService';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { auth } from '../../../config/firebase';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -32,6 +34,7 @@ interface Props {
 }
 
 export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthRequired }: Props) => {
+  const { t } = useTranslation();
   // Initialize from cache immediately (EVEN IF EXPIRED - Stale-While-Revalidate)
   const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
   const [files, setFiles] = useState<string[]>(cachedFiles || []);
@@ -139,7 +142,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       // Check if authentication is required for private repo
       if (err.requiresAuth && repositoryUrl && onAuthRequired) {
         onAuthRequired(repositoryUrl);
-        setError('Repository privata - richiesta autenticazione');
+        setError(t('terminal:fileExplorer.privateRepoAuth'));
       } else {
         // If no cache and retries left, retry after a delay (VM might still be starting)
         const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
@@ -318,7 +321,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   if (files.length === 0) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.emptyText}>Nessun file</Text>
+        <Text style={styles.emptyText}>{t('terminal:fileExplorer.noFiles')}</Text>
       </View>
     );
   }
@@ -343,7 +346,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                 filePath: node.path,
                 projectId,
                 repositoryUrl,
-                userId: 'anonymous', // TODO: Get from auth
+                userId: auth.currentUser?.uid || 'anonymous',
               }
             });
 
@@ -399,7 +402,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         return (
           <View style={styles.searchResultsContainer}>
             <ActivityIndicator size="large" color={AppColors.primary} />
-            <Text style={styles.searchingText}>Ricerca in corso...</Text>
+            <Text style={styles.searchingText}>{t('terminal:fileExplorer.searching')}</Text>
           </View>
         );
       }
@@ -408,7 +411,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         return (
           <View style={styles.searchResultsContainer}>
             <Ionicons name="search-outline" size={48} color={AppColors.white.w25} />
-            <Text style={styles.noResultsText}>Nessun risultato trovato</Text>
+            <Text style={styles.noResultsText}>{t('terminal:fileExplorer.noResultsFound')}</Text>
           </View>
         );
       }
@@ -433,14 +436,14 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             >
               <View style={styles.resultsCountInner}>
                 <Text style={styles.resultsCountText}>
-                  {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
+                  {searchResults.length} {t('terminal:fileExplorer.resultsInFiles', { count: Object.keys(resultsByFile).length })}
                 </Text>
               </View>
             </LiquidGlassView>
           ) : (
             <View style={styles.resultsCount}>
               <Text style={styles.resultsCountText}>
-                {searchResults.length} risultat{searchResults.length !== 1 ? 'i' : 'o'} in {Object.keys(resultsByFile).length} file
+                {searchResults.length} {t('terminal:fileExplorer.resultsInFiles', { count: Object.keys(resultsByFile).length })}
               </Text>
             </View>
           )}
@@ -504,7 +507,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                             filePath,
                             projectId,
                             repositoryUrl,
-                            userId: 'anonymous',
+                            userId: auth.currentUser?.uid || 'anonymous',
                             highlightLine: result.line,
                           }
                         });
@@ -561,7 +564,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
               )}
               <TextInput
                 style={styles.searchInput}
-                placeholder="Cerca..."
+                placeholder={t('terminal:fileExplorer.searchPlaceholder')}
                 placeholderTextColor={AppColors.white.w25}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -594,7 +597,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             )}
             <TextInput
               style={styles.searchInput}
-              placeholder="Cerca..."
+              placeholder={t('terminal:fileExplorer.searchPlaceholder')}
               placeholderTextColor={AppColors.white.w25}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -602,7 +605,11 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
               autoCorrect={false}
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                style={styles.clearButton}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
                 <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
               </TouchableOpacity>
             )}
@@ -670,10 +677,10 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   clearButton: {
-    padding: 2,
+    padding: 8,
   },
   searchModeToggle: {
-    padding: 4,
+    padding: 10,
     marginLeft: 4,
   },
   centerContainer: {
@@ -698,7 +705,7 @@ const styles = StyleSheet.create({
   fileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6, // Increased for better touch target
+    paddingVertical: 12,
     paddingHorizontal: 8,
   },
   fileIcon: {
@@ -712,7 +719,7 @@ const styles = StyleSheet.create({
   folderItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6, // Increased for better touch target
+    paddingVertical: 12,
     paddingHorizontal: 8,
   },
   chevron: {

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { TerminalItem as TerminalItemType, TerminalItemType as ItemType } from '../../../shared/types';
 import { AppColors } from '../../../shared/theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = false, onPlanApprove, onPlanReject }: Props) => {
+  const { t } = useTranslation();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -991,7 +993,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                           style={[styles.showMoreButton, { marginTop: 12 }]}
                                         >
                                           <Text style={styles.showMoreText}>
-                                            Mostra {outputLines.length - 5} righe in più
+                                            {t('terminal:terminalItem.showMoreLines', { count: outputLines.length - 5 })}
                                           </Text>
                                           <Ionicons name="chevron-down" size={14} color="#8B949E" />
                                         </TouchableOpacity>
@@ -1003,7 +1005,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                           onPress={() => setIsExpanded(false)}
                                           style={styles.showLessButton}
                                         >
-                                          <Text style={styles.showMoreText}>Mostra meno</Text>
+                                          <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                           <Ionicons name="chevron-up" size={14} color="#8B949E" />
                                         </TouchableOpacity>
                                       )}
@@ -1066,7 +1068,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                           style={[styles.showMoreButton, { marginTop: 12 }]}
                                         >
                                           <Text style={styles.showMoreText}>
-                                            Mostra {outputLines.length - 4} righe in più
+                                            {t('terminal:terminalItem.showMoreLines', { count: outputLines.length - 4 })}
                                           </Text>
                                           <Ionicons name="chevron-down" size={14} color="#8B949E" />
                                         </TouchableOpacity>
@@ -1078,7 +1080,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                           onPress={() => setIsExpanded(false)}
                                           style={styles.showLessButton}
                                         >
-                                          <Text style={styles.showMoreText}>Mostra meno</Text>
+                                          <Text style={styles.showMoreText}>{t('common:showLess')}</Text>
                                           <Ionicons name="chevron-up" size={14} color="#8B949E" />
                                         </TouchableOpacity>
                                       )}
@@ -1261,7 +1263,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                     <View style={styles.projectCreatedIconBox}>
                       <Ionicons name="checkmark-circle" size={20} color="#10B981" />
                     </View>
-                    <Text style={styles.projectCreatedTitle}>Progetto creato</Text>
+                    <Text style={styles.projectCreatedTitle}>{t('terminal:terminalItem.projectCreated')}</Text>
                   </View>
                   <Text style={styles.projectCreatedName}>{info.name}</Text>
                   <View style={styles.projectCreatedMeta}>
@@ -1324,7 +1326,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   activeOpacity={0.7}
                 >
                   <Ionicons name="close-circle-outline" size={18} color="#F85149" />
-                  <Text style={[styles.planApprovalButtonText, { color: '#F85149' }]}>Rifiuta</Text>
+                  <Text style={[styles.planApprovalButtonText, { color: '#F85149' }]}>{t('terminal:terminalItem.reject')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1333,7 +1335,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   activeOpacity={0.7}
                 >
                   <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                  <Text style={[styles.planApprovalButtonText, { color: '#fff' }]}>Approva</Text>
+                  <Text style={[styles.planApprovalButtonText, { color: '#fff' }]}>{t('terminal:terminalItem.approve')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1341,13 +1343,13 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             {item.planInfo.status === 'approved' && (
               <View style={styles.planApprovalStatusBadge}>
                 <Ionicons name="checkmark-circle" size={16} color="#3FB950" />
-                <Text style={[styles.planApprovalStatusText, { color: '#3FB950' }]}>Piano approvato</Text>
+                <Text style={[styles.planApprovalStatusText, { color: '#3FB950' }]}>{t('terminal:terminalItem.planApproved')}</Text>
               </View>
             )}
             {item.planInfo.status === 'rejected' && (
               <View style={styles.planApprovalStatusBadge}>
                 <Ionicons name="close-circle" size={16} color="#F85149" />
-                <Text style={[styles.planApprovalStatusText, { color: '#F85149' }]}>Piano rifiutato</Text>
+                <Text style={[styles.planApprovalStatusText, { color: '#F85149' }]}>{t('terminal:terminalItem.planRejected')}</Text>
               </View>
             )}
           </>

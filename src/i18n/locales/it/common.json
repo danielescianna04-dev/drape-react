@@ -116,5 +116,6 @@
   "folderName": "Nome della cartella",
   "projectName": "Nome del progetto",
   "terminalMode": "Modalità Terminale",
-  "envVariables": "Variabili Ambiente"
+  "envVariables": "Variabili Ambiente",
+  "galleryPermissionRequired": "È necessario il permesso per accedere alla galleria"
 }

@@ -34,6 +34,7 @@ import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface SystemStatus {
   tokens: {
@@ -150,7 +151,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       reengagement: key === 'reengagement' ? value : notifReengagement,
     };
     if (user?.uid) {
-      pushNotificationService.updatePreferences(user.uid, prefs).catch(() => {});
+      pushNotificationService.updatePreferences(user.uid, prefs).catch((err) => console.warn('[Settings] Failed to update notification preferences:', err?.message || err));
     }
   };
 
@@ -252,6 +253,42 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   const userId = user?.uid || useTerminalStore.getState().userId || 'anonymous';
+
+  // Load saved notification preferences on mount
+  useEffect(() => {
+    const loadNotifPrefs = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('notification_preferences');
+        if (saved) {
+          const prefs = JSON.parse(saved);
+          setNotifications(prefs.notifications ?? true);
+          setNotifOperations(prefs.operations ?? true);
+          setNotifGithub(prefs.github ?? true);
+          setNotifReengagement(prefs.reengagement ?? true);
+        }
+      } catch (e) {
+        console.warn('[Settings] Failed to load notification prefs:', e);
+      }
+    };
+    loadNotifPrefs();
+  }, []);
+
+  // Save notification preferences when they change
+  useEffect(() => {
+    const saveNotifPrefs = async () => {
+      try {
+        await AsyncStorage.setItem('notification_preferences', JSON.stringify({
+          notifications,
+          operations: notifOperations,
+          github: notifGithub,
+          reengagement: notifReengagement,
+        }));
+      } catch (e) {
+        console.warn('[Settings] Failed to save notification prefs:', e);
+      }
+    };
+    saveNotifPrefs();
+  }, [notifications, notifOperations, notifGithub, notifReengagement]);
 
   useEffect(() => {
     loadAccounts();
@@ -1010,24 +1047,6 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           <Text style={styles.sectionTitle}>{t('appearance.title')}</Text>
           <GlassCard key={loading ? 'loading-app' : 'loaded-app'}>
             <View style={styles.sectionCard}>
-              <SettingItem
-                icon="moon-outline"
-                iconColor="#A78BFA"
-                title={t('appearance.darkTheme')}
-                subtitle={t('appearance.darkThemeDesc')}
-                showChevron={false}
-                rightElement={
-                  <Switch
-                    value={darkMode}
-                    onValueChange={setDarkMode}
-                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
-                    thumbColor="#fff"
-                    ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }], opacity: 0.5 }}
-                    disabled={true}
-                  />
-                }
-              />
               <SettingItem
                 icon="language-outline"
                 iconColor="#60A5FA"

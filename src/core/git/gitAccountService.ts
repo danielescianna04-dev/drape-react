@@ -390,7 +390,7 @@ export const gitAccountService = {
         const key = `${local.provider}-${local.username}`;
         if (!firebaseUsernames.has(key)) {
           mergedAccounts.push(local);
-          this.syncLocalAccountToFirebase(local, userId).catch(() => {});
+          this.syncLocalAccountToFirebase(local, userId).catch((err) => console.warn('[Git] Failed to sync account to Firebase:', err?.message || err));
         }
       }
 

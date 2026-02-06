@@ -67,7 +67,7 @@ const getDeviceLanguage = (): LanguageCode => {
 i18n.use(initReactI18next).init({
   resources,
   lng: getDeviceLanguage(),
-  fallbackLng: 'it',
+  fallbackLng: 'en',
   defaultNS: 'common',
   ns: ['common', 'settings', 'projects', 'terminal', 'errors', 'auth'],
   interpolation: {

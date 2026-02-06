@@ -39,7 +39,7 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
           setExistingPublish({ slug: data.slug, url: data.url });
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[Publish] Failed to check published status:', err?.message || err));
   }, [projectId, apiUrl, serverStatus]);
 
   const handlePublish = async () => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Animated as RNAnimated, ActivityIndicator, RefreshControl, Linking, TextInput } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Button } from '../../../../shared/components/atoms/Button';
@@ -52,6 +53,7 @@ interface GitStatus {
 }
 
 export const GitHubView = ({ tab }: Props) => {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<'commits' | 'branches' | 'changes'>('commits');
   const [gitAccounts, setGitAccounts] = useState<GitAccount[]>([]);
   const [linkedAccount, setLinkedAccount] = useState<GitAccount | null>(null);
@@ -367,15 +369,15 @@ export const GitHubView = ({ tab }: Props) => {
 
       const result = await response.json();
       if (result.success) {
-        Alert.alert('Successo', 'Commit creato con successo');
+        Alert.alert(t('common:success'), t('terminal:git.commitSuccess'));
         setCommitMessage('');
         await loadGitData();
       } else {
-        Alert.alert('Errore', result.message || 'Errore durante il commit');
+        Alert.alert(t('common:error'), result.message || t('terminal:git.commitError'));
       }
     } catch (error) {
       console.error('Git commit error:', error);
-      Alert.alert('Errore', 'Impossibile creare il commit');
+      Alert.alert(t('common:error'), t('terminal:git.unableToCommit'));
     } finally {
       setActionLoading(null);
     }

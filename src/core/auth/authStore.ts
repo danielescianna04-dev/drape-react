@@ -23,6 +23,7 @@ import * as Crypto from 'expo-crypto';
 import { pushNotificationService } from '../services/pushNotificationService';
 import { deviceService } from '../services/deviceService';
 import { Alert } from 'react-native';
+import i18n from '../../i18n';
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
@@ -43,7 +44,7 @@ function startPresenceTracking(userId: string) {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     heartbeatInterval = setInterval(() => {
       setDoc(presenceRef, { lastSeen: serverTimestamp() }, { merge: true })
-        .catch(() => {});
+        .catch((err) => console.warn('[Auth] Failed to update presence:', err?.message || err));
     }, 30000);
   };
 
@@ -74,7 +75,7 @@ function startPresenceTracking(userId: string) {
         lastSeen: serverTimestamp(),
         sessionStart: serverTimestamp(),
         email: auth.currentUser?.email || ''
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Auth] Failed to restore presence on active:', err?.message || err));
       startHeartbeat();
     }
   });
@@ -94,7 +95,7 @@ function stopPresenceTracking(userId: string) {
     presenceCleanup();
     presenceCleanup = null;
   }
-  deleteDoc(doc(db, 'presence', userId)).catch(() => {});
+  deleteDoc(doc(db, 'presence', userId)).catch((err) => console.warn('[Auth] Failed to delete presence:', err?.message || err));
 }
 
 export interface DrapeUser {
@@ -198,8 +199,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
           // Show alert and sign out
           Alert.alert(
-            'Sessione terminata',
-            'Il tuo account è stato connesso da un altro dispositivo. Puoi usare un solo dispositivo per account.',
+            i18n.t('auth:errors.sessionTerminated'),
+            i18n.t('auth:errors.multipleDevices'),
             [{ text: 'OK', onPress: () => signOut(auth) }]
           );
           return;
@@ -226,7 +227,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
 
         // Initialize push notifications (non-blocking)
-        pushNotificationService.initialize(firebaseUser.uid).catch(() => {});
+        pushNotificationService.initialize(firebaseUser.uid).catch((err) => console.warn('[Auth] Failed to initialize push notifications:', err?.message || err));
 
         // Start presence tracking for admin dashboard
         if (presenceCleanup) presenceCleanup(); // Clean up any existing
@@ -287,25 +288,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       console.error('❌ [AuthStore] Sign in error:', error.code);
 
-      let errorMessage = 'Errore durante l\'accesso';
+      let errorMessage = i18n.t('auth:errors.errorDuringLogin');
       switch (error.code) {
         case 'auth/invalid-email':
-          errorMessage = 'Email non valida';
+          errorMessage = i18n.t('auth:errors.invalidEmail');
           break;
         case 'auth/user-disabled':
-          errorMessage = 'Account disabilitato';
+          errorMessage = i18n.t('auth:errors.userDisabled');
           break;
         case 'auth/user-not-found':
-          errorMessage = 'Utente non trovato';
+          errorMessage = i18n.t('auth:errors.userNotFound');
           break;
         case 'auth/wrong-password':
-          errorMessage = 'Password errata';
+          errorMessage = i18n.t('auth:errors.wrongPassword');
           break;
         case 'auth/invalid-credential':
-          errorMessage = 'Credenziali non valide';
+          errorMessage = i18n.t('auth:errors.invalidCredentials');
           break;
         case 'auth/too-many-requests':
-          errorMessage = 'Troppi tentativi. Riprova più tardi';
+          errorMessage = i18n.t('auth:errors.tooManyRequests');
           break;
       }
 
@@ -344,19 +345,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       console.error('❌ [AuthStore] Sign up error:', error.code);
 
-      let errorMessage = 'Errore durante la registrazione';
+      let errorMessage = i18n.t('auth:errors.errorDuringRegistration');
       switch (error.code) {
         case 'auth/email-already-in-use':
-          errorMessage = 'Email già in uso';
+          errorMessage = i18n.t('auth:errors.emailInUse');
           break;
         case 'auth/invalid-email':
-          errorMessage = 'Email non valida';
+          errorMessage = i18n.t('auth:errors.invalidEmail');
           break;
         case 'auth/operation-not-allowed':
-          errorMessage = 'Operazione non consentita';
+          errorMessage = i18n.t('auth:errors.operationNotAllowed');
           break;
         case 'auth/weak-password':
-          errorMessage = 'Password troppo debole (minimo 6 caratteri)';
+          errorMessage = i18n.t('auth:errors.weakPassword');
           break;
       }
 
@@ -392,7 +393,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
 
       // Unregister push notifications
-      await pushNotificationService.unregisterToken().catch(() => {});
+      await pushNotificationService.unregisterToken().catch((err) => console.warn('[Auth] Failed to unregister push token:', err?.message || err));
 
       // Stop presence tracking
       if (user) {
@@ -401,7 +402,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // Clear active device (only if not kicked by another device)
       if (user && !get().deviceCheckFailed) {
-        await deviceService.clearActiveDevice(user.uid).catch(() => {});
+        await deviceService.clearActiveDevice(user.uid).catch((err) => console.warn('[Auth] Failed to clear active device:', err?.message || err));
       }
 
       // Sign out from Firebase
@@ -410,7 +411,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     } catch (error: any) {
       console.error('❌ [AuthStore] Logout error:', error);
-      set({ error: 'Errore durante il logout', isLoading: false });
+      set({ error: i18n.t('auth:errors.errorDuringLogout'), isLoading: false });
       throw error;
     }
   },
@@ -424,13 +425,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       console.error('❌ [AuthStore] Password reset error:', error.code);
 
-      let errorMessage = 'Errore durante il reset della password';
+      let errorMessage = i18n.t('auth:errors.errorDuringPasswordReset');
       switch (error.code) {
         case 'auth/invalid-email':
-          errorMessage = 'Email non valida';
+          errorMessage = i18n.t('auth:errors.invalidEmail');
           break;
         case 'auth/user-not-found':
-          errorMessage = 'Utente non trovato';
+          errorMessage = i18n.t('auth:errors.userNotFound');
           break;
       }
 
@@ -502,7 +503,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     } catch (error: any) {
       console.error('❌ [AuthStore] Google sign in error:', error);
-      const errorMessage = 'Errore durante l\'accesso con Google';
+      const errorMessage = i18n.t('auth:errors.errorDuringGoogleSignIn');
       set({ error: errorMessage, isLoading: false });
       throw new Error(errorMessage);
     }
@@ -600,9 +601,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       console.error('❌ [AuthStore] Apple sign in error:', error);
 
-      let errorMessage = 'Errore durante l\'accesso con Apple';
+      let errorMessage = i18n.t('auth:errors.errorDuringAppleSignIn');
       if (error.code === 'ERR_CANCELED') {
-        errorMessage = 'Accesso annullato';
+        errorMessage = i18n.t('auth:errors.appleLoginCancelled');
       }
 
       set({ error: errorMessage, isLoading: false });
@@ -623,8 +624,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ deviceCheckFailed: true });
 
         Alert.alert(
-          'Sessione terminata',
-          'Il tuo account è stato connesso da un altro dispositivo. Puoi usare un solo dispositivo per account.',
+          i18n.t('auth:errors.sessionTerminated'),
+          i18n.t('auth:errors.multipleDevices'),
           [{ text: 'OK', onPress: () => get().logout() }]
         );
         return false;

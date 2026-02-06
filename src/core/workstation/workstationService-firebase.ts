@@ -3,6 +3,7 @@ import { db, auth } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import apiClient from '../api/apiClient';
 import { config } from '../../config/config';
+import i18n from '../../i18n';
 
 const COLLECTION = 'user_projects';
 const API_BASE_URL = config.apiUrl;
@@ -284,7 +285,7 @@ export const workstationService = {
 
       // Handle 401 with requiresAuth
       if (error.response?.status === 401 && error.response?.data?.requiresAuth) {
-        const authError = new Error(error.response?.data?.error || 'Repository privata. È necessario autenticarsi.');
+        const authError = new Error(error.response?.data?.error || i18n.t('errors:workspace.privateRepoAuthRequired'));
         (authError as any).requiresAuth = true;
         (authError as any).isPrivate = error.response?.data?.isPrivate;
         throw authError;

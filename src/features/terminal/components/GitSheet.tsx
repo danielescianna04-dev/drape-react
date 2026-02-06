@@ -118,7 +118,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         setLoading(false);
 
         // Refresh in background silently
-        loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch(() => { });
+        loadAccountInfo().then(accounts => loadGitData(accounts || [])).catch((err) => console.warn('[Git] Background refresh failed:', err?.message || err));
         return;
       }
 

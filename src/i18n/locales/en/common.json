@@ -116,5 +116,6 @@
   "folderName": "Folder name",
   "projectName": "Project name",
   "terminalMode": "Terminal Mode",
-  "envVariables": "Environment Variables"
+  "envVariables": "Environment Variables",
+  "galleryPermissionRequired": "Gallery access permission is required"
 }

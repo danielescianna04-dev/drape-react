@@ -1,6 +1,7 @@
 {
   "git": {
     "title": "Git",
+    "errorDuringCommit": "Error during commit",
     "noActiveWorkspace": "No active workspace",
     "authRequired": "Authentication required",
     "authRequiredForAction": "To perform {{action}} you must first link a GitHub account.",
@@ -220,5 +221,34 @@
     "running": "Running...",
     "completed": "Completed",
     "failed": "Failed"
+  },
+  "terminalView": {
+    "noCommands": "No commands executed",
+    "interactive": "Interactive Terminal",
+    "aiCommandsHere": "Commands executed by AI will appear here",
+    "startTyping": "Start typing commands to interact with the terminal",
+    "commandPlaceholder": "Write a command..."
+  },
+  "fileExplorer": {
+    "noFiles": "No files",
+    "privateRepoAuth": "Private repository - authentication required",
+    "searchPlaceholder": "Search...",
+    "searching": "Searching...",
+    "noResultsFound": "No results found",
+    "resultsInFiles": "results in {{count}} files"
+  },
+  "terminalItem": {
+    "showMoreLines": "Show {{count}} more lines",
+    "projectCreated": "Project created",
+    "reject": "Reject",
+    "approve": "Approve",
+    "planApproved": "Plan approved",
+    "planRejected": "Plan rejected"
+  },
+  "preview": {
+    "sessionExpired": "Session terminated due to inactivity"
+  },
+  "welcome": {
+    "subtitle": "Mobile-first AI IDE\nwith multi-model support"
   }
 }

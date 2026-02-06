@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } fr
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
@@ -21,12 +22,16 @@ interface Props {
  * TerminalView - Interactive terminal showing AI command history and allowing direct command execution
  */
 export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
+  const { t, i18n } = useTranslation();
   const scrollViewRef = useRef<ScrollView>(null);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
   const { currentWorkstation } = useWorkstationStore();
   const { globalTerminalLog, addGlobalTerminalLog } = useUIStore();
+
+  // Get locale based on current language
+  const locale = i18n.language === 'it' ? 'it-IT' : 'en-US';
 
   // Get terminal items based on sourceTabId
   // Now includes GLOBAL log from all sources (preview, AI, etc.)
@@ -174,7 +179,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
 
   const formatTimestamp = (timestamp: Date) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('it-IT', {
+    return date.toLocaleTimeString(locale, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit'
@@ -266,7 +271,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
           )}
           {item.timestamp && (
             <Text style={styles.timestamp}>
-              {new Date(item.timestamp).toLocaleTimeString('it-IT', {
+              {new Date(item.timestamp).toLocaleTimeString(locale, {
                 hour: '2-digit',
                 minute: '2-digit',
                 second: '2-digit'
@@ -349,12 +354,12 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
           <View style={styles.emptyState}>
             <Ionicons name="terminal-outline" size={48} color={AppColors.white.w25} />
             <Text style={styles.emptyText}>
-              {isAICommandHistory ? 'Nessun comando eseguito' : 'Terminal Interattivo'}
+              {isAICommandHistory ? t('terminal:terminalView.noCommands') : t('terminal:terminalView.interactive')}
             </Text>
             <Text style={styles.emptySubtext}>
               {isAICommandHistory
-                ? 'I comandi eseguiti dall\'AI appariranno qui'
-                : 'Inizia a digitare comandi per interagire con il terminale'
+                ? t('terminal:terminalView.aiCommandsHere')
+                : t('terminal:terminalView.startTyping')
               }
             </Text>
           </View>
@@ -392,7 +397,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         value={input}
         onChangeText={setInput}
         onSend={handleCommand}
-        placeholder="Scrivi un comando..."
+        placeholder={t('terminal:terminalView.commandPlaceholder')}
         disabled={isExecuting}
         isExecuting={isExecuting}
         showTopBar={false}

@@ -594,7 +594,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         credentials: 'include',
       })).then(res => res.json()).then(data => {
         if (data.machineId) setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Preview] Failed to recover machine ID:', err?.message || err));
     }
   }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl]);
 
@@ -639,7 +639,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               if (data.type === 'connected' || data.type === 'error') continue;
               if (data.type === 'session_expired') {
                 setSessionExpired(true);
-                setSessionExpiredMessage(data.message || 'Sessione terminata per inattività');
+                setSessionExpiredMessage(data.message || t('terminal:preview.sessionExpired'));
                 setServerStatus('stopped');
                 startup.setIsStarting(false);
                 if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
@@ -721,7 +721,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         headers: { 'Content-Type': 'application/json', ...initAuthHeaders },
         body: JSON.stringify({ machineId: globalFlyMachineId }),
         credentials: 'include',
-      })).catch(() => {});
+      })).catch((err) => console.warn('[Preview] Failed to restore session cookie:', err?.message || err));
     }
   }, []);
 

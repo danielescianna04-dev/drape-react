@@ -11,7 +11,7 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Platform } from 'react-native';
 import { useAgentStream, AgentToolEvent } from '../../../hooks/api/useAgentStream';
 import { useAgentStore, agentSelectors } from '../agentStore';
 
@@ -475,7 +475,7 @@ const styles = StyleSheet.create({
   },
   fileItem: {
     fontSize: 12,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     paddingVertical: 4,
   },
   fileCreated: {
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
   eventType: {
     fontSize: 11,
     fontWeight: '600',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   eventTypetool_start: {
     color: '#007bff',

@@ -10,6 +10,7 @@ import {
   Image,
   RefreshControl,
   Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -412,7 +413,7 @@ const styles = StyleSheet.create({
   },
   shaText: {
     fontSize: 11,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: 'rgba(255,255,255,0.3)',
   },
   expandedActions: {

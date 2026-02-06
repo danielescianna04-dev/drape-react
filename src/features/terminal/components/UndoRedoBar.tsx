@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import apiClient from '../../../core/api/apiClient';
 import { useFileHistoryStore, FileModification } from '../../../core/history/fileHistoryStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
@@ -32,6 +33,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
   const handleUndo = useCallback(async () => {
     if (!hasUndo || isUndoing) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsUndoing(true);
 
     try {
@@ -74,6 +76,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
   const handleRedo = useCallback(async () => {
     if (!hasRedo || isRedoing) return;
 
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsRedoing(true);
 
     try {

@@ -42,7 +42,8 @@
     "startFailed": "Impossibile avviare il workspace.",
     "stopFailed": "Impossibile arrestare il workspace.",
     "connectionLost": "Connessione al workspace persa.",
-    "notReady": "Workspace non pronto."
+    "notReady": "Workspace non pronto.",
+    "privateRepoAuthRequired": "Repository privata. È necessario autenticarsi."
   },
   "file": {
     "readFailed": "Impossibile leggere il file.",

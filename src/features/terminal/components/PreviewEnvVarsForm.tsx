@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.6)',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

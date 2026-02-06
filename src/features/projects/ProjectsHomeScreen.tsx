@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -208,7 +208,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         remainingSeconds: Math.max(0, Math.round(60 * (1 - targetProgress / 100))),
         currentStep: step,
         progress: targetProgress / 100,
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Project] Failed to update live activity:', err?.message || err));
 
       // Clear any existing timer
       if (progressTimerRef.current) {
@@ -311,7 +311,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       // Filter out junk files
       const validAssets = result.assets.filter(f => !shouldSkip(f.name));
       if (validAssets.length === 0) {
-        Alert.alert(t('common:error'), 'Nessun file valido selezionato');
+        Alert.alert(t('common:error'), t('projects:file.noValidFileSelected'));
         return;
       }
 
@@ -407,7 +407,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setLoadingProjectName('');
       setLoadingProgress(0);
       setLoadingStep('');
-      Alert.alert(t('common:error'), error.message || 'Errore durante l\'apertura del progetto');
+      Alert.alert(t('common:error'), error.message || t('projects:file.errorOpeningProject'));
     }
   };
 
@@ -460,7 +460,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       remainingSeconds: 60,
       currentStep: 'Preparazione...',
       progress: 0.05,
-    }, 'open').catch(() => {});
+    }, 'open').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
     // Release previous project's VM when switching (with grace period)
     const { currentWorkstation } = useTerminalStore.getState();
@@ -528,7 +528,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // End Live Activity with success
       if (liveActivityService.isActivityActive()) {
-        liveActivityService.endWithSuccess(project.name, 'Aperto!').catch(() => {});
+        liveActivityService.endWithSuccess(project.name, 'Aperto!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
       }
 
       // Brief pause
@@ -597,7 +597,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         gitPromises.push(filePrefetchService.prefetchFiles(project.id, repoUrl, true));
 
         // Run both in parallel
-        await Promise.all(gitPromises).catch(() => { });
+        await Promise.all(gitPromises).catch((err) => console.warn('[Project] Background git update failed:', err?.message || err));
       };
       backgroundUpdate();
       return;
@@ -771,7 +771,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     // End Live Activity with success
     if (liveActivityService.isActivityActive()) {
-      liveActivityService.endWithSuccess(project.name, 'Aperto!').catch(() => {});
+      liveActivityService.endWithSuccess(project.name, 'Aperto!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
     }
 
     // Brief pause at 100%
@@ -791,7 +791,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }, 300);
    } catch (error: any) {
     console.error('❌ [Home] handleProjectOpen error:', error.message);
-    liveActivityService.endPreviewActivity().catch(() => {});
+    liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     setIsLoadingProject(false);
     setLoadingProjectName('');
@@ -1858,7 +1858,7 @@ const styles = StyleSheet.create({
   projectRepoText: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.45)',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     maxWidth: '55%',
   },
   projectLang: {
@@ -2009,7 +2009,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: 'rgba(255,255,255,0.6)',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   copyButton: {
     padding: 6,

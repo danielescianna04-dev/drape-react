@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -64,7 +64,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       // Request permission
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        alert('È necessario il permesso per accedere alla galleria');
+        Alert.alert(
+          'Permesso necessario',
+          'È necessario il permesso per accedere alla galleria',
+          [
+            { text: 'Annulla', style: 'cancel' },
+            { text: 'Impostazioni', onPress: () => Linking.openSettings() }
+          ]
+        );
         return;
       }
 
@@ -144,9 +151,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <Text style={styles.modelText}>{modelName}</Text>
             <Ionicons name="chevron-down" size={12} color="#666" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.toolsButton}>
-            <Ionicons name="add" size={24} color="#8A8A8A" />
-          </TouchableOpacity>
         </View>
       )}
 
@@ -160,6 +164,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 <TouchableOpacity
                   style={styles.imageRemoveButton}
                   onPress={() => removeImage(index)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <Ionicons name="close-circle" size={20} color="#fff" />
                 </TouchableOpacity>
@@ -203,8 +208,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           placeholder={placeholder}
           placeholderTextColor="#6E7681"
           multiline
-          maxLength={1000}
-          onSubmitEditing={handleSend}
+          maxLength={5000}
           keyboardAppearance="dark"
           autoCapitalize="none"
           autoCorrect={false}
@@ -321,8 +325,8 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   modeButton: {
-    width: 28,
-    height: 26,
+    minWidth: 44,
+    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 10,
@@ -382,8 +386,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sendButton: {
-    width: 36,
-    height: 36,
+    minWidth: 44,
+    minHeight: 44,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
@@ -417,7 +421,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#F0F0F0',
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     paddingHorizontal: 16,
     paddingVertical: 14,
     maxHeight: 150, // Altezza massima del campo di input
@@ -452,5 +456,6 @@ const styles = StyleSheet.create({
     right: 4,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     borderRadius: 10,
+    padding: 4,
   },
 });

@@ -236,12 +236,12 @@ export function usePreviewStartup({
       clearPreviewStartupState(projectId);
       const name = currentWorkstationName || t('terminal:preview.project');
       if (liveActivityService.isActivityActive()) {
-        liveActivityService.endWithSuccess(name).catch(() => {});
+        liveActivityService.endWithSuccess(name).catch((err) => console.warn('[Preview] Failed to end live activity:', err?.message || err));
       }
       liveActivityService.sendNotification(
         t('terminal:preview.ready'),
         t('terminal:preview.projectReadyForPreview', { name })
-      ).catch(() => {});
+      ).catch((err) => console.warn('[Preview] Failed to send notification:', err?.message || err));
     }
   }, [serverStatus, webViewReady, projectId]);
 
@@ -264,7 +264,7 @@ export function usePreviewStartup({
         remainingSeconds: estimatedRemainingSeconds || 240,
         currentStep: currentStepLabel,
         progress: smoothProgressRef.current / 100,
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Preview] Failed to start live activity:', err?.message || err));
     }
   }, [isStarting, currentWorkstationName]);
 
@@ -331,7 +331,9 @@ export function usePreviewStartup({
   useEffect(() => {
     return () => {
       if (smoothProgressSyncTimer.current) clearTimeout(smoothProgressSyncTimer.current);
-      try { liveActivityService.cleanup(); } catch {}
+      try { liveActivityService.cleanup(); } catch (err) {
+        console.warn('[Preview] Failed to cleanup live activity:', err);
+      }
     };
   }, []);
 

@@ -108,7 +108,7 @@ class PushNotificationService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ userId, token, platform: Platform.OS }),
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Push] Failed to register token with backend:', err?.message || err));
 
     } catch (error: any) {
       console.warn('[Push] Token registration error:', error.message);
@@ -227,7 +227,7 @@ class PushNotificationService {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...prefAuthHeaders },
         body: JSON.stringify({ userId, preferences }),
-      }).catch(() => {});
+      }).catch((err) => console.warn('[Push] Failed to sync preferences to backend:', err?.message || err));
 
     } catch (error: any) {
       console.warn('[Push] Preferences error:', error.message);

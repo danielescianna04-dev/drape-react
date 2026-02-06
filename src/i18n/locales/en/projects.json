@@ -92,7 +92,9 @@
   "file": {
     "selected": "File Selected",
     "unableToOpen": "Unable to open file picker",
-    "linkCopied": "Repository link copied to clipboard"
+    "linkCopied": "Repository link copied to clipboard",
+    "noValidFileSelected": "No valid file selected",
+    "errorOpeningProject": "Error opening project"
   },
   "all": {
     "title": "All Projects",

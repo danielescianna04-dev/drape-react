@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 
 interface WelcomeViewProps {
@@ -9,6 +10,7 @@ interface WelcomeViewProps {
 }
 
 export const WelcomeView: React.FC<WelcomeViewProps> = ({ onStartChat }) => {
+  const { t } = useTranslation();
   return (
     <View style={styles.container}>
       {/* Content */}
@@ -21,7 +23,7 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onStartChat }) => {
         {/* Title */}
         <Text style={styles.title}>Drape</Text>
         <Text style={styles.subtitle}>
-          Mobile-first AI IDE{'\n'}con supporto multi-model
+          {t('terminal:welcome.subtitle')}
         </Text>
       </View>
     </View>

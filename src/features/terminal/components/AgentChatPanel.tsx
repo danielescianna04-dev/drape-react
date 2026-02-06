@@ -700,7 +700,7 @@ const styles = StyleSheet.create({
   messageTime: {
     fontSize: 10,
     color: AppColors.white.w40,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   messageContent: {
     fontSize: 13,
@@ -724,7 +724,7 @@ const styles = StyleSheet.create({
   fileName: {
     fontSize: 11,
     color: AppColors.primary,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginLeft: 4,
     marginTop: 2,
   },

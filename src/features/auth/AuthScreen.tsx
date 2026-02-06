@@ -315,6 +315,13 @@ export const AuthScreen = () => {
       return;
     }
 
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setLocalError(t('auth:errors.invalidEmail') || 'Please enter a valid email address');
+      return;
+    }
+
     if (mode !== 'forgot' && !password) {
       setLocalError(t('auth:errors.enterPassword'));
       return;
