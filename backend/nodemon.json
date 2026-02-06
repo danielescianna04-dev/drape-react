@@ -1,5 +1,0 @@
-{
-  "watch": ["*.js"],
-  "ignore": ["cloned_repos/*", "cloned_repos/**/*", "node_modules/*"],
-  "ext": "js,json"
-}

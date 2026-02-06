@@ -1,3 +1,0 @@
-4891     const script = 
-4903     .replace(/\n/g,  ); // simple sanitization
-4975     // Check if its a git repo

@@ -11,7 +11,6 @@ yarn-error.log
 # Environment
 .env
 .env.local
-backend/.env
 
 # macOS
 .DS_Store
@@ -39,19 +38,11 @@ firebase-debug.log
 # Google Cloud
 gcloud-debug.log
 .gcloud/
-backend/service-account-key.json
-
-# Cloned repositories (temporary workspace files)
-backend/cloned_repos/
 
 # Windows reserved names
 nul
 
-# Coder Binary
-backend/bin/coder
-
 # Drape & Claude local storage
 .drape/
 .claude/
-backend/serviceAccountKey.json
 backend-ts/service-account-key.json

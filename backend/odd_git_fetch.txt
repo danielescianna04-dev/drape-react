@@ -1,2 +1,0 @@
-5122       // Caution: echo on mac might differ. Lets send raw bytes to stdin of the ssh process.
-5126       // Lets use a temporary PROPER way with spawn.
