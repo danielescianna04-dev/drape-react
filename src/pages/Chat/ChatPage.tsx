@@ -784,19 +784,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
 
         if (content && content.trim()) {
-          // Mark thinking as completed (keep it visible in place)
+          // If we have a thinking placeholder, convert it directly to the message
+          // (instead of removing it and creating a new item, which causes a visual gap)
           if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-            updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
+            const thinkingItemId = currentAgentMessageIdRef.current;
+            // Convert thinking item into a streaming message in-place
+            updateTerminalItemById(currentTab.id, thinkingItemId, {
               isThinking: false,
+              content: content,
+              isAgentMessage: true,
             });
-            currentAgentMessageIdRef.current = null;
+            // Re-use the same ID as streaming message so further content appends to it
+            currentAgentMessageIdRef.current = thinkingItemId;
           }
-
           // Check if we have an existing streaming message to append to
-          const existingStreamingId = currentAgentMessageIdRef.current;
-
-          if (existingStreamingId && existingStreamingId.startsWith('streaming-msg-')) {
-            // Append to existing message (streaming effect)
+          else if (currentAgentMessageIdRef.current) {
+            const existingStreamingId = currentAgentMessageIdRef.current;
             const currentTab = tabs.find(t => t.id === activeTabId);
             const existingItem = currentTab?.terminalItems?.find(i => i.id === existingStreamingId);
             const currentContent = existingItem?.content || '';
