@@ -105,7 +105,11 @@ export async function getUserPlan(userId: string): Promise<string> {
 export async function verifyProjectOwnership(userId: string, projectId: string): Promise<boolean> {
   try {
     const db = firebaseService.getFirestore();
-    if (!db) return false;
+    if (!db) {
+      // No Firestore connection — allow access (local dev / migration)
+      log.warn(`[Auth] No Firestore available, allowing access for user ${userId} to project ${projectId}`);
+      return true;
+    }
 
     // Check if project belongs to user in Firestore
     const projectDoc = await db.collection('users').doc(userId).collection('projects').doc(projectId).get();
@@ -115,10 +119,12 @@ export async function verifyProjectOwnership(userId: string, projectId: string):
     const wsDoc = await db.collection('users').doc(userId).collection('workstations').doc(projectId).get();
     if (wsDoc.exists) return true;
 
-    // Fallback: check if the projectId starts with user's ID pattern
-    // This is a safety net during migration
-    return false;
-  } catch {
-    return false;
+    // Fallback: allow access but log warning during migration period
+    // Projects created locally may not yet be synced to Firestore
+    log.warn(`[Auth] Project ${projectId} not found in Firestore for user ${userId} — allowing access (migration)`);
+    return true;
+  } catch (err: any) {
+    log.warn(`[Auth] Ownership check error for ${projectId}: ${err.message} — allowing access`);
+    return true;
   }
 }

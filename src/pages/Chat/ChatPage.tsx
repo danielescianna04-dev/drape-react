@@ -1989,6 +1989,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setSelectedInputImages([]); // Clear images after sending
       setLoading(true);
 
+      // Force scroll to bottom so user sees the Thinking... placeholder immediately
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+
       // Store the prompt in the agent store
       setCurrentPrompt(userMessage);
       setCurrentProjectId(currentWorkstation.id);
@@ -2077,6 +2082,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         timestamp: new Date(),
         isThinking: true,
       });
+
+      // Force scroll to bottom so user sees the Thinking... placeholder immediately
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 50);
     }
 
     setLoading(true);

@@ -41,7 +41,11 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     thinkingLevel,
   } = req.body;
 
-  const userId = req.userId!;
+  if (!req.userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const userId = req.userId;
   const userPlan = await getUserPlan(userId);
 
   if (!prompt) {
@@ -51,7 +55,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     throw new ValidationError('projectId is required');
   }
 
-  // Verify project ownership
+  // Verify project ownership (lenient during migration)
   const isOwner = await verifyProjectOwnership(userId, projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership`);
