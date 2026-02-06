@@ -223,6 +223,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           const newThinkingId = `agent-thinking-${Date.now()}`;
           currentAgentMessageIdRef.current = newThinkingId;
           thinkingContentRef.current = ''; // Reset thinking content for new iteration
+          streamingContentRef.current = ''; // Reset streaming content so first text_delta converts properly
 
           addTerminalItem({
             id: newThinkingId,
@@ -243,6 +244,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           const newThinkingId = `agent-thinking-${Date.now()}`;
           currentAgentMessageIdRef.current = newThinkingId;
           thinkingContentRef.current = '';
+          streamingContentRef.current = ''; // Reset so first text_delta converts properly
 
           addTerminalItem({
             id: newThinkingId,
@@ -264,6 +266,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         if (!currentAgentMessageIdRef.current || !currentAgentMessageIdRef.current.startsWith('agent-thinking-')) {
           currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
           thinkingContentRef.current = ''; // Reset for new thinking
+          streamingContentRef.current = ''; // Reset so first text_delta converts properly
 
           // Add new thinking item
           addTerminalItem({
@@ -285,13 +288,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         return;
       }
 
-      // 0.6. THINKING END -> Mark thinking as complete (keep content visible)
+      // 0.6. THINKING END -> No-op: keep isThinking=true until actual content arrives
+      // (text_delta, message, or complete/done will handle the transition)
+      // Setting isThinking=false here would cause the item to be filtered out
+      // (content is still '' and isThinking=false fails the processedTerminalItems filter)
       if (event.type === 'thinking_end') {
-        if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-          updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
-            isThinking: false, // Mark as complete but keep content
-          });
-        }
         return;
       }
 
@@ -733,9 +734,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       else if (event.type === 'text_delta') {
         const delta = (event as any).delta || (event as any).text;
         if (delta) {
-          // Check if we need to transition from thinking to streaming
-          const wasThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-');
-          if (wasThinking) {
+          // Check if this is the FIRST text delta after thinking (convert thinking → streaming)
+          // Use streamingContentRef === '' to detect first delta (reset when thinking items are created)
+          const isFirstDeltaAfterThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-') && streamingContentRef.current === '';
+          if (isFirstDeltaAfterThinking) {
             // Convert thinking item directly into streaming message (in-place)
             // This prevents the visual gap where thinking disappears before text appears
             const thinkingItemId = currentAgentMessageIdRef.current!;
@@ -778,11 +780,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
 
         if (content && content.trim()) {
-          // If we have a thinking placeholder, convert it directly to the message
-          // (instead of removing it and creating a new item, which causes a visual gap)
-          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
+          // If we have a thinking placeholder that hasn't been converted yet, convert it
+          // (streamingContentRef === '' means no text_delta has set content yet)
+          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-') && streamingContentRef.current === '') {
             const thinkingItemId = currentAgentMessageIdRef.current;
             // Convert thinking item into a streaming message in-place
+            streamingContentRef.current = content;
             updateTerminalItemById(currentTab.id, thinkingItemId, {
               isThinking: false,
               content: content,
