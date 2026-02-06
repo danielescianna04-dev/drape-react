@@ -22,32 +22,23 @@ rsync -avz --delete \
   ./ "${REMOTE}:${REMOTE_DIR}/"
 
 echo "📥 Installing production deps on server..."
-ssh "$REMOTE" "cd ${REMOTE_DIR} && npm ci --production"
+ssh "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
 
-echo "🔄 Restarting backend..."
-ssh "$REMOTE" "
-  # Stop old process if running
-  pkill -f 'node dist/index.js' || true
-  sleep 1
+echo "🔄 Stopping old backend..."
+ssh "$REMOTE" "pkill -f 'node dist/index.js' || true"
+sleep 2
 
-  # Start new process with nohup
-  cd ${REMOTE_DIR}
-  nohup node dist/index.js > /var/log/drape-backend.log 2>&1 &
+echo "🚀 Starting new backend..."
+ssh "$REMOTE" "cd ${REMOTE_DIR} && nohup node dist/index.js > /var/log/drape-backend.log 2>&1 &"
+sleep 3
 
-  sleep 2
-
-  # Verify it's running
-  if curl -s http://localhost:3001/health | grep -q 'ok'; then
-    echo '✅ Backend is running!'
-  else
-    echo '❌ Backend failed to start. Check /var/log/drape-backend.log'
-    tail -20 /var/log/drape-backend.log
-    exit 1
-  fi
-"
-
-echo ""
-echo "✅ Deploy complete!"
-echo "   Backend: http://${REMOTE#*@}:3001"
-echo "   Health:  http://${REMOTE#*@}:3001/health"
-echo "   Logs:    ssh ${REMOTE} 'tail -f /var/log/drape-backend.log'"
+echo "🔍 Verifying health..."
+if curl -s --max-time 5 https://drape.info/health | grep -q 'ok'; then
+  echo "✅ Deploy complete! Backend is healthy."
+  echo "   URL:   https://drape.info"
+  echo "   Logs:  ssh ${REMOTE} 'tail -f /var/log/drape-backend.log'"
+else
+  echo "❌ Backend failed to start. Check logs:"
+  ssh "$REMOTE" "tail -20 /var/log/drape-backend.log"
+  exit 1
+fi
