@@ -1,4 +1,6 @@
 import { Express } from 'express';
+import express from 'express';
+import path from 'path';
 import { flyRouter } from './fly.routes';
 import { workstationRouter } from './workstation.routes';
 import { gitRouter } from './git.routes';
@@ -10,10 +12,18 @@ import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
 import { aiRouter } from './ai.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
+import { config } from '../config';
 
 export function mountRoutes(app: Express): void {
   // Health & logs (root level)
   app.use('/', healthRouter);
+
+  // Published sites: /p/{slug} → static files
+  app.use('/p', express.static(config.publishedRoot, { extensions: ['html'] }));
+  app.get('/p/:slug/*', (req, res, next) => {
+    const indexPath = path.join(config.publishedRoot, req.params.slug, 'index.html');
+    res.sendFile(indexPath, (err) => { if (err) next(); });
+  });
 
   // Preview proxy: /preview/:projectId/* → container dev server
   app.all('/preview/:projectId', createPreviewProxy());
@@ -56,6 +66,7 @@ export function mountRoutes(app: Express): void {
         workstation: '/workstation/*',
         git: '/git/*',
         agent: '/agent/*',
+        published: '/p/:slug',
         health: '/health',
         logs: '/logs/stream',
       },

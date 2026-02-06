@@ -24,13 +24,9 @@ rsync -avz --delete \
 echo "📥 Installing production deps on server..."
 ssh "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
 
-echo "🔄 Stopping old backend..."
-ssh "$REMOTE" "pkill -f 'node dist/index.js' || true"
-sleep 2
-
-echo "🚀 Starting new backend..."
-ssh "$REMOTE" "cd ${REMOTE_DIR} && nohup node dist/index.js > /var/log/drape-backend.log 2>&1 &"
-sleep 3
+echo "🔄 Restarting backend..."
+ssh "$REMOTE" "pkill -f 'node dist/index.js' || true; sleep 2; cd ${REMOTE_DIR} && nohup node dist/index.js > /var/log/drape-backend.log 2>&1 &"
+sleep 4
 
 echo "🔍 Verifying health..."
 if curl -s --max-time 5 https://drape.info/health | grep -q 'ok'; then

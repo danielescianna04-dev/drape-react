@@ -1386,7 +1386,7 @@ export default function App() {
                 </Animated.View>
               )}
 
-              {(currentScreen === 'terminal' || (currentScreen === 'settings' && useNavigationStore.getState().previousScreen === 'terminal')) && (
+              {(currentScreen === 'terminal' || ((currentScreen === 'settings' || currentScreen === 'plans') && useNavigationStore.getState().previousScreen === 'terminal')) && (
                 <Animated.View
                   key="terminal-screen"
                   entering={FadeInDown.duration(800)}

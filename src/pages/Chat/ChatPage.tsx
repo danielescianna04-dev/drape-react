@@ -1495,15 +1495,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           duration: 250,
           easing: Easing.out(Easing.cubic),
         });
-        // Update scroll padding to prevent messages going under widget
-        // Reduced padding to prevent content going too high
-        const extraPadding = e.endCoordinates.height - insets.bottom + 80;
-        setScrollPaddingBottom(300 + extraPadding);
 
-        // Force scroll to end after padding update
-        setTimeout(() => {
-          scrollViewRef.current?.scrollToEnd({ animated: true });
-        }, 150);
+        const currentItems = useTabStore.getState().tabs.find(t => t.id === useTabStore.getState().activeTabId)?.terminalItems;
+        if (currentItems && currentItems.length > 0) {
+          // Chat mode: adjust scroll padding and scroll to end
+          const extraPadding = e.endCoordinates.height - insets.bottom + 80;
+          setScrollPaddingBottom(300 + extraPadding);
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true });
+          }, 150);
+        }
       }
     );
 
@@ -1531,7 +1532,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       inputPositionAnim.value = 1;
     } else {
       hasChatStartedAnim.value = 0;
-      inputPositionAnim.value = 0;
+      inputPositionAnim.value = 0.45;
     }
   }, [hasChatStarted, currentTab?.id]);
 
@@ -1676,6 +1677,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     };
   });
 
+  const welcomeAnimatedStyle = useAnimatedStyle(() => {
+    'worklet';
+    const translateY = interpolate(
+      keyboardHeight.value,
+      [0, 300],
+      [0, -70],
+      Extrapolate.CLAMP
+    );
+    return { transform: [{ translateY }] };
+  });
+
   const inputWrapperAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
     const animProgress = inputPositionAnim.value;
@@ -1688,32 +1700,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       Extrapolate.CLAMP
     );
 
-    // Se la tastiera è aperta, usa bottom positioning (appena sopra la tastiera)
+    // Calcola la posizione base
+    const baseTranslateY = interpolate(
+      animProgress,
+      [0, 1],
+      [0, 280],
+      Extrapolate.CLAMP
+    );
+    const heightDiff = Math.max(0, widgetHeight.value - 90);
+
+    // Se la tastiera è aperta, calcola top dalla posizione della tastiera
     if (keyboardHeight.value > 0) {
+      const topFromKeyboard = SCREEN_HEIGHT - keyboardHeight.value - widgetHeight.value;
       return {
-        bottom: keyboardHeight.value,
+        top: topFromKeyboard,
         left: sidebarLeft,
-        top: undefined,
         transform: []
       };
     }
 
     // Altrimenti usa top + translateY (comportamento normale)
-    const baseTranslateY = interpolate(
-      animProgress,
-      [0, 1],
-      [0, 280], // Sposta 280px verso il basso quando chat si avvia
-      Extrapolate.CLAMP
-    );
-
-    // Compensa la crescita del widget
-    const heightDiff = Math.max(0, widgetHeight.value - 90);
     const translateY = baseTranslateY - heightDiff;
 
     return {
       top: 410,
       left: sidebarLeft,
-      bottom: undefined,
       transform: [{ translateY }]
     };
   });
@@ -2882,8 +2893,35 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             >
 
               {terminalItems.length === 0 ? (
-                <View style={styles.emptyState}>
-                </View>
+                <Animated.View style={[styles.emptyState, welcomeAnimatedStyle]}>
+                  <View style={styles.welcomeContainer}>
+                    <Text style={styles.welcomeTitle}>Come posso aiutarti?</Text>
+                    <Text style={styles.welcomeSubtitle}>
+                      Scrivi cosa vuoi fare o prova un suggerimento
+                    </Text>
+                    <View style={styles.suggestionsGrid}>
+                      {[
+                        { icon: 'sparkles-outline', text: 'Aggiungi una nuova feature' },
+                        { icon: 'bug-outline', text: 'Trova e correggi i bug' },
+                        { icon: 'color-palette-outline', text: 'Migliora il design' },
+                        { icon: 'rocket-outline', text: 'Ottimizza le performance' },
+                      ].map((suggestion, idx) => (
+                        <TouchableOpacity
+                          key={idx}
+                          style={styles.suggestionChip}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            handleInputChange(suggestion.text);
+                            setTimeout(() => handleSend(), 100);
+                          }}
+                        >
+                          <Ionicons name={suggestion.icon as any} size={15} color="rgba(255,255,255,0.4)" />
+                          <Text style={styles.suggestionText}>{suggestion.text}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </Animated.View>
               ) : (
                 <>
                   {(() => {
@@ -3712,7 +3750,44 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    marginLeft: -16,
+  },
+  welcomeContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  welcomeTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: 6,
+  },
+  welcomeSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.25)',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  suggestionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 20,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  suggestionText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.45)',
   },
   logoWrapper: {
     alignItems: 'center',
@@ -3760,6 +3835,7 @@ const styles = StyleSheet.create({
   topUpgradePill: {
     position: 'absolute',
     alignSelf: 'center',
+    marginLeft: 16,
     zIndex: 100,
     borderRadius: 30,
     overflow: 'hidden',
@@ -3805,6 +3881,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   outputContent: {
+    flexGrow: 1,
     padding: 20,
     paddingTop: 20, // Reduced since output already has paddingTop:80
     // paddingBottom managed dynamically via state
@@ -3818,10 +3895,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: AppColors.primaryAlpha.a15,
     elevation: 8,
-    justifyContent: 'flex-end', // Fa crescere il contenuto verso l'alto
-    maxHeight: 250, // Limite massimo dell'intero widget
     marginHorizontal: 16, // Margine orizzontale per restringere la card
-    overflow: 'hidden',
     zIndex: 10,
   },
   inputGradientWithImages: {
@@ -4079,7 +4153,7 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    maxHeight: 150, // Altezza massima del campo di input
+    maxHeight: 300, // Altezza massima del campo di input
     lineHeight: 20,
     textAlignVertical: 'top', // Allinea il testo in alto nel campo
   },

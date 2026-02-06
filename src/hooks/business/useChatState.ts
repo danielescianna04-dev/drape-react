@@ -27,7 +27,7 @@ export const useChatState = (isCardMode: boolean) => {
   // Animated values for smooth UI transitions
   const widgetHeight = useSharedValue(90); // Input widget height
   const scaleAnim = useSharedValue(1); // Scale animation for interactions
-  const inputPositionAnim = useSharedValue(0); // Input vertical position
+  const inputPositionAnim = useSharedValue(0.45); // Input vertical position (0.45 = welcome, 1 = bottom)
   const borderAnim = useSharedValue(0); // Border highlight animation
   const hasChatStartedAnim = useSharedValue(0); // 0 = welcome, 1 = chat started
   const cardModeAnim = useSharedValue(isCardMode ? 1 : 0); // Card mode transition

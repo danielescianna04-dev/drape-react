@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState, LayoutAnimation, UIManager } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState, LayoutAnimation, UIManager, Modal, Share, Alert } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, FadeInUp, FadeOutUp, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,6 +14,7 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { IconButton } from '../../../shared/components/atoms';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
@@ -157,11 +158,32 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   }, [serverStatus]);
 
+  // Check if project is already published
+  useEffect(() => {
+    if (!projectId || !apiUrl || serverStatus !== 'running') return;
+    fetch(`${apiUrl}/fly/project/${projectId}/published`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.published) {
+          setExistingPublish({ slug: data.slug, url: data.url });
+        }
+      })
+      .catch(() => {});
+  }, [projectId, apiUrl, serverStatus]);
+
   // Environment variables state
   const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
   const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
   const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
   const [isSavingEnv, setIsSavingEnv] = useState(false);
+  // Publish state
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishSlug, setPublishSlug] = useState('');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'building' | 'publishing' | 'done' | 'error'>('idle');
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [existingPublish, setExistingPublish] = useState<{ slug: string; url: string } | null>(null);
   // Initialize from global store if available, otherwise use prop
   // For Holy Grail: previewUrl comes from SSE (Fly.io agent URL), NOT from apiUrl (backend)
   const getInitialPreviewUrl = () => {
@@ -1894,6 +1916,65 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     checkServerStatus();
   };
 
+  // Publish handler
+  const handlePublish = async () => {
+    const slug = existingPublish?.slug || publishSlug.trim();
+    if (!slug || !projectId) return;
+    setIsPublishing(true);
+    setPublishStatus('building');
+    setPublishError(null);
+    setPublishedUrl(null);
+    try {
+      const response = await fetch(`${apiUrl}/fly/project/${projectId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, userId: useAuthStore.getState().user?.uid }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setPublishStatus('error');
+        setPublishError(data.error || 'Publish failed');
+      } else {
+        setPublishStatus('done');
+        setPublishedUrl(data.url);
+        setExistingPublish({ slug: data.slug, url: data.url });
+      }
+    } catch (e: any) {
+      setPublishStatus('error');
+      setPublishError(e.message || 'Network error');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleUnpublish = () => {
+    Alert.alert(
+      'Rimuovi pubblicazione',
+      `Il sito drape.info/p/${existingPublish?.slug} non sara' piu' accessibile.`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Rimuovi', style: 'destructive', onPress: async () => {
+            if (!projectId) return;
+            try {
+              await fetch(`${apiUrl}/fly/project/${projectId}/published`, { method: 'DELETE' });
+              setExistingPublish(null);
+              setShowPublishModal(false);
+            } catch {}
+          }
+        },
+      ]
+    );
+  };
+
+  const openPublishModal = () => {
+    setPublishSlug(existingPublish?.slug || '');
+    setPublishStatus('idle');
+    setPublishedUrl(null);
+    setPublishError(null);
+    setShowPublishModal(true);
+  };
+
   // FAB expand animation - smooth spring animation
   const expandFab = () => {
     // Configure smooth spring animation
@@ -2014,7 +2095,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       setPreviewChatId(chatId);
 
       // Generate title from first message
-      let title = `👁 ${userMessage.slice(0, 35)}`;
+      let title = `${userMessage.slice(0, 35)}`;
       if (userMessage.length > 35) title += '...';
 
       const newChat = {
@@ -2358,6 +2439,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     activeOpacity={0.7}
                   >
                     <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
+                  </TouchableOpacity>
+
+                  {/* Publish / Update */}
+                  <TouchableOpacity
+                    onPress={openPublishModal}
+                    style={[styles.publishButton, existingPublish && styles.publishButtonUpdate]}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name={existingPublish ? "cloud-done-outline" : "cloud-upload-outline"} size={15} color="#fff" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -3331,9 +3421,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                 );
                               }
                               if (msg.type === 'budget_exceeded') {
-                                // Budget exceeded - show compact card
+                                // Budget exceeded - show compact card with upgrade button
                                 return (
-                                  <View key={index} style={{ marginVertical: 8, marginHorizontal: 4, backgroundColor: 'rgba(139, 124, 246, 0.1)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(139, 124, 246, 0.2)' }}>
+                                  <View key={index} style={{ marginVertical: 8, marginHorizontal: 4, backgroundColor: 'rgba(139, 124, 246, 0.1)', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(139, 124, 246, 0.2)' }}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                       <Ionicons name="flash" size={14} color={AppColors.primary} style={{ marginRight: 8 }} />
                                       <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>Budget AI esaurito</Text>
@@ -3341,6 +3431,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                                     <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
                                       Passa a Go per continuare
                                     </Text>
+                                    <TouchableOpacity
+                                      onPress={() => useNavigationStore.getState().navigateTo('plans')}
+                                      style={{ marginTop: 10, backgroundColor: AppColors.primary, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                                      activeOpacity={0.7}
+                                    >
+                                      <Ionicons name="rocket-outline" size={14} color="#fff" />
+                                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Passa a Go</Text>
+                                    </TouchableOpacity>
                                   </View>
                                 );
                               }
@@ -3574,6 +3672,139 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         </Animated.View >
       </Reanimated.View >
 
+      {/* Publish Modal */}
+      <Modal
+        visible={showPublishModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !isPublishing && setShowPublishModal(false)}
+      >
+        <View style={styles.publishModalOverlay}>
+          <View style={styles.publishModalContent}>
+            {publishStatus === 'done' && publishedUrl ? (
+              <>
+                <Ionicons name="checkmark-circle" size={48} color="#00D084" style={{ alignSelf: 'center', marginBottom: 12 }} />
+                <Text style={styles.publishModalTitle}>Pubblicato!</Text>
+                <Text style={styles.publishModalUrl}>{publishedUrl}</Text>
+                <View style={styles.publishModalActions}>
+                  <TouchableOpacity
+                    style={styles.publishActionButton}
+                    onPress={() => {
+                      Share.share({ url: publishedUrl, message: publishedUrl });
+                    }}
+                  >
+                    <Ionicons name="share-outline" size={18} color="#fff" />
+                    <Text style={styles.publishActionText}>Condividi</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.publishActionButton}
+                    onPress={() => Linking.openURL(publishedUrl)}
+                  >
+                    <Ionicons name="open-outline" size={18} color="#fff" />
+                    <Text style={styles.publishActionText}>Apri</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={styles.publishCloseBtn}
+                  onPress={() => setShowPublishModal(false)}
+                >
+                  <Text style={styles.publishCloseBtnText}>Chiudi</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.publishModalTitle}>
+                  {existingPublish ? 'Aggiorna pubblicazione' : 'Pubblica sito'}
+                </Text>
+                <Text style={styles.publishModalSubtitle}>
+                  {existingPublish
+                    ? `Il sito verra' ricostruito e aggiornato`
+                    : 'Scegli un nome per il tuo sito'}
+                </Text>
+                <View style={styles.publishSlugRow}>
+                  <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
+                  {existingPublish ? (
+                    <Text style={[styles.publishSlugInput, { color: 'rgba(255,255,255,0.6)' }]}>
+                      {existingPublish.slug}
+                    </Text>
+                  ) : (
+                    <TextInput
+                      style={styles.publishSlugInput}
+                      value={publishSlug}
+                      onChangeText={(text) => setPublishSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!isPublishing}
+                      placeholder="nome-progetto"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                  )}
+                </View>
+                {existingPublish && !isPublishing && (
+                  <>
+                    <View style={styles.publishModalActions}>
+                      <TouchableOpacity
+                        style={styles.publishActionButton}
+                        onPress={() => Linking.openURL(existingPublish.url)}
+                      >
+                        <Ionicons name="open-outline" size={16} color="#fff" />
+                        <Text style={styles.publishActionText}>Apri sito</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.publishActionButton}
+                        onPress={() => Share.share({ url: existingPublish.url, message: existingPublish.url })}
+                      >
+                        <Ionicons name="share-outline" size={16} color="#fff" />
+                        <Text style={styles.publishActionText}>Condividi</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.publishModalActions}>
+                      <TouchableOpacity
+                        style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
+                        onPress={handleUnpublish}
+                      >
+                        <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
+                        <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>Rimuovi</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+                {publishError && (
+                  <Text style={styles.publishError}>{publishError}</Text>
+                )}
+                {isPublishing && (
+                  <View style={styles.publishProgressRow}>
+                    <ActivityIndicator size="small" color="#007AFF" />
+                    <Text style={styles.publishProgressText}>
+                      {publishStatus === 'building' ? 'Building...' : 'Aggiornamento...'}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.publishModalButtons}>
+                  <TouchableOpacity
+                    style={styles.publishCancelBtn}
+                    onPress={() => setShowPublishModal(false)}
+                    disabled={isPublishing}
+                  >
+                    <Text style={styles.publishCancelBtnText}>Annulla</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.publishConfirmBtn, isPublishing && { opacity: 0.5 }]}
+                    onPress={handlePublish}
+                    disabled={isPublishing || (!existingPublish && !publishSlug.trim())}
+                  >
+                    <Ionicons name={existingPublish ? "refresh" : "cloud-upload-outline"} size={16} color="#fff" />
+                    <Text style={styles.publishConfirmBtnText}>
+                      {existingPublish ? 'Aggiorna' : 'Pubblica'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* AskUserQuestion Modal */}
       <AskUserQuestionModal
         visible={!!pendingQuestion}
@@ -3649,6 +3880,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  publishButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  publishButtonUpdate: {
+    backgroundColor: '#00D084',
   },
   urlBar: {
     flex: 1,
@@ -5209,5 +5451,139 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Publish modal styles
+  publishModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  publishModalContent: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 28,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  publishModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  publishModalSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  publishSlugRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  publishSlugPrefix: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.4)',
+  },
+  publishSlugInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#fff',
+    padding: 0,
+  },
+  publishError: {
+    fontSize: 12,
+    color: '#FF4444',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  publishProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  publishProgressText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  publishModalButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  publishCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+  },
+  publishCancelBtnText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontWeight: '600',
+  },
+  publishConfirmBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: '#007AFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  publishConfirmBtnText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  publishModalUrl: {
+    fontSize: 14,
+    color: '#007AFF',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  publishModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  publishActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  publishActionText: {
+    fontSize: 13,
+    color: '#fff',
+    fontWeight: '500',
+  },
+  publishCloseBtn: {
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+  },
+  publishCloseBtnText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontWeight: '500',
   },
 });

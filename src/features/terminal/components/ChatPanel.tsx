@@ -283,8 +283,8 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
                         onPress={() => handleSelectChat(chat)}
                         activeOpacity={0.7}
                       >
-                        <Ionicons name="chatbubble-outline" size={16} color="rgba(255,255,255,0.5)" />
-                        <Text style={styles.chatTitle} numberOfLines={1}>{chat.title}</Text>
+                        <Ionicons name={chat.id.startsWith('preview-') ? "eye-outline" : "chatbubble-outline"} size={16} color="rgba(255,255,255,0.5)" />
+                        <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
                         <TouchableOpacity
                           onPress={() => handleMenuToggle(chat.id)}
                           style={styles.menuButton}

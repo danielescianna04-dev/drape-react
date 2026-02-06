@@ -34,6 +34,7 @@ export const config = {
 
   // NVMe paths
   projectsRoot: optional('PROJECTS_ROOT', '/data/projects'),
+  publishedRoot: optional('PUBLISHED_ROOT', '/data/published'),
   pnpmStorePath: optional('PNPM_STORE_PATH', '/data/pnpm-store'),
   cacheRoot: optional('CACHE_ROOT', '/data/cache'),
 

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import * as path from 'path';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
 import { workspaceService } from '../services/workspace.service';
@@ -10,6 +11,8 @@ import { previewService } from '../services/preview.service';
 import { projectDetectorService } from '../services/project-detector.service';
 import { firebaseService } from '../services/firebase.service';
 import { log } from '../utils/logger';
+import { config } from '../config';
+import { execShell } from '../utils/helpers';
 
 export const flyRouter = Router();
 
@@ -363,4 +366,127 @@ flyRouter.post('/pool/recycle', asyncHandler(async (req, res) => {
     }
   }
   res.json({ success: true, destroyed });
+}));
+
+// GET /fly/project/:id/published — Check if project is already published
+flyRouter.get('/project/:id/published', asyncHandler(async (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const db = firebaseService.getFirestore();
+  if (!db) { res.json({ published: false }); return; }
+
+  const snapshot = await db.collection('published_sites').where('projectId', '==', projectId).limit(1).get();
+  if (snapshot.empty) { res.json({ published: false }); return; }
+
+  const data = snapshot.docs[0].data();
+  res.json({ published: true, slug: data.slug, url: data.url, publishedAt: data.publishedAt });
+}));
+
+// DELETE /fly/project/:id/published — Remove published site
+flyRouter.delete('/project/:id/published', asyncHandler(async (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const db = firebaseService.getFirestore();
+  if (!db) { res.json({ success: false, error: 'No database' }); return; }
+
+  const snapshot = await db.collection('published_sites').where('projectId', '==', projectId).limit(1).get();
+  if (snapshot.empty) { res.json({ success: false, error: 'Not published' }); return; }
+
+  const data = snapshot.docs[0].data();
+  const slug = data.slug;
+
+  // Remove files
+  const destDir = path.join(config.publishedRoot, slug);
+  await execShell(`rm -rf "${destDir}"`, '/tmp', 10000).catch(() => {});
+
+  // Remove from Firestore
+  await db.collection('published_sites').doc(snapshot.docs[0].id).delete();
+
+  log.info(`[Publish] Unpublished ${projectId} (slug: ${slug})`);
+  res.json({ success: true });
+}));
+
+// POST /fly/project/:id/publish — Build and publish project as static site
+flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const { slug, userId } = req.body;
+  if (!slug) throw new ValidationError('slug required');
+
+  // 1. Sanitize slug
+  const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!cleanSlug) throw new ValidationError('Invalid slug');
+
+  // 2. Check slug availability in Firestore
+  const db = firebaseService.getFirestore();
+  if (db) {
+    const existing = await db.collection('published_sites').doc(cleanSlug).get();
+    if (existing.exists && existing.data()?.projectId !== projectId) {
+      res.status(409).json({ error: 'Slug already taken', slug: cleanSlug });
+      return;
+    }
+  }
+
+  // 3. Check if project has a build script
+  const pkgResult = await fileService.readFile(projectId, 'package.json');
+  let hasBuildScript = false;
+  if (pkgResult.success && pkgResult.data) {
+    try {
+      const pkg = JSON.parse(pkgResult.data.content);
+      hasBuildScript = !!pkg.scripts?.build;
+    } catch {}
+  }
+
+  let srcDir: string;
+
+  if (hasBuildScript) {
+    // 4a. Build project in container
+    log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
+    const buildResult = await workspaceService.exec(projectId, userId || 'anonymous', 'npm run build', '/home/coder/project');
+    if (buildResult.exitCode !== 0) {
+      log.error(`[Publish] Build failed for ${projectId}:`, buildResult.stderr);
+      res.status(500).json({ error: 'Build failed', stderr: buildResult.stderr?.substring(0, 500) });
+      return;
+    }
+
+    // 4b. Detect build output directory
+    const outputDirs = ['dist', 'build', 'out', '.next/standalone'];
+    let outputDir: string | null = null;
+    for (const dir of outputDirs) {
+      if (await fileService.exists(projectId, dir)) {
+        outputDir = dir;
+        break;
+      }
+    }
+    if (!outputDir) {
+      res.status(500).json({ error: 'No build output found (checked: dist, build, out, .next/standalone)' });
+      return;
+    }
+    srcDir = path.join(config.projectsRoot, projectId, outputDir);
+  } else {
+    // 4c. No build step — publish project root directly (HTML/CSS/JS)
+    log.info(`[Publish] No build script found, publishing project root for ${projectId}`);
+    srcDir = path.join(config.projectsRoot, projectId);
+  }
+
+  // 5. Copy to published directory
+  const destDir = path.join(config.publishedRoot, cleanSlug);
+  await execShell(`mkdir -p "${config.publishedRoot}" && rm -rf "${destDir}" && cp -r "${srcDir}" "${destDir}"`, '/tmp', 30000);
+  // Clean up node_modules and .git from published dir if copied from root
+  if (!hasBuildScript) {
+    await execShell(`rm -rf "${destDir}/node_modules" "${destDir}/.git"`, '/tmp', 10000).catch(() => {});
+  }
+
+  // 6. Save to Firestore
+  if (db) {
+    await db.collection('published_sites').doc(cleanSlug).set({
+      projectId,
+      userId: userId || 'anonymous',
+      slug: cleanSlug,
+      publishedAt: new Date(),
+      url: `${config.publicUrl}/p/${cleanSlug}`,
+    });
+  }
+
+  // 7. Return URL
+  const url = `${config.publicUrl}/p/${cleanSlug}`;
+  log.info(`[Publish] Published ${projectId} → ${url}`);
+  res.json({ success: true, url, slug: cleanSlug });
 }));
