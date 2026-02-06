@@ -736,23 +736,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           // Check if we need to transition from thinking to streaming
           const wasThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-');
           if (wasThinking) {
-            // DON'T remove thinking - update it to mark as completed (stays in place)
-            updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
-              isThinking: false, // Mark thinking as done but keep it visible
-            });
-            // Create new streaming message ID immediately (before accumulating)
-            const newStreamingId = `streaming-msg-${Date.now()}`;
-            currentAgentMessageIdRef.current = newStreamingId;
-            // Reset and start accumulating
+            // Convert thinking item directly into streaming message (in-place)
+            // This prevents the visual gap where thinking disappears before text appears
+            const thinkingItemId = currentAgentMessageIdRef.current!;
             streamingContentRef.current = delta;
-
-            addTerminalItem({
-              id: newStreamingId,
+            updateTerminalItemById(currentTab.id, thinkingItemId, {
+              isThinking: false,
               content: delta,
-              type: TerminalItemType.OUTPUT,
-              timestamp: new Date(event.timestamp),
             });
-          } else if (currentAgentMessageIdRef.current?.startsWith('streaming-msg-')) {
+            // Keep the same item ID for further streaming updates
+            currentAgentMessageIdRef.current = thinkingItemId;
+          } else if (currentAgentMessageIdRef.current) {
             // Already streaming - accumulate and update
             streamingContentRef.current += delta;
             updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
