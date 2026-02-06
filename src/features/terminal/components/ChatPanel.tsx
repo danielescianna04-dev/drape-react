@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -227,119 +227,123 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           </View>
 
           {/* Chat List */}
-          <ScrollView
-            style={styles.content}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.contentContainer}
-          >
-            {filteredChats.length === 0 ? (
+          <FlatList
+            data={filteredChats}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item: chat }) => (
+              <View style={styles.chatItemWrapper}>
+                {renamingChatId === chat.id ? (
+                  isLiquidGlassSupported ? (
+                    <LiquidGlassView
+                      style={[
+                        styles.renameContainer,
+                        { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 }
+                      ]}
+                      interactive={true}
+                      effect="clear"
+                      colorScheme="dark"
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <TextInput
+                          style={styles.renameInput}
+                          value={renamingValue}
+                          onChangeText={setRenamingValue}
+                          onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                          autoFocus
+                          placeholder={t('terminal:chat.chatName')}
+                          placeholderTextColor="rgba(255,255,255,0.4)"
+                        />
+                        <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                          <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                          <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                        </TouchableOpacity>
+                      </View>
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.renameContainer}>
+                      <TextInput
+                        style={styles.renameInput}
+                        value={renamingValue}
+                        onChangeText={setRenamingValue}
+                        onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                        autoFocus
+                        placeholder={t('terminal:chat.chatName')}
+                        placeholderTextColor="rgba(255,255,255,0.4)"
+                      />
+                      <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                        <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                        <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+                      </TouchableOpacity>
+                    </View>
+                  )
+                ) : (
+                  <TouchableOpacity
+                    style={styles.chatItem}
+                    onPress={() => handleSelectChat(chat)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name={chat.id.startsWith('preview-') ? "eye-outline" : "chatbubble-outline"} size={16} color="rgba(255,255,255,0.5)" />
+                    <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
+                    <TouchableOpacity
+                      onPress={() => handleMenuToggle(chat.id)}
+                      style={styles.menuButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                )}
+
+                {/* Dropdown menu */}
+                {openMenuId === chat.id && (
+                  <View style={styles.dropdown}>
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+                        interactive={true}
+                        effect="clear"
+                        colorScheme="dark"
+                      />
+                    ) : null}
+                    <View style={styles.dropdownInner}>
+                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
+                        <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
+                        <Text style={styles.dropdownText}>{t('common:rename')}</Text>
+                      </TouchableOpacity>
+                      <View style={styles.dropdownDivider} />
+                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
+                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                        <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+            ListHeaderComponent={
+              filteredChats.length > 0 ? (
+                <Text style={styles.sectionTitle}>{t('terminal:chat.recent')}</Text>
+              ) : null
+            }
+            ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
                 <Text style={styles.emptyText}>
                   {searchQuery ? t('terminal:chat.noResults') : t('terminal:chat.noChats')}
                 </Text>
               </View>
-            ) : (
-              <>
-                {/* Today section */}
-                <Text style={styles.sectionTitle}>{t('terminal:chat.recent')}</Text>
-                {filteredChats.map((chat) => (
-                  <View key={chat.id} style={styles.chatItemWrapper}>
-                    {renamingChatId === chat.id ? (
-                      isLiquidGlassSupported ? (
-                        <LiquidGlassView
-                          style={[
-                            styles.renameContainer,
-                            { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 }
-                          ]}
-                          interactive={true}
-                          effect="clear"
-                          colorScheme="dark"
-                        >
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <TextInput
-                              style={styles.renameInput}
-                              value={renamingValue}
-                              onChangeText={setRenamingValue}
-                              onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                              autoFocus
-                              placeholder={t('terminal:chat.chatName')}
-                              placeholderTextColor="rgba(255,255,255,0.4)"
-                            />
-                            <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                              <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                              <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                          </View>
-                        </LiquidGlassView>
-                      ) : (
-                        <View style={styles.renameContainer}>
-                          <TextInput
-                            style={styles.renameInput}
-                            value={renamingValue}
-                            onChangeText={setRenamingValue}
-                            onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                            autoFocus
-                            placeholder={t('terminal:chat.chatName')}
-                            placeholderTextColor="rgba(255,255,255,0.4)"
-                          />
-                          <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                            <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                            <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-                          </TouchableOpacity>
-                        </View>
-                      )
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.chatItem}
-                        onPress={() => handleSelectChat(chat)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name={chat.id.startsWith('preview-') ? "eye-outline" : "chatbubble-outline"} size={16} color="rgba(255,255,255,0.5)" />
-                        <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
-                        <TouchableOpacity
-                          onPress={() => handleMenuToggle(chat.id)}
-                          style={styles.menuButton}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
-                        </TouchableOpacity>
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Dropdown menu */}
-                    {openMenuId === chat.id && (
-                      <View style={styles.dropdown}>
-                        {isLiquidGlassSupported ? (
-                          <LiquidGlassView
-                            style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
-                            interactive={true}
-                            effect="clear"
-                            colorScheme="dark"
-                          />
-                        ) : null}
-                        <View style={styles.dropdownInner}>
-                          <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
-                            <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
-                            <Text style={styles.dropdownText}>{t('common:rename')}</Text>
-                          </TouchableOpacity>
-                          <View style={styles.dropdownDivider} />
-                          <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
-                            <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                            <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                ))}
-              </>
-            )}
-          </ScrollView>
+            }
+            style={styles.content}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={10}
+            windowSize={5}
+          />
 
           {/* Bottom close button */}
           <TouchableOpacity style={styles.bottomClose} onPress={handleClose} activeOpacity={0.7}>

@@ -48,44 +48,79 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const { addTab } = useTabStore();
 
   useEffect(() => {
-    loadFiles();
+    const isMountedRef = { current: true };
+
+    const load = async () => {
+      try {
+        await loadFiles(false, 0, isMountedRef);
+      } catch (e) {
+        if (isMountedRef.current) {
+          console.warn('[FileExplorer] Load failed:', e);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [projectId]);
 
   // Subscribe to cache invalidation - auto-refresh when AI modifies files
   useEffect(() => {
+    let isMounted = true;
     let prevCleared = useFileCacheStore.getState().lastClearedProject;
     const unsubscribe = useFileCacheStore.subscribe((state) => {
       if (state.lastClearedProject !== prevCleared && state.lastClearedProject === projectId) {
-        loadFiles(true); // Force refresh
+        if (isMounted) {
+          loadFiles(true); // Force refresh
+        }
       }
       prevCleared = state.lastClearedProject;
     });
-    return unsubscribe;
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, [projectId]);
 
   // Debounced content search
   useEffect(() => {
+    let isMounted = true;
+
     if (searchMode === 'content' && searchQuery.trim()) {
       const timer = setTimeout(async () => {
         try {
+          if (!isMounted) return;
           setSearching(true);
           const results = await workstationService.searchInFiles(projectId, searchQuery, repositoryUrl);
+          if (!isMounted) return;
           setSearchResults(results);
         } catch (err) {
-          console.error('Search error:', err);
-          setSearchResults([]);
+          if (isMounted) {
+            console.error('Search error:', err);
+            setSearchResults([]);
+          }
         } finally {
-          setSearching(false);
+          if (isMounted) {
+            setSearching(false);
+          }
         }
       }, 500); // 500ms debounce
 
-      return () => clearTimeout(timer);
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+      };
     } else {
       setSearchResults([]);
     }
+
+    return () => { isMounted = false; };
   }, [searchQuery, searchMode, projectId, repositoryUrl]);
 
-  const loadFiles = async (forceRefresh = false, retryCount = 0) => {
+  const loadFiles = async (forceRefresh = false, retryCount = 0, isMountedRef?: { current: boolean }) => {
     try {
       // Backend handles VM startup automatically via getOrCreateVM()
       // No need to wait here - just call the API
@@ -96,18 +131,24 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       // 2. If we have cache (even stale) and not forcing refresh, show it immediately
       if (cachedFiles && !forceRefresh) {
-        setFiles(cachedFiles);
-        setLoading(false);
+        if (!isMountedRef || isMountedRef.current) {
+          setFiles(cachedFiles);
+          setLoading(false);
+        }
 
         // If cache is valid, stop here. If stale, continue to fetch in background.
         if (isCacheValid) return;
 
       } else {
         // No cache? Show loading
-        setLoading(true);
+        if (!isMountedRef || isMountedRef.current) {
+          setLoading(true);
+        }
       }
 
-      setError(null);
+      if (!isMountedRef || isMountedRef.current) {
+        setError(null);
+      }
 
       // Get token for this repo (auto-detect provider from URL)
       let gitToken: string | null = null;
@@ -132,28 +173,34 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl, gitToken || undefined);
 
-      // Save to cache
-      useFileCacheStore.getState().setFiles(projectId, fileList, repositoryUrl);
-
-      setFiles(fileList);
+      // Check if still mounted before updating state
+      if (!isMountedRef || isMountedRef.current) {
+        // Save to cache
+        useFileCacheStore.getState().setFiles(projectId, fileList, repositoryUrl);
+        setFiles(fileList);
+      }
     } catch (err: any) {
       console.error('Error loading files:', err);
 
-      // Check if authentication is required for private repo
-      if (err.requiresAuth && repositoryUrl && onAuthRequired) {
-        onAuthRequired(repositoryUrl);
-        setError(t('terminal:fileExplorer.privateRepoAuth'));
-      } else {
-        // If no cache and retries left, retry after a delay (VM might still be starting)
-        const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
-        if (!cachedFiles && retryCount < 3) {
-          setTimeout(() => loadFiles(false, retryCount + 1), 2000);
-          return;
+      if (!isMountedRef || isMountedRef.current) {
+        // Check if authentication is required for private repo
+        if (err.requiresAuth && repositoryUrl && onAuthRequired) {
+          onAuthRequired(repositoryUrl);
+          setError(t('terminal:fileExplorer.privateRepoAuth'));
+        } else {
+          // If no cache and retries left, retry after a delay (VM might still be starting)
+          const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
+          if (!cachedFiles && retryCount < 3) {
+            setTimeout(() => loadFiles(false, retryCount + 1, isMountedRef), 2000);
+            return;
+          }
+          setError(err.message || 'Failed to load files');
         }
-        setError(err.message || 'Failed to load files');
       }
     } finally {
-      setLoading(false);
+      if (!isMountedRef || isMountedRef.current) {
+        setLoading(false);
+      }
     }
   };
 

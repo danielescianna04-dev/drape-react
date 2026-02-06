@@ -48,51 +48,86 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
 
     // Smooth 1-by-1 progress counting
     useEffect(() => {
-        targetProgressRef.current = Math.round(progress);
+        let isMounted = true;
+
+        if (isMounted) {
+            targetProgressRef.current = Math.round(progress);
+        }
+
+        return () => { isMounted = false; };
     }, [progress]);
 
     useEffect(() => {
+        let isMounted = true;
+
         if (!visible) return;
+
         const interval = setInterval(() => {
-            setDisplayProgress(prev => {
-                const target = targetProgressRef.current;
-                if (prev < target) return prev + 1;
-                if (prev > target) return target;
-                return prev;
-            });
+            if (isMounted) {
+                setDisplayProgress(prev => {
+                    const target = targetProgressRef.current;
+                    if (prev < target) return prev + 1;
+                    if (prev > target) return target;
+                    return prev;
+                });
+            }
         }, 80);
-        return () => clearInterval(interval);
+
+        return () => {
+            isMounted = false;
+            clearInterval(interval);
+        };
     }, [visible]);
 
     // Animate progress bar to match displayProgress
     useEffect(() => {
-        Animated.timing(progressAnim, {
-            toValue: displayProgress,
-            duration: 80,
-            easing: Easing.linear,
-            useNativeDriver: false,
-        }).start();
+        let isMounted = true;
+
+        if (isMounted) {
+            Animated.timing(progressAnim, {
+                toValue: displayProgress,
+                duration: 80,
+                easing: Easing.linear,
+                useNativeDriver: false,
+            }).start();
+        }
+
+        return () => { isMounted = false; };
     }, [displayProgress]);
 
     // Add status to activity log
     useEffect(() => {
-        if (status && visible) {
+        let isMounted = true;
+        let timeoutId: NodeJS.Timeout | null = null;
+
+        if (status && visible && isMounted) {
             setActivityLog(prev => {
                 if (prev[prev.length - 1] === status) return prev;
                 const newLog = [...prev, status];
                 return newLog.slice(-6);
             });
-            setTimeout(() => {
-                scrollRef.current?.scrollToEnd({ animated: true });
+            timeoutId = setTimeout(() => {
+                if (isMounted) {
+                    scrollRef.current?.scrollToEnd({ animated: true });
+                }
             }, 100);
         }
+
+        return () => {
+            isMounted = false;
+            if (timeoutId) clearTimeout(timeoutId);
+        };
     }, [status, visible]);
 
     // Reset log when modal opens
     useEffect(() => {
-        if (visible) {
+        let isMounted = true;
+
+        if (visible && isMounted) {
             setActivityLog([]);
         }
+
+        return () => { isMounted = false; };
     }, [visible]);
 
     if (!visible) return null;

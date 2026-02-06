@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Platform, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -23,7 +23,7 @@ interface Props {
  */
 export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const { t, i18n } = useTranslation();
-  const scrollViewRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
@@ -89,9 +89,9 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
 
   // Auto-scroll to bottom when new items are added
   useEffect(() => {
-    if (scrollViewRef.current && terminalItems.length > 0) {
+    if (flatListRef.current && terminalItems.length > 0) {
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
   }, [terminalItems]);
@@ -340,17 +340,39 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
       </View>
 
       {/* Terminal Output */}
-      <ScrollView
-        ref={scrollViewRef}
+      <FlatList<any>
+        ref={flatListRef}
+        data={terminalItems}
+        keyExtractor={(item, index) => item.id || `terminal-${index}`}
+        renderItem={({ item }) => (
+          <View style={styles.terminalCard}>
+            {isLiquidGlassSupported ? (
+              <LiquidGlassView
+                style={[styles.cardGradient, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+                interactive={true}
+                effect="clear"
+                colorScheme="dark"
+              >
+                {renderCardContent(item)}
+              </LiquidGlassView>
+            ) : (
+              <LinearGradient
+                colors={[AppColors.dark.surface, AppColors.dark.surfaceAlt]}
+                style={styles.cardGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                {renderCardContent(item)}
+              </LinearGradient>
+            )}
+          </View>
+        )}
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        bounces={true}
-        scrollEventThrottle={16}
-        alwaysBounceVertical={true}
-      >
-        {terminalItems.length === 0 ? (
+        contentContainerStyle={[
+          styles.contentContainer,
+          terminalItems.length === 0 && styles.emptyContentContainer
+        ]}
+        ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="terminal-outline" size={48} color={AppColors.white.w25} />
             <Text style={styles.emptyText}>
@@ -363,34 +385,15 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
               }
             </Text>
           </View>
-        ) : (
-          <View style={styles.terminalList}>
-            {terminalItems.map((item, index) => (
-              <View key={item.id || index} style={styles.terminalCard}>
-                {isLiquidGlassSupported ? (
-                  <LiquidGlassView
-                    style={[styles.cardGradient, { backgroundColor: 'transparent', overflow: 'hidden' }]}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
-                  >
-                    {renderCardContent(item)}
-                  </LiquidGlassView>
-                ) : (
-                  <LinearGradient
-                    colors={[AppColors.dark.surface, AppColors.dark.surfaceAlt]}
-                    style={styles.cardGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    {renderCardContent(item)}
-                  </LinearGradient>
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+        }
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        bounces={true}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={10}
+      />
 
       {/* Interactive Terminal Input */}
       <ChatInput
@@ -504,6 +507,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 28,
     paddingBottom: 100,
+  },
+  emptyContentContainer: {
+    flex: 1,
+    justifyContent: 'center',
   },
   emptyState: {
     alignItems: 'center',

@@ -82,33 +82,57 @@ export const SecretsPanel = ({ onClose }: Props) => {
   }));
 
   useEffect(() => {
-    loadEnvVariables();
-    startAIAnalysis();
+    let isMounted = true;
+
+    const init = async () => {
+      if (isMounted) {
+        await loadEnvVariables();
+      }
+      if (isMounted) {
+        await startAIAnalysis();
+      }
+    };
+
+    init();
+
     return () => {
+      isMounted = false;
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [currentWorkstation]);
 
   useEffect(() => {
+    let isMounted = true;
+
     if (aiStatus === 'analyzing') {
       // Start polling for real progress updates
-      pollingRef.current = setInterval(checkAIStatus, 1000);
+      pollingRef.current = setInterval(() => {
+        if (isMounted) {
+          checkAIStatus();
+        }
+      }, 1000);
     } else {
       if (pollingRef.current) clearInterval(pollingRef.current);
-      if (aiStatus === 'complete') progressWidth.value = withTiming(100, { duration: 300 });
+      if (aiStatus === 'complete' && isMounted) {
+        progressWidth.value = withTiming(100, { duration: 300 });
+      }
     }
+
     return () => {
+      isMounted = false;
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [aiStatus]);
 
-  const loadEnvVariables = async () => {
+  const loadEnvVariables = async (isMountedRef?: { current: boolean }) => {
     if (!currentWorkstation?.id) {
       setIsLoading(false);
       return;
     }
     try {
-      setIsLoading(true);
+      if (!isMountedRef || isMountedRef.current) {
+        setIsLoading(true);
+      }
       const authHeaders = await getAuthHeaders();
       const response = await fetch(
         `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`,
@@ -117,24 +141,30 @@ export const SecretsPanel = ({ onClose }: Props) => {
       if (!response.ok) throw new Error('Failed to load');
       const data = await response.json();
 
-      // Le variabili dal .env esistente vanno in "Configurate" subito
-      // ma marcate come "dal progetto" (isUserConfigured = false)
-      const existingEnvVars = (data.variables || []).filter(
-        (v: EnvVariable, index: number, self: EnvVariable[]) =>
-          index === self.findIndex((t) => t.key === v.key)
-      );
+      if (!isMountedRef || isMountedRef.current) {
+        // Le variabili dal .env esistente vanno in "Configurate" subito
+        // ma marcate come "dal progetto" (isUserConfigured = false)
+        const existingEnvVars = (data.variables || []).filter(
+          (v: EnvVariable, index: number, self: EnvVariable[]) =>
+            index === self.findIndex((t) => t.key === v.key)
+        );
 
-      // Mostra le variabili esistenti subito nella sezione configurate
-      // con un flag che indica che vengono dal .env originale
-      const varsWithFlag = existingEnvVars.map((v: EnvVariable) => ({
-        ...v,
-        isUserConfigured: false, // viene dal .env originale, non configurata dall'utente
-      }));
-      setEnvVars(varsWithFlag);
+        // Mostra le variabili esistenti subito nella sezione configurate
+        // con un flag che indica che vengono dal .env originale
+        const varsWithFlag = existingEnvVars.map((v: EnvVariable) => ({
+          ...v,
+          isUserConfigured: false, // viene dal .env originale, non configurata dall'utente
+        }));
+        setEnvVars(varsWithFlag);
+      }
     } catch (error) {
-      console.error('Failed to load env variables:', error);
+      if (!isMountedRef || isMountedRef.current) {
+        console.error('Failed to load env variables:', error);
+      }
     } finally {
-      setIsLoading(false);
+      if (!isMountedRef || isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -175,7 +205,7 @@ export const SecretsPanel = ({ onClose }: Props) => {
     }
   };
 
-  const startAIAnalysis = async () => {
+  const startAIAnalysis = async (isMountedRef?: { current: boolean }) => {
     if (!currentWorkstation?.id) return;
     try {
       const authHeaders = await getAuthHeaders();
@@ -185,30 +215,36 @@ export const SecretsPanel = ({ onClose }: Props) => {
       );
       if (response.ok) {
         const data = await response.json();
-        setAiStatus(data.status);
-        aiStatusRef.current = data.status;
-        if (data.variables) {
-          // Filtra le variabili già presenti in envVars
-          const existingKeys = new Set(envVarsRef.current.map(v => v.key));
-          const filteredVars = data.variables.filter((v: AIVariable) => !existingKeys.has(v.key));
-          setAiVariables(filteredVars);
-        }
-        // Se l'AI è già complete (dalla cache) e non abbiamo variabili dal progetto, ricarichiamole
-        if (data.status === 'complete') {
-          const projectVars = envVarsRef.current.filter(v => v.isUserConfigured === false);
-          if (projectVars.length === 0) {
-            setTimeout(() => {
-              reloadProjectVars();
-            }, 500);
+        if (!isMountedRef || isMountedRef.current) {
+          setAiStatus(data.status);
+          aiStatusRef.current = data.status;
+          if (data.variables) {
+            // Filtra le variabili già presenti in envVars
+            const existingKeys = new Set(envVarsRef.current.map(v => v.key));
+            const filteredVars = data.variables.filter((v: AIVariable) => !existingKeys.has(v.key));
+            setAiVariables(filteredVars);
+          }
+          // Se l'AI è già complete (dalla cache) e non abbiamo variabili dal progetto, ricarichiamole
+          if (data.status === 'complete') {
+            const projectVars = envVarsRef.current.filter(v => v.isUserConfigured === false);
+            if (projectVars.length === 0) {
+              setTimeout(() => {
+                if (!isMountedRef || isMountedRef.current) {
+                  reloadProjectVars();
+                }
+              }, 500);
+            }
           }
         }
       }
     } catch (error) {
-      console.error('Failed to start AI analysis:', error);
+      if (!isMountedRef || isMountedRef.current) {
+        console.error('Failed to start AI analysis:', error);
+      }
     }
   };
 
-  const checkAIStatus = async () => {
+  const checkAIStatus = async (isMountedRef?: { current: boolean }) => {
     if (!currentWorkstation?.id) return;
     try {
       const authHeaders = await getAuthHeaders();
@@ -218,32 +254,38 @@ export const SecretsPanel = ({ onClose }: Props) => {
       );
       if (response.ok) {
         const data = await response.json();
-        const previousStatus = aiStatusRef.current;
-        setAiStatus(data.status);
-        aiStatusRef.current = data.status;
-        // Update progress bar with real progress from backend
-        if (data.progress !== undefined) {
-          progressWidth.value = withTiming(data.progress, { duration: 300, easing: Easing.out(Easing.ease) });
-        }
-        if (data.variables) {
-          const existingKeys = new Set(envVarsRef.current.map(v => v.key));
-          const newAiVars = data.variables.filter((v: AIVariable) => !existingKeys.has(v.key));
-          setAiVariables(newAiVars);
-        }
-        // Quando l'AI completa e non abbiamo variabili dal progetto, ricarichiamole
-        // (ora il repo dovrebbe essere clonato e il .env disponibile)
-        // Usiamo un delay per assicurarci che il clone sia completato
-        if (data.status === 'complete' && previousStatus === 'analyzing') {
-          const projectVars = envVarsRef.current.filter(v => v.isUserConfigured === false);
-          if (projectVars.length === 0) {
-            setTimeout(() => {
-              reloadProjectVars();
-            }, 500);
+        if (!isMountedRef || isMountedRef.current) {
+          const previousStatus = aiStatusRef.current;
+          setAiStatus(data.status);
+          aiStatusRef.current = data.status;
+          // Update progress bar with real progress from backend
+          if (data.progress !== undefined) {
+            progressWidth.value = withTiming(data.progress, { duration: 300, easing: Easing.out(Easing.ease) });
+          }
+          if (data.variables) {
+            const existingKeys = new Set(envVarsRef.current.map(v => v.key));
+            const newAiVars = data.variables.filter((v: AIVariable) => !existingKeys.has(v.key));
+            setAiVariables(newAiVars);
+          }
+          // Quando l'AI completa e non abbiamo variabili dal progetto, ricarichiamole
+          // (ora il repo dovrebbe essere clonato e il .env disponibile)
+          // Usiamo un delay per assicurarci che il clone sia completato
+          if (data.status === 'complete' && previousStatus === 'analyzing') {
+            const projectVars = envVarsRef.current.filter(v => v.isUserConfigured === false);
+            if (projectVars.length === 0) {
+              setTimeout(() => {
+                if (!isMountedRef || isMountedRef.current) {
+                  reloadProjectVars();
+                }
+              }, 500);
+            }
           }
         }
       }
     } catch (error) {
-      console.error('Failed to check AI status:', error);
+      if (!isMountedRef || isMountedRef.current) {
+        console.error('Failed to check AI status:', error);
+      }
     }
   };
 

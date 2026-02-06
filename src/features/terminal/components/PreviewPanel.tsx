@@ -577,14 +577,27 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Fallback: force WebView ready after timeout
   useEffect(() => {
+    let isMounted = true;
+
     if (serverStatus === 'running' && !webViewReady) {
-      const timer = setTimeout(() => setWebViewReady(true), 10000);
-      return () => clearTimeout(timer);
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          setWebViewReady(true);
+        }
+      }, 10000);
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+      };
     }
+
+    return () => { isMounted = false; };
   }, [serverStatus, webViewReady]);
 
   // Auto-recovery: request machineId if missing
   useEffect(() => {
+    let isMounted = true;
+
     const shouldRecover = (serverStatus === 'running' || serverStatus === 'stopped') && !globalFlyMachineId && currentWorkstation?.id;
     if (shouldRecover) {
       getAuthHeaders().then(recoverAuthHeaders => fetch(`${apiUrl}/fly/session`, {
@@ -593,9 +606,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         body: JSON.stringify({ projectId: currentWorkstation.id }),
         credentials: 'include',
       })).then(res => res.json()).then(data => {
-        if (data.machineId) setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
-      }).catch((err) => console.warn('[Preview] Failed to recover machine ID:', err?.message || err));
+        if (isMounted && data.machineId) {
+          setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
+        }
+      }).catch((err) => {
+        if (isMounted) {
+          console.warn('[Preview] Failed to recover machine ID:', err?.message || err);
+        }
+      });
     }
+
+    return () => { isMounted = false; };
   }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl]);
 
   // Live logs SSE streaming
@@ -673,6 +694,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // Reset/restore state when project changes
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout | null = null;
+
     const currentId = currentWorkstation?.id;
     if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
       const restoredMachineId = currentId ? projectMachineIds[currentId] : null;
@@ -688,11 +712,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
           credentials: 'include',
         })).then(() => {
-          setTimeout(() => {
-            if (restoredUrl) setCurrentPreviewUrl(restoredUrl);
-            checkServerStatus(restoredUrl || undefined);
+          if (!isMounted) return;
+          timeoutId = setTimeout(() => {
+            if (isMounted) {
+              if (restoredUrl) setCurrentPreviewUrl(restoredUrl);
+              checkServerStatus(restoredUrl || undefined);
+            }
           }, 1000);
         }).catch(() => {
+          if (!isMounted) return;
           if (restoredUrl) setCurrentPreviewUrl(restoredUrl);
           checkServerStatus(restoredUrl || undefined);
         });
@@ -709,10 +737,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
     }
     prevWorkstationId.current = currentId || null;
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [currentWorkstation?.id]);
 
   // Opening animation + session cookie restore
   useEffect(() => {
+    let isMounted = true;
+
     Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
     if (globalFlyMachineId && apiUrl) {
       flyMachineIdRef.current = globalFlyMachineId;
@@ -721,8 +756,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         headers: { 'Content-Type': 'application/json', ...initAuthHeaders },
         body: JSON.stringify({ machineId: globalFlyMachineId }),
         credentials: 'include',
-      })).catch((err) => console.warn('[Preview] Failed to restore session cookie:', err?.message || err));
+      })).catch((err) => {
+        if (isMounted) {
+          console.warn('[Preview] Failed to restore session cookie:', err?.message || err);
+        }
+      });
     }
+
+    return () => { isMounted = false; };
   }, []);
 
   // Update URL when prop changes

@@ -5,35 +5,37 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Switch,
-  Image,
   Animated,
-  Linking,
   Alert,
   Dimensions,
   PanResponder,
-  Modal,
-  TextInput,
 } from 'react-native';
 import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, Rect, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import Constants from 'expo-constants';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../core/git/gitAccountService';
+import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../i18n/languageStore';
-import { LANGUAGES, LanguageCode } from '../../i18n';
 import { pushNotificationService } from '../../core/services/pushNotificationService';
 import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
+import { ProfileSection } from './components/ProfileSection';
+import { GitAccountsSection } from './components/GitAccountsSection';
+import { SubscriptionSection } from './components/SubscriptionSection';
+import { AppearanceSection } from './components/AppearanceSection';
+import { NotificationSection } from './components/NotificationSection';
+import { InfoSection } from './components/InfoSection';
+import { DeviceSection } from './components/DeviceSection';
+import { AccountActionsSection } from './components/AccountActionsSection';
+import { EditNameModal } from './components/EditNameModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface SystemStatus {
@@ -85,53 +87,7 @@ const GAP = 12;
 const SNAP_INTERVAL = CARD_WIDTH + GAP;
 const SIDE_INSET = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
-interface SettingItemProps {
-  icon: string;
-  iconColor?: string;
-  title: string;
-  subtitle?: string;
-  onPress?: () => void;
-  rightElement?: React.ReactNode;
-  showChevron?: boolean;
-  isLast?: boolean;
-}
-
-const SettingItem = ({ icon, iconColor, title, subtitle, onPress, rightElement, showChevron = true, isLast }: SettingItemProps) => (
-  <TouchableOpacity
-    style={[styles.settingItem, isLast && { borderBottomWidth: 0 }]}
-    onPress={onPress}
-    activeOpacity={onPress ? 0.7 : 1}
-    disabled={!onPress}
-  >
-    <View style={styles.settingIconWrapper}>
-      <Ionicons name={icon as any} size={22} color={iconColor || AppColors.primary} />
-    </View>
-    <View style={styles.settingContent}>
-      <Text style={styles.settingTitle}>{title}</Text>
-      {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
-    </View>
-    {rightElement || (showChevron && onPress && (
-      <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.15)" />
-    ))}
-  </TouchableOpacity>
-);
-
-// Glass Card wrapper - uses LiquidGlass on iOS 26+, dark View on older versions
-const GlassCard = ({ children, style }: { children: React.ReactNode; style?: any }) => {
-  if (isLiquidGlassSupported) {
-    return (
-      <LiquidGlassView style={[styles.glassCardLiquid, style]} interactive={true} effect="regular" colorScheme="dark">
-        {children}
-      </LiquidGlassView>
-    );
-  }
-  // Fallback: simple dark card without blur for cleaner look
-  return (
-    <View style={[styles.sectionCardWrap, styles.sectionCardDark, style]}>
-      {children}
-    </View>
-  );
-};
+// Components extracted to separate files
 
 export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanIndex = 0 }: Props) => {
   const insets = useSafeAreaInsets();
@@ -166,7 +122,6 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [showEditName, setShowEditName] = useState(false);
-  const [editNameValue, setEditNameValue] = useState('');
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 
@@ -392,64 +347,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     );
   };
 
-  const renderAccountCard = (account: GitAccount) => {
-    const providerConfig = GIT_PROVIDERS.find(p => p.id === account.provider);
-    const iconName = providerConfig?.icon || 'git-branch';
-    const providerColor = providerConfig?.color || '#888';
-
-    return (
-      <View key={account.id} style={[styles.accountCard, accounts.indexOf(account) === accounts.length - 1 && { borderBottomWidth: 0 }]}>
-        {account.avatarUrl ? (
-          <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: providerColor }]}>
-            <Ionicons name={iconName as any} size={18} color="#fff" />
-          </View>
-        )}
-        <View style={styles.accountInfo}>
-          <View style={styles.accountNameRow}>
-            <Text style={styles.accountName} numberOfLines={1} ellipsizeMode="tail">
-              {account.username}
-            </Text>
-            <View style={styles.providerBadge}>
-              <Text style={styles.providerBadgeText}>
-                {providerConfig?.name || account.provider}
-              </Text>
-            </View>
-          </View>
-          {account.email && (
-            <Text style={styles.accountEmail} numberOfLines={1}>
-              {account.email}
-            </Text>
-          )}
-        </View>
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => handleDeleteAccount(account)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="trash-outline" size={18} color="rgba(255, 77, 77, 0.8)" />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const renderSkeletonCard = (index: number) => {
-    const shimmerOpacity = shimmerAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.3, 0.7],
-    });
-
-    return (
-      <View key={`skeleton-${index}`} style={styles.accountCard}>
-        <Animated.View style={[styles.skeletonAvatar, { opacity: shimmerOpacity }]} />
-        <View style={styles.accountInfo}>
-          <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
-          <Animated.View style={[styles.skeletonSubtitle, { opacity: shimmerOpacity }]} />
-        </View>
-      </View>
-    );
-  };
+  // Render functions moved to component files
 
   const renderPlanCard = (planId: 'free' | 'pro' | 'max', name: string, price: string, description: string, features: string[], color: string, isPopular?: boolean) => {
     const isCurrent = currentPlan === planId;
@@ -944,301 +842,85 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         contentContainerStyle={styles.contentContainer}
       >
         {/* User Profile Section */}
-        {user && (
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => {
-              setEditNameValue(user.displayName || '');
-              setShowEditName(true);
-            }}
-          >
-            <GlassCard style={styles.profileBlur} key={loading ? 'loading-profile' : 'loaded-profile'}>
-              <View style={styles.profileSection}>
-                <View style={styles.profileAvatarContainer}>
-                  <LinearGradient
-                    colors={[AppColors.primary, AppColors.primaryShade]}
-                    style={styles.profileAvatar}
-                  >
-                    <Text style={styles.profileAvatarText}>
-                      {user.displayName?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() || 'U'}
-                    </Text>
-                  </LinearGradient>
-                </View>
-                <View style={styles.profileInfo}>
-                  <View style={styles.profileNameRow}>
-                    <Text style={styles.profileName}>{user.displayName || t('profile.defaultName')}</Text>
-                    <View style={[styles.planBadge, { backgroundColor: currentPlan === 'free' ? 'rgba(148,163,184,0.2)' : currentPlan === 'pro' ? `${AppColors.primary}20` : '#F472B620' }]}>
-                      <Text style={[styles.planBadgeText, { color: currentPlan === 'free' ? '#94A3B8' : currentPlan === 'pro' ? AppColors.primary : '#F472B6' }]}>
-                        {currentPlan.toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={styles.profileEmail}>{user.email}</Text>
-                </View>
-                <View style={styles.editProfileBtn}>
-                  <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.6)" />
-                </View>
-              </View>
-            </GlassCard>
-          </TouchableOpacity>
-        )}
+        <ProfileSection
+          user={user}
+          currentPlan={currentPlan}
+          onEditPress={() => setShowEditName(true)}
+          loading={loading}
+        />
 
-        {/* Account Git Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('gitAccounts.title')}</Text>
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => setShowAddModal(true)}
-              activeOpacity={0.6}
-            >
-              <Ionicons name="add" size={20} color={AppColors.primary} />
-              <Text style={styles.addButtonText}>{t('gitAccounts.addAccount')}</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Git Accounts Section */}
+        <GitAccountsSection
+          accounts={accounts}
+          loading={loading}
+          shimmerAnim={shimmerAnim}
+          onAddAccount={() => setShowAddModal(true)}
+          onDeleteAccount={handleDeleteAccount}
+          t={t}
+        />
 
-          <GlassCard>
-            <View style={styles.sectionCard}>
-              {loading ? (
-                <>
-                  {[0, 1].map(renderSkeletonCard)}
-                </>
-              ) : accounts.length > 0 ? (
-                accounts.map(renderAccountCard)
-              ) : (
-                <View style={styles.emptyAccounts}>
-                  <Ionicons name="git-network-outline" size={32} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.emptyText}>{t('gitAccounts.noAccounts')}</Text>
-                  <Text style={styles.emptySubtext}>
-                    {t('gitAccounts.connectDescription')}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </GlassCard>
-        </View>
+        {/* Subscription & Usage Section */}
+        <SubscriptionSection
+          currentPlan={currentPlan}
+          budgetStatus={budgetStatus}
+          loading={loading}
+          onPlanPress={() => setShowPlanSelection(true)}
+          onBudgetPress={() => setShowResourceUsage(true)}
+          t={t}
+        />
 
-        {/* Abbonamento & Utilizzo Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('subscription.title')}</Text>
-          <GlassCard key={loading ? 'loading-sub' : 'loaded-sub'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="card-outline"
-                iconColor="#60A5FA"
-                title={t('subscription.currentPlan')}
-                subtitle={currentPlan === 'free' ? 'Starter' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan.toUpperCase()}
-                onPress={() => setShowPlanSelection(true)}
-              />
-              <SettingItem
-                icon="wallet-outline"
-                iconColor="#34D399"
-                title={t('subscription.aiBudget')}
-                subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% ${t('subscription.usage')}` : t('subscription.loading')}
-                onPress={() => setShowResourceUsage(true)}
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
+        {/* Appearance Section */}
+        <AppearanceSection
+          language={language}
+          loading={loading}
+          onLanguageChange={setAppLanguage}
+          t={t}
+        />
 
-        {/* Aspetto Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('appearance.title')}</Text>
-          <GlassCard key={loading ? 'loading-app' : 'loaded-app'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="language-outline"
-                iconColor="#60A5FA"
-                title={t('language.title')}
-                subtitle={LANGUAGES[language].nativeName}
-                showChevron={false}
-                rightElement={
-                  <View style={styles.languageSwitcher}>
-                    {(Object.keys(LANGUAGES) as LanguageCode[]).map((langCode) => (
-                      <TouchableOpacity
-                        key={langCode}
-                        style={[
-                          styles.languageOption,
-                          language === langCode && styles.languageOptionActive
-                        ]}
-                        onPress={() => setAppLanguage(langCode)}
-                      >
-                        <Text style={[
-                          styles.languageOptionText,
-                          language === langCode && styles.languageOptionTextActive
-                        ]}>
-                          {LANGUAGES[langCode].flag}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                }
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
-
-        {/* Notifiche Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('notifications.title')}</Text>
-          <GlassCard key={loading ? 'loading-notif' : 'loaded-notif'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="notifications-outline"
-                iconColor="#FBBF24"
-                title={t('notifications.pushNotifications')}
-                subtitle={t('notifications.pushDesc')}
-                showChevron={false}
-                rightElement={
-                  <Switch
-                    value={notifications}
-                    onValueChange={setNotifications}
-                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
-                    thumbColor="#fff"
-                    ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
-                  />
-                }
-              />
-              <SettingItem
-                icon="build-outline"
-                iconColor="#34D399"
-                title={t('notifications.operations')}
-                subtitle={t('notifications.operationsDesc')}
-                showChevron={false}
-                rightElement={
-                  <Switch
-                    value={notifOperations}
-                    onValueChange={(v) => { setNotifOperations(v); updateNotifPreference('operations', v); }}
-                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
-                    thumbColor="#fff"
-                    ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
-                  />
-                }
-              />
-              <SettingItem
-                icon="logo-github"
-                iconColor="#A78BFA"
-                title={t('notifications.github')}
-                subtitle={t('notifications.githubDesc')}
-                showChevron={false}
-                rightElement={
-                  <Switch
-                    value={notifGithub}
-                    onValueChange={(v) => { setNotifGithub(v); updateNotifPreference('github', v); }}
-                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
-                    thumbColor="#fff"
-                    ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
-                  />
-                }
-              />
-              <SettingItem
-                icon="time-outline"
-                iconColor="#60A5FA"
-                title={t('notifications.reminders')}
-                subtitle={t('notifications.remindersDesc')}
-                showChevron={false}
-                rightElement={
-                  <Switch
-                    value={notifReengagement}
-                    onValueChange={(v) => { setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
-                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: AppColors.primary }}
-                    thumbColor="#fff"
-                    ios_backgroundColor="rgba(255,255,255,0.05)"
-                    style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
-                  />
-                }
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
+        {/* Notifications Section */}
+        <NotificationSection
+          notifications={notifications}
+          notifOperations={notifOperations}
+          notifGithub={notifGithub}
+          notifReengagement={notifReengagement}
+          loading={loading}
+          onNotificationsChange={setNotifications}
+          onOperationsChange={(v) => { setNotifOperations(v); updateNotifPreference('operations', v); }}
+          onGithubChange={(v) => { setNotifGithub(v); updateNotifPreference('github', v); }}
+          onReengagementChange={(v) => { setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
+          t={t}
+        />
 
         {/* Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('info.title')}</Text>
-          <GlassCard key={loading ? 'loading-info' : 'loaded-info'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="information-circle-outline"
-                iconColor="#94A3B8"
-                title={t('info.version')}
-                subtitle={Constants.expoConfig?.version || '1.0.0'}
-                showChevron={false}
-              />
-              <SettingItem
-                icon="document-text-outline"
-                iconColor="#94A3B8"
-                title={t('info.termsOfService')}
-                onPress={() => Linking.openURL('https://drape.app/terms')}
-              />
-              <SettingItem
-                icon="shield-checkmark-outline"
-                iconColor="#94A3B8"
-                title={t('info.privacyPolicy')}
-                onPress={() => Linking.openURL('https://drape.app/privacy')}
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
+        <InfoSection loading={loading} t={t} />
 
         {/* Device Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('device.title')}</Text>
-          <GlassCard key={loading ? 'loading-device' : 'loaded-device'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="phone-portrait-outline"
-                iconColor="#60A5FA"
-                title={deviceModelName || t('device.thisDevice')}
-                subtitle={currentDeviceId ? `${currentDeviceId.substring(0, 20)}...` : t('subscription.loading')}
-                showChevron={false}
-              />
-              <SettingItem
-                icon="shield-checkmark-outline"
-                iconColor="#34D399"
-                title={t('device.activeDevice')}
-                subtitle={t('device.onlyThisDevice')}
-                showChevron={false}
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
+        <DeviceSection
+          deviceModelName={deviceModelName}
+          currentDeviceId={currentDeviceId}
+          loading={loading}
+          t={t}
+        />
 
-        {/* Danger Zone */}
-        <View style={styles.section}>
-          <GlassCard key={loading ? 'loading-danger' : 'loaded-danger'}>
-            <View style={styles.sectionCard}>
-              <SettingItem
-                icon="log-out-outline"
-                iconColor="#F87171"
-                title={t('logout.title')}
-                subtitle={user?.email || undefined}
-                onPress={() => Alert.alert(t('logout.title'), t('logout.confirm'), [
-                  { text: t('common:cancel'), style: 'cancel' },
-                  {
-                    text: t('logout.button'), style: 'destructive', onPress: async () => {
-                      try {
-                        await logout();
-                        onClose();
-                      } catch (error) {
-                        Alert.alert(t('common:error'), t('logout.error'));
-                      }
-                    }
-                  },
-                ])}
-                showChevron={false}
-                isLast
-              />
-            </View>
-          </GlassCard>
-        </View>
+        {/* Account Actions (Logout) */}
+        <AccountActionsSection
+          userEmail={user?.email}
+          loading={loading}
+          onLogout={() => Alert.alert(t('logout.title'), t('logout.confirm'), [
+            { text: t('common:cancel'), style: 'cancel' },
+            {
+              text: t('logout.button'), style: 'destructive', onPress: async () => {
+                try {
+                  await logout();
+                  onClose();
+                } catch (error) {
+                  Alert.alert(t('common:error'), t('logout.error'));
+                }
+              }
+            },
+          ])}
+          t={t}
+        />
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -1252,109 +934,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         }}
       />
 
-      {/* Edit Name Modal */}
-      <Modal
+      <EditNameModal
         visible={showEditName}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEditName(false)}
-      >
-        <View style={styles.editNameOverlay}>
-          <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} />
-          {isLiquidGlassSupported ? (
-            <LiquidGlassView
-              style={styles.editNameCard}
-              interactive={true}
-              effect="regular"
-              colorScheme="dark"
-            >
-              <View style={styles.editNameInner}>
-                <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
-                <Text style={styles.editNameTitle}>{t('profile.editName')}</Text>
-                <Text style={styles.editNameSubtitle}>{t('profile.enterName')}</Text>
-                <View style={styles.editNameInputWrap}>
-                  <TextInput
-                    style={styles.editNameInput}
-                    value={editNameValue}
-                    onChangeText={setEditNameValue}
-                    placeholder={t('profile.defaultName')}
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    autoFocus
-                    selectionColor={AppColors.primary}
-                  />
-                </View>
-                <View style={styles.editNameButtons}>
-                  <TouchableOpacity
-                    style={styles.editNameBtn}
-                    onPress={() => setShowEditName(false)}
-                  >
-                    <Text style={styles.editNameBtnTextCancel}>{t('common:cancel')}</Text>
-                  </TouchableOpacity>
-                  <LinearGradient
-                    colors={[AppColors.primary, AppColors.primaryShade]}
-                    style={styles.editNameBtnConfirm}
-                  >
-                    <TouchableOpacity
-                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                      onPress={() => {
-                        if (editNameValue.trim()) {
-                          useAuthStore.getState().updateDisplayName(editNameValue.trim());
-                        }
-                        setShowEditName(false);
-                      }}
-                    >
-                      <Text style={styles.editNameBtnTextConfirm}>{t('common:save')}</Text>
-                    </TouchableOpacity>
-                  </LinearGradient>
-                </View>
-              </View>
-            </LiquidGlassView>
-          ) : (
-            <View style={[styles.editNameCard, { backgroundColor: '#1C1C1E' }]}>
-              <View style={styles.editNameInner}>
-                <Ionicons name="person-circle-outline" size={36} color={AppColors.primary} style={{ marginBottom: 8 }} />
-                <Text style={styles.editNameTitle}>{t('profile.editName')}</Text>
-                <Text style={styles.editNameSubtitle}>{t('profile.enterName')}</Text>
-                <View style={styles.editNameInputWrap}>
-                  <TextInput
-                    style={styles.editNameInput}
-                    value={editNameValue}
-                    onChangeText={setEditNameValue}
-                    placeholder={t('profile.defaultName')}
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    autoFocus
-                    selectionColor={AppColors.primary}
-                  />
-                </View>
-                <View style={styles.editNameButtons}>
-                  <TouchableOpacity
-                    style={styles.editNameBtn}
-                    onPress={() => setShowEditName(false)}
-                  >
-                    <Text style={styles.editNameBtnTextCancel}>{t('common:cancel')}</Text>
-                  </TouchableOpacity>
-                  <LinearGradient
-                    colors={[AppColors.primary, AppColors.primaryShade]}
-                    style={styles.editNameBtnConfirm}
-                  >
-                    <TouchableOpacity
-                      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-                      onPress={() => {
-                        if (editNameValue.trim()) {
-                          useAuthStore.getState().updateDisplayName(editNameValue.trim());
-                        }
-                        setShowEditName(false);
-                      }}
-                    >
-                      <Text style={styles.editNameBtnTextConfirm}>{t('common:save')}</Text>
-                    </TouchableOpacity>
-                  </LinearGradient>
-                </View>
-              </View>
-            </View>
-          )}
-        </View>
-      </Modal>
+        currentName={user?.displayName || ''}
+        onClose={() => setShowEditName(false)}
+        onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
+        t={t}
+      />
     </Animated.View>
   );
 };
@@ -1421,250 +1007,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 8,
   },
-  section: {
-    marginBottom: 24,
-  },
-  // User Profile
-  profileBlur: {
-    borderRadius: 20,
-    overflow: 'hidden',
-    marginBottom: 24,
-  },
-  profileSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: 'rgba(20,20,22,0.5)',
-    borderRadius: 16,
-  },
-  profileAvatarContainer: {
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  profileAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  profileAvatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: -0.4,
-  },
-  profileEmail: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.45)',
-    marginTop: 2,
-  },
-  profileNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  planBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  planBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  editProfileBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.6)',
-    letterSpacing: -0.3,
-    marginBottom: 8,
-    paddingHorizontal: 4,
-  },
-  sectionCardWrap: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  sectionCardDark: {
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  glassCardLiquid: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  sectionCard: {
-    padding: 4,
-    backgroundColor: 'rgba(20,20,22,0.5)',
-    borderRadius: 16,
-  },
-  addButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  addButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.primary,
-  },
-  // Account cards
-  accountCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.03)',
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  avatarPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  accountInfo: {
-    flex: 1,
-  },
-  accountNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  accountName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-    letterSpacing: -0.2,
-    flexShrink: 1,
-  },
-  providerBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    flexShrink: 0,
-  },
-  providerBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  accountEmail: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.3)',
-    marginTop: 1,
-  },
-  deleteBtn: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-  },
-  emptyAccounts: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 10,
-  },
-  emptySubtext: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.3)',
-    marginTop: 4,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-  },
-  // Skeleton
-  skeletonAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginRight: 14,
-  },
-  skeletonTitle: {
-    width: '60%',
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 8,
-  },
-  skeletonSubtitle: {
-    width: '40%',
-    height: 11,
-    borderRadius: 5,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  // Setting items
-  settingItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  settingIconWrapper: {
-    width: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  settingContent: {
-    flex: 1,
-  },
-  settingTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-    letterSpacing: -0.2,
-  },
-  settingSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 2,
-    lineHeight: 16,
-  },
+  // Styles moved to component files (ProfileSection, GitAccountsSection, SubscriptionSection, etc.)
   // Plans Refactor
   planBgGlow: {
     position: 'absolute',
@@ -2137,95 +1480,5 @@ const styles = StyleSheet.create({
     height: 30,
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  editNameOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  editNameCard: {
-    width: 310,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  editNameInner: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  editNameTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4,
-    letterSpacing: -0.3,
-  },
-  editNameSubtitle: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 13,
-    marginBottom: 20,
-  },
-  editNameInputWrap: {
-    width: '100%',
-    marginBottom: 20,
-  },
-  editNameInput: {
-    width: '100%',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#fff',
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  editNameButtons: {
-    flexDirection: 'row',
-    width: '100%',
-    gap: 10,
-  },
-  editNameBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 13,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  editNameBtnConfirm: {
-    flex: 1,
-    borderRadius: 12,
-    height: 46,
-  },
-  editNameBtnTextCancel: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  editNameBtnTextConfirm: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  // Language Switcher
-  languageSwitcher: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 10,
-    padding: 2,
-  },
-  languageOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  languageOptionActive: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-  },
-  languageOptionText: {
-    fontSize: 16,
-    opacity: 0.5,
-  },
-  languageOptionTextActive: {
-    opacity: 1,
-  },
+  // EditNameModal and Language switcher styles moved to component files
 });

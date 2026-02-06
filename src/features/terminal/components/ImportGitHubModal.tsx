@@ -20,9 +20,25 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
   const modalOffset = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    let isMounted = true;
+
     if (visible) {
-      checkClipboard();
+      const loadClipboard = async () => {
+        try {
+          const text = await Clipboard.getStringAsync();
+          if (isMounted && text && isGitUrl(text)) {
+            setRepoUrl(text);
+          }
+        } catch (error) {
+          if (isMounted) {
+            console.warn('[ImportGitHubModal] Clipboard check failed:', error);
+          }
+        }
+      };
+      loadClipboard();
     }
+
+    return () => { isMounted = false; };
   }, [visible]);
 
   useEffect(() => {
@@ -61,16 +77,6 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
       lowerUrl.endsWith('.git') ||
       /git[@:]/.test(lowerUrl)
     );
-  };
-
-  const checkClipboard = async () => {
-    try {
-      const text = await Clipboard.getStringAsync();
-      if (text && isGitUrl(text)) {
-        setRepoUrl(text);
-      }
-    } catch (error) {
-    }
   };
 
   const handleImport = () => {

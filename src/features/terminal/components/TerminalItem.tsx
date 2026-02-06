@@ -279,6 +279,9 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                       <TouchableOpacity
                         onPress={() => setIsModalVisible(true)}
                         style={styles.expandButton}
+                        accessibilityLabel="Espandi output bash"
+                        accessibilityRole="button"
+                        accessibilityHint="Mostra output completo a schermo intero"
                       >
                         <Ionicons name="expand" size={16} color="rgba(255, 255, 255, 0.5)" />
                       </TouchableOpacity>

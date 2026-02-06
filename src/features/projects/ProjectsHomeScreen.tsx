@@ -1,6 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Animated, Dimensions, Pressable, ActivityIndicator, Share, TextInput, Modal, Image, Platform, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -128,6 +128,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const userEmail = user?.email || gitHubUser?.login || 'Mobile IDE';
   const [recentProjects, setRecentProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
   const [repoVisibility, setRepoVisibility] = useState<'loading' | 'public' | 'private' | 'unknown'>('unknown');
@@ -270,6 +271,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setLoading(false);
     }
   };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRecentProjects(true);
+    } catch (error) {
+      console.warn('[Projects] Refresh failed:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const getTimeAgo = (date: Date) => {
     const now = new Date();
@@ -1071,6 +1083,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="rgba(255,255,255,0.5)"
+            colors={[AppColors.primary]}
+          />
+        }
       >
         {/* Quick Actions */}
         <View style={styles.quickActionsSection}>

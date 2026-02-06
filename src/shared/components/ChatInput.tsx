@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView, Alert, Linking } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Image, ScrollView, Alert, Linking, NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -52,6 +52,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   leftAccessory,
 }) => {
   const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
+  const inputRef = useRef<TextInput>(null);
 
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (onToggleMode) {
@@ -107,6 +108,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  /**
+   * Handle keyboard shortcuts for iPad physical keyboard users
+   * Note: React Native's TextInput onKeyPress has limited support for modifier keys.
+   * This handler provides basic Enter key detection.
+   *
+   * For iPad users:
+   * - Tap send button to send message
+   * - Use Shift+Enter for new line (natural multiline behavior)
+   *
+   * Future enhancement: Implement Cmd+Enter to send using a native module
+   */
+  const handleKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const { key } = e.nativeEvent;
+
+    // Note: On iPad, detecting Cmd/Ctrl keys in React Native is not reliable
+    // without native modules. For now, users can use the send button or
+    // rely on natural multiline TextInput behavior (Shift+Enter for new line)
+
+    // Future: Implement with react-native-key-command for full Cmd+Enter support
+    if (key === 'Enter' && Platform.OS === 'ios') {
+      // On iOS multiline TextInput, Enter creates a new line by default
+      // Users can tap the send button when ready to send
+    }
+  };
+
   const renderInputContent = () => (
     <>
       {/* Top Controls */}
@@ -122,6 +148,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   isTerminalMode && styles.modeButtonActive,
                   forcedMode === 'terminal' && styles.modeButtonForced
                 ]}
+                accessibilityLabel="Modalità terminale"
+                accessibilityRole="button"
+                accessibilityState={{ selected: isTerminalMode }}
               >
                 <Ionicons
                   name="code-slash"
@@ -136,6 +165,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   !isTerminalMode && styles.modeButtonActive,
                   forcedMode === 'ai' && styles.modeButtonForced
                 ]}
+                accessibilityLabel="Modalità AI"
+                accessibilityRole="button"
+                accessibilityState={{ selected: !isTerminalMode }}
               >
                 <Ionicons
                   name="sparkles"
@@ -147,7 +179,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </View>
 
           {/* Model Selector */}
-          <TouchableOpacity style={styles.modelSelector} onPress={onModelPress}>
+          <TouchableOpacity
+            style={styles.modelSelector}
+            onPress={onModelPress}
+            accessibilityLabel={`Seleziona modello AI: ${modelName}`}
+            accessibilityRole="button"
+            accessibilityHint="Apri menu di selezione modello"
+          >
             <Text style={styles.modelText}>{modelName}</Text>
             <Ionicons name="chevron-down" size={12} color="#666" />
           </TouchableOpacity>
@@ -165,6 +203,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   style={styles.imageRemoveButton}
                   onPress={() => removeImage(index)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel="Rimuovi immagine"
+                  accessibilityRole="button"
                 >
                   <Ionicons name="close-circle" size={20} color="#fff" />
                 </TouchableOpacity>
@@ -198,13 +238,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           color={selectedImages.length > 0 ? AppColors.primary : "#8A8A8A"}
           onPress={pickImage}
           style={styles.toolsButton}
+          accessibilityLabel="Allega immagine"
+          accessibilityRole="button"
+          accessibilityHint="Seleziona immagine dalla galleria"
         />
 
         {/* Input Field */}
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={value}
           onChangeText={onChangeText}
+          onKeyPress={handleKeyPress}
           placeholder={placeholder}
           placeholderTextColor="#6E7681"
           multiline
@@ -213,6 +258,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           autoCapitalize="none"
           autoCorrect={false}
           editable={!disabled}
+          blurOnSubmit={false}
+          enablesReturnKeyAutomatically={false}
+          accessibilityLabel="Campo messaggio"
+          accessibilityHint="Scrivi un messaggio per l'AI. Usa il pulsante invia per inviare."
         />
 
         {/* Send Button */}
@@ -221,6 +270,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           disabled={(!value.trim() && selectedImages.length === 0) || disabled || isExecuting}
           style={styles.sendButton}
           activeOpacity={0.7}
+          accessibilityLabel="Invia messaggio"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: (!value.trim() && selectedImages.length === 0) || disabled || isExecuting }}
         >
           <View style={[
             styles.sendButtonInner,

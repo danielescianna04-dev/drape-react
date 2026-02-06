@@ -207,14 +207,24 @@ const GlassBackButton = ({ onPress }: { onPress: () => void }) => {
   if (isLiquidGlassSupported) {
     return (
       <LiquidGlassView style={styles.glassBackButton} interactive={true} effect="clear" colorScheme="dark">
-        <TouchableOpacity onPress={onPress} style={styles.backButtonInner}>
+        <TouchableOpacity
+          onPress={onPress}
+          style={styles.backButtonInner}
+          accessibilityLabel="Indietro"
+          accessibilityRole="button"
+        >
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
       </LiquidGlassView>
     );
   }
   return (
-    <TouchableOpacity style={styles.backButton} onPress={onPress}>
+    <TouchableOpacity
+      style={styles.backButton}
+      onPress={onPress}
+      accessibilityLabel="Indietro"
+      accessibilityRole="button"
+    >
       <Ionicons name="arrow-back" size={22} color="#fff" />
     </TouchableOpacity>
   );
@@ -395,6 +405,9 @@ export const AuthScreen = () => {
             style={styles.primaryButton}
             onPress={() => switchMode('register')}
             activeOpacity={0.9}
+            accessibilityLabel="Inizia gratis"
+            accessibilityRole="button"
+            accessibilityHint="Apri modulo di registrazione"
           >
             <LinearGradient
               colors={[AppColors.primary, '#8B5CF6']}
@@ -410,6 +423,9 @@ export const AuthScreen = () => {
             style={styles.secondaryButton}
             onPress={() => switchMode('login')}
             activeOpacity={0.8}
+            accessibilityLabel="Ho già un account"
+            accessibilityRole="button"
+            accessibilityHint="Apri modulo di accesso"
           >
             <Text style={styles.secondaryButtonText}>{t('auth:alreadyHaveAccount')}</Text>
           </TouchableOpacity>
@@ -446,6 +462,8 @@ export const AuthScreen = () => {
                 value={displayName}
                 onChangeText={setDisplayName}
                 autoCapitalize="words"
+                accessibilityLabel="Nome"
+                accessibilityHint="Inserisci il tuo nome"
               />
             </GlassInputWrapper>
           )}
@@ -460,6 +478,8 @@ export const AuthScreen = () => {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              accessibilityLabel="Email"
+              accessibilityHint="Inserisci il tuo indirizzo email"
             />
           </GlassInputWrapper>
 
@@ -474,8 +494,14 @@ export const AuthScreen = () => {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                accessibilityLabel="Password"
+                accessibilityHint="Inserisci la tua password"
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                accessibilityLabel={showPassword ? "Nascondi password" : "Mostra password"}
+                accessibilityRole="button"
+              >
                 <Ionicons
                   name={showPassword ? 'eye-outline' : 'eye-off-outline'}
                   size={18}
@@ -496,6 +522,8 @@ export const AuthScreen = () => {
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                accessibilityLabel="Conferma password"
+                accessibilityHint="Inserisci nuovamente la password"
               />
             </GlassInputWrapper>
           )}
@@ -504,6 +532,9 @@ export const AuthScreen = () => {
             <TouchableOpacity
               style={styles.forgotLink}
               onPress={() => switchMode('forgot')}
+              accessibilityLabel="Password dimenticata"
+              accessibilityRole="button"
+              accessibilityHint="Apri modulo di recupero password"
             >
               <Text style={styles.forgotLinkText}>{t('auth:login.forgotPassword')}</Text>
             </TouchableOpacity>
@@ -514,6 +545,13 @@ export const AuthScreen = () => {
             onPress={handleSubmit}
             disabled={isLoading}
             activeOpacity={0.9}
+            accessibilityLabel={
+              mode === 'login' ? 'Accedi' :
+              mode === 'register' ? 'Crea account' :
+              'Invia email di recupero'
+            }
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isLoading, busy: isLoading }}
           >
             {isLoading ? (
               <ActivityIndicator color="#fff" />
@@ -527,14 +565,24 @@ export const AuthScreen = () => {
           </TouchableOpacity>
 
           {mode === 'login' && (
-            <TouchableOpacity onPress={() => switchMode('register')} style={styles.switchMode}>
+            <TouchableOpacity
+              onPress={() => switchMode('register')}
+              style={styles.switchMode}
+              accessibilityLabel="Non hai un account? Registrati"
+              accessibilityRole="button"
+            >
               <Text style={styles.switchModeText}>
                 {t('auth:login.noAccount')} <Text style={styles.switchModeLink}>{t('auth:login.signUp')}</Text>
               </Text>
             </TouchableOpacity>
           )}
           {mode === 'register' && (
-            <TouchableOpacity onPress={() => switchMode('login')} style={styles.switchMode}>
+            <TouchableOpacity
+              onPress={() => switchMode('login')}
+              style={styles.switchMode}
+              accessibilityLabel="Hai già un account? Accedi"
+              accessibilityRole="button"
+            >
               <Text style={styles.switchModeText}>
                 {t('auth:register.haveAccount')} <Text style={styles.switchModeLink}>{t('auth:register.login')}</Text>
               </Text>
@@ -554,6 +602,9 @@ export const AuthScreen = () => {
                 onPress={handleAppleSignIn}
                 activeOpacity={0.8}
                 disabled={isLoading}
+                accessibilityLabel="Continua con Apple"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isLoading }}
               >
                 <Ionicons name="logo-apple" size={20} color="#fff" />
                 <Text style={styles.appleButtonText}>{t('auth:continueWithApple')}</Text>

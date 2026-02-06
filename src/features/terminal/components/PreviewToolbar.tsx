@@ -27,12 +27,18 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onClose}
           style={styles.closeButton}
           activeOpacity={0.7}
+          accessibilityLabel="Chiudi anteprima"
+          accessibilityRole="button"
         >
           <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
         </TouchableOpacity>
 
         {/* URL Bar - centered */}
-        <View style={styles.urlBar}>
+        <View
+          style={styles.urlBar}
+          accessibilityLabel={`URL anteprima: ${currentPreviewUrl ? currentPreviewUrl.replace(/^https?:\/\//, '') : 'localhost'}`}
+          accessible
+        >
           <View style={[
             styles.statusIndicator,
             { backgroundColor: '#00D084' }
@@ -47,6 +53,8 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onRefresh}
           style={styles.refreshButton}
           activeOpacity={0.7}
+          accessibilityLabel="Ricarica anteprima"
+          accessibilityRole="button"
         >
           <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
         </TouchableOpacity>
@@ -56,6 +64,8 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           onPress={onPublish}
           style={[styles.publishButton, existingPublish && styles.publishButtonUpdate]}
           activeOpacity={0.7}
+          accessibilityLabel={existingPublish ? "Aggiorna sito pubblicato" : "Pubblica sito"}
+          accessibilityRole="button"
         >
           <Ionicons name={existingPublish ? "cloud-done-outline" : "cloud-upload-outline"} size={15} color="#fff" />
         </TouchableOpacity>

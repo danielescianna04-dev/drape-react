@@ -127,6 +127,10 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
         style={[styles.button, !hasUndo && styles.buttonDisabled]}
         onPress={handleUndo}
         disabled={!hasUndo || isUndoing}
+        accessibilityLabel="Annulla"
+        accessibilityRole="button"
+        accessibilityHint={`Annulla ultima modifica. ${undoCount} ${undoCount === 1 ? 'modifica' : 'modifiche'} disponibili`}
+        accessibilityState={{ disabled: !hasUndo || isUndoing }}
       >
         {isUndoing ? (
           <ActivityIndicator size="small" color="#fff" />
@@ -150,6 +154,10 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
         style={[styles.button, !hasRedo && styles.buttonDisabled]}
         onPress={handleRedo}
         disabled={!hasRedo || isRedoing}
+        accessibilityLabel="Ripeti"
+        accessibilityRole="button"
+        accessibilityHint={`Ripeti ultima modifica annullata. ${redoCount} ${redoCount === 1 ? 'modifica' : 'modifiche'} disponibili`}
+        accessibilityState={{ disabled: !hasRedo || isRedoing }}
       >
         {isRedoing ? (
           <ActivityIndicator size="small" color="#fff" />

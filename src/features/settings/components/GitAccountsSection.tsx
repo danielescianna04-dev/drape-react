@@ -1,171 +1,134 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  Alert,
-} from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { GitAccount, GIT_PROVIDERS } from '../../../core/git/gitAccountService';
 import { AppColors } from '../../../shared/theme/colors';
-import {
-  GitAccount,
-  GIT_PROVIDERS,
-  gitAccountService,
-} from '../../../core/git/gitAccountService';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
-import { AddGitAccountModal } from './AddGitAccountModal';
 
-export const GitAccountsSection = () => {
-  const [accounts, setAccounts] = useState<GitAccount[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const { userId } = useTerminalStore();
+interface GitAccountsSectionProps {
+  accounts: GitAccount[];
+  loading: boolean;
+  shimmerAnim: Animated.Value;
+  onAddAccount: () => void;
+  onDeleteAccount: (account: GitAccount) => void;
+  t: (key: string) => string;
+}
 
-  useEffect(() => {
-    loadAccounts();
-  }, [userId]);
+const GlassCard = ({ children }: { children: React.ReactNode }) => {
+  if (isLiquidGlassSupported) {
+    return (
+      <LiquidGlassView style={styles.glassCardLiquid} interactive={true} effect="regular" colorScheme="dark">
+        {children}
+      </LiquidGlassView>
+    );
+  }
+  return (
+    <View style={[styles.sectionCardWrap, styles.sectionCardDark]}>
+      {children}
+    </View>
+  );
+};
 
-  const loadAccounts = async () => {
-    setIsLoading(true);
-    try {
-      // Use getAllAccounts to get both local and Firebase accounts (cross-device sync)
-      const list = await gitAccountService.getAllAccounts(userId || 'anonymous');
-      setAccounts(list);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+export const GitAccountsSection: React.FC<GitAccountsSectionProps> = ({
+  accounts,
+  loading,
+  shimmerAnim,
+  onAddAccount,
+  onDeleteAccount,
+  t,
+}) => {
+  const renderAccountCard = (account: GitAccount) => {
+    const providerConfig = GIT_PROVIDERS.find(p => p.id === account.provider);
+    const iconName = providerConfig?.icon || 'git-branch';
+    const providerColor = providerConfig?.color || '#888';
 
-  const handleDeleteAccount = (account: GitAccount) => {
-    Alert.alert(
-      'Rimuovi Account',
-      `Sei sicuro di voler rimuovere l'account ${account.username}?`,
-      [
-        { text: 'Annulla', style: 'cancel' },
-        {
-          text: 'Rimuovi',
-          style: 'destructive',
-          onPress: async () => {
-            await gitAccountService.deleteAccount(account, userId || 'anonymous');
-            loadAccounts();
-          },
-        },
-      ]
+    return (
+      <View key={account.id} style={[styles.accountCard, accounts.indexOf(account) === accounts.length - 1 && { borderBottomWidth: 0 }]}>
+        {account.avatarUrl ? (
+          <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarPlaceholder, { backgroundColor: providerColor }]}>
+            <Ionicons name={iconName as any} size={18} color="#fff" />
+          </View>
+        )}
+        <View style={styles.accountInfo}>
+          <View style={styles.accountNameRow}>
+            <Text style={styles.accountName} numberOfLines={1} ellipsizeMode="tail">
+              {account.username}
+            </Text>
+            <View style={styles.providerBadge}>
+              <Text style={styles.providerBadgeText}>
+                {providerConfig?.name || account.provider}
+              </Text>
+            </View>
+          </View>
+          {account.email && (
+            <Text style={styles.accountEmail} numberOfLines={1}>
+              {account.email}
+            </Text>
+          )}
+        </View>
+        <TouchableOpacity
+          style={styles.deleteBtn}
+          onPress={() => onDeleteAccount(account)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="trash-outline" size={18} color="rgba(255, 77, 77, 0.8)" />
+        </TouchableOpacity>
+      </View>
     );
   };
 
-  const getProviderConfig = (provider: string) => {
-    return GIT_PROVIDERS.find(p => p.id === provider);
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString('it-IT', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
+  const renderSkeletonCard = (index: number) => {
+    const shimmerOpacity = shimmerAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.3, 0.7],
     });
+
+    return (
+      <View key={`skeleton-${index}`} style={styles.accountCard}>
+        <Animated.View style={[styles.skeletonAvatar, { opacity: shimmerOpacity }]} />
+        <View style={styles.accountInfo}>
+          <Animated.View style={[styles.skeletonTitle, { opacity: shimmerOpacity }]} />
+          <Animated.View style={[styles.skeletonSubtitle, { opacity: shimmerOpacity }]} />
+        </View>
+      </View>
+    );
   };
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <Ionicons name="git-network-outline" size={20} color={AppColors.primary} />
-        <Text style={styles.sectionTitle}>Account Git</Text>
-      </View>
-
-      <View style={styles.accountsList}>
-        {isLoading ? (
-          // Skeleton loading
-          <>
-            {[1, 2].map((i) => (
-              <View key={i} style={styles.accountItem}>
-                <View style={styles.accountLeft}>
-                  <View style={[styles.avatarPlaceholder, styles.skeleton]} />
-                  <View style={styles.accountInfo}>
-                    <View style={[styles.skeletonText, { width: 120 }]} />
-                    <View style={[styles.skeletonText, { width: 80, marginTop: 6 }]} />
-                  </View>
-                </View>
-              </View>
-            ))}
-          </>
-        ) : accounts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="person-add-outline" size={40} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.emptyText}>Nessun account collegato</Text>
-            <Text style={styles.emptySubtext}>
-              Collega un account per accedere alle tue repository private
-            </Text>
-          </View>
-        ) : (
-          accounts.map((account) => {
-            const providerConfig = getProviderConfig(account.provider);
-            return (
-              <View key={account.id} style={styles.accountItem}>
-                <View style={styles.accountLeft}>
-                  {account.avatarUrl ? (
-                    <Image source={{ uri: account.avatarUrl }} style={styles.avatar} />
-                  ) : (
-                    <View style={[styles.avatarPlaceholder, { backgroundColor: providerConfig?.color || '#333' }]}>
-                      <Ionicons
-                        name={providerConfig?.icon as any || 'person'}
-                        size={18}
-                        color="#fff"
-                      />
-                    </View>
-                  )}
-                  <View style={styles.accountInfo}>
-                    <View style={styles.accountNameRow}>
-                      <Text style={styles.accountUsername}>{account.username}</Text>
-                      <View style={[styles.providerBadge, { backgroundColor: `${providerConfig?.color}20` }]}>
-                        <Ionicons
-                          name={providerConfig?.icon as any || 'git-branch'}
-                          size={10}
-                          color={providerConfig?.color || '#fff'}
-                        />
-                        <Text style={[styles.providerBadgeText, { color: providerConfig?.color }]}>
-                          {providerConfig?.name || account.provider}
-                        </Text>
-                      </View>
-                    </View>
-                    {account.email && (
-                      <Text style={styles.accountEmail}>{account.email}</Text>
-                    )}
-                    <Text style={styles.accountDate}>
-                      Aggiunto il {formatDate(account.addedAt)}
-                    </Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.deleteBtn}
-                  onPress={() => handleDeleteAccount(account)}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#FF4444" />
-                </TouchableOpacity>
-              </View>
-            );
-          })
-        )}
-
-        {/* Add Account Button */}
+        <Text style={styles.sectionTitle}>{t('gitAccounts.title')}</Text>
         <TouchableOpacity
-          style={styles.addAccountBtn}
-          onPress={() => setShowAddModal(true)}
-          activeOpacity={0.7}
+          style={styles.addButton}
+          onPress={onAddAccount}
+          activeOpacity={0.6}
         >
-          <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
-          <Text style={styles.addAccountText}>Aggiungi Account</Text>
+          <Ionicons name="add" size={20} color={AppColors.primary} />
+          <Text style={styles.addButtonText}>{t('gitAccounts.addAccount')}</Text>
         </TouchableOpacity>
       </View>
 
-      <AddGitAccountModal
-        visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onAccountAdded={loadAccounts}
-      />
+      <GlassCard>
+        <View style={styles.sectionCard}>
+          {loading ? (
+            <>
+              {[0, 1].map(renderSkeletonCard)}
+            </>
+          ) : accounts.length > 0 ? (
+            accounts.map(renderAccountCard)
+          ) : (
+            <View style={styles.emptyAccounts}>
+              <Ionicons name="git-network-outline" size={32} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.emptyText}>{t('gitAccounts.noAccounts')}</Text>
+              <Text style={styles.emptySubtext}>
+                {t('gitAccounts.connectDescription')}
+              </Text>
+            </View>
+          )}
+        </View>
+      </GlassCard>
     </View>
   );
 };
@@ -177,63 +140,62 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#fff',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: -0.3,
   },
-  accountsList: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  addButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: AppColors.primary,
+  },
+  glassCardLiquid: {
+    borderRadius: 20,
     overflow: 'hidden',
   },
-  emptyState: {
-    alignItems: 'center',
-    padding: 32,
+  sectionCardWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
   },
-  emptyText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 12,
+  sectionCardDark: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
-  emptySubtext: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.35)',
-    textAlign: 'center',
-    marginTop: 6,
-    paddingHorizontal: 20,
-    lineHeight: 18,
+  sectionCard: {
+    padding: 4,
+    backgroundColor: 'rgba(20,20,22,0.5)',
+    borderRadius: 16,
   },
-  accountItem: {
+  accountCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  accountLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    borderBottomColor: 'rgba(255,255,255,0.03)',
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginRight: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   avatarPlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   accountInfo: {
     flex: 1,
@@ -241,63 +203,76 @@ const styles = StyleSheet.create({
   accountNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
+    gap: 10,
   },
-  accountUsername: {
-    fontSize: 15,
+  accountName: {
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+    letterSpacing: -0.2,
+    flexShrink: 1,
   },
   providerBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    flexShrink: 0,
   },
   providerBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    color: 'rgba(255,255,255,0.7)',
   },
   accountEmail: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    marginBottom: 2,
-  },
-  accountDate: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 1,
   },
   deleteBtn: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 10,
-    backgroundColor: 'rgba(255,68,68,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  addAccountBtn: {
-    flexDirection: 'row',
+  emptyAccounts: {
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 14,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: 32,
   },
-  addAccountText: {
+  emptyText: {
     fontSize: 14,
-    fontWeight: '500',
-    color: AppColors.primary,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.6)',
+    marginTop: 10,
   },
-  skeleton: {
+  emptySubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 4,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  skeletonAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.08)',
+    marginRight: 14,
   },
-  skeletonText: {
+  skeletonTitle: {
+    width: '60%',
     height: 14,
-    borderRadius: 4,
+    borderRadius: 7,
     backgroundColor: 'rgba(255,255,255,0.08)',
+    marginBottom: 8,
+  },
+  skeletonSubtitle: {
+    width: '40%',
+    height: 11,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
 });

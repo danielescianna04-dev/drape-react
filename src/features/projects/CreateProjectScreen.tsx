@@ -310,6 +310,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   };
 
   const analyzeRequirements = async () => {
+    let isMounted = true;
+
     try {
       // Don't re-analyze if we already have a selection or if description hasn't changed enough?
       // For now, always analyze to give fresh recommendation
@@ -322,8 +324,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         body: JSON.stringify({ description: description.trim() }),
       });
 
+      if (!isMounted) return;
+
       const result = await response.json();
-      if (result.success && result.recommendation) {
+      if (isMounted && result.success && result.recommendation) {
         // Find matching language
         const match = languages.find(l => l.id === result.recommendation);
         if (match) {
@@ -332,9 +336,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         }
       }
     } catch (error) {
-      console.error("AI recommendation failed", error);
+      if (isMounted) {
+        console.error("AI recommendation failed", error);
+      }
       // Fail silently, let user choose
     }
+
+    return () => { isMounted = false; };
   };
 
   const handleBack = () => {
