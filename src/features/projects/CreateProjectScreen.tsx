@@ -32,6 +32,7 @@ import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { AgentModeModal } from '../../shared/components/molecules/AgentModeModal';
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -121,7 +122,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
-        console.log('🧹 [CreateProject] Cleared polling interval on unmount');
       }
     };
   }, []);
@@ -158,7 +158,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
   // Agent completion callback
   async function handleAgentComplete(result: any) {
-    console.log('[CreateProject] Agent completed:', result);
 
     // End Live Activity with success + notification
     const pName = result.projectName || projectName.trim();
@@ -178,9 +177,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       // Save agent context to backend
       const apiUrl = config.apiUrl;
+      const authHeaders = await getAuthHeaders();
       await fetch(`${apiUrl}/agent/save-context`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           projectId: result.projectId,
           userId,
@@ -315,9 +315,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       // For now, always analyze to give fresh recommendation
 
       const apiUrl = config.apiUrl;
+      const recAuthHeaders = await getAuthHeaders();
       const response = await fetch(`${apiUrl}/ai/recommend`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...recAuthHeaders },
         body: JSON.stringify({ description: description.trim() }),
       });
 
@@ -344,7 +345,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
-        console.log('🧹 [CreateProject] Cleared polling on back');
       }
       onBack();
     }
@@ -384,11 +384,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       }
 
       const apiUrl = config.apiUrl;
+      const modeAuthHeaders = await getAuthHeaders();
 
       // Create project first to get projectId
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...modeAuthHeaders },
         body: JSON.stringify({
           projectName: projectName.trim(),
           technology: selectedLanguage,
@@ -411,7 +412,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       }
 
       const projectId = result.taskId || result.projectId;
-      console.log('[CreateProject] Starting agent stream for project:', projectId);
 
       // Build prompt for agent
       const prompt = `Create a ${selectedLanguage} project named "${projectName.trim()}". Description: ${description.trim()}`;
@@ -449,11 +449,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       }
 
       const apiUrl = config.apiUrl;
+      const oldAuthHeaders = await getAuthHeaders();
 
       // 1. Start Task
       const response = await fetch(`${apiUrl}/workstation/create-with-template`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...oldAuthHeaders },
         body: JSON.stringify({
           projectName: projectName.trim(),
           technology: selectedLanguage,
@@ -463,12 +464,9 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       });
 
       const result = await response.json();
-      console.log('🔍 [CreateProject] Response status:', response.status, 'result:', JSON.stringify(result));
 
       if (!response.ok || !result.success) {
-        console.log('🔍 [CreateProject] Error detected, result.error:', result.error);
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
-          console.log('🔍 [CreateProject] Showing upgrade modal!');
           setProjectLimit(result.limits?.maxProjects || 3);
           setShowUpgradeModal(true);
           setIsCreating(false);
@@ -479,7 +477,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         throw new Error(result.error || 'Failed to start project creation');
       }
 
-      console.log('✅ Task started:', result.taskId);
       const taskId = result.taskId;
       let errorCount = 0;
       const maxErrors = 5;
@@ -492,7 +489,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       // 2. Poll Status
       pollIntervalRef.current = setInterval(async () => {
         try {
-          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`);
+          const pollAuthHeaders = await getAuthHeaders();
+          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`, {
+            headers: pollAuthHeaders,
+          });
 
           // Stop polling on 404 (task doesn't exist)
           if (statusRes.status === 404) {
@@ -513,7 +513,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
           if (statusData.success && statusData.task) {
             const task = statusData.task;
-            console.log('📊 Task Status:', task.progress, task.message);
 
             setCreationTask({
               status: task.status,
@@ -538,8 +537,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
               }
 
               // Log what we received from backend
-              console.log('📦 [CreateProject] Task result:', JSON.stringify(task.result, null, 2));
-              console.log('📦 [CreateProject] Files from backend:', task.result.files);
 
               // Success!
               const workstation = {
@@ -554,8 +551,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                 files: task.result.files || [],
                 folderId: null,
               };
-
-              console.log('📦 [CreateProject] Workstation files:', workstation.files);
 
               // End Live Activity with success + notification
               const pName = task.result.projectName || projectName.trim();
@@ -611,7 +606,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       setCreationTask(null);
     }
   };
-
 
   const selectedLang = languages.find(l => l.id === selectedLanguage);
   // Step 1: Name + Desc, Step 2: Tech, Step 3: Review

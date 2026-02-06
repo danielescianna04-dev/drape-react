@@ -18,7 +18,7 @@ import * as AuthSession from 'expo-auth-session';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 import { AppColors } from '../../../shared/theme/colors';
 import {
   GitProvider,
@@ -100,7 +100,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
             pollBody = { device_code: deviceFlow.device_code };
           }
 
-          const response = await axios.post(pollEndpoint, pollBody);
+          const response = await apiClient.post(pollEndpoint, pollBody);
 
           if (response.data.access_token) {
             if (intervalId) clearInterval(intervalId);
@@ -180,9 +180,8 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
   };
 
   const startGitHubDeviceFlow = async () => {
-    console.log('Starting GitHub Device Flow...');
 
-    const response = await axios.post(`${API_BASE_URL}/github/device-flow`, {
+    const response = await apiClient.post(`${API_BASE_URL}/github/device-flow`, {
       client_id: GITHUB_CLIENT_ID,
       scope: 'repo,user',
     });
@@ -196,7 +195,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
     // GitLab supports standard OAuth flow via browser
     const redirectUri = AuthSession.makeRedirectUri({ scheme: 'drape', path: 'auth/callback' });
 
-    const response = await axios.post(`${API_BASE_URL}/oauth/gitlab/authorize`, {
+    const response = await apiClient.post(`${API_BASE_URL}/oauth/gitlab/authorize`, {
       redirect_uri: redirectUri,
     });
 
@@ -208,7 +207,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         const code = url.searchParams.get('code');
 
         if (code) {
-          const tokenResponse = await axios.post(`${API_BASE_URL}/oauth/gitlab/callback`, {
+          const tokenResponse = await apiClient.post(`${API_BASE_URL}/oauth/gitlab/callback`, {
             code,
             redirect_uri: redirectUri,
           });
@@ -226,7 +225,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
     // Bitbucket supports standard OAuth flow via browser
     const redirectUri = AuthSession.makeRedirectUri({ scheme: 'drape', path: 'auth/callback' });
 
-    const response = await axios.post(`${API_BASE_URL}/oauth/bitbucket/authorize`, {
+    const response = await apiClient.post(`${API_BASE_URL}/oauth/bitbucket/authorize`, {
       redirect_uri: redirectUri,
     });
 
@@ -238,7 +237,7 @@ export const AddGitAccountModal = ({ visible, onClose, onAccountAdded }: Props) 
         const code = url.searchParams.get('code');
 
         if (code) {
-          const tokenResponse = await axios.post(`${API_BASE_URL}/oauth/bitbucket/callback`, {
+          const tokenResponse = await apiClient.post(`${API_BASE_URL}/oauth/bitbucket/callback`, {
             code,
             redirect_uri: redirectUri,
           });

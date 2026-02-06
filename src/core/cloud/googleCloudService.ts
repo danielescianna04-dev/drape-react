@@ -1,4 +1,5 @@
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../api/getAuthToken';
 
 // Simplified Google Cloud service for React Native
 class GoogleCloudService {
@@ -6,9 +7,10 @@ class GoogleCloudService {
 
   async saveProject(projectId: string, files: any) {
     try {
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(`${this.apiUrl}/projects/${projectId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(files)
       });
       return await response.json();
@@ -20,7 +22,10 @@ class GoogleCloudService {
 
   async loadProject(projectId: string) {
     try {
-      const response = await fetch(`${this.apiUrl}/projects/${projectId}`);
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${this.apiUrl}/projects/${projectId}`, {
+        headers: authHeaders,
+      });
       return await response.json();
     } catch (error) {
       console.error('Failed to load project:', error);
@@ -30,7 +35,10 @@ class GoogleCloudService {
 
   async listProjects() {
     try {
-      const response = await fetch(`${this.apiUrl}/projects`);
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${this.apiUrl}/projects`, {
+        headers: authHeaders,
+      });
       const data = await response.json();
       return data.projects || [];
     } catch (error) {

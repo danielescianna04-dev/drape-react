@@ -32,6 +32,7 @@ import { pushNotificationService } from '../../core/services/pushNotificationSer
 import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
+import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
 
 interface SystemStatus {
@@ -159,7 +160,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [showPlanSelection, setShowPlanSelection] = useState(initialShowPlans);
   const [showResourceUsage, setShowResourceUsage] = useState(false);
   const [tokenTimeframe, setTokenTimeframe] = useState<'24h' | '7d' | '30d'>('24h');
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'pro' | 'max'>('free');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'max'>(user?.plan || 'free');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
@@ -167,6 +168,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [editNameValue, setEditNameValue] = useState('');
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
+
+  // Keep currentPlan in sync with auth store user plan
+  useEffect(() => {
+    if (user?.plan) {
+      setCurrentPlan(user.plan);
+    }
+  }, [user?.plan]);
 
   // Swipe-back gesture
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -273,14 +281,19 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     try {
       setStatusLoading(true);
       const { apiUrl } = getSystemConfig().backend;
+      const authHeaders = await getAuthHeaders();
 
       // Fetch system status (per-user)
-      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}&planId=${encodeURIComponent(currentPlan)}`);
+      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}&planId=${encodeURIComponent(currentPlan)}`, {
+        headers: authHeaders,
+      });
       const data = await response.json();
       setSystemStatus(data);
 
       // Fetch budget status
-      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}?planId=${currentPlan}`);
+      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}?planId=${currentPlan}`, {
+        headers: authHeaders,
+      });
       const budgetData = await budgetResponse.json();
       if (budgetData.success) {
         setBudgetStatus(budgetData);

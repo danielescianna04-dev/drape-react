@@ -24,6 +24,7 @@ import { githubService, GitHubRepository } from '../../../core/github/githubServ
 import { gitAccountService, GitAccount } from '../../../core/git/gitAccountService';
 import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { config } from '../../../config/config';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { db, auth } from '../../../config/firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -193,8 +194,6 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
       lastAccessed: serverTimestamp(),
     }, { merge: true });
 
-    console.log('✅ Workstation updated/created in Firebase:', cleanId);
-
     // Update local state
     useTerminalStore.getState().setWorkstation({
       ...currentWorkstation,
@@ -208,11 +207,13 @@ export const ConnectRepoModal = ({ visible, onClose, onConnected, projectName }:
     if (!currentWorkstation?.id) return;
 
     try {
+      const authHeaders = await getAuthHeaders();
       await fetch(`${config.apiUrl}/git/init/${currentWorkstation.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
+          'X-Git-Token': token,
         },
         body: JSON.stringify({ repoUrl }),
       });

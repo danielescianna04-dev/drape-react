@@ -2,7 +2,7 @@
  * Terminal Logger - Utility to log commands from anywhere in the app
  * All logged commands will appear in the TerminalView when viewing "All" mode
  */
-import { useTerminalStore } from './terminalStore';
+import { useUIStore } from './uiStore';
 import { TerminalItemType, TerminalSource } from '../../shared/types';
 
 type LogType = 'command' | 'output' | 'error' | 'system';
@@ -24,7 +24,7 @@ export const logToTerminal = (
     system: TerminalItemType.SYSTEM,
   };
 
-  useTerminalStore.getState().addGlobalTerminalLog({
+  useUIStore.getState().addGlobalTerminalLog({
     id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     content,
     type: typeMap[type],

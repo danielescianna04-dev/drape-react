@@ -10,6 +10,7 @@ import { gitAccountService, GitAccount, GIT_PROVIDERS } from '../../../../core/g
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { workstationService } from '../../../../core/workstation/workstationService-firebase';
 import { config } from '../../../../config/config';
+import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../../core/github/githubService';
 
@@ -213,10 +214,11 @@ export const GitHubView = ({ tab }: Props) => {
     setGitLoading(true);
     try {
       // Get local git data from backend (fast!)
-      const response = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`, {
+        headers: authHeaders,
+      });
       const data = await response.json();
-
-      console.log('[GitHubView] Backend git data:', data);
 
       // Set local data immediately
       if (data.success) {
@@ -275,7 +277,6 @@ export const GitHubView = ({ tab }: Props) => {
               setCommits(transformedCommits);
             } catch (githubError) {
               // Silently fail - we already have local data
-              console.log('[GitHubView] GitHub enhancement failed, using local data');
             }
           })();
         }
@@ -315,11 +316,13 @@ export const GitHubView = ({ tab }: Props) => {
 
     setActionLoading(action);
     try {
+      const actionAuthHeaders = await getAuthHeaders();
       const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokenData.token}`,
+          ...actionAuthHeaders,
+          'X-Git-Token': tokenData.token || '',
         },
       });
 
@@ -352,10 +355,12 @@ export const GitHubView = ({ tab }: Props) => {
 
     setActionLoading('commit');
     try {
+      const commitAuthHeaders = await getAuthHeaders();
       const response = await fetch(`${config.apiUrl}/git/commit/${currentWorkstation.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...commitAuthHeaders,
         },
         body: JSON.stringify({ message: commitMessage.trim() }),
       });
@@ -1054,7 +1059,6 @@ export const GitHubView = ({ tab }: Props) => {
       </View>
     </View>
   );
-
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + TAB_BAR_HEIGHT }]}>

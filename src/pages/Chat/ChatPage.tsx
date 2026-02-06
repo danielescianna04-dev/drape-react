@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
-import axios from 'axios';
+import apiClient from '../../core/api/apiClient';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -9,7 +9,9 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useChatStore } from '../../core/terminal/chatStore';
+import { useWorkstationStore } from '../../core/terminal/workstationStore';
+import { useUIStore } from '../../core/terminal/uiStore';
 import { TerminalItemType } from '../../shared/types';
 import { AppColors } from '../../shared/theme/colors';
 import { WelcomeView } from '../../features/terminal/components/WelcomeView';
@@ -24,6 +26,7 @@ import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
 import { useAuthStore } from '../../core/auth/authStore';
 import { config } from '../../config/config';
+import { getAuthToken, getAuthHeaders } from '../../core/api/getAuthToken';
 
 import { FileViewer } from '../../features/terminal/components/FileViewer';
 import { TerminalView } from '../../features/terminal/components/TerminalView';
@@ -99,7 +102,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
 
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX, hideSidebar, showSidebar, setForceHideToggle } = useSidebarOffset();
 
@@ -235,7 +238,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // 0.4. THINKING_START -> Create thinking placeholder if not exists
       if (event.type === 'thinking_start') {
-        console.log('[ChatPage] thinking_start event - ensuring thinking block exists');
         // Only create if we don't already have a thinking item
         if (!currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
           const newThinkingId = `agent-thinking-${Date.now()}`;
@@ -285,7 +287,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // 0.6. THINKING END -> Mark thinking as complete (keep content visible)
       if (event.type === 'thinking_end') {
-        console.log('[ChatPage] thinking_end event - marking thinking complete');
         if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
           updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
             isThinking: false, // Mark as complete but keep content
@@ -296,8 +297,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // 1. TOOL START -> Show executing indicator for ALL tools
       if (event.type === 'tool_start') {
-        console.log('[ChatPage] tool_start event:', event.tool, 'ID:', event.id, 'input:', event.input);
-
         // Store the input for later use in tool_complete
         if (event.tool && event.input) {
           toolInputsRef.current.set(event.tool, event.input);
@@ -413,8 +412,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       else if (event.type === 'tool_complete' && event.tool !== 'signal_completion') {
         const resultPreview = typeof event.result === 'string' ? event.result.substring(0, 100) : event.result;
         const resultLines = typeof event.result === 'string' ? event.result.split('\n').length : 0;
-        console.log('[ChatPage] tool_complete event:', event.tool, 'ID:', event.id, 'looking for:', `${event.id}-executing`);
-
         let formattedOutput = '';
 
         // Safely get result as string - handle object results with .content field
@@ -448,7 +445,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
         // Log extracted result
         const extractedResultLines = result.split('\n').length;
-        console.log(`[RESULT DEBUG] Tool: ${event.tool}, Extracted result lines: ${extractedResultLines}, Has error: ${hasError}`);
 
         // If there's an error, we'll format it as normal but with error message
         // The red dot will be shown automatically by TerminalItem based on "Error:" text
@@ -467,8 +463,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           console.warn('[ChatPage] Failed to parse tool input:', e);
           input = {};
         }
-
-        console.log('[ChatPage] Parsed input:', input, 'path:', input?.path, 'filePath:', input?.filePath);
 
         // Format based on tool type (matching old UI expectations)
         if (event.tool === 'read_file') {
@@ -588,25 +582,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             // If result is an object with stdout, extract it
             if (typeof event.result === 'object' && event.result !== null && event.result.stdout) {
               actualOutput = event.result.stdout;
-              console.log(`[TRUNCATE DEBUG] Extracted stdout from object result`);
             }
 
             // Regular command - truncate long outputs
             const resultLines = (actualOutput || '').split('\n');
             const MAX_OUTPUT_LINES = 50;
 
-            console.log(`[TRUNCATE DEBUG] Command: ${cmd}`);
-            console.log(`[TRUNCATE DEBUG] Total lines: ${resultLines.length}`);
-            console.log(`[TRUNCATE DEBUG] Should truncate: ${resultLines.length > MAX_OUTPUT_LINES}`);
-
             let truncatedResult = actualOutput;
             if (resultLines.length > MAX_OUTPUT_LINES) {
               truncatedResult = resultLines.slice(0, MAX_OUTPUT_LINES).join('\n') +
                 `\n\n... (${resultLines.length - MAX_OUTPUT_LINES} more lines - expand to see all)`;
-              console.log(`[TRUNCATE DEBUG] Truncated! Showing ${MAX_OUTPUT_LINES}/${resultLines.length} lines`);
             }
             formattedOutput = `Execute: ${cmd}\n└─ Command completed\n\n${truncatedResult}`;
-            console.log(`[TRUNCATE DEBUG] Formatted output length: ${formattedOutput.length}`);
           }
         }
         else if (event.tool === 'launch_sub_agent') {
@@ -718,7 +705,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         // Find the executing item ID from the map using event.id (toolId)
         // Both tool_start and tool_complete have the same event.id from backend
         const executingItemId = executingToolItemsRef.current.get(event.id) || `${event.id}-executing`;
-        console.log('[ChatPage] tool_complete: looking for item', executingItemId, 'for tool', event.tool, 'eventId:', event.id);
 
         // Calculate time since tool started
         const startTime = toolStartTimesRef.current.get(event.id) || Date.now();
@@ -855,7 +841,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       else if (event.type === 'error' || event.type === 'fatal_error') {
         addTerminalItem({
           id: event.id,
-          content: `❌ ${event.error || event.message}`,
+          content: event.error || event.message || 'Errore sconosciuto',
           type: TerminalItemType.ERROR,
           timestamp: new Date(event.timestamp),
         });
@@ -969,7 +955,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        console.log('[ChatPage] Media library permission denied');
         return;
       }
 
@@ -992,7 +977,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       );
 
       setRecentPhotos(photosWithLocalUri);
-      console.log(`[ChatPage] Loaded ${photosWithLocalUri.length} recent photos`);
     } catch (error) {
       console.error('[ChatPage] Failed to load recent photos:', error);
     }
@@ -1024,13 +1008,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle, loadRecentPhotos]);
 
   const sendSelectedPhotos = useCallback(async () => {
-    console.log('[ChatPage] sendSelectedPhotos called - selectedPhotoIds:', selectedPhotoIds.size);
     if (selectedPhotoIds.size === 0) return;
 
     try {
       // Get selected photos
       const selectedPhotos = recentPhotos.filter(photo => selectedPhotoIds.has(photo.id));
-      console.log('[ChatPage] Selected photos to process:', selectedPhotos.length);
 
       // Load photo data with base64
       const photosWithBase64 = await Promise.all(
@@ -1065,7 +1047,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       );
 
       // Add photos to input preview instead of sending directly (max 4)
-      console.log('[ChatPage] Adding photos to selectedInputImages:', photosWithBase64.length);
       setSelectedInputImages(prev => {
         const remainingSlots = 4 - prev.length;
         if (remainingSlots <= 0) {
@@ -1077,14 +1058,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           Alert.alert('Limite raggiunto', `Aggiunte solo ${remainingSlots} immagini. Massimo 4 immagini totali.`);
         }
         const newImages = [...prev, ...imagesToAdd];
-        console.log('[ChatPage] selectedInputImages updated - total:', newImages.length);
         return newImages;
       });
 
       // Close the sheet
       toggleToolsSheet();
-
-      console.log(`[ChatPage] Added ${photosWithBase64.length} photos to input preview`);
     } catch (error) {
       console.error('[ChatPage] Error selecting photos:', error);
     }
@@ -1169,14 +1147,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
 
 
-  // DEBUG: Log when terminal items count changes (reduced verbosity)
-  useEffect(() => {
-    // Only log significant changes (not every item)
-    if (tabTerminalItems.length > 0 && tabTerminalItems.length % 5 === 0) {
-      console.log(`💬 [ChatPage] Terminal items: ${tabTerminalItems.length} for tab ${currentTab?.id}`);
-    }
-  }, [tabTerminalItems.length, currentTab?.id]);
-
   // Custom input handler that saves to ref immediately (no extra re-renders)
   const handleInputChange = useCallback((text: string) => {
     previousInputRef.current = text;
@@ -1211,12 +1181,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [currentTab?.id]); // ONLY depend on tab ID - NOT on input!
 
-  // Usa selettori specifici per evitare re-render su ogni cambio di store
-  const hasInteracted = useTerminalStore((state) => state.hasInteracted);
-  const setGitHubUser = useTerminalStore((state) => state.setGitHubUser);
-  const setGitHubRepositories = useTerminalStore((state) => state.setGitHubRepositories);
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
-  const currentProjectInfo = useTerminalStore((state) => state.currentProjectInfo);
+  // Use specific selectors from focused stores to minimize re-renders
+  const hasInteracted = useUIStore((state) => state.hasInteracted);
+  const setGitHubUser = useWorkstationStore((state) => state.setGitHubUser);
+  const setGitHubRepositories = useWorkstationStore((state) => state.setGitHubRepositories);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const currentProjectInfo = useWorkstationStore((state) => state.currentProjectInfo);
 
   // Use tabTerminalItems directly (already memoized above)
   const terminalItems = tabTerminalItems;
@@ -1233,7 +1203,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const addTerminalItem = useCallback((item: any) => {
     if (!currentTab) return;
 
-    console.log('💾 Adding item to tab:', currentTab.id);
     // Use atomic function from store to avoid race conditions
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
@@ -1241,8 +1210,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Handle plan approval
   const handlePlanApprove = useCallback(() => {
     if (!currentTab?.id || !planItemId) return;
-
-    console.log('[ChatPage] Approving plan');
 
     // Update plan item status to approved
     updateTerminalItemById(currentTab.id, planItemId, {
@@ -1264,8 +1231,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const handlePlanReject = useCallback(() => {
     if (!currentTab?.id || !planItemId) return;
 
-    console.log('[ChatPage] Rejecting plan');
-
     // Update plan item status to rejected
     updateTerminalItemById(currentTab.id, planItemId, {
       planInfo: {
@@ -1282,15 +1247,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Reset plan item ID
     setPlanItemId(null);
   }, [currentTab?.id, planItemId, agentCurrentPrompt, agentPlan, resetAgent, updateTerminalItemById]);
-
-  // Scroll to end when items count changes OR last item content updates (streaming)
-  const lastItemContent = terminalItems[terminalItems.length - 1]?.content;
-  useEffect(() => {
-    if (terminalItems.length > 0) {
-      // Use animated: true for smooth "following" effect
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }
-  }, [terminalItems.length, lastItemContent]);
 
   // Load file history from storage on mount
   useEffect(() => {
@@ -1427,16 +1383,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Save chat messages when agent completes
       if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
         const chatId = currentTab.data.chatId;
-        const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+        const existingChat = useChatStore.getState().chatHistory.find(c => c.id === chatId);
 
         if (existingChat) {
           // Get fresh tab state from store to ensure we have latest messages
           const freshTab = useTabStore.getState().tabs.find(t => t.id === currentTab.id);
           const updatedMessages = freshTab?.terminalItems || [];
 
-          console.log('💾 [Agent Complete] Saving chat messages:', { chatId, messageCount: updatedMessages.length });
-
-          useTerminalStore.getState().updateChat(chatId, {
+          useChatStore.getState().updateChat(chatId, {
             messages: updatedMessages,
             lastUsed: new Date(),
           });
@@ -1452,8 +1406,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
         const projectId = currentTab?.data?.projectId;
         if (hadFileChanges && projectId) {
-          console.log('🔄 [ChatPage] Agent completed with file changes - invalidating cache');
-          useFileCacheStore.getState().invalidateCache(projectId);
+          useFileCacheStore.getState().clearCache(projectId);
         }
       }
 
@@ -1711,7 +1664,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Se la tastiera è aperta, calcola top dalla posizione della tastiera
     if (keyboardHeight.value > 0) {
-      const topFromKeyboard = SCREEN_HEIGHT - keyboardHeight.value - widgetHeight.value;
+      const topFromKeyboard = SCREEN_HEIGHT - keyboardHeight.value - widgetHeight.value - 12;
       return {
         top: topFromKeyboard,
         left: sidebarLeft,
@@ -1807,20 +1760,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Handle Next.js downgrade acceptance
   const handleDowngradeAccept = (warningData: any) => {
-    console.log('[handleDowngradeAccept] START', {
-      workstationId: currentWorkstation?.id,
-      warningData: warningData,
-      currentTab: currentTab?.id,
-      agentMode
-    });
-
     if (!currentWorkstation?.id || !warningData) {
-      console.log('[handleDowngradeAccept] Missing requirements - abort');
       return;
     }
 
     if (!currentTab?.id) {
-      console.log('[handleDowngradeAccept] No current tab - abort');
       return;
     }
 
@@ -1829,8 +1773,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Build auto-message for downgrade
     const downgradeMessage = `Downgrade this Next.js app from version ${warningData.version} to Next.js 15.3.0 (stable version). Update package.json, run npm install, and verify the downgrade is successful.`;
-
-    console.log('[handleDowngradeAccept] Adding message to terminal:', downgradeMessage.substring(0, 50));
 
     // Add user message to terminal
     addTerminalItem({
@@ -1858,18 +1800,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       thinkingContent: '',
     });
 
-    console.log('[handleDowngradeAccept] Starting agent with message');
-
     // Start agent with downgrade message
     const conversationHistory: any[] = [];
     startAgent(downgradeMessage, currentWorkstation.id, selectedModel, conversationHistory, undefined, thinkingLevel);
 
-    console.log('✅ [ChatPage] Auto-downgrade message sent to AI');
   };
 
   // Handle stop button - stops agent and clears loading state
   const handleStop = useCallback(() => {
-    console.log('[ChatPage] handleStop called - stopping agent');
 
     // Stop the agent SSE stream
     stopAgent();
@@ -1901,14 +1839,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
     // Use passed images or fall back to selectedInputImages
-    console.log('[ChatPage] handleSend - selectedInputImages.length:', selectedInputImages.length);
-    console.log('[ChatPage] handleSend - images param:', images);
     const imagesToSend = (images && images.length > 0) ? images : (selectedInputImages.length > 0 ? selectedInputImages : undefined);
 
-    console.log('[ChatPage] handleSend called - input:', input.trim(), 'imagesToSend:', imagesToSend?.length, 'isLoading:', isLoading);
-
     if ((!input.trim() && (!imagesToSend || imagesToSend.length === 0)) || isLoading) {
-      console.log('[ChatPage] handleSend blocked - no content or loading');
       return;
     }
 
@@ -1945,7 +1878,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     if (isFirstUserMessage && currentTab?.type === 'chat' && currentTab.data?.chatId) {
       const chatId = currentTab.data.chatId;
-      const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+      const existingChat = useChatStore.getState().chatHistory.find(c => c.id === chatId);
 
       // Generate a temporary title from first message (will be replaced by AI-generated title)
       let title = userMessage.slice(0, 40);
@@ -1958,21 +1891,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Generate AI title asynchronously (like ChatGPT)
       const generateAITitle = async () => {
         try {
+          const titleAuthHeaders = await getAuthHeaders();
           const response = await fetch(`${config.apiUrl}/ai/chat/generate-title`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...titleAuthHeaders },
             body: JSON.stringify({ message: userMessage }),
           });
           if (response.ok) {
             const data = await response.json();
             if (data.title) {
-              console.log('🏷️ AI generated title:', data.title);
-              useTerminalStore.getState().updateChat(chatId, { title: data.title });
+              useChatStore.getState().updateChat(chatId, { title: data.title });
               updateTab(currentTab.id, { title: data.title });
             }
           }
         } catch (e) {
-          console.log('⚠️ Could not generate AI title, using default');
+          // Could not generate AI title, using default
         }
       };
       // Fire and forget - don't wait for AI title
@@ -1983,8 +1916,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         const wasManuallyRenamed = existingChat.title !== 'Nuova Conversazione';
         const finalTitle = wasManuallyRenamed ? existingChat.title : title;
 
-        console.log('💾 Updating existing chat:', { chatId, title: finalTitle });
-        useTerminalStore.getState().updateChat(chatId, {
+        useChatStore.getState().updateChat(chatId, {
           title: finalTitle,
           description: userMessage.slice(0, 100),
           lastUsed: new Date(),
@@ -2009,13 +1941,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           repositoryName: currentWorkstation?.name,
         };
 
-        console.log('✨ Creating new chat:', { chatId, title });
-        useTerminalStore.getState().addChat(newChat);
+        useChatStore.getState().addChat(newChat);
         updateTab(currentTab.id, { title: title });
       }
     } else if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
       // Update lastUsed for existing chat
-      useTerminalStore.getState().updateChatLastUsed(currentTab.data.chatId);
+      useChatStore.getState().updateChatLastUsed(currentTab.data.chatId);
     }
 
     // If agent mode AND we have a workstation, use agent stream
@@ -2094,7 +2025,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           return historyItem;
         });
 
-      console.log(`[ChatPage] Including ${conversationHistory.length} messages in agent context (unlimited, Claude Code style)`);
 
       // Start agent stream with selected model, conversation history, and current images
       // Clean images to avoid circular references
@@ -2154,7 +2084,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     try {
       if (shouldExecuteCommand) {
         // Terminal mode - execute command
-        const response = await axios.post(
+        const response = await apiClient.post(
           `${config.apiUrl}/terminal/execute`,
           {
             command: userMessage,
@@ -2182,11 +2112,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         let hasShownFirstContent = false;
 
         // Use XMLHttpRequest for streaming (works in React Native)
+        const chatAuthToken = await getAuthToken();
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
 
           xhr.open('POST', `${config.apiUrl}/ai/chat`);
           xhr.setRequestHeader('Content-Type', 'application/json');
+          if (chatAuthToken) {
+            xhr.setRequestHeader('Authorization', `Bearer ${chatAuthToken}`);
+          }
           xhr.timeout = 60000; // 60 second timeout
 
           let buffer = '';
@@ -2209,8 +2143,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   // Handle tool results from backend
                   if (parsed.toolResult) {
                     const { name, args, result } = parsed.toolResult;
-                    console.log('🎯 Tool result received:', name, args);
-
                     // CRITICAL: Clear isThinking on current streaming message before creating new one
                     useTabStore.setState((state) => ({
                       tabs: state.tabs.map(t =>
@@ -2240,7 +2172,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         toolName: name as 'write_file' | 'edit_file',
                         description: `AI: ${name === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
                       });
-                      console.log('📝 [Undo] Recorded modification for:', undoData.filePath);
                     }
 
                     // Format the result based on tool type (Claude Code style)
@@ -2324,7 +2255,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   // OPTIMIZATION 15: Handle batched tool results (multiple tools executed in parallel)
                   else if (parsed.toolResultsBatch) {
                     const { toolResultsBatch, executionTime, count } = parsed;
-                    console.log(`🎯 Batch of ${count} tool results received (executed in ${executionTime})`);
 
                     // CRITICAL: Clear isThinking on current streaming message before creating new one
                     useTabStore.setState((state) => ({
@@ -2359,7 +2289,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           toolName: name as 'write_file' | 'edit_file',
                           description: `AI: ${name === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
                         });
-                        console.log('📝 [Undo] Recorded batch modification for:', undoData.filePath);
                       }
 
                       // Format the result based on tool type (Claude Code style)
@@ -2443,8 +2372,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   // Handle function call in progress (Gemini sends this before executing tool)
                   else if (parsed.functionCall) {
                     const { name, args } = parsed.functionCall;
-                    console.log('🔧 Function call in progress:', name);
-
                     // CRITICAL: Clear isThinking on current streaming message before creating new one
                     useTabStore.setState((state) => ({
                       tabs: state.tabs.map(t =>
@@ -2607,9 +2534,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             projectId: currentWorkstation?.projectId || currentWorkstation?.id,
             repositoryUrl: currentWorkstation?.githubUrl || currentWorkstation?.repositoryUrl,
             // Include userId for budget tracking
-            userId: useTerminalStore.getState().userId || null,
+            userId: useWorkstationStore.getState().userId || null,
             // Include username for multi-user context
-            username: (useTerminalStore.getState().userId || 'anonymous').split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase(),
+            username: (useWorkstationStore.getState().userId || 'anonymous').split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase(),
             // Include thinking level for Gemini reasoning
             thinkingLevel: thinkingLevel || null,
             context: currentWorkstation ? {
@@ -2630,7 +2557,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           if (toolCalls.length > 0) {
             // Set flag to prevent duplicate processing
             isProcessingToolsRef.current = true;
-            console.log('🔧 Processing', toolCalls.length, 'tool calls');
 
             // Split content into before and after tool calls
             const firstToolCallMatch = streamedContent.match(/(read_file|write_file|list_files|search_in_files)\s*\(/);
@@ -2784,25 +2710,77 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Save messages to chat after completing the send
       if (currentTab?.type === 'chat' && currentTab.data?.chatId) {
         const chatId = currentTab.data.chatId;
-        const existingChat = useTerminalStore.getState().chatHistory.find(c => c.id === chatId);
+        const existingChat = useChatStore.getState().chatHistory.find(c => c.id === chatId);
 
         if (existingChat) {
           // Get fresh tab state from store to ensure we have latest messages
           const freshTab = useTabStore.getState().tabs.find(t => t.id === currentTab.id);
           const updatedMessages = freshTab?.terminalItems || [];
 
-          console.log('💾 Saving chat messages:', { chatId, messageCount: updatedMessages.length });
-
-          useTerminalStore.getState().updateChat(chatId, {
+          useChatStore.getState().updateChat(chatId, {
             messages: updatedMessages,
             lastUsed: new Date(),
           });
         } else {
-          console.log('⚠️ Chat not found in chatHistory:', chatId);
         }
       }
     }
   };
+
+  // Memoized filtered and processed terminal items for FlatList
+  const processedTerminalItems = useMemo(() => {
+    if (terminalItems.length === 0) return [];
+
+    // Filter out null items, empty content items, and "Executing:" placeholders
+    // BUT: Keep items with isThinking=true or isAgentProgress=true even if content is empty
+    const filtered = terminalItems.filter(item =>
+      item &&
+      item.content != null &&
+      (item.content.trim() !== '' || item.isThinking || (item as any).isAgentProgress) &&
+      item.content !== '...' &&
+      !item.content.startsWith('Executing: ')
+    );
+
+    return filtered.map((item, index, filteredArray) => {
+      const prevItem = filteredArray[index - 1];
+      const nextItem = filteredArray[index + 1];
+
+      const isOutputAfterTerminalCommand =
+        item.type === TerminalItemType.OUTPUT &&
+        prevItem?.type === TerminalItemType.COMMAND &&
+        isCommand(prevItem.content || '');
+
+      const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
+        nextItem &&
+        nextItem.type !== TerminalItemType.USER_MESSAGE;
+
+      const outputItem =
+        item.type === TerminalItemType.COMMAND &&
+          isCommand(item.content || '') &&
+          nextItem?.type === TerminalItemType.OUTPUT
+          ? nextItem
+          : undefined;
+
+      const isLastItem = index === filteredArray.length - 1;
+      const shouldShowLoading = isLastItem && isLoading;
+
+      return {
+        item,
+        isOutputAfterTerminalCommand,
+        isNextItemAI,
+        outputItem,
+        shouldShowLoading,
+      };
+    }).filter(processed => !processed.isOutputAfterTerminalCommand);
+  }, [terminalItems, isLoading]);
+
+  // Scroll to end when items count changes OR last item content updates (streaming)
+  const lastItemContent = terminalItems[terminalItems.length - 1]?.content;
+  useEffect(() => {
+    if (terminalItems.length > 0 && processedTerminalItems.length > 0) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [terminalItems.length, lastItemContent, processedTerminalItems.length]);
 
   return (
     <Animated.View style={[
@@ -2814,7 +2792,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       {/* Content wrapper with sidebar offset */}
       <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
         {/* Top Upgrade Pill - Custom Liquid Glass (Expo Safe) */}
-        {!isGoUser && !hasUserMessaged && (
+        {!isGoUser && !hasUserMessaged && currentTab?.type === 'terminal' && (
           <TouchableOpacity
             style={[
               styles.topUpgradePill,
@@ -2884,15 +2862,93 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               <View style={styles.glowTop} />
               <View style={styles.glowBottom} />
             </LinearGradient>
-            <ScrollView
+            <FlatList
               ref={scrollViewRef}
               style={[styles.output, isCardMode && styles.outputCardMode]}
               contentContainerStyle={[styles.outputContent, { paddingBottom: scrollPaddingBottom }]}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-            >
+              data={processedTerminalItems}
+              keyExtractor={(processed) => processed.item.id || `item-${Math.random()}`}
+              renderItem={({ item: processed }) => {
+                const { item, isNextItemAI, outputItem, shouldShowLoading } = processed;
 
-              {terminalItems.length === 0 ? (
+                // Handle agent progress items (thinking, tools trace)
+                if ((item as any).isAgentProgress) {
+                  const isRunning = agentStreaming;
+                  return (
+                    <View style={{ marginBottom: 16 }}>
+                      <AgentProgress
+                        events={agentEvents}
+                        status={isRunning ? 'running' : 'complete'}
+                        currentTool={isRunning ? agentCurrentTool : null}
+                      />
+                    </View>
+                  );
+                }
+
+                // Handle budget exceeded — show upgrade card
+                if (item.content === '__BUDGET_EXCEEDED__') {
+                  return (
+                    <View style={{
+                      marginHorizontal: 16,
+                      marginVertical: 12,
+                      backgroundColor: 'rgba(139, 124, 246, 0.08)',
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor: 'rgba(139, 124, 246, 0.2)',
+                      padding: 20,
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                        <View style={{
+                          width: 36, height: 36, borderRadius: 10,
+                          backgroundColor: 'rgba(139, 124, 246, 0.15)',
+                          alignItems: 'center', justifyContent: 'center', marginRight: 12,
+                        }}>
+                          <Ionicons name="flash" size={18} color={AppColors.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
+                            Budget AI esaurito
+                          </Text>
+                          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+                            Hai utilizzato tutto il budget di questo mese
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 20, marginBottom: 16 }}>
+                        Il tuo budget AI mensile è terminato. Passa al piano Go per continuare a usare l'assistente AI con un budget maggiore.
+                      </Text>
+                      <TouchableOpacity
+                        style={{
+                          backgroundColor: AppColors.primary,
+                          borderRadius: 12,
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                        }}
+                        onPress={() => navigateTo('plans')}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff' }}>
+                          Passa a Go
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                }
+
+                return (
+                  <TerminalItemComponent
+                    item={item}
+                    isNextItemOutput={isNextItemAI}
+                    outputItem={outputItem}
+                    isLoading={shouldShowLoading}
+                    onPlanApprove={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanApprove : undefined}
+                    onPlanReject={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanReject : undefined}
+                  />
+                );
+              }}
+              ListEmptyComponent={terminalItems.length === 0 ? (
                 <Animated.View style={[styles.emptyState, welcomeAnimatedStyle]}>
                   <View style={styles.welcomeContainer}>
                     <Text style={styles.welcomeTitle}>Come posso aiutarti?</Text>
@@ -2922,130 +2978,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     </View>
                   </View>
                 </Animated.View>
-              ) : (
+              ) : null}
+              ListFooterComponent={terminalItems.length > 0 ? (
                 <>
-                  {(() => {
-                    // Filter out null items, empty content items, and "Executing:" placeholders
-                    // BUT: Keep items with isThinking=true or isAgentProgress=true even if content is empty
-                    const filtered = terminalItems.filter(item =>
-                      item &&
-                      item.content != null &&
-                      (item.content.trim() !== '' || item.isThinking || (item as any).isAgentProgress) &&  // Allow empty content if isThinking or isAgentProgress
-                      item.content !== '...' &&  // Filter out placeholder ellipsis
-                      !item.content.startsWith('Executing: ')  // Filter out tool execution indicators (replaced by tool results)
-                    );
-
-                    return filtered.reduce((acc, item, index, filteredArray) => {
-                      // Skip OUTPUT items that follow a terminal COMMAND (they'll be grouped)
-                      const prevItem = filteredArray[index - 1];
-                      const isOutputAfterTerminalCommand =
-                        item.type === TerminalItemType.OUTPUT &&
-                        prevItem?.type === TerminalItemType.COMMAND &&
-                        isCommand(prevItem.content || '');
-
-                      if (isOutputAfterTerminalCommand) {
-                        return acc;
-                      }
-
-                      // Check if next item exists and is not a user message
-                      const nextItem = filteredArray[index + 1];
-                      // Show thread line only if CURRENT item is NOT user message AND next item is NOT a user message
-                      const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
-                        nextItem &&
-                        nextItem.type !== TerminalItemType.USER_MESSAGE;
-                      const isNextItemOutput = nextItem?.type === TerminalItemType.OUTPUT && !isCommand(nextItem.content || '');
-                      const outputItem =
-                        item.type === TerminalItemType.COMMAND &&
-                          isCommand(item.content || '') &&
-                          nextItem?.type === TerminalItemType.OUTPUT
-                          ? nextItem
-                          : undefined;
-
-                      // Check if this is the last item and we're loading
-                      const isLastItem = index === filteredArray.length - 1;
-                      const shouldShowLoading = isLastItem && isLoading;
-
-                      // Handle agent progress items (thinking, tools trace)
-                      if ((item as any).isAgentProgress) {
-                        const isRunning = agentStreaming;
-                        acc.push(
-                          <View key={item.id} style={{ marginBottom: 16 }}>
-                            <AgentProgress
-                              events={agentEvents}
-                              status={isRunning ? 'running' : 'complete'}
-                              currentTool={isRunning ? agentCurrentTool : null}
-                            />
-                          </View>
-                        );
-                        return acc;
-                      }
-
-                      // Handle budget exceeded — show upgrade card
-                      if (item.content === '__BUDGET_EXCEEDED__') {
-                        acc.push(
-                          <View key={item.id} style={{
-                            marginHorizontal: 16,
-                            marginVertical: 12,
-                            backgroundColor: 'rgba(139, 124, 246, 0.08)',
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: 'rgba(139, 124, 246, 0.2)',
-                            padding: 20,
-                          }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                              <View style={{
-                                width: 36, height: 36, borderRadius: 10,
-                                backgroundColor: 'rgba(139, 124, 246, 0.15)',
-                                alignItems: 'center', justifyContent: 'center', marginRight: 12,
-                              }}>
-                                <Ionicons name="flash" size={18} color={AppColors.primary} />
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
-                                  Budget AI esaurito
-                                </Text>
-                                <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-                                  Hai utilizzato tutto il budget di questo mese
-                                </Text>
-                              </View>
-                            </View>
-                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 20, marginBottom: 16 }}>
-                              Il tuo budget AI mensile è terminato. Passa al piano Go per continuare a usare l'assistente AI con un budget maggiore.
-                            </Text>
-                            <TouchableOpacity
-                              style={{
-                                backgroundColor: AppColors.primary,
-                                borderRadius: 12,
-                                paddingVertical: 12,
-                                alignItems: 'center',
-                              }}
-                              onPress={() => navigateTo('plans')}
-                              activeOpacity={0.8}
-                            >
-                              <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff' }}>
-                                Passa a Go
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        );
-                        return acc;
-                      }
-
-                      acc.push(
-                        <TerminalItemComponent
-                          key={item.id}
-                          item={item}
-                          isNextItemOutput={isNextItemAI}
-                          outputItem={outputItem}
-                          isLoading={shouldShowLoading}
-                          onPlanApprove={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanApprove : undefined}
-                          onPlanReject={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanReject : undefined}
-                        />
-                      );
-                      return acc;
-                    }, [] as JSX.Element[]);
-                  })()}
-
                   {/* Show TodoList if agent has active todos */}
                   {currentTodos.length > 0 && (
                     <TodoList todos={currentTodos} />
@@ -3056,8 +2991,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <SubAgentStatus subAgent={currentSubAgent} />
                   )}
                 </>
-              )}
-            </ScrollView>
+              ) : null}
+            />
 
             {/* AskUserQuestion Modal */}
             <AskUserQuestionModal
@@ -3072,7 +3007,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 }).join('\n');
 
                 const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
-                console.log('User answers formatted:', responseMessage);
 
                 // Clear pending question first
                 setPendingQuestion(null);
@@ -3229,8 +3163,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 {currentWorkstation?.id && (
                   <UndoRedoBar
                     projectId={currentWorkstation.id}
-                    onUndoComplete={() => console.log('✅ [Undo] File restored')}
-                    onRedoComplete={() => console.log('✅ [Redo] File re-applied')}
+                    onUndoComplete={() => {}}
+                    onRedoComplete={() => {}}
                   />
                 )}
 
@@ -3304,13 +3238,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           ]}
                           onPress={() => {
                             setSelectedModel(model.id);
-                            // Set default thinking level when switching to Gemini 3
+                            // Set default thinking level when switching to a model with thinking
                             if (hasThinkingOptions) {
                               const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
                               setThinkingLevel(defaultLevel);
-                            }
-                            if (!hasThinkingOptions) {
-                              closeDropdown();
                             }
                           }}
                         >
@@ -3354,7 +3285,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                                   onPress={() => {
                                     if (isAvailable) {
                                       setThinkingLevel(level);
-                                      closeDropdown();
                                     }
                                   }}
                                   disabled={!isAvailable}

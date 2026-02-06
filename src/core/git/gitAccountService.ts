@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 import { collection, doc, setDoc, getDocs, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { encode as btoa, decode as atob } from 'base-64';
@@ -180,12 +180,10 @@ export const gitAccountService = {
         if (account.serverUrl) firebaseData.serverUrl = account.serverUrl;
 
         await setDoc(doc(db, 'users', userId, 'git-accounts', account.id), firebaseData);
-        console.log(`✅ [Firebase] Git account + token saved for user ${userId}:`, account.username);
       } catch (firebaseErr) {
         console.warn('⚠️ Could not save to Firebase:', firebaseErr);
       }
 
-      console.log(`✅ ${provider} account saved:`, account.username);
       this.invalidateAccountsCache(); // Clear cache so next getAllAccounts fetches fresh data
       return account;
     } catch (error) {
@@ -207,7 +205,7 @@ export const gitAccountService = {
     switch (provider) {
       case 'github':
       case 'github-enterprise': {
-        const response = await axios.get(`${baseUrl}/user`, {
+        const response = await apiClient.get(`${baseUrl}/user`, {
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/vnd.github.v3+json',
@@ -223,7 +221,7 @@ export const gitAccountService = {
 
       case 'gitlab':
       case 'gitlab-server': {
-        const response = await axios.get(`${baseUrl}/user`, {
+        const response = await apiClient.get(`${baseUrl}/user`, {
           headers: {
             'PRIVATE-TOKEN': token,
           },
@@ -241,7 +239,7 @@ export const gitAccountService = {
         // Bitbucket uses Basic Auth with username:app_password
         // Token is stored as "username:app_password"
         const basicAuth = btoa(token);
-        const response = await axios.get(`${baseUrl}/user`, {
+        const response = await apiClient.get(`${baseUrl}/user`, {
           headers: {
             Authorization: `Basic ${basicAuth}`,
           },
@@ -255,7 +253,7 @@ export const gitAccountService = {
       }
 
       case 'gitea': {
-        const response = await axios.get(`${baseUrl}/api/v1/user`, {
+        const response = await apiClient.get(`${baseUrl}/api/v1/user`, {
           headers: {
             Authorization: `token ${token}`,
           },
@@ -319,14 +317,12 @@ export const gitAccountService = {
       accountsCache.userId === userId &&
       now - accountsCache.timestamp < CACHE_TTL_MS
     ) {
-      console.log(`📥 [Cache] Using cached ${accountsCache.data.length} git accounts (${now - accountsCache.timestamp}ms old)`);
       return accountsCache.data;
     }
 
     try {
       // LOCAL-FIRST: Get local accounts immediately (fast)
       const localAccounts = await this.getAccounts(userId);
-      console.log(`📥 [Local] Loaded ${localAccounts.length} git accounts`);
 
       // If we have local accounts, return them immediately and sync Firebase in background
       if (localAccounts.length > 0) {
@@ -354,7 +350,6 @@ export const gitAccountService = {
             addedAt: new Date(data.addedAt),
           } as GitAccount);
         });
-        console.log(`📥 [Firebase] Loaded ${firebaseAccounts.length} git accounts for user ${userId}`);
 
         // Update cache
         accountsCache.data = firebaseAccounts;
@@ -406,7 +401,6 @@ export const gitAccountService = {
       accountsCache.data = result;
       accountsCache.userId = userId;
       accountsCache.timestamp = Date.now();
-      console.log(`📥 [Background] Firebase sync complete: ${result.length} accounts`);
     } catch (err) {
       console.warn('⚠️ Background Firebase sync failed:', err);
     }
@@ -417,7 +411,6 @@ export const gitAccountService = {
     accountsCache.data = null;
     accountsCache.userId = null;
     accountsCache.timestamp = 0;
-    console.log('🗑️ [Cache] Accounts cache invalidated');
   },
 
   async getAccountsByProvider(userId: string, provider: GitProvider): Promise<GitAccount[]> {
@@ -436,7 +429,6 @@ export const gitAccountService = {
       }
 
       // If not in local, try to get from Firebase
-      console.log(`🔍 Token not found locally, checking Firebase for ${account.username}...`);
       const accountId = `${userId}-${account.provider}-${account.username}`;
       const docRef = doc(db, 'users', userId, 'git-accounts', accountId);
       const docSnap = await getDoc(docRef);
@@ -448,13 +440,11 @@ export const gitAccountService = {
           if (token) {
             // Cache locally for faster access next time
             await SecureStore.setItemAsync(key, token);
-            console.log(`✅ Token restored from Firebase for ${account.username}`);
             return token;
           }
         }
       }
 
-      console.log(`⚠️ No token found for ${account.username}`);
       return null;
     } catch (error) {
       console.error('Error retrieving token:', error);
@@ -526,12 +516,10 @@ export const gitAccountService = {
       try {
         const accountId = `${userId}-${account.provider}-${account.username}`;
         await deleteDoc(doc(db, 'users', userId, 'git-accounts', accountId));
-        console.log(`✅ [Firebase] Git account deleted for user ${userId}`);
       } catch (firebaseErr) {
         console.warn('⚠️ Could not delete from Firebase:', firebaseErr);
       }
 
-      console.log(`✅ Account deleted: ${account.provider}/${account.username}`);
       this.invalidateAccountsCache(); // Clear cache so next getAllAccounts fetches fresh data
     } catch (error) {
       console.error('Error deleting account:', error);
@@ -552,7 +540,6 @@ export const gitAccountService = {
   // Call this when user logs in to restore their accounts on new device
   async syncFromFirebase(userId: string): Promise<void> {
     try {
-      console.log(`🔄 Syncing Git accounts from Firebase for user ${userId}...`);
       const accountsRef = collection(db, 'users', userId, 'git-accounts');
       const snapshot = await getDocs(accountsRef);
 
@@ -589,7 +576,6 @@ export const gitAccountService = {
         await AsyncStorage.setItem(`${ACCOUNTS_KEY}-${userId}`, JSON.stringify(accounts));
       }
 
-      console.log(`✅ Synced ${accounts.length} accounts, restored ${tokensRestored} tokens from Firebase`);
     } catch (error) {
       console.error('Error syncing from Firebase:', error);
     }
@@ -599,7 +585,6 @@ export const gitAccountService = {
   // This is called when we find local accounts not in Firebase
   async syncLocalAccountToFirebase(account: GitAccount, userId: string): Promise<void> {
     try {
-      console.log(`🔄 [syncLocalAccountToFirebase] Syncing ${account.username} to Firebase...`);
 
       // Always use consistent ID format: userId-provider-username
       const accountId = `${userId}-${account.provider}-${account.username}`;
@@ -613,7 +598,6 @@ export const gitAccountService = {
         // Try old format without userId
         token = await SecureStore.getItemAsync(oldTokenKey);
         if (token) {
-          console.log(`🔄 [syncLocalAccountToFirebase] Found token with old key format, migrating...`);
           // Migrate to new key format
           await SecureStore.setItemAsync(newTokenKey, token);
           await SecureStore.deleteItemAsync(oldTokenKey);
@@ -621,7 +605,6 @@ export const gitAccountService = {
       }
 
       if (!token) {
-        console.log(`⚠️ [syncLocalAccountToFirebase] No token found for ${account.username}, skipping`);
         return;
       }
 
@@ -642,7 +625,6 @@ export const gitAccountService = {
       if (account.serverUrl) firebaseData.serverUrl = account.serverUrl;
 
       await setDoc(doc(db, 'users', userId, 'git-accounts', accountId), firebaseData);
-      console.log(`✅ [syncLocalAccountToFirebase] ${account.username} synced to Firebase with ID: ${accountId}`);
     } catch (error) {
       console.error(`❌ [syncLocalAccountToFirebase] Error syncing ${account.username}:`, error);
     }

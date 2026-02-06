@@ -85,7 +85,6 @@ export const useFileCacheStore = create<FileCacheState>()(
                         }
                     }
                 }));
-                console.log(`📁 [FileCache] Cached ${files.length} files for ${projectId}`);
             },
 
             isCacheValid: (projectId: string, maxAgeMs = DEFAULT_CACHE_MAX_AGE) => {
@@ -100,14 +99,12 @@ export const useFileCacheStore = create<FileCacheState>()(
                 set(state => {
                     const newCache = { ...state.cache };
                     delete newCache[projectId];
-                    console.log(`📁 [FileCache] Cleared cache for ${projectId}`);
                     return { cache: newCache, lastClearedProject: projectId };
                 });
             },
 
             clearAllCache: () => {
                 set({ cache: {} });
-                console.log(`📁 [FileCache] Cleared all cache`);
             },
 
             isPrefetching: (projectId: string) => {

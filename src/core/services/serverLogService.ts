@@ -4,6 +4,7 @@
  */
 
 import { logOutput, logError } from '../terminal/terminalLogger';
+import { getAuthToken } from '../api/getAuthToken';
 
 class ServerLogService {
   private xhr: XMLHttpRequest | null = null;
@@ -14,10 +15,9 @@ class ServerLogService {
   /**
    * Connect to server logs SSE stream
    */
-  connect(workstationId: string, apiUrl: string): void {
+  async connect(workstationId: string, apiUrl: string): Promise<void> {
     // Don't reconnect if already connected to the same workstation
     if (this.currentWorkstationId === workstationId && this.xhr) {
-      console.log(`📺 Already connected to logs for: ${workstationId}`);
       return;
     }
 
@@ -28,17 +28,18 @@ class ServerLogService {
     this.apiUrl = apiUrl;
     this.lastIndex = 0;
 
-    console.log(`📺 [ServerLogService] Connecting to server logs for: ${workstationId}`);
-
+    const authToken = await getAuthToken();
     const xhr = new XMLHttpRequest();
     xhr.open('GET', `${apiUrl}/preview/logs/${workstationId}`);
+    if (authToken) {
+      xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+    }
 
     xhr.onprogress = () => {
       const newData = xhr.responseText.substring(this.lastIndex);
       this.lastIndex = xhr.responseText.length;
 
       if (newData.length > 0) {
-        console.log(`📺 [ServerLogService] SSE received data (${newData.length} bytes)`);
       }
 
       // Parse SSE events
@@ -63,21 +64,17 @@ class ServerLogService {
     };
 
     xhr.onreadystatechange = () => {
-      console.log(`📺 [ServerLogService] SSE readyState: ${xhr.readyState}, status: ${xhr.status}`);
 
       // If connection closed unexpectedly and we should be connected, try to reconnect
       if (xhr.readyState === 4 && this.currentWorkstationId === workstationId) {
-        console.log(`📺 [ServerLogService] Connection closed, will not auto-reconnect`);
       }
     };
 
     xhr.onerror = () => {
-      console.log('📺 [ServerLogService] Server logs connection error');
     };
 
     xhr.send();
     this.xhr = xhr;
-    console.log(`📺 [ServerLogService] SSE request sent to: ${apiUrl}/preview/logs/${workstationId}`);
   }
 
   /**
@@ -85,7 +82,6 @@ class ServerLogService {
    */
   disconnect(): void {
     if (this.xhr) {
-      console.log(`📺 [ServerLogService] Disconnecting from server logs for: ${this.currentWorkstationId}`);
       this.xhr.abort();
       this.xhr = null;
     }

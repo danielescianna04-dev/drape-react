@@ -17,7 +17,6 @@ export function NetworkConfigProvider({ children }: { children: ReactNode }) {
   // Initialize aiService with the configured URL
   useEffect(() => {
     aiService.setBaseUrl(apiUrl);
-    console.log(`Backend configured from .env: ${apiUrl}`);
   }, [apiUrl]);
 
   const value: NetworkConfig = {

@@ -1,4 +1,5 @@
 import { config } from '../../config/config';
+import { getAuthToken } from '../api/getAuthToken';
 
 type WebSocketMessage = {
   type: string;
@@ -23,20 +24,19 @@ class WebSocketService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 2000;
 
-  connect() {
+  async connect() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log('🔌 WebSocket already connected');
       return;
     }
 
-    const wsUrl = config.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
-    console.log('🔌 Connecting to WebSocket:', wsUrl);
+    const authToken = await getAuthToken();
+    const baseWsUrl = config.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+    const wsUrl = authToken ? `${baseWsUrl}?token=${encodeURIComponent(authToken)}` : baseWsUrl;
 
     try {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('🔌 WebSocket connected');
         this.reconnectAttempts = 0;
 
         // Resubscribe to all projects
@@ -59,7 +59,6 @@ class WebSocketService {
       };
 
       this.ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
         this.ws = null;
         this.scheduleReconnect();
       };
@@ -82,8 +81,6 @@ class WebSocketService {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
-    console.log(`🔌 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, delay);
@@ -100,17 +97,14 @@ class WebSocketService {
       projectId
     }));
 
-    console.log('🔌 Subscribed to file changes for project:', projectId);
   }
 
   private handleMessage(message: WebSocketMessage) {
     switch (message.type) {
       case 'connected':
-        console.log('🔌 WebSocket handshake:', message.message);
         break;
 
       case 'subscribed_files':
-        console.log('🔌 File subscription confirmed:', message.projectId);
         break;
 
       case 'file_created':
@@ -136,8 +130,6 @@ class WebSocketService {
     const projectListeners = this.listeners.get(projectId);
     if (!projectListeners || projectListeners.size === 0) return;
 
-    console.log(`📡 Notifying ${projectListeners.size} listener(s) for project ${projectId}: ${event.type} ${event.path}`);
-
     projectListeners.forEach(listener => {
       try {
         listener(event);
@@ -162,7 +154,6 @@ class WebSocketService {
       this.sendSubscribe(projectId);
     }
 
-    console.log('🔌 Added file change listener for project:', projectId);
   }
 
   unsubscribeFromFiles(projectId: string, listener: FileChangeListener) {
@@ -182,7 +173,6 @@ class WebSocketService {
           }));
         }
 
-        console.log('🔌 Removed all listeners for project:', projectId);
       }
     }
   }
@@ -202,7 +192,6 @@ class WebSocketService {
     this.subscribedProjects.clear();
     this.reconnectAttempts = 0;
 
-    console.log('🔌 WebSocket disconnected and cleaned up');
   }
 
   // Send heartbeat ping

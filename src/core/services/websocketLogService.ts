@@ -4,6 +4,7 @@
  */
 
 import { config } from '../../config/config';
+import { getAuthToken } from '../api/getAuthToken';
 
 type LogLevel = 'info' | 'error' | 'warn' | 'debug';
 
@@ -34,7 +35,7 @@ class WebSocketLogService {
   /**
    * Connect to the backend WebSocket
    */
-  connect(): void {
+  async connect(): Promise<void> {
     // Service is disabled
     if (!this.enabled) {
       return;
@@ -48,14 +49,14 @@ class WebSocketLogService {
     this.shouldReconnect = true;
 
     // Get WebSocket URL - need to add /ws path
-    const wsUrl = `${config.wsUrl}/ws`;
-    console.log(`[WebSocketLogService] Connecting to ${wsUrl}`);
+    const baseWsUrl = `${config.wsUrl}/ws`;
+    const authToken = await getAuthToken();
+    const wsUrl = authToken ? `${baseWsUrl}?token=${encodeURIComponent(authToken)}` : baseWsUrl;
 
     try {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('[WebSocketLogService] Connected');
         this.isConnecting = false;
         this.reconnectAttempts = 0;
       };
@@ -79,14 +80,12 @@ class WebSocketLogService {
       };
 
       this.ws.onclose = () => {
-        console.log('[WebSocketLogService] Disconnected');
         this.isConnecting = false;
         this.ws = null;
 
         // Attempt to reconnect
         if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
-          console.log(`[WebSocketLogService] Reconnecting (attempt ${this.reconnectAttempts})...`);
           setTimeout(() => this.connect(), this.reconnectDelay);
         }
       };

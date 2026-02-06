@@ -53,9 +53,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [selectedImages, setSelectedImages] = useState<ChatImage[]>([]);
 
-  // Debug: Check if LiquidGlass is supported
-  console.log('[ChatInput] isLiquidGlassSupported:', isLiquidGlassSupported);
-
   const handleToggleMode = (mode: 'terminal' | 'ai') => {
     if (onToggleMode) {
       onToggleMode(mode);

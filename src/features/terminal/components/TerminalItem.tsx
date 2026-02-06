@@ -202,7 +202,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       ]}
     >
       {/* Thread line and dot on the left - only for AI messages and bash commands */}
-      {!isUserMessage && (
+      {!isUserMessage && !(item.content || '').startsWith('__PROJECT_CREATED__') && (
         <View style={styles.threadContainer}>
           <Animated.View
             style={[
@@ -1237,6 +1237,44 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                 </View>
               </View>
             </View>
+          ) : (item.content || '').startsWith('__PROJECT_CREATED__') ? (
+            // Project created welcome card
+            (() => {
+              let info = { name: '', language: '' };
+              try { info = JSON.parse((item.content || '').replace('__PROJECT_CREATED__', '')); } catch {}
+              const langIcons: Record<string, { icon: string; color: string; label: string }> = {
+                react: { icon: 'logo-react', color: '#61DAFB', label: 'React' },
+                html: { icon: 'logo-html5', color: '#E34F26', label: 'HTML/CSS/JS' },
+                vue: { icon: 'logo-vue', color: '#4FC08D', label: 'Vue' },
+                nextjs: { icon: 'server-outline', color: '#FFFFFF', label: 'Next.js' },
+              };
+              const lang = langIcons[info.language] || langIcons['html'];
+              return (
+                <View style={styles.projectCreatedCard}>
+                  <LinearGradient
+                    colors={['rgba(139, 92, 246, 0.12)', 'rgba(99, 102, 241, 0.04)', 'transparent']}
+                    style={styles.projectCreatedGlow}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  />
+                  <View style={styles.projectCreatedHeader}>
+                    <View style={styles.projectCreatedIconBox}>
+                      <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+                    </View>
+                    <Text style={styles.projectCreatedTitle}>Progetto creato</Text>
+                  </View>
+                  <Text style={styles.projectCreatedName}>{info.name}</Text>
+                  <View style={styles.projectCreatedMeta}>
+                    <View style={styles.projectCreatedTag}>
+                      <Ionicons name={lang.icon as any} size={14} color={lang.color} />
+                      <Text style={[styles.projectCreatedTagText, { color: lang.color }]}>{lang.label}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.projectCreatedDivider} />
+                  <Text style={styles.projectCreatedHint}>Scrivi cosa vuoi fare o chiedi all'AI</Text>
+                </View>
+              );
+            })()
           ) : (
             // Normal system message
             <View style={styles.systemBlock}>
@@ -2183,6 +2221,78 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'left',
     fontWeight: '400',
+  },
+  // Project created card
+  projectCreatedCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    overflow: 'hidden',
+  },
+  projectCreatedGlow: {
+    position: 'absolute',
+    top: -40,
+    left: -40,
+    right: -40,
+    height: 120,
+    borderRadius: 60,
+  },
+  projectCreatedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  projectCreatedIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  projectCreatedTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#10B981',
+    letterSpacing: 0.3,
+  },
+  projectCreatedName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 12,
+    letterSpacing: -0.3,
+  },
+  projectCreatedMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  projectCreatedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  projectCreatedTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  projectCreatedDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginBottom: 12,
+  },
+  projectCreatedHint: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.35)',
   },
   // Loading card styles (same as bash card)
   loadingCard: {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
+import { verifyProjectOwnership } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -25,6 +26,15 @@ export const workstationRouter = Router();
 // GET /workstation/:projectId/files
 workstationRouter.get('/:projectId/files', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
+  const uid = req.userId!;
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (list-files)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   const result = await fileService.listAllFiles(projectId);
   res.json({ success: true, files: result.data || [] });
 }));
@@ -34,6 +44,13 @@ workstationRouter.post('/read-file', asyncHandler(async (req, res) => {
   const { projectId, filePath, path: fp } = req.body;
   const file = filePath || fp;
   if (!projectId || !file) throw new ValidationError('projectId and filePath required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (read-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await fileService.readFile(projectId, file);
   if (!result.success) return res.status(404).json(result);
@@ -52,6 +69,13 @@ workstationRouter.post('/write-file', asyncHandler(async (req, res) => {
   const { projectId, filePath, path: fp, content } = req.body;
   const file = filePath || fp;
   if (!projectId || !file) throw new ValidationError('projectId and filePath required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (write-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await fileService.writeFile(projectId, file, content || '');
   if (!result.success) return res.status(500).json(result);
@@ -72,6 +96,13 @@ workstationRouter.post('/edit-file', asyncHandler(async (req, res) => {
     throw new ValidationError('projectId, filePath, and oldString required');
   }
 
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (edit-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   const readResult = await fileService.readFile(projectId, filePath);
   if (!readResult.success) return res.status(404).json(readResult);
 
@@ -80,7 +111,8 @@ workstationRouter.post('/edit-file', asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, error: 'oldString not found in file' });
   }
 
-  const newContent = content.replace(oldString, newString || '');
+  const replacement = newString || '';
+  const newContent = content.replace(oldString, () => replacement);
   await fileService.writeFile(projectId, filePath, newContent);
 
   const session = await sessionService.getByProjectId(projectId);
@@ -96,6 +128,13 @@ workstationRouter.post('/undo-file', asyncHandler(async (req, res) => {
   const { projectId, filePath, content } = req.body;
   if (!projectId || !filePath) throw new ValidationError('projectId and filePath required');
 
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (undo-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   await fileService.writeFile(projectId, filePath, content || '');
   res.json({ success: true, message: 'File restored' });
 }));
@@ -104,6 +143,13 @@ workstationRouter.post('/undo-file', asyncHandler(async (req, res) => {
 workstationRouter.post('/create-folder', asyncHandler(async (req, res) => {
   const { projectId, folderPath } = req.body;
   if (!projectId || !folderPath) throw new ValidationError('projectId and folderPath required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (create-folder)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await fileService.createFolder(projectId, folderPath);
   res.json(result);
@@ -114,6 +160,13 @@ workstationRouter.post('/delete-file', asyncHandler(async (req, res) => {
   const { projectId, filePath } = req.body;
   if (!projectId || !filePath) throw new ValidationError('projectId and filePath required');
 
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (delete-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   const result = await fileService.deleteFile(projectId, filePath);
   res.json(result);
 }));
@@ -122,6 +175,13 @@ workstationRouter.post('/delete-file', asyncHandler(async (req, res) => {
 workstationRouter.post('/list-directory', asyncHandler(async (req, res) => {
   const { projectId, directory } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (list-directory)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await fileService.listFiles(projectId, directory || '');
   res.json({ success: true, files: result.data || [] });
@@ -132,6 +192,13 @@ workstationRouter.post('/glob-files', asyncHandler(async (req, res) => {
   const { projectId, pattern } = req.body;
   if (!projectId || !pattern) throw new ValidationError('projectId and pattern required');
 
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (glob-files)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   const result = await fileService.glob(projectId, pattern);
   res.json({ success: true, files: result.data || [] });
 }));
@@ -140,6 +207,13 @@ workstationRouter.post('/glob-files', asyncHandler(async (req, res) => {
 workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
   const { projectId, pattern } = req.body;
   if (!projectId || !pattern) throw new ValidationError('projectId and pattern required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (search-files)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await fileService.grep(projectId, pattern);
   res.json({
@@ -152,9 +226,16 @@ workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
 
 // POST /workstation/execute-command
 workstationRouter.post('/execute-command', asyncHandler(async (req, res) => {
-  const { projectId, command, userId } = req.body;
-  const uid = userId || 'anonymous';
+  const { projectId, command } = req.body;
+  const uid = req.userId!;
   if (!projectId || !command) throw new ValidationError('projectId and command required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (execute-command)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const result = await workspaceService.exec(projectId, uid, command);
   res.json({ success: true, ...result });
@@ -164,6 +245,13 @@ workstationRouter.post('/execute-command', asyncHandler(async (req, res) => {
 workstationRouter.post('/read-multiple-files', asyncHandler(async (req, res) => {
   const { projectId, filePaths } = req.body;
   if (!projectId || !Array.isArray(filePaths)) throw new ValidationError('projectId and filePaths required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (read-multiple-files)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const results = await Promise.all(
     filePaths.map(async (fp: string) => {
@@ -185,6 +273,13 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
   const { projectId, edits } = req.body;
   if (!projectId || !Array.isArray(edits)) throw new ValidationError('projectId and edits required');
 
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (edit-multiple-files)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   const results = [];
   for (const edit of edits) {
     try {
@@ -194,7 +289,8 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
       } else if (edit.type === 'edit') {
         const read = await fileService.readFile(projectId, edit.filePath);
         if (read.success && read.data) {
-          const newContent = read.data.content.replace(edit.oldString, edit.newString || '');
+          const editReplacement = edit.newString || '';
+          const newContent = read.data.content.replace(edit.oldString, () => editReplacement);
           await fileService.writeFile(projectId, edit.filePath, newContent);
           results.push({ path: edit.filePath, success: true });
         } else {
@@ -212,7 +308,15 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
 // DELETE /workstation/:projectId
 workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const userId = (req.query.userId as string) || req.body?.userId || 'anonymous';
+  const userId = req.userId!;
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership (delete-project)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
   await workspaceService.release(projectId, userId);
   await fileService.deleteProject(projectId);
   res.json({ success: true, message: 'Project deleted' });
@@ -242,7 +346,7 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
 
 // POST /workstation/create-with-template
 workstationRouter.post('/create-with-template', asyncHandler(async (req, res) => {
-  const { projectName, technology, description, userId, projectId } = req.body;
+  const { projectName, technology, description, projectId } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
   const id = projectId || `project-${Date.now()}`;
@@ -357,7 +461,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
           if (chunk.type === 'text') {
             fullText += chunk.text;
             chunkCount++;
-            const genProgress = Math.min(70, 30 + chunkCount * 2);
+            const genProgress = Math.min(85, 30 + chunkCount);
             if (chunkCount % 5 === 0) {
               const messages = ['Generazione componenti...', 'Creazione pagine...', 'Scrittura stili CSS...', 'Configurazione routing...', 'Ottimizzazione codice...'];
               update(genProgress, messages[Math.floor(chunkCount / 5) % messages.length], 'AI Generating');
@@ -373,7 +477,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       }
     }
 
-    update(75, 'Parsing Generated Code...', 'Processing');
+    update(87, 'Analisi codice generato...', 'Processing');
 
     // Parse the JSON response
     let cleanJson = fullText.trim();
@@ -399,7 +503,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       throw new Error('AI response missing files array');
     }
 
-    update(80, 'Formatting Files...', 'Processing');
+    update(89, 'Preparazione file...', 'Processing');
 
     // Write files to NVMe
     const writtenFiles: string[] = [];
@@ -407,14 +511,14 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       const file = parsed.files[i];
       if (!file.path || file.content === undefined) continue;
 
-      const progress = 80 + Math.floor((i / parsed.files.length) * 15);
-      update(progress, `Creazione ${file.path}`, 'Creating files');
+      const progress = 90 + Math.floor((i / parsed.files.length) * 8);
+      update(progress, `Creazione ${file.path}`, 'Scrittura file');
 
       await fileService.writeFile(projectId, file.path, file.content);
       writtenFiles.push(file.path);
     }
 
-    update(95, 'Starting Workspace...', 'Finalizing');
+    update(99, 'Avvio workspace...', 'Finalizing');
 
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 

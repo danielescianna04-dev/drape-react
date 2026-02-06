@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 import { useFileHistoryStore, FileModification } from '../../../core/history/fileHistoryStore';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { config } from '../../../config/config';
 
 const API_URL = config.apiUrl;
@@ -23,7 +23,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
   const [isRedoing, setIsRedoing] = useState(false);
 
   const { undo, redo, canUndo, canRedo, getStackSizes } = useFileHistoryStore();
-  const { addGlobalTerminalLog } = useTerminalStore();
+  const { addGlobalTerminalLog } = useUIStore();
 
   const hasUndo = canUndo(projectId);
   const hasRedo = canRedo(projectId);
@@ -42,7 +42,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
       }
 
       // Restore the original content via API
-      const response = await axios.post(`${API_URL}/workstation/undo-file`, {
+      const response = await apiClient.post(`${API_URL}/workstation/undo-file`, {
         projectId,
         filePath: modification.filePath,
         content: modification.originalContent || '',
@@ -84,7 +84,7 @@ export const UndoRedoBar: React.FC<UndoRedoBarProps> = ({
       }
 
       // Apply the new content via API
-      const response = await axios.post(`${API_URL}/workstation/undo-file`, {
+      const response = await apiClient.post(`${API_URL}/workstation/undo-file`, {
         projectId,
         filePath: modification.filePath,
         content: modification.newContent,

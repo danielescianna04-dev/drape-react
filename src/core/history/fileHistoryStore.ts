@@ -152,8 +152,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
       // Persist async
       saveHistoryToStorage(newHistories);
 
-      console.log(`📝 [FileHistory] Recorded: ${modification.toolName} on ${modification.filePath}`);
-
       return { projectHistories: newHistories };
     });
   },
@@ -163,7 +161,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
     const history = state.projectHistories[projectId];
 
     if (!history || history.undoStack.length === 0) {
-      console.log('⚠️ [FileHistory] Nothing to undo');
       return null;
     }
 
@@ -182,8 +179,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
 
       saveHistoryToStorage(newHistories);
 
-      console.log(`↩️ [FileHistory] Undo: ${modification.filePath}`);
-
       return { projectHistories: newHistories };
     });
 
@@ -195,7 +190,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
     const history = state.projectHistories[projectId];
 
     if (!history || history.redoStack.length === 0) {
-      console.log('⚠️ [FileHistory] Nothing to redo');
       return null;
     }
 
@@ -213,8 +207,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
       };
 
       saveHistoryToStorage(newHistories);
-
-      console.log(`↪️ [FileHistory] Redo: ${modification.filePath}`);
 
       return { projectHistories: newHistories };
     });
@@ -247,8 +239,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
 
       saveHistoryToStorage(newHistories);
 
-      console.log(`🗑️ [FileHistory] Cleared history for ${projectId}`);
-
       return { projectHistories: newHistories };
     });
   },
@@ -256,7 +246,6 @@ export const useFileHistoryStore = create<FileHistoryState>((set, get) => ({
   loadHistory: async () => {
     const histories = await loadHistoryFromStorage();
     set({ projectHistories: histories });
-    console.log(`📂 [FileHistory] Loaded history for ${Object.keys(histories).length} projects`);
   },
 
   getRecentModifications: (projectId, limit = 10) => {

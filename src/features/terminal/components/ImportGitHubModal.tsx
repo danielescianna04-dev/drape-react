@@ -70,7 +70,6 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
         setRepoUrl(text);
       }
     } catch (error) {
-      console.log('Clipboard error:', error);
     }
   };
 

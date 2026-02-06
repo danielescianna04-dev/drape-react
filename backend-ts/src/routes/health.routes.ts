@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { asyncHandler } from '../middleware/async-handler';
+import { requireAuth, getUserPlan } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
 import { sessionService } from '../services/session.service';
@@ -7,7 +9,7 @@ import { metricsService } from '../services/metrics.service';
 export const healthRouter = Router();
 
 // GET /health
-healthRouter.get('/health', async (req, res) => {
+healthRouter.get('/health', asyncHandler(async (req, res) => {
   const health = await dockerService.healthCheck();
   res.json({
     status: health.healthy ? 'ok' : 'degraded',
@@ -17,10 +19,10 @@ healthRouter.get('/health', async (req, res) => {
     uptime: process.uptime(),
     memory: process.memoryUsage(),
   });
-});
+}));
 
 // GET /logs/stream — SSE of backend logs
-healthRouter.get('/logs/stream', (req, res) => {
+healthRouter.get('/logs/stream', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -35,16 +37,16 @@ healthRouter.get('/logs/stream', (req, res) => {
 });
 
 // GET /logs/recent
-healthRouter.get('/logs/recent', (req, res) => {
+healthRouter.get('/logs/recent', requireAuth, (req, res) => {
   const count = parseInt(req.query.count as string) || 100;
   res.json({ logs: log.getRecent(count), count });
 });
 
 // GET /stats/system-status — Per-user system status for iOS SettingsScreen
-healthRouter.get('/stats/system-status', async (req, res) => {
+healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, res) => {
   try {
-    const userId = req.query.userId as string || '';
-    const planId = req.query.planId as string || 'free';
+    const userId = req.userId!;
+    const planId = await getUserPlan(userId);
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
@@ -108,16 +110,22 @@ healthRouter.get('/stats/system-status', async (req, res) => {
       },
     });
   } catch (error: any) {
-    log.error('[Stats] system-status error:', error.message);
-    res.status(500).json({ error: error.message });
+    log.error('[Stats] system-status error:', error);
+    res.status(500).json({ error: 'Failed to retrieve system status' });
   }
-});
+}));
 
 // GET /ai/budget/:userId — AI budget status for iOS SettingsScreen
-healthRouter.get('/ai/budget/:userId', async (req, res) => {
+healthRouter.get('/ai/budget/:userId', requireAuth, asyncHandler(async (req, res) => {
   try {
     const userId = req.params.userId;
-    const planId = req.query.planId as string || 'free';
+
+    // Verify the authenticated user is requesting their own budget
+    if (req.userId !== userId) {
+      res.status(403).json({ success: false, error: 'Cannot view another user\'s budget' });
+      return;
+    }
+    const planId = await getUserPlan(userId);
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
       free:    { name: 'Free', monthlyBudgetEur: 2.00 },
@@ -155,7 +163,7 @@ healthRouter.get('/ai/budget/:userId', async (req, res) => {
       },
     });
   } catch (error: any) {
-    log.error('[Budget] error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    log.error('[Budget] error:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve budget status' });
   }
-});
+}));

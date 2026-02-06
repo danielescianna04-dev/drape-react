@@ -11,6 +11,7 @@ import { config } from '../../config/config';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useAuthStore } from '../../core/auth/authStore';
+import { getAuthToken } from '../../core/api/getAuthToken';
 
 // SSE Event Types
 export type AgentEventType =
@@ -40,6 +41,7 @@ export interface AgentToolEvent {
   tool?: string;
   input?: any;
   output?: any;
+  result?: any;
   error?: string;
   message?: string;
   iteration?: number;
@@ -198,7 +200,6 @@ export function useAgentStream(
           estimatedDuration: planData.estimatedDuration,
           createdAt: new Date(),
         };
-        console.log('[AgentStream] Plan ready with', newAgentPlan.steps.length, 'steps');
         setAgentPlan(newAgentPlan);
         getAgentStore().setAgentPlan(newAgentPlan);
       }
@@ -249,18 +250,16 @@ export function useAgentStream(
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
    * Implements Claude Code style unlimited context via POST body
    */
-  const connect = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
+  const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
     if (isRunning && eventSourceRef.current) {
-      console.log('[AgentStream] Already running, ignoring new connection request');
       return;
     }
 
     // Close existing connection before creating new one
     if (eventSourceRef.current) {
-      console.log('[AgentStream] Closing existing connection before reconnecting');
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
@@ -276,9 +275,7 @@ export function useAgentStream(
       const endpoint = endpointMap[mode];
       const url = `${config.apiUrl}${endpoint}`;
 
-      console.log(`[AgentStream] Connecting to ${mode} mode with POST`);
-      console.log(`[AgentStream] Conversation history: ${conversationHistory?.length || 0} messages`);
-      console.log(`[AgentStream] Images attached: ${images?.length || 0}`);
+      const authToken = await getAuthToken();
 
       // Use EventSource with POST method and body (react-native-sse supports this)
       const es = new EventSource(url, {
@@ -286,6 +283,7 @@ export function useAgentStream(
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
+          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({
           prompt,
@@ -339,7 +337,6 @@ export function useAgentStream(
 
       // Handle connection open
       es.addEventListener('open', () => {
-        console.log(`[AgentStream] Connected to ${mode} mode`);
         reconnectAttemptsRef.current = 0;
       });
 
@@ -373,7 +370,6 @@ export function useAgentStream(
         // Attempt reconnection for network errors ONLY if we haven't finished
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-          console.log(`[AgentStream] Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`);
 
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
@@ -448,14 +444,12 @@ export function useAgentStream(
    * Start executing a previously created plan
    * Uses the stored prompt/project/model to call /agent/run/execute directly
    */
-  const startExecuting = useCallback(() => {
+  const startExecuting = useCallback(async () => {
     if (!currentPrompt || !currentProjectId) {
       console.error('[AgentStream] Cannot execute: no prompt or projectId stored');
       setError('Cannot execute plan: missing prompt or project');
       return;
     }
-
-    console.log('[AgentStream] Starting execution with stored prompt:', currentPrompt.substring(0, 50) + '...');
 
     // Reset state but keep the plan
     setEvents([]);
@@ -469,13 +463,14 @@ export function useAgentStream(
     const executeEndpoint = '/agent/run/execute';
     const url = `${config.apiUrl}${executeEndpoint}`;
 
-    console.log(`[AgentStream] Connecting to execute endpoint`);
+    const authToken = await getAuthToken();
 
     const es = new EventSource(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
+        ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
       },
       body: JSON.stringify({
         prompt: currentPrompt,
@@ -527,7 +522,6 @@ export function useAgentStream(
     });
 
     es.addEventListener('open', () => {
-      console.log('[AgentStream] Connected to execute mode');
       reconnectAttemptsRef.current = 0;
     });
 

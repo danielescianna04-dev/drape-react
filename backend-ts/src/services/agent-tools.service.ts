@@ -10,6 +10,28 @@ import { Session, ToolResult } from '../types';
 import path from 'path';
 
 /**
+ * Blocklist of dangerous command patterns to prevent abuse
+ */
+const DANGEROUS_PATTERNS = [
+  /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/(?!home\/coder\/project)/,  // rm outside project
+  /curl\s.*\|\s*(sh|bash)/,       // curl pipe to shell
+  /wget\s.*\|\s*(sh|bash)/,       // wget pipe to shell
+  />\s*\/etc\//,                    // writing to /etc
+  /curl\s+.*-d\s+.*\$\(/,         // curl with command substitution
+  /169\.254\.169\.254/,            // AWS metadata endpoint
+  /\/proc\/|\/sys\//,             // system pseudo-filesystems
+];
+
+function isCommandDangerous(command: string): string | null {
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(command)) {
+      return `Command blocked by security policy: matches ${pattern}`;
+    }
+  }
+  return null;
+}
+
+/**
  * Service for executing agent tool calls
  * Dispatches tool calls to appropriate implementations
  */
@@ -182,8 +204,9 @@ class AgentToolsService {
       };
     }
 
-    // Replace the string
-    const newContent = fileContent.content.replace(old_string, new_string);
+    // Replace the first occurrence only, using a function replacer to prevent
+    // special replacement patterns ($1, $&, etc.) in new_string from being interpreted.
+    const newContent = fileContent.content.replace(old_string, () => new_string);
 
     // Write back
     const writeResult = await fileService.writeFile(projectId, file_path, newContent);
@@ -266,6 +289,12 @@ class AgentToolsService {
 
     if (!command) {
       return { success: false, error: 'command is required' };
+    }
+
+    // Check command against security blocklist
+    const blocked = isCommandDangerous(command);
+    if (blocked) {
+      return { success: false, error: blocked };
     }
 
     // Get session if not provided

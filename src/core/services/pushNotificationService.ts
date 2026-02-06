@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { doc, setDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../api/getAuthToken';
 import { useNavigationStore } from '../navigation/navigationStore';
 import { useTerminalStore } from '../terminal/terminalStore';
 
@@ -65,7 +66,6 @@ class PushNotificationService {
       }
 
       if (finalStatus !== 'granted') {
-        console.log('[Push] Permission not granted');
         return;
       }
 
@@ -74,7 +74,6 @@ class PushNotificationService {
         projectId: 'ec6c855f-5325-47b4-8d13-982ba9a83a1c',
       });
       this.token = tokenData.data;
-      console.log('[Push] Expo push token obtained:', this.token.substring(0, 30) + '...');
 
       // Register token in Firestore and backend
       await this.registerToken(userId, this.token);
@@ -104,13 +103,13 @@ class PushNotificationService {
       }, { merge: true });
 
       // Register with backend
+      const authHeaders = await getAuthHeaders();
       await fetch(`${config.apiUrl}/notifications/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ userId, token, platform: Platform.OS }),
       }).catch(() => {});
 
-      console.log('[Push] Token registered');
     } catch (error: any) {
       console.warn('[Push] Token registration error:', error.message);
     }
@@ -130,7 +129,6 @@ class PushNotificationService {
         }),
       }, { merge: true });
 
-      console.log('[Push] Token unregistered');
     } catch (error: any) {
       console.warn('[Push] Unregister error:', error.message);
     }
@@ -163,13 +161,11 @@ class PushNotificationService {
 
     // When notification is received while app is foregrounded
     this.receivedListener = N.addNotificationReceivedListener(notification => {
-      console.log('[Push] Received:', notification.request.content.title);
     });
 
     // When user taps a notification
     this.responseListener = N.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      console.log('[Push] Tapped, data:', JSON.stringify(data));
 
       this.handleNotificationTap(data);
     });
@@ -226,13 +222,13 @@ class PushNotificationService {
       }, { merge: true });
 
       // Sync to backend
+      const prefAuthHeaders = await getAuthHeaders();
       await fetch(`${config.apiUrl}/notifications/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...prefAuthHeaders },
         body: JSON.stringify({ userId, preferences }),
       }).catch(() => {});
 
-      console.log('[Push] Preferences updated');
     } catch (error: any) {
       console.warn('[Push] Preferences error:', error.message);
     }

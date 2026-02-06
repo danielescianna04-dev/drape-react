@@ -14,11 +14,12 @@ import {
 } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { SafeText } from '../../../shared/components/SafeText';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
@@ -57,7 +58,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   // Get currentWorkstation from store to initialize state
-  const currentWorkstationFromStore = useTerminalStore(state => state.currentWorkstation);
+  const currentWorkstationFromStore = useWorkstationStore(state => state.currentWorkstation);
 
   // Initialize selectedProjectId and selectedRepoUrl from currentWorkstation if available
   // This ensures they're set correctly even on initial mount (not just on change)
@@ -84,13 +85,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const { apiUrl } = useNetworkConfig();
 
   const {
-    chatHistory,
     isGitHubConnected,
     gitHubRepositories,
     gitHubUser,
     selectedRepository,
     setSelectedRepository,
-    addTerminalItem,
     loadWorkstations,
     addWorkstation,
     workstations,
@@ -101,8 +100,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     removeWorkstation,
     userId,
     currentWorkstation,
-  } = useTerminalStore();
-
+  } = useWorkstationStore();
 
   useEffect(() => {
     // Carica workstations da Firestore
@@ -115,7 +113,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   // Auto-open current project if exists - always sync with currentWorkstation
   useEffect(() => {
-    console.log('📂 Sidebar: useEffect triggered, currentWorkstation:', currentWorkstation ? currentWorkstation.id : 'null');
 
     if (currentWorkstation) {
       const projectId = currentWorkstation.projectId || currentWorkstation.id;
@@ -126,10 +123,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       setSelectedProjectId(projectId);
       setSelectedRepoUrl(repoUrl);
 
-      console.log('📂 Sidebar: synced with currentWorkstation', { projectId, repoUrl });
     } else {
       // Clear selection when no workstation is set
-      console.log('📂 Sidebar: no currentWorkstation, clearing selection');
       setSelectedProjectId(null);
       setSelectedRepoUrl('');
     }
@@ -146,11 +141,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
     // Send heartbeat immediately, then every 60 seconds
     const sendHeartbeat = () => {
-      fetch(`${apiUrl}/fly/heartbeat`, {
+      getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/heartbeat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, userId: useAuthStore.getState().user?.email || 'anonymous' }),
-      }).catch(() => {
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ projectId }),
+      })).catch(() => {
         // Silent fail - heartbeat is non-critical
       });
     };
@@ -161,11 +156,8 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     // Set up interval
     const interval = setInterval(sendHeartbeat, 60000); // 60 seconds
 
-    console.log(`💓 [Heartbeat] Started for project ${projectId}`);
-
     return () => {
       clearInterval(interval);
-      console.log(`💔 [Heartbeat] Stopped for project ${projectId}`);
     };
   }, [currentWorkstation?.id, currentWorkstation?.projectId, apiUrl]);
 
@@ -178,30 +170,28 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
     // If it's a git project, check auth BEFORE opening
     if (repoUrl) {
-      console.log('🔍 Checking auth before opening project...');
 
       // Try to get saved token for this repo
-      const userId = useTerminalStore.getState().userId || 'anonymous';
+      const userId = useWorkstationStore.getState().userId || 'anonymous';
       let savedToken: string | null = null;
       try {
         const tokenData = await gitAccountService.getTokenForRepo(userId, repoUrl);
         savedToken = tokenData?.token || null;
       } catch (e) {
-        console.log('No saved token found');
       }
 
       // Check visibility with the saved token (if any)
       try {
+        const visAuthHeaders = await getAuthHeaders();
         const response = await fetch(`${apiUrl}/repo/check-visibility`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...visAuthHeaders },
           body: JSON.stringify({ repositoryUrl: repoUrl, githubToken: savedToken }),
         });
 
         const data = await response.json();
 
         if (!response.ok || data.requiresAuth) {
-          console.log('🔐 Auth required before opening project');
           setPendingRepoUrl(repoUrl);
           setShowAuthModal(true);
           return; // Don't open project - wait for auth
@@ -215,7 +205,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }
 
     // Auth OK or not a git project - open it
-    console.log('✅ Opening project');
     setWorkstation(ws);
     setSelectedProjectId(ws.projectId || ws.id);
     setSelectedRepoUrl(repoUrl);
@@ -232,7 +221,10 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
     // Check git status for unsaved changes
     try {
-      const response = await fetch(`${apiUrl}/workstation/${id}/git-status`);
+      const gitStatusAuthHeaders = await getAuthHeaders();
+      const response = await fetch(`${apiUrl}/workstation/${id}/git-status`, {
+        headers: gitStatusAuthHeaders,
+      });
       const data = await response.json();
 
       if (data.hasUncommittedChanges || data.hasUnpushedCommits) {
@@ -248,7 +240,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         setDeleteWarning({ hasChanges: false, message: 'Tutto sincronizzato con Git.' });
       }
     } catch (error) {
-      console.log('Could not check git status:', error);
       setDeleteWarning({ hasChanges: false, message: 'Impossibile verificare lo stato Git.' });
     } finally {
       setIsCheckingGit(false);
@@ -259,7 +250,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     if (!deleteTarget) return;
 
     try {
-      console.log('🗑️ [Sidebar] Starting delete for:', deleteTarget.id);
 
       // 1. Remove all tabs associated with this project (including chats)
       removeTabsByWorkstation(deleteTarget.id);
@@ -271,7 +261,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       // 3. Remove from local store
       await removeWorkstation(deleteTarget.id);
 
-      console.log('✅ [Sidebar] Project completely deleted:', deleteTarget.id);
     } catch (error) {
       console.error('❌ [Sidebar] Error deleting workstation:', error);
     } finally {
@@ -282,18 +271,17 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   };
 
   const handleCreateFolder = (name: string) => {
-    console.log("Create folder:", name);
   };
 
   const handleImportRepo = async (url: string, token?: string) => {
     try {
-      const userId = useTerminalStore.getState().userId || 'anonymous';
+      const userId = useWorkstationStore.getState().userId || 'anonymous';
 
       // STEP 1: Check if repo requires authentication BEFORE importing
-      console.log('🔍 Checking repo visibility before import...');
+      const importAuthHeaders = await getAuthHeaders();
       const visibilityResponse = await fetch(`${apiUrl}/repo/check-visibility`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...importAuthHeaders },
         body: JSON.stringify({ repositoryUrl: url, githubToken: token }),
       });
 
@@ -301,14 +289,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
       // If auth required, show modal and STOP - don't proceed with import
       if (!visibilityResponse.ok || visibilityData.requiresAuth) {
-        console.log('🔐 Repository requires authentication - showing auth modal');
         setPendingRepoUrl(url);
         setShowAuthModal(true);
         setShowImportModal(false);
         return; // Stop here - don't create workstation
       }
-
-      console.log('✅ Repository is accessible, proceeding with import...');
 
       // Save token if provided
       if (token) {
@@ -336,7 +321,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
       // SEED CACHE: If files returned, cache them immediately
       if (wsResult.files && wsResult.files.length > 0) {
-        console.log(`🚀 [Sidebar] Seeding cache for imported project: ${wsResult.files.length} files`);
         // For file explorer, we store simpler paths - ensure they are strings
         const filePaths = wsResult.files.map((f: any) => typeof f === 'string' ? f : f.path);
         useFileCacheStore.getState().setFiles(project.id, filePaths);
@@ -345,13 +329,11 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       addWorkstation(workstation);
       setShowImportModal(false);
     } catch (error: any) {
-      console.log('🔴 Import error:', error.message);
       console.error('Import failed:', error.response?.data?.message || error.message);
     }
   };
 
   // Debug: log render state
-  console.log('📂 Sidebar RENDER - selectedProjectId:', selectedProjectId, 'currentWorkstation:', currentWorkstation?.id);
 
   const renderSidebarContent = () => (
     <>
@@ -393,7 +375,6 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 onClose();
               }}
               onAuthRequired={(repoUrl) => {
-                console.log('🔐 FileExplorer requires auth for:', repoUrl);
                 setPendingRepoUrl(repoUrl);
                 setShowAuthModal(true);
               }}
@@ -619,8 +600,6 @@ const GitHubList = ({ repositories, isConnected, user, selectedRepo, onSelectRep
     </View>
   );
 };
-
-
 
 // Modal component separato per evitare problemi di sintassi
 const ImportModal = ({ visible, onClose, onImport }: { visible: boolean; onClose: () => void; onImport: (url: string) => void }) => (
@@ -1283,6 +1262,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Delete Modal Styles
+  deleteModalInner: {
+    gap: 16,
+  },
   deleteModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.85)',

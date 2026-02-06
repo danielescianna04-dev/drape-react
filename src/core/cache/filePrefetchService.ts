@@ -29,14 +29,12 @@ export const filePrefetchService = {
 
         // Check if already prefetching
         if (cacheStore.isPrefetching(projectId)) {
-            console.log(`📁 [Prefetch] Already prefetching ${projectId}, skipping`);
             return { success: true, fileCount: 0, fromCache: true };
         }
 
         // Check if cache is valid (unless forcing refresh)
         if (!forceRefresh && cacheStore.isCacheValid(projectId)) {
             const cachedFiles = cacheStore.getFiles(projectId);
-            console.log(`📁 [Prefetch] Using valid cache for ${projectId}: ${cachedFiles?.length || 0} files`);
             return {
                 success: true,
                 fileCount: cachedFiles?.length || 0,
@@ -47,7 +45,6 @@ export const filePrefetchService = {
         try {
             // Mark as prefetching
             cacheStore.setPrefetching(projectId, true);
-            console.log(`📁 [Prefetch] Starting prefetch for ${projectId}`);
 
             // Get token for this repo
             let gitToken: string | null = null;
@@ -58,7 +55,6 @@ export const filePrefetchService = {
                     const tokenData = await gitAccountService.getTokenForRepo(userId, repositoryUrl);
                     if (tokenData) {
                         gitToken = tokenData.token;
-                        console.log(`🔐 [Prefetch] Using ${tokenData.account.provider} token`);
                     }
                 }
                 if (!gitToken) {
@@ -68,7 +64,6 @@ export const filePrefetchService = {
                     }
                 }
             } catch (tokenErr) {
-                console.log('⚠️ [Prefetch] Could not get Git token:', tokenErr);
             }
 
             // Fetch files from backend
@@ -80,8 +75,6 @@ export const filePrefetchService = {
 
             // Save to cache
             cacheStore.setFiles(projectId, files, repositoryUrl);
-
-            console.log(`✅ [Prefetch] Prefetched ${files.length} files for ${projectId}`);
 
             return {
                 success: true,

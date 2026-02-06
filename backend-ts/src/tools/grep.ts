@@ -1,4 +1,4 @@
-import { execShell } from '../utils/helpers';
+import { execShell, shellEscape, sanitizePath } from '../utils/helpers';
 import path from 'path';
 import { config } from '../config';
 
@@ -17,17 +17,15 @@ export async function grepSearch(
   include?: string
 ): Promise<string> {
   try {
-    const root = path.join(config.projectsRoot, projectId, searchPath || '');
-
-    // Escape quotes in the pattern
-    const escapedPattern = pattern.replace(/"/g, '\\"');
+    const baseDir = path.join(config.projectsRoot, projectId);
+    const root = searchPath ? sanitizePath(baseDir, searchPath) : baseDir;
 
     // Build grep command with exclusions
     let cmd = 'grep -rn';
 
     // Add include pattern if specified
     if (include) {
-      cmd += ` --include='${include}'`;
+      cmd += ` --include=${shellEscape(include)}`;
     } else {
       cmd += ` --include='*'`;
     }
@@ -41,7 +39,7 @@ export async function grepSearch(
     cmd += ' --exclude-dir=.cache';
 
     // Add pattern and path
-    cmd += ` "${escapedPattern}" "${root}" 2>/dev/null | head -50`;
+    cmd += ` ${shellEscape(pattern)} ${shellEscape(root)} 2>/dev/null | head -50`;
 
     const result = await execShell(cmd, root, 15000);
 

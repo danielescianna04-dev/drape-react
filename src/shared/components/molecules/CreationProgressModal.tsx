@@ -10,7 +10,6 @@ import {
     Easing
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +21,7 @@ interface Props {
     step?: string;
 }
 
-const { width } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export const CreationProgressModal = ({ visible, progress, status, step }: Props) => {
     const progressAnim = useRef(new Animated.Value(0)).current;
@@ -37,7 +36,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
         if (visible) {
             Animated.timing(fadeAnim, {
                 toValue: 1,
-                duration: 300,
+                duration: 400,
                 useNativeDriver: true,
             }).start();
         } else {
@@ -79,10 +78,9 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
     useEffect(() => {
         if (status && visible) {
             setActivityLog(prev => {
-                // Avoid duplicates
                 if (prev[prev.length - 1] === status) return prev;
                 const newLog = [...prev, status];
-                return newLog.slice(-8);
+                return newLog.slice(-6);
             });
             setTimeout(() => {
                 scrollRef.current?.scrollToEnd({ animated: true });
@@ -104,121 +102,6 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
         outputRange: ['0%', '100%'],
     });
 
-    const renderCardContent = () => (
-        <View style={styles.cardInner}>
-            {/* Header */}
-            <View style={styles.header}>
-                <View style={styles.iconWrapper}>
-                    <Ionicons name="code-slash" size={22} color={AppColors.primary} />
-                </View>
-                <View style={styles.headerText}>
-                    <Text style={styles.title}>Creazione progetto</Text>
-                    <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
-                </View>
-            </View>
-
-            {/* Terminal-like log */}
-            {isLiquidGlassSupported ? (
-                <LiquidGlassView
-                    style={[styles.terminal, { backgroundColor: 'transparent', overflow: 'hidden' }]}
-                    interactive={true}
-                    effect="clear"
-                    colorScheme="dark"
-                >
-                    <View style={styles.terminalHeader}>
-                        <View style={styles.terminalDots}>
-                            <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
-                            <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
-                            <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
-                        </View>
-                        <Text style={styles.terminalTitle}>output</Text>
-                    </View>
-                    <ScrollView
-                        ref={scrollRef}
-                        style={styles.terminalContent}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        {activityLog.map((log, index) => (
-                            <View key={index} style={styles.logLine}>
-                                <Text style={styles.logPrefix}>{'>'}</Text>
-                                <Text
-                                    style={[
-                                        styles.logText,
-                                        index === activityLog.length - 1 && styles.logTextActive
-                                    ]}
-                                    numberOfLines={1}
-                                >
-                                    {log}
-                                </Text>
-                            </View>
-                        ))}
-                        {activityLog.length === 0 && (
-                            <View style={styles.logLine}>
-                                <Text style={styles.logPrefix}>{'>'}</Text>
-                                <Text style={styles.logText}>Avvio generazione...</Text>
-                            </View>
-                        )}
-                    </ScrollView>
-                </LiquidGlassView>
-            ) : (
-                <View style={styles.terminal}>
-                    <View style={styles.terminalHeader}>
-                        <View style={styles.terminalDots}>
-                            <View style={[styles.dot, { backgroundColor: '#FF5F56' }]} />
-                            <View style={[styles.dot, { backgroundColor: '#FFBD2E' }]} />
-                            <View style={[styles.dot, { backgroundColor: '#27CA40' }]} />
-                        </View>
-                        <Text style={styles.terminalTitle}>output</Text>
-                    </View>
-                    <ScrollView
-                        ref={scrollRef}
-                        style={styles.terminalContent}
-                        showsVerticalScrollIndicator={false}
-                    >
-                        {activityLog.map((log, index) => (
-                            <View key={index} style={styles.logLine}>
-                                <Text style={styles.logPrefix}>{'>'}</Text>
-                                <Text
-                                    style={[
-                                        styles.logText,
-                                        index === activityLog.length - 1 && styles.logTextActive
-                                    ]}
-                                    numberOfLines={1}
-                                >
-                                    {log}
-                                </Text>
-                            </View>
-                        ))}
-                        {activityLog.length === 0 && (
-                            <View style={styles.logLine}>
-                                <Text style={styles.logPrefix}>{'>'}</Text>
-                                <Text style={styles.logText}>Avvio generazione...</Text>
-                            </View>
-                        )}
-                    </ScrollView>
-                </View>
-            )}
-
-            {/* Progress */}
-            <View style={styles.progressContainer}>
-                <View style={styles.progressInfo}>
-                    <Text style={styles.progressLabel}>Progresso</Text>
-                    <Text style={styles.progressValue}>{displayProgress}%</Text>
-                </View>
-                <View style={styles.progressTrack}>
-                    <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
-                        <LinearGradient
-                            colors={[AppColors.primary, '#A855F7']}
-                            style={StyleSheet.absoluteFill}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                        />
-                    </Animated.View>
-                </View>
-            </View>
-        </View>
-    );
-
     return (
         <Modal
             visible={visible}
@@ -227,24 +110,75 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             statusBarTranslucent={true}
         >
             <View style={styles.container}>
-                <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFillObject} />
+                <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFillObject} />
                 <View style={styles.backdrop} />
 
-                <Animated.View style={[styles.cardWrapper, { opacity: fadeAnim }]}>
-                    {isLiquidGlassSupported ? (
-                        <LiquidGlassView
-                            style={[styles.card, { backgroundColor: 'transparent', overflow: 'hidden' }]}
-                            interactive={true}
-                            effect="clear"
-                            colorScheme="dark"
+                <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+                    {/* Centered icon */}
+                    <View style={styles.iconOuter}>
+                        <LinearGradient
+                            colors={[AppColors.primary, '#9333EA', '#6366F1']}
+                            style={styles.iconGradient}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
                         >
-                            {renderCardContent()}
-                        </LiquidGlassView>
-                    ) : (
-                        <View style={styles.card}>
-                            {renderCardContent()}
-                        </View>
-                    )}
+                            <Ionicons name="code-slash" size={28} color="#fff" />
+                        </LinearGradient>
+                    </View>
+
+                    {/* Title */}
+                    <Text style={styles.title}>Creazione in corso</Text>
+                    <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
+
+                    {/* Big percentage */}
+                    <Text style={styles.bigPercent}>{displayProgress}%</Text>
+
+                    {/* Progress bar */}
+                    <View style={styles.progressTrack}>
+                        <Animated.View style={[styles.progressFill, { width: widthInterpolated }]}>
+                            <LinearGradient
+                                colors={[AppColors.primary, '#A855F7', '#6366F1']}
+                                style={StyleSheet.absoluteFill}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                            />
+                        </Animated.View>
+                    </View>
+
+                    {/* Activity log */}
+                    <View style={styles.logContainer}>
+                        <ScrollView
+                            ref={scrollRef}
+                            style={styles.logScroll}
+                            showsVerticalScrollIndicator={false}
+                        >
+                            {activityLog.map((log, index) => (
+                                <View key={index} style={styles.logLine}>
+                                    <Ionicons
+                                        name={index === activityLog.length - 1 ? 'ellipse' : 'checkmark-circle'}
+                                        size={12}
+                                        color={index === activityLog.length - 1 ? AppColors.primary : '#10B981'}
+                                        style={styles.logIcon}
+                                    />
+                                    <Text
+                                        style={[
+                                            styles.logText,
+                                            index === activityLog.length - 1 && styles.logTextActive
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {log}
+                                    </Text>
+                                </View>
+                            ))}
+                            {activityLog.length === 0 && (
+                                <View style={styles.logLine}>
+                                    <Ionicons name="ellipse" size={12} color={AppColors.primary} style={styles.logIcon} />
+                                    <Text style={styles.logTextActive}>Avvio generazione...</Text>
+                                </View>
+                            )}
+                        </ScrollView>
+                    </View>
                 </Animated.View>
             </View>
         </Modal>
@@ -256,141 +190,100 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        paddingHorizontal: 24,
+        paddingHorizontal: 32,
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
     },
-    cardWrapper: {
+    content: {
         width: '100%',
-        maxWidth: 380,
+        maxWidth: 340,
+        alignItems: 'center',
     },
-    card: {
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.15)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
+    // Icon
+    iconOuter: {
+        width: 80,
+        height: 80,
+        marginBottom: 28,
+    },
+    iconGradient: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: AppColors.primary,
+        shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.6,
         shadowRadius: 24,
         elevation: 12,
     },
-    cardInner: {
-        backgroundColor: 'rgba(20, 20, 40, 0.92)',
-        borderRadius: 24,
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 20,
-        gap: 14,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.06)',
-    },
-    iconWrapper: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
-        backgroundColor: 'rgba(139, 92, 246, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerText: {
-        flex: 1,
-    },
+    // Text
     title: {
-        fontSize: 17,
-        fontWeight: '600',
+        fontSize: 22,
+        fontWeight: '700',
         color: '#fff',
-        marginBottom: 2,
+        marginBottom: 6,
+        letterSpacing: -0.3,
     },
     subtitle: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.5)',
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.45)',
+        marginBottom: 32,
     },
-    terminal: {
-        margin: 16,
-        borderRadius: 12,
+    // Big percentage
+    bigPercent: {
+        fontSize: 56,
+        fontWeight: '800',
+        color: '#fff',
+        marginBottom: 16,
+        fontVariant: ['tabular-nums'],
+        letterSpacing: -2,
+    },
+    // Progress bar
+    progressTrack: {
+        width: '100%',
+        height: 4,
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 2,
+        overflow: 'hidden',
+        marginBottom: 32,
+    },
+    progressFill: {
+        height: '100%',
+        borderRadius: 2,
+    },
+    // Log
+    logContainer: {
+        width: '100%',
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderRadius: 16,
         borderWidth: 1,
         borderColor: 'rgba(255,255,255,0.06)',
+        overflow: 'hidden',
     },
-    terminalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        backgroundColor: 'rgba(255,255,255,0.03)',
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.06)',
-    },
-    terminalDots: {
-        flexDirection: 'row',
-        gap: 6,
-    },
-    dot: {
-        width: 10,
-        height: 10,
-        borderRadius: 5,
-    },
-    terminalTitle: {
-        flex: 1,
-        textAlign: 'center',
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.4)',
-        marginRight: 30,
-    },
-    terminalContent: {
-        height: 120,
-        padding: 12,
+    logScroll: {
+        maxHeight: 140,
+        paddingHorizontal: 16,
+        paddingVertical: 14,
     },
     logLine: {
         flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 6,
+        alignItems: 'center',
+        marginBottom: 10,
     },
-    logPrefix: {
-        fontSize: 13,
-        color: '#10B981',
-        fontFamily: 'monospace',
-        marginRight: 8,
-        fontWeight: '600',
+    logIcon: {
+        marginRight: 10,
     },
     logText: {
         flex: 1,
         fontSize: 13,
-        color: 'rgba(255,255,255,0.5)',
-        fontFamily: 'monospace',
+        color: 'rgba(255,255,255,0.35)',
     },
     logTextActive: {
-        color: '#fff',
-    },
-    progressContainer: {
-        padding: 20,
-        paddingTop: 4,
-    },
-    progressInfo: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 10,
-    },
-    progressLabel: {
         fontSize: 13,
-        color: 'rgba(255,255,255,0.5)',
-    },
-    progressValue: {
-        fontSize: 13,
-        color: '#fff',
-        fontWeight: '600',
-    },
-    progressTrack: {
-        height: 6,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        borderRadius: 3,
-        overflow: 'hidden',
-    },
-    progressFill: {
-        height: '100%',
-        borderRadius: 3,
+        color: 'rgba(255,255,255,0.8)',
+        flex: 1,
     },
 });

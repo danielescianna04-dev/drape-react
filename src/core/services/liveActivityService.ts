@@ -17,13 +17,8 @@ class LiveActivityService {
   private isSupported: boolean = Platform.OS === 'ios' && Platform.Version >= '16.1';
 
   constructor() {
-    console.log('🟣 [LiveActivity] Platform.OS:', Platform.OS);
-    console.log('🟣 [LiveActivity] Platform.Version:', Platform.Version);
-    console.log('🟣 [LiveActivity] PreviewActivityModule available:', !!PreviewActivityModule);
-    console.log('🟣 [LiveActivity] isSupported:', this.isSupported);
 
     if (PreviewActivityModule) {
-      console.log('✅ [LiveActivity] Native module loaded successfully');
     } else {
       console.warn('⚠️ [LiveActivity] Native module NOT found - Dynamic Island will not work');
     }
@@ -38,7 +33,6 @@ class LiveActivityService {
     }
 
     try {
-      console.log(`🟣 [LiveActivity] Starting for project: ${projectName} (${operationType})`, state);
       const id = await PreviewActivityModule.startActivity(
         projectName,
         operationType,
@@ -47,7 +41,6 @@ class LiveActivityService {
         state.progress
       );
       this.activityId = id;
-      console.log(`✅ [LiveActivity] Started with ID: ${id}`);
       return true;
     } catch (error: any) {
       console.error('❌ [LiveActivity] Start error:', error);
@@ -86,7 +79,6 @@ class LiveActivityService {
 
     try {
       await PreviewActivityModule.endActivity();
-      console.log(`✅ [LiveActivity] Ended activity ${this.activityId}`);
       this.activityId = null;
       return true;
     } catch (error: any) {
@@ -107,10 +99,8 @@ class LiveActivityService {
     }
 
     try {
-      console.log(`🎉 [LiveActivity] Ending with success for: ${projectName} - "${message}"`);
       await PreviewActivityModule.endActivityWithSuccess(projectName, message);
       this.activityId = null;
-      console.log(`✅ [LiveActivity] Success animation completed`);
       return true;
     } catch (error: any) {
       console.error('❌ [LiveActivity] endWithSuccess error:', error);
@@ -128,7 +118,6 @@ class LiveActivityService {
 
     try {
       const granted = await PreviewActivityModule.requestNotificationPermission();
-      console.log(`🔔 [Notification] Permission: ${granted ? 'granted' : 'denied'}`);
       return granted;
     } catch (error: any) {
       console.warn('⚠️ [Notification] Permission request error:', error.message);
@@ -146,7 +135,6 @@ class LiveActivityService {
 
     try {
       await PreviewActivityModule.sendLocalNotification(title, body);
-      console.log(`🔔 [Notification] Sent: ${title} - ${body}`);
       return true;
     } catch (error: any) {
       console.warn('⚠️ [Notification] Error:', error.message);
@@ -164,7 +152,6 @@ class LiveActivityService {
 
   async cleanup(): Promise<void> {
     if (this.activityId) {
-      console.log('🧹 [LiveActivity] Cleanup: ending active activity');
       await this.endPreviewActivity();
     }
   }

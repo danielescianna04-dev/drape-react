@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useChatStore } from '../../../core/terminal/chatStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
@@ -22,8 +23,9 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
-  const { renamingValue, setRenamingValue } = useState('');
-  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats, currentWorkstation } = useTerminalStore();
+  const [renamingValue, setRenamingValue] = useState('');
+  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats } = useChatStore();
+  const { currentWorkstation } = useWorkstationStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
   const { user } = useAuthStore();
 
@@ -87,7 +89,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     };
 
     // Save chat to chatHistory immediately
-    useTerminalStore.getState().addChat(newChat);
+    useChatStore.getState().addChat(newChat);
 
     // Don't save chat to chatHistory yet - it will be saved when the first message is sent
     // Just create a new tab

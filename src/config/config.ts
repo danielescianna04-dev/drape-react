@@ -8,7 +8,7 @@ const LOCAL_URL = 'https://drape.info';
 const LOCAL_WS_URL = 'wss://drape.info';
 
 // Coder (workspace) URL
-const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'http://drape.info';
+const CODER_URL = process.env.EXPO_PUBLIC_CODER_URL || 'https://drape.info';
 
 // @ts-ignore - __DEV__ is a React Native global (false in release builds)
 const isProduction = process.env.EXPO_PUBLIC_ENV === 'production' || (typeof __DEV__ !== 'undefined' && !__DEV__);

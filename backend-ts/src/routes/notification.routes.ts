@@ -18,6 +18,11 @@ notificationRouter.post('/register', asyncHandler(async (req, res) => {
     throw new ValidationError('userId and token are required');
   }
 
+  // Only allow registering tokens for self
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Cannot register tokens for other users' });
+  }
+
   log.info(`[Notifications] Registering token for user ${userId} (platform: ${platform || 'ios'})`);
 
   const db = firebaseService.getFirestore();
@@ -57,6 +62,11 @@ notificationRouter.post('/send', asyncHandler(async (req, res) => {
 
   if (!userId || !title || !body) {
     throw new ValidationError('userId, title, and body are required');
+  }
+
+  // Only allow sending to self, or if the backend is calling internally
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Cannot send notifications to other users' });
   }
 
   log.info(`[Notifications] Sending notification to user ${userId}: ${title}`);

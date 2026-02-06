@@ -55,18 +55,12 @@ const resources = {
   },
 };
 
-// Debug: verify translations loaded
-console.log('[i18n] Loaded translations:', {
-  it_projects_home: it_projects?.home?.newProject,
-  en_projects_home: en_projects?.home?.newProject,
-});
-
 /**
  * Detect device language, fallback to Italian
  */
 const getDeviceLanguage = (): LanguageCode => {
   const deviceLang = Localization.getLocales()[0]?.languageCode;
-  return deviceLang === 'en' ? 'en' : 'it'; // Default to Italian
+  return deviceLang === 'it' ? 'it' : 'en'; // Italian only if device is Italian, otherwise English
 };
 
 // Initialize i18next

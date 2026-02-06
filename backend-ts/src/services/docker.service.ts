@@ -168,6 +168,7 @@ class DockerService {
     const container = await client.createContainer({
       Image: image,
       name: containerName,
+      User: '1000:1000', // Run as non-root 'coder' user
       Labels: {
         [DOCKER_LABELS.managed]: 'true',
         [DOCKER_LABELS.project]: projectId,
@@ -195,6 +196,15 @@ class DockerService {
           [`${AGENT_PORT}/tcp`]: [{ HostPort: '0' }],
           ['3000/tcp']: [{ HostPort: '0' }],
         },
+        // Security hardening: drop all capabilities, add back only essentials
+        CapDrop: ['ALL'],
+        CapAdd: ['CHOWN', 'SETUID', 'SETGID', 'NET_BIND_SERVICE'],
+        // Block cloud metadata endpoints (AWS/GCP instance metadata)
+        ExtraHosts: ['metadata.google.internal:127.0.0.1', '169.254.169.254:127.0.0.1'],
+        // Tmpfs mount for /tmp with noexec,nosuid
+        Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=512m' },
+        // Prevent fork bombs
+        PidsLimit: 512,
       },
       Healthcheck: {
         Test: ['CMD', 'node', '-e',

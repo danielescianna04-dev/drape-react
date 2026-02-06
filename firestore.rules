@@ -1,8 +1,158 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ============================================================
+    // DEFAULT DENY — everything not explicitly allowed is blocked
+    // ============================================================
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // USERS — each user can only read/write their own document
+    // Fields: email, displayName, photoURL, plan, createdAt,
+    //         updatedAt, lastLogin, provider, activeDevice,
+    //         pushTokens, pushToken, pushPlatform, pushTokenUpdatedAt,
+    //         lastActiveAt, notificationPreferences
+    // ============================================================
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+      // Users should not delete their own document from the client
+      allow delete: if false;
+
+      // ----------------------------------------------------------
+      // GIT ACCOUNTS — per-user subcollection for git provider accounts
+      // Only the owning user can read/write their git accounts
+      // ----------------------------------------------------------
+      match /git-accounts/{accountId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ----------------------------------------------------------
+      // PROJECTS subcollection — backend reads these to verify ownership
+      // Client may also need read/write for project management
+      // ----------------------------------------------------------
+      match /projects/{projectId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // ----------------------------------------------------------
+      // WORKSTATIONS subcollection — backend reads these to verify ownership
+      // Client may also need read/write for workstation management
+      // ----------------------------------------------------------
+      match /workstations/{workstationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ============================================================
+    // USER PROJECTS — main projects collection
+    // Each document has a userId field; only the owning user can access
+    // Fields: name, type, repositoryUrl, userId, createdAt,
+    //         lastAccessed, status, cloned, githubAccountUsername
+    // ============================================================
+    match /user_projects/{projectId} {
+      allow read: if request.auth != null
+                  && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================================
+    // USER CONFIGS — stores credentials (GitHub tokens, AI API keys)
+    // and preferences. Keyed by userId, only the owner can access.
+    // SENSITIVE: contains access tokens and API keys
+    // ============================================================
+    match /user_configs/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // SHARED GIT ACCOUNTS — visible to all authenticated users
+    // Any authenticated user can read. Only the user who added
+    // the account (addedBy field) can write or delete it.
+    // Fields: provider, username, displayName, avatarUrl, email,
+    //         serverUrl, addedBy, addedAt
+    // ============================================================
+    match /shared-git-accounts/{accountId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.addedBy == request.auth.uid;
+      allow update: if request.auth != null
+                    && resource.data.addedBy == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.addedBy == request.auth.uid;
+    }
+
+    // ============================================================
+    // PRESENCE — user online/offline tracking for admin dashboard
+    // Each user writes their own presence document (keyed by userId)
+    // Fields: lastSeen, sessionStart, email
+    // ============================================================
+    match /presence/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // PUBLISHED SITES — publicly accessible static site metadata
+    // Anyone can read (sites are public). Only the owning user or
+    // the backend (via Admin SDK) can create/update/delete.
+    // Fields: projectId, userId, slug, publishedAt, url
+    // NOTE: The backend uses Admin SDK for publish/unpublish,
+    //       which bypasses these rules entirely. These rules protect
+    //       against unauthorized client-side writes.
+    // ============================================================
+    match /published_sites/{siteId} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================================
+    // PROJECTS — backend-managed project metadata
+    // The backend uses Admin SDK (bypasses rules) to read/write.
+    // No client access needed; deny all from client.
+    // ============================================================
+    match /projects/{projectId} {
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // WORKSTATIONS (top-level, legacy) — backend-managed
+    // The backend uses Admin SDK (bypasses rules) to read/write.
+    // No client access needed; deny all from client.
+    // ============================================================
+    match /workstations/{workstationId} {
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // PROJECT FOLDERS (legacy) — user-owned folder organization
+    // Each document has a userId field; only the owning user can access.
+    // Fields: name, userId, createdAt
+    // ============================================================
+    match /project_folders/{folderId} {
+      allow read: if request.auth != null
+                  && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
     }
   }
 }

@@ -7,6 +7,7 @@ import { useState, useCallback, useRef } from 'react';
 import { config } from '../config/config';
 import { useTerminalStore } from '../core/terminal/terminalStore';
 import { useAuthStore } from '../core/auth/authStore';
+import { getAuthToken } from '../core/api/getAuthToken';
 
 export interface AgentEvent {
   type: 'start' | 'iteration_start' | 'thinking' | 'tool_start' | 'tool_complete' |
@@ -65,12 +66,17 @@ export const useAgentStream = () => {
       projectId: null,
     });
 
+    const authToken = await getAuthToken();
+
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
 
       xhr.open('POST', `${config.apiUrl}/agent/run/fast`);
       xhr.setRequestHeader('Content-Type', 'application/json');
+      if (authToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      }
       xhr.timeout = 300000; // 5 minutes
 
       let buffer = '';
@@ -164,12 +170,17 @@ export const useAgentStream = () => {
       projectId: projectId,
     });
 
+    const authToken = await getAuthToken();
+
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
 
       xhr.open('POST', `${config.apiUrl}/agent/run/plan`);
       xhr.setRequestHeader('Content-Type', 'application/json');
+      if (authToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      }
       xhr.timeout = 300000;
 
       let buffer = '';
@@ -266,8 +277,6 @@ export const useAgentStream = () => {
       return Promise.reject(new Error('No prompt saved'));
     }
 
-    console.log('[useAgentStream] Executing plan with prompt:', prompt.substring(0, 50) + '...');
-
     // Reset events but keep plan and prompt
     setState((prev) => ({
       ...prev,
@@ -277,12 +286,17 @@ export const useAgentStream = () => {
       error: null,
     }));
 
+    const authToken = await getAuthToken();
+
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
 
       xhr.open('POST', `${config.apiUrl}/agent/run/execute`);
       xhr.setRequestHeader('Content-Type', 'application/json');
+      if (authToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+      }
       xhr.timeout = 300000;
 
       let buffer = '';

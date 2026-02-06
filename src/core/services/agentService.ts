@@ -4,6 +4,7 @@
  */
 
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../api/getAuthToken';
 
 // Types
 interface FileChange {
@@ -50,7 +51,6 @@ export class FileWatcherService {
     ): void {
         // Don't reconnect if already connected
         if (this.workstationId === workstationId && this.eventSource) {
-            console.log(`👀 Already watching files for: ${workstationId}`);
             return;
         }
 
@@ -58,7 +58,6 @@ export class FileWatcherService {
         this.workstationId = workstationId;
 
         const agentUrl = getAgentUrl(username, workstationId);
-        console.log(`👀 [FileWatcher] Connecting to: ${agentUrl}/watch`);
 
         try {
             // Use XMLHttpRequest for SSE since EventSource may not work with cookies
@@ -79,7 +78,6 @@ export class FileWatcherService {
                         if (line.startsWith('data: ')) {
                             try {
                                 const change: FileChange = JSON.parse(line.substring(6));
-                                console.log(`👀 [FileWatcher] File changed: ${change.file}`);
                                 onFileChange(change);
                             } catch (e) {
                                 // Ignore parse errors
@@ -90,7 +88,6 @@ export class FileWatcherService {
             };
 
             xhr.onerror = () => {
-                console.log('👀 [FileWatcher] Connection error, reconnecting in 5s...');
                 this.scheduleReconnect(workstationId, username, onFileChange);
             };
 
@@ -112,7 +109,6 @@ export class FileWatcherService {
         }
 
         if (this.eventSource) {
-            console.log(`👀 [FileWatcher] Disconnecting from: ${this.workstationId}`);
             (this.eventSource as any).abort?.();
             this.eventSource = null;
         }
@@ -157,7 +153,6 @@ export class TerminalService {
 
             const data = await response.json();
             this.terminalId = data.terminalId;
-            console.log(`🖥️ [Terminal] Created session: ${this.terminalId}`);
             return this.terminalId;
         } catch (error) {
             console.error('🖥️ [Terminal] Failed to create:', error);
@@ -183,7 +178,6 @@ export class TerminalService {
             })
         });
 
-        console.log(`🖥️ [Terminal] Sent: ${input}`);
     }
 
     /**
@@ -257,14 +251,15 @@ export const aiContextService = {
         username: string
     ): Promise<ProjectContext> {
         try {
+            const authHeaders = await getAuthHeaders();
             const response = await fetch(
-                `${config.apiUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`
+                `${config.apiUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`,
+                { headers: authHeaders }
             );
 
             const data = await response.json();
 
             if (data.success) {
-                console.log(`🧠 [AIContext] Got ${data.projectContext.files.length} files`);
                 return data.projectContext;
             }
 

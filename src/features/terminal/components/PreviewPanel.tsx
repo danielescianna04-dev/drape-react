@@ -1,1430 +1,207 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, ActivityIndicator, Linking, TextInput, KeyboardAvoidingView, Platform, ScrollView, Keyboard, AppState, LayoutAnimation, UIManager, Modal, Share, Alert } from 'react-native';
-import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue, FadeIn, FadeOut, FadeInUp, FadeOutUp, ZoomIn, ZoomOut, SlideInUp, SlideOutUp } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import { View, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView, KeyboardAvoidingView } from 'react-native';
+import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { WebView } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
-import { AppColors } from '../../../shared/theme/colors';
-import { detectProjectType, ProjectInfo } from '../../../core/preview/projectDetector';
-import { config } from '../../../config/config';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { ProjectInfo } from '../../../core/preview/projectDetector';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNetworkConfig } from '../../../providers/NetworkConfigProvider';
-import { useNavigationStore } from '../../../core/navigation/navigationStore';
-import { IconButton } from '../../../shared/components/atoms';
 import { useSidebarOffset } from '../context/SidebarContext';
-import { logCommand, logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
+import { logOutput, logError, logSystem } from '../../../core/terminal/terminalLogger';
 import { gitAccountService } from '../../../core/git/gitAccountService';
 import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
-import { useAgentStream } from '../../../hooks/api/useAgentStream';
-import { usePreviewLogs } from '../../../hooks/api/usePreviewLogs';
-import { liveActivityService } from '../../../core/services/liveActivityService';
-import { TodoList } from '../../../shared/components/molecules/TodoList';
 import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQuestionModal';
+import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
 
-// 🚀 HOLY GRAIL MODE - Uses Fly.io MicroVMs instead of Coder
+// Sub-components
+import { PreviewToolbar } from './PreviewToolbar';
+import { PreviewWebView } from './PreviewWebView';
+import { PreviewAIChat } from './PreviewAIChat';
+import { PreviewPublishSheet } from './PreviewPublishSheet';
+import { PreviewStartScreen, PreviewSessionExpiredScreen, PreviewErrorScreen } from './PreviewServerStatus';
+import { PreviewEnvVarsForm } from './PreviewEnvVarsForm';
+
+// Hooks
+import { usePreviewPublish } from '../hooks/usePreviewPublish';
+import { usePreviewChat } from '../hooks/usePreviewChat';
+import { usePreviewStartup } from '../hooks/usePreviewStartup';
+
 const USE_HOLY_GRAIL = true;
 
 interface Props {
   onClose: () => void;
   previewUrl: string;
   projectName?: string;
-  projectPath?: string; // Path to the project directory
+  projectPath?: string;
 }
 
 export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, projectPath }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
-  // Usa selettori specifici per evitare re-render su ogni log del backend
-  const currentWorkstation = useTerminalStore((state) => state.currentWorkstation);
-  const globalServerStatus = useTerminalStore((state) => state.previewServerStatus);
-  const globalServerUrl = useTerminalStore((state) => state.previewServerUrl);
-  const setPreviewServerStatus = useTerminalStore((state) => state.setPreviewServerStatus);
-  const setPreviewServerUrl = useTerminalStore((state) => state.setPreviewServerUrl);
-  const globalFlyMachineId = useTerminalStore((state) => state.flyMachineId);
-  const setGlobalFlyMachineId = useTerminalStore((state) => state.setFlyMachineId);
-  const projectMachineIds = useTerminalStore((state) => state.projectMachineIds);
-  const projectPreviewUrls = useTerminalStore((state) => state.projectPreviewUrls);
-  const selectedModel = useTerminalStore((state) => state.selectedModel);
-  // 🔑 FIX: Persistent preview startup state per project
-  const setPreviewStartupState = useTerminalStore((state) => state.setPreviewStartupState);
-  const getPreviewStartupState = useTerminalStore((state) => state.getPreviewStartupState);
-  const clearPreviewStartupState = useTerminalStore((state) => state.clearPreviewStartupState);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
+  const globalServerStatus = useUIStore((state) => state.previewServerStatus);
+  const globalServerUrl = useUIStore((state) => state.previewServerUrl);
+  const setPreviewServerStatus = useUIStore((state) => state.setPreviewServerStatus);
+  const setPreviewServerUrl = useUIStore((state) => state.setPreviewServerUrl);
+  const globalFlyMachineId = useUIStore((state) => state.flyMachineId);
+  const setGlobalFlyMachineId = useUIStore((state) => state.setFlyMachineId);
+  const projectMachineIds = useUIStore((state) => state.projectMachineIds);
+  const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
   const projectId = currentWorkstation?.id;
   const { apiUrl } = useNetworkConfig();
-
-  // Agent stream for full tool execution (like ChatPage)
-  const {
-    start: startAgent,
-    stop: stopAgent,
-    isRunning: agentStreaming,
-    events: agentEvents,
-    reset: resetAgent
-  } = useAgentStream('fast');
   const insets = useSafeAreaInsets();
-  const fadeAnim = useRef(new Animated.Value(0)).current; // Fade in animation
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const { sidebarTranslateX } = useSidebarOffset();
 
-  // Animate left position - WebView handles resize
+  // Animated container position
   const containerAnimatedStyle = useAnimatedStyle(() => {
     'worklet';
-    return {
-      left: 44 + sidebarTranslateX.value,
-    };
+    return { left: 44 + sidebarTranslateX.value };
   });
 
-  // Function to animate FAB width to target
+  const isExpandedShared = useSharedValue(false);
+  const fabWidthAnim = useRef(new Animated.Value(44)).current;
+
   const animateFabWidth = (targetWidth: number) => {
     Animated.spring(fabWidthAnim, {
-      toValue: targetWidth,
-      useNativeDriver: false,
-      damping: 20,
-      stiffness: 180,
+      toValue: targetWidth, useNativeDriver: false, damping: 20, stiffness: 180,
     }).start();
   };
 
-  // Track if FAB is expanded for the animated reaction (shared value for UI thread access)
-  const isExpandedShared = useSharedValue(false);
-
-  // React to sidebar changes when FAB is expanded
   useAnimatedReaction(
     () => sidebarTranslateX.value,
     (currentValue, previousValue) => {
-      // Only animate if FAB is expanded and sidebar position changed
       if (isExpandedShared.value && previousValue !== null && currentValue !== previousValue) {
-        // Calculate new width: base 320 + sidebar offset (0 to 50)
-        const newWidth = 320 + Math.abs(currentValue);
-        runOnJS(animateFabWidth)(newWidth);
+        runOnJS(animateFabWidth)(320 + Math.abs(currentValue));
       }
     },
     []
   );
+
+  // ---- Core server state ----
   const [isLoading, setIsLoading] = useState(true);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  // Initialize from global store - preserves state when switching tabs
   const [serverStatus, setServerStatusLocal] = useState<'checking' | 'running' | 'stopped'>(globalServerStatus);
   const serverStatusRef = useRef<'checking' | 'running' | 'stopped'>(globalServerStatus);
 
-  // Wrapper to update both local and global state
   const setServerStatus = (status: 'checking' | 'running' | 'stopped') => {
     setServerStatusLocal(status);
     setPreviewServerStatus(status);
     serverStatusRef.current = status;
   };
 
-  // 🔑 FIX: Load persisted preview startup state (allows navigation away and back)
-  const getInitialStartupState = () => {
-    if (!projectId) return null;
-    return getPreviewStartupState(projectId);
-  };
-
-  const persistedState = getInitialStartupState();
-
-  const [isStarting, setIsStartingLocal] = useState(persistedState?.isStarting ?? false);
-  const [startingMessage, setStartingMessageLocal] = useState(persistedState?.startingMessage ?? '');
-  const [webViewReady, setWebViewReady] = useState(false); // Track if WebView loaded successfully
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [hasWebUI, setHasWebUI] = useState(true); // Whether to show WebView (false = show terminal output)
-  const [terminalOutput, setTerminalOutput] = useState<string[]>([]); // Terminal output for CLI projects
-  const terminalScrollRef = useRef<ScrollView>(null); // Auto-scroll terminal output
-  const logsXhrRef = useRef<XMLHttpRequest | null>(null); // SSE connection for logs (using XHR for RN compatibility)
-  // Start screen transition animation
-  const startTransitionAnim = useRef(new Animated.Value(0)).current; // 0 = idle, 1 = transitioning out
-  const [isStartTransitioning, setIsStartTransitioning] = useState(false);
-
-  const handleStartWithTransition = () => {
-    setIsStartTransitioning(true);
-    // Animate start window closing (scale down + fade, like minimizing a macOS window)
-    Animated.timing(startTransitionAnim, {
-      toValue: 1,
-      duration: 300,
-      easing: Easing.in(Easing.cubic),
-      useNativeDriver: true,
-    }).start(() => {
-      handleStartServer();
-    });
-  };
-
-  // Reset transition state when returning to stopped
-  useEffect(() => {
-    if (serverStatus === 'stopped') {
-      startTransitionAnim.setValue(0);
-      setIsStartTransitioning(false);
-    }
-  }, [serverStatus]);
-
-  // Check if project is already published
-  useEffect(() => {
-    if (!projectId || !apiUrl || serverStatus !== 'running') return;
-    fetch(`${apiUrl}/fly/project/${projectId}/published`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.published) {
-          setExistingPublish({ slug: data.slug, url: data.url });
-        }
-      })
-      .catch(() => {});
-  }, [projectId, apiUrl, serverStatus]);
-
-  // Environment variables state
-  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
-  const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
-  const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
-  const [isSavingEnv, setIsSavingEnv] = useState(false);
-  // Publish state
-  const [showPublishModal, setShowPublishModal] = useState(false);
-  const [publishSlug, setPublishSlug] = useState('');
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishStatus, setPublishStatus] = useState<'idle' | 'building' | 'publishing' | 'done' | 'error'>('idle');
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [publishError, setPublishError] = useState<string | null>(null);
-  const [existingPublish, setExistingPublish] = useState<{ slug: string; url: string } | null>(null);
-  // Initialize from global store if available, otherwise use prop
-  // For Holy Grail: previewUrl comes from SSE (Fly.io agent URL), NOT from apiUrl (backend)
   const getInitialPreviewUrl = () => {
-    // For Holy Grail: never use localhost:3000 as a fallback on devices
     if (globalServerUrl && !globalServerUrl.includes('localhost:3000')) return globalServerUrl;
-    // Otherwise use default 
     return previewUrl || '';
   };
   const [currentPreviewUrl, setCurrentPreviewUrlLocal] = useState(getInitialPreviewUrl());
-
-  // Wrapper to update both local and global URL
   const setCurrentPreviewUrl = (url: string) => {
     setCurrentPreviewUrlLocal(url);
     setPreviewServerUrl(url, currentWorkstation?.id);
   };
+
+  const [webViewReady, setWebViewReady] = useState(false);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [hasWebUI, setHasWebUI] = useState(true);
+  const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const terminalScrollRef = useRef<ScrollView>(null);
+  const logsXhrRef = useRef<XMLHttpRequest | null>(null);
   const webViewRef = useRef<WebView>(null);
-  const inputRef = useRef<TextInput>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
   const prevWorkstationId = useRef<string | null>(null);
-  const releaseTimerRef = useRef<NodeJS.Timeout | null>(null); // Timer for auto-release after 5 min
-  const [message, setMessage] = useState('');
-  const [isInspectMode, setIsInspectMode] = useState(false);
-  const [selectedElement, setSelectedElement] = useState<{ selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string } | null>(null);
-  const [isInputExpanded, setIsInputExpanded] = useState(false);
-  const [isChatMinimized, setIsChatMinimized] = useState(false);
-  const [isMessagesCollapsed, setIsMessagesCollapsed] = useState(false); // Toggle to collapse/expand messages area
-  const [webCompatibilityError, setWebCompatibilityError] = useState<string | null>(null);
-  const [aiResponse, setAiResponse] = useState<string>('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [activeTools, setActiveTools] = useState<string[]>([]);
-  const [aiMessages, setAiMessages] = useState<Array<{
-    type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded';
-    content: string;
-    tool?: string;
-    toolId?: string;
-    success?: boolean;
-    filePath?: string;
-    pattern?: string;
-    selectedElement?: { selector: string; tag?: string };
-    isThinking?: boolean;
-  }>>([]);
-  // Chat ID for saving preview conversations to chat history
-  const [previewChatId, setPreviewChatId] = useState<string | null>(null);
-  // Todos and questions from agent
-  const [currentTodos, setCurrentTodos] = useState<any[]>([]);
-  const [pendingQuestion, setPendingQuestion] = useState<any[] | null>(null);
+  const releaseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [coderToken, setCoderToken] = useState<string | null>(null);
-  // Use global store for machine ID to persist across navigation
   const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
-  const aiScrollViewRef = useRef<ScrollView>(null);
-  const lastProcessedEventIndexRef = useRef<number>(-1); // Track last processed event to avoid missing events
-  const fabWidthAnim = useRef(new Animated.Value(44)).current; // Start as small pill
-  const fabContentOpacity = useRef(new Animated.Value(0)).current; // Expanded content opacity
-  const fabOpacityAnim = useRef(new Animated.Value(1)).current;
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const defaultSteps = [
-    { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
-    { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
-    { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
-    { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
-    { id: 'installing', label: t('terminal:preview.steps.installing'), status: 'pending' as const },
-    { id: 'starting', label: t('terminal:preview.steps.starting'), status: 'pending' as const },
-    { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
-  ];
-  const [startupSteps, setStartupStepsLocal] = useState<Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>>(
-    Array.isArray(persistedState?.startupSteps) ? persistedState.startupSteps : defaultSteps
-  );
-  const [currentStepId, setCurrentStepIdLocal] = useState<string | null>(persistedState?.currentStepId ?? null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const maskOpacityAnim = useRef(new Animated.Value(1)).current;
-  const [smoothProgress, setSmoothProgressLocal] = useState(persistedState?.smoothProgress ?? 0);
-  const smoothProgressRef = useRef(persistedState?.smoothProgress ?? 0); // Ref for animation loop to avoid re-renders
-  const [targetProgress, setTargetProgressLocal] = useState(persistedState?.targetProgress ?? 0); // Step-based target progress
-  const [displayedMessage, setDisplayedMessageLocal] = useState(persistedState?.displayedMessage ?? '');
-  const [isNextJsProject, setIsNextJsProject] = useState(false); // Track if Next.js for time estimates
-
-  // Real-time VM logs during preview startup
-  const { logs: previewLogs, clearLogs } = usePreviewLogs({
-    enabled: serverStatus === 'checking',
-    maxLogs: 12,
-  });
-
-  // Error handling state
-  const [previewError, setPreviewErrorLocal] = useState<{ message: string; timestamp: Date } | null>(persistedState?.previewError ?? null);
-  const [isSendingReport, setIsSendingReport] = useState(false);
-  const [reportSent, setReportSent] = useState(false);
-  const recentLogsRef = useRef<string[]>([]); // Store recent logs for error reporting
-
-  // Session expiration state (when VM is released due to idle timeout)
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
 
-  // Live Activity / Dynamic Island state
-  const [estimatedRemainingSeconds, setEstimatedRemainingSeconds] = useState(0);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const startTimeRef = useRef<number | null>(null);
-  const appState = useRef(AppState.currentState);
-  const [isAppInBackground, setIsAppInBackground] = useState(false);
-
-  // 🔑 FIX: Wrapper setters to update both local state AND persisted state
-  const setIsStarting = (value: boolean) => {
-    setIsStartingLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { isStarting: value });
-    }
-  };
-
-  const setStartingMessage = (value: string) => {
-    setStartingMessageLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { startingMessage: value });
-    }
-  };
-
-  const setStartupSteps = (value: Array<{ id: string; label: string; status: 'pending' | 'active' | 'complete' | 'error' }>) => {
-    setStartupStepsLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { startupSteps: value });
-    }
-  };
-
-  const setCurrentStepId = (value: string | null) => {
-    setCurrentStepIdLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { currentStepId: value });
-    }
-  };
-
-  const smoothProgressSyncTimer = useRef<NodeJS.Timeout | null>(null);
-  const setSmoothProgress = (value: number | ((prev: number) => number)) => {
-    // Support functional updates: resolve the value using the ref
-    const resolved = typeof value === 'function' ? value(smoothProgressRef.current) : value;
-    smoothProgressRef.current = resolved;
-    // Throttle React state + store updates to max every 200ms to avoid render cascading
-    if (!smoothProgressSyncTimer.current) {
-      smoothProgressSyncTimer.current = setTimeout(() => {
-        smoothProgressSyncTimer.current = null;
-        setSmoothProgressLocal(smoothProgressRef.current);
-      }, 200);
-    }
-  };
-
-  const setTargetProgress = (value: number) => {
-    setTargetProgressLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { targetProgress: value });
-    }
-  };
-
-  const setDisplayedMessage = (value: string) => {
-    setDisplayedMessageLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { displayedMessage: value });
-    }
-  };
-
-  const setPreviewError = (value: { message: string; timestamp: Date } | null) => {
-    setPreviewErrorLocal(value);
-    if (projectId) {
-      setPreviewStartupState(projectId, { previewError: value });
-    }
-  };
-
-  // Rich Loading Messages - Use translations
-  const LOADING_MESSAGES: Record<string, string[]> = {
-    analyzing: t('terminal:preview.loadingMessages.analyzing', { returnObjects: true }) as string[],
-    cloning: t('terminal:preview.loadingMessages.cloning', { returnObjects: true }) as string[],
-    detecting: t('terminal:preview.loadingMessages.detecting', { returnObjects: true }) as string[],
-    booting: t('terminal:preview.loadingMessages.booting', { returnObjects: true }) as string[],
-    ready: t('terminal:preview.loadingMessages.ready', { returnObjects: true }) as string[],
-  };
-
-  // Process agent events and update aiMessages (like ChatPage)
-  // IMPORTANT: Process ALL new events, not just the latest one
-  useEffect(() => {
-    if (agentEvents.length === 0) return;
-
-    // Get all events since last processed
-    const startIndex = lastProcessedEventIndexRef.current + 1;
-    if (startIndex >= agentEvents.length) return;
-
-    // Process each new event
-    for (let i = startIndex; i < agentEvents.length; i++) {
-      const event = agentEvents[i];
-      const toolId = (event as any).id || `tool-${Date.now()}-${i}`;
-
-      if (event.type === 'tool_start' && event.tool) {
-        const input = (event as any).input || {};
-        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
-        const pattern = input.pattern || input.command || input.query || '';
-
-        console.log(`🔧 [Preview] tool_start: ${event.tool}, id=${toolId}, path=${filePath || 'n/a'}`);
-        setActiveTools(prev => [...prev, event.tool!]);
-        setAiMessages(prev => [...prev, {
-          type: 'tool_start',
-          content: event.tool!,
-          tool: event.tool,
-          toolId: toolId,
-          filePath: filePath,
-          pattern: pattern
-        }]);
-      }
-      else if (event.type === 'tool_input' && event.tool) {
-        const input = (event as any).input || {};
-        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
-        const pattern = input.pattern || input.command || input.query || '';
-
-        console.log(`🔧 [Preview] tool_input: ${event.tool}, id=${toolId}, path=${filePath || 'n/a'}`);
-        setActiveTools(prev => prev.includes(event.tool!) ? prev : [...prev, event.tool!]);
-        setAiMessages(prev => {
-          const updated = [...prev];
-          // Find matching tool by toolId or tool name
-          const existingToolIndex = updated.findIndex(
-            m => m.toolId === toolId || ((m.type === 'tool_start') && m.tool === event.tool && !m.success)
-          );
-          if (existingToolIndex >= 0) {
-            updated[existingToolIndex] = {
-              ...updated[existingToolIndex],
-              toolId: toolId,
-              filePath: filePath || updated[existingToolIndex].filePath,
-              pattern: pattern || updated[existingToolIndex].pattern
-            };
-          } else {
-            updated.push({
-              type: 'tool_start',
-              content: event.tool!,
-              tool: event.tool,
-              toolId: toolId,
-              filePath: filePath,
-              pattern: pattern
-            });
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'tool_complete' && event.tool) {
-        console.log(`✅ [Preview] tool_complete: ${event.tool}, id=${toolId}`);
-        setActiveTools(prev => prev.filter(t => t !== event.tool));
-        setAiMessages(prev => {
-          const updated = [...prev];
-          // Find matching tool by toolId or tool name (search backwards)
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].toolId === toolId ||
-              ((updated[j].type === 'tool_start' || updated[j].type === 'tool_result') &&
-                updated[j].tool === event.tool && !updated[j].success)) {
-              updated[j] = {
-                ...updated[j],
-                type: 'tool_result',
-                success: !(event as any).error
-              };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'tool_error' && event.tool) {
-        console.log(`❌ [Preview] tool_error: ${event.tool}, id=${toolId}`);
-        setActiveTools(prev => prev.filter(t => t !== event.tool));
-        setAiMessages(prev => {
-          const updated = [...prev];
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].toolId === toolId ||
-              ((updated[j].type === 'tool_start') && updated[j].tool === event.tool && !updated[j].success)) {
-              updated[j] = {
-                ...updated[j],
-                type: 'tool_result',
-                success: false
-              };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'thinking_start') {
-        console.log('🧠 [Preview] thinking_start');
-        setAiMessages(prev => [...prev, {
-          type: 'thinking',
-          content: '',
-          isThinking: true
-        }]);
-      }
-      else if (event.type === 'thinking') {
-        const thinkingText = (event as any).text;
-        if (thinkingText) {
-          setAiMessages(prev => {
-            const updated = [...prev];
-            // Find last thinking message
-            for (let j = updated.length - 1; j >= 0; j--) {
-              if (updated[j].type === 'thinking' && updated[j].isThinking) {
-                updated[j] = {
-                  ...updated[j],
-                  content: (updated[j].content || '') + thinkingText
-                };
-                break;
-              }
-            }
-            return updated;
-          });
-        }
-      }
-      else if (event.type === 'thinking_end') {
-        console.log('🧠 [Preview] thinking_end');
-        setAiMessages(prev => {
-          const updated = [...prev];
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].type === 'thinking' && updated[j].isThinking) {
-              updated[j] = { ...updated[j], isThinking: false };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'iteration_start') {
-        console.log('🔄 [Preview] iteration_start:', (event as any).iteration);
-      }
-      else if (event.type === 'budget_exceeded') {
-        console.log('⚠️ [Preview] budget_exceeded');
-        setIsAiLoading(false);
-        setAiMessages(prev => [...prev, {
-          type: 'budget_exceeded',
-          content: 'Budget AI esaurito'
-        }]);
-      }
-      else if (event.type === 'text_delta') {
-        const delta = (event as any).text;
-        if (delta) {
-          setAiMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.type === 'text') {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...last,
-                content: (last.content || '') + delta
-              };
-              return updated;
-            } else {
-              return [...prev, { type: 'text', content: delta }];
-            }
-          });
-        }
-      }
-      else if (event.type === 'message' || event.type === 'response') {
-        const msg = (event as any).content || (event as any).message || (event as any).text || (event as any).output;
-        if (msg) {
-          setAiMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.type === 'text' && last.content === msg) {
-              return prev;
-            }
-            return [...prev, { type: 'text', content: msg }];
-          });
-        }
-      }
-      else if (event.type === 'complete' || event.type === 'done') {
-        setIsAiLoading(false);
-        setActiveTools([]);
-        // SAFETY: Close any remaining thinking blocks that weren't closed by thinking_end
-        setAiMessages(prev => prev.map(msg =>
-          msg.type === 'thinking' && msg.isThinking
-            ? { ...msg, isThinking: false }
-            : msg
-        ));
-      }
-      else if (event.type === 'error' || event.type === 'fatal_error') {
-        setIsAiLoading(false);
-        setActiveTools([]);
-        const errorMsg = (event as any).error || (event as any).message || 'Error';
-        setAiMessages(prev => [...prev, { type: 'text', content: `❌ ${errorMsg}` }]);
-      }
-    }
-
-    // Update last processed index
-    lastProcessedEventIndexRef.current = agentEvents.length - 1;
-  }, [agentEvents]);
-
-  // Process agent events for todos and questions (like ChatPage)
-  useEffect(() => {
-    if (!agentEvents || agentEvents.length === 0) return;
-
-    // Extract latest todo_update event
-    const todoEvents = agentEvents.filter((e: any) => e.type === 'todo_update');
-    if (todoEvents.length > 0) {
-      const latestTodo = todoEvents[todoEvents.length - 1];
-      setCurrentTodos((latestTodo as any).todos || []);
-    }
-
-    // Extract latest ask_user_question event
-    const questionEvents = agentEvents.filter((e: any) => e.type === 'ask_user_question');
-    if (questionEvents.length > 0) {
-      const latestQuestion = questionEvents[questionEvents.length - 1];
-      setPendingQuestion((latestQuestion as any).questions || null);
-    }
-  }, [agentEvents]);
-
-  // Clear todos when agent completes
-  useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0) {
-      const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
-      if (isComplete) {
-        setCurrentTodos([]);
-      }
-    }
-  }, [agentStreaming, agentEvents]);
-
-  // Save chat messages when agent completes
-  useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0 && previewChatId && aiMessages.length > 0) {
-      // Convert aiMessages to TerminalItem format for storage
-      const messagesToSave = (aiMessages || []).map((msg, index) => ({
-        id: `preview-msg-${index}`,
-        content: msg.content || '',
-        type: msg.type === 'user' ? 'user_message' : 'output',
-        timestamp: new Date(),
-        toolInfo: msg.tool ? {
-          tool: msg.tool,
-          input: { filePath: msg.filePath, pattern: msg.pattern },
-          status: msg.success !== undefined ? (msg.success ? 'completed' : 'error') : 'running'
-        } : undefined
-      }));
-
-      console.log('💾 [PreviewPanel] Saving chat messages:', { chatId: previewChatId, messageCount: messagesToSave.length });
-
-      useTerminalStore.getState().updateChat(previewChatId, {
-        messages: messagesToSave,
-        lastUsed: new Date(),
-      });
-    }
-  }, [agentStreaming, agentEvents.length, previewChatId, aiMessages]);
-
-  // Extensions for "fanne di più" - cycling messages within steps
-  useEffect(() => {
-    if (!currentStepId || serverStatus === 'stopped') return;
-
-    const messages = LOADING_MESSAGES[currentStepId] || [startingMessage || "Elaborazione..."];
-    let msgIndex = 0;
-
-    setDisplayedMessage(messages[0]);
-
-    const interval = setInterval(() => {
-      // Don't wrap around immediately for the last step if possible, or just cycle slower
-      msgIndex = (msgIndex + 1) % messages.length;
-      setDisplayedMessage(messages[msgIndex]);
-    }, 4000); // Slower: every 4s
-
-    return () => clearInterval(interval);
-  }, [currentStepId, serverStatus]);
-
-  // Smooth progress animation - progressive 1-100, guided by real backend steps
-  // Each step has a range, progress animates within that range over time
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    // Step ranges - progress can animate within each step's range
-    // For Next.js, "starting" step (compilation) takes longest, so it has biggest range
-    const stepRanges: Record<string, { min: number; max: number }> = {
-      'analyzing': { min: 1, max: 12 },
-      'cloning': { min: 12, max: 20 },
-      'detecting': { min: 20, max: 28 },
-      'warning': { min: 28, max: 32 },
-      'booting': { min: 32, max: 45 },
-      'install': { min: 45, max: 55 },
-      'installing': { min: 45, max: 55 },
-      'starting': { min: 55, max: 92 }, // Big range for compilation time
-      'ready': { min: 92, max: 100 }
-    };
-
-    if (serverStatus === 'stopped') {
-      setSmoothProgress(0);
-      setTargetProgress(0);
-    } else {
-      interval = setInterval(() => {
-        const prev = smoothProgressRef.current;
-        let next: number;
-
-        // If webview is ready, zoom to 100%
-        if (webViewReady) {
-          next = Math.min(prev + 3, 100);
-        } else {
-          // Get current step's range
-          const range = currentStepId ? stepRanges[currentStepId] : { min: 0, max: 10 };
-          if (!range) return;
-
-          if (prev < range.min) {
-            // Below step's min, move quickly to get there
-            next = Math.min(prev + 0.5, range.min);
-          } else if (prev < range.max) {
-            // Within step's range - animate slowly toward max
-            const stepSize = range.max - range.min;
-            const baseSpeed = isNextJsProject && currentStepId === 'starting'
-              ? 0.008
-              : stepSize > 20
-                ? 0.02
-                : 0.08;
-
-            const distToMax = range.max - prev;
-            const speed = Math.max(0.005, baseSpeed * (distToMax / stepSize));
-            next = Math.min(prev + speed, range.max - 0.5);
-          } else {
-            // At max of current step - tiny movement to show activity
-            next = prev + 0.002;
-          }
-        }
-
-        setSmoothProgress(next);
-      }, 50);
-    }
-
-    return () => clearInterval(interval);
-  }, [serverStatus, webViewReady, targetProgress, currentStepId, isNextJsProject]);
-
-  // Pulse animation for active step
-  useEffect(() => {
-    let animation: Animated.CompositeAnimation | null = null;
-    const shouldPulse = serverStatus === 'checking' || (serverStatus === 'running' && !webViewReady);
-
-    if (shouldPulse) {
-      animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 0.85,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1500,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      animation.start();
-    } else {
-      // Return to full opacity when not actively pulsing/waiting
-      Animated.timing(pulseAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
-    }
-    return () => animation?.stop();
-  }, [serverStatus, webViewReady]);
-
-  // Handle mask fade-out when webViewReady becomes true
-  useEffect(() => {
-    if (webViewReady) {
-      Animated.timing(maskOpacityAnim, {
-        toValue: 0,
-        duration: 800,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      maskOpacityAnim.setValue(1);
-    }
-  }, [webViewReady]);
-
-  // Track keyboard height for input positioning
-  useEffect(() => {
-    const keyboardWillShow = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setKeyboardHeight(e.endCoordinates.height);
-      }
-    );
-    const keyboardWillHide = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setKeyboardHeight(0);
-      }
-    );
-
-    return () => {
-      keyboardWillShow.remove();
-      keyboardWillHide.remove();
-    };
-  }, []);
-
-  // 🔑 FIX: Clear persisted state when preview completes successfully
-  useEffect(() => {
-    if (serverStatus === 'running' && webViewReady && projectId) {
-      // Preview startup complete - clear the persisted state
-      console.log(`✅ [PreviewPanel] Preview ready, clearing persisted startup state for ${projectId}`);
-      clearPreviewStartupState(projectId);
-
-      const projectName = currentWorkstation?.name || t('terminal:preview.project');
-
-      // 🟣 Dynamic Island: mostra "Pronto!" al 100% poi scompare
-      if (liveActivityService.isActivityActive()) {
-        liveActivityService.endWithSuccess(projectName).catch(() => {});
-      }
-
-      // 🔔 Notifica push locale (appare solo se l'app e' in background)
-      liveActivityService.sendNotification(
-        t('terminal:preview.ready'),
-        t('terminal:preview.projectReadyForPreview', { name: projectName })
-      ).catch(() => {});
-    }
-  }, [serverStatus, webViewReady, projectId]);
-
-  // 🟣 Dynamic Island: Refs for stable AppState callback (avoid re-subscribing on every state change)
-  const isStartingRef = useRef(isStarting);
-  const currentStepIdRef = useRef(currentStepId);
-  const startupStepsRef = useRef(startupSteps);
-  const estimatedRemainingSecondsRef = useRef(estimatedRemainingSeconds);
-  const currentWorkstationNameRef = useRef(currentWorkstation?.name);
-
-  useEffect(() => { isStartingRef.current = isStarting; }, [isStarting]);
-  useEffect(() => { currentStepIdRef.current = currentStepId; }, [currentStepId]);
-  useEffect(() => { startupStepsRef.current = startupSteps; }, [startupSteps]);
-  useEffect(() => { estimatedRemainingSecondsRef.current = estimatedRemainingSeconds; }, [estimatedRemainingSeconds]);
-  useEffect(() => { currentWorkstationNameRef.current = currentWorkstation?.name; }, [currentWorkstation?.name]);
-
-  // 🟣 Dynamic Island: Avvia Live Activity IN FOREGROUND quando inizia il preview startup
-  // iOS richiede che Activity.request() venga chiamato in foreground
-  useEffect(() => {
-    if (isStarting && currentWorkstation?.name && !liveActivityService.isActivityActive()) {
-      const currentStepLabel = startupSteps.find(s => s.id === currentStepId)?.label || t('terminal:preview.loading');
-      console.log('🟣 [Dynamic Island] Starting Live Activity in foreground');
-
-      liveActivityService.startPreviewActivity(
-        currentWorkstation.name,
-        {
-          remainingSeconds: estimatedRemainingSeconds || 240,
-          currentStep: currentStepLabel,
-          progress: smoothProgressRef.current / 100
-        }
-      ).then((success) => {
-        console.log('🟣 [Dynamic Island] Start result:', success);
-      }).catch((error) => {
-        console.log('🟣 [Dynamic Island] Start error:', error.message);
-      });
-    }
-
-    // Nota: la Live Activity viene terminata con animazione di successo
-    // nell'effect di serverStatus === 'running' && webViewReady (endWithSuccess)
-  }, [isStarting, currentWorkstation?.name]);
-
-  // 🟣 Dynamic Island: Monitor AppState per aggiornare isAppInBackground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', nextAppState => {
-      appState.current = nextAppState;
-      setIsAppInBackground(nextAppState === 'background');
-    });
-
-    return () => subscription.remove();
-  }, []);
-
-  // 🟣 Dynamic Island: Aggiorna Live Activity ogni 2 secondi (funziona sia in foreground che background)
-  useEffect(() => {
-    const updateInterval = setInterval(() => {
-      if (liveActivityService.isActivityActive()) {
-        try {
-          const currentStepLabel = startupStepsRef.current.find(s => s.id === currentStepIdRef.current)?.label || t('terminal:preview.loading');
-          liveActivityService.updatePreviewActivity({
-            remainingSeconds: estimatedRemainingSecondsRef.current,
-            currentStep: currentStepLabel,
-            progress: smoothProgressRef.current / 100
-          });
-        } catch (error: any) {
-          console.log('🔄 [Dynamic Island] Update error:', error.message);
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(updateInterval);
-  }, []);
-
-  // 🟣 Calcola secondi rimanenti stimati basandosi sul progresso
-  // Uses a separate interval to read from ref, avoiding render cascade from smoothProgress state
-  useEffect(() => {
-    if (!isStarting) {
-      setEstimatedRemainingSeconds(0);
-      return;
-    }
-
-    const updateEstimate = () => {
-      const estimatedTotalSeconds = isNextJsProject ? 480 : 240; // Next.js: 8min, Altri: 4min
-      const progressFraction = smoothProgressRef.current / 100;
-      const elapsedSeconds = estimatedTotalSeconds * progressFraction;
-      const remaining = Math.max(0, Math.round(estimatedTotalSeconds - elapsedSeconds));
-      setEstimatedRemainingSeconds(remaining);
-    };
-
-    updateEstimate();
-    const timer = setInterval(updateEstimate, 2000); // Update estimate every 2s
-
-    return () => clearInterval(timer);
-  }, [isStarting, isNextJsProject]);
-
-  // ⏱️ Real elapsed timer - counts up from when preview start begins
-  useEffect(() => {
-    if (isStarting) {
-      if (!startTimeRef.current) {
-        startTimeRef.current = Date.now();
-      }
-      setElapsedSeconds(0);
-      const timer = setInterval(() => {
-        if (startTimeRef.current) {
-          setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
-        }
-      }, 1000);
-      return () => clearInterval(timer);
-    } else {
-      startTimeRef.current = null;
-      setElapsedSeconds(0);
-    }
-  }, [isStarting]);
-
-  // 🧹 Cleanup: Termina Live Activity e progress sync timer quando componente viene unmounted
-  useEffect(() => {
-    return () => {
-      if (smoothProgressSyncTimer.current) {
-        clearTimeout(smoothProgressSyncTimer.current);
-      }
-      try {
-        liveActivityService.cleanup();
-      } catch (error: any) {
-        console.log('🧹 [Dynamic Island] Cleanup error (caught):', error.message);
-      }
-    };
-  }, []);
-
-  // NOTE: Server logs SSE connection is now handled by serverLogService (global singleton)
-  // This keeps the connection alive even when PreviewPanel is closed
-
-  // Reset OR RESTORE preview state when project changes
-  useEffect(() => {
-    const currentId = currentWorkstation?.id;
-
-    // If workstation changed, handle state transition
-    if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
-      console.log(`🔄 Project changed: ${prevWorkstationId.current} → ${currentId}`);
-
-      // 🔑 NEW: Check if the NEW project has an existing machineId in the store
-      const restoredMachineId = currentId ? projectMachineIds[currentId] : null;
-      const restoredUrl = currentId ? projectPreviewUrls[currentId] : null;
-
-      if (restoredMachineId) {
-        console.log(`✨ [MultiProject] Restoring session for ${currentId} (machine: ${restoredMachineId}, url: ${restoredUrl})`);
-
-        setServerStatus('checking');
-        setGlobalFlyMachineId(restoredMachineId, currentId);
-
-        // Reconnect to logs for this project
-        serverLogService.connect(currentId);
-
-        // 🔑 FIX: Sync routing cookie FIRST, then set URL after propagation
-        fetch(`${apiUrl}/fly/session`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
-          credentials: 'include'
-        })
-          .then(() => {
-            console.log('🍪 Restored session cookie established');
-            // Wait for cookie propagation, then set URL and check status
-            setTimeout(() => {
-              if (restoredUrl) {
-                console.log('🌐 Setting restored preview URL after cookie sync');
-                setCurrentPreviewUrl(restoredUrl);
-              }
-              checkServerStatus(restoredUrl || undefined);
-            }, 1000);
-          })
-          .catch(err => {
-            console.warn('Failed to sync restored session cookie:', err);
-            // Try anyway
-            if (restoredUrl) {
-              setCurrentPreviewUrl(restoredUrl);
-            }
-            checkServerStatus(restoredUrl || undefined);
-          });
-      } else {
-        // Full reset for projects with no active session
-        console.log(`   No active session for ${currentId}, showing Start Preview`);
-        setServerStatus('stopped');
-        setPreviewServerUrl(null);
-        setGlobalFlyMachineId(null);
-        setProjectInfo(null);
-        setCoderToken(null);
-        setIsStarting(false);
-        setWebCompatibilityError(null);
-        setWebViewReady(false);
-        serverLogService.disconnect();
-      }
-
-      // Clear any running health checks from previous project
-      if (checkInterval.current) {
-        clearInterval(checkInterval.current);
-        checkInterval.current = null;
-      }
-    }
-
-    prevWorkstationId.current = currentId || null;
-  }, [currentWorkstation?.id]);
-
-  // Opening animation - fade in
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
-
-    // RESTORE SESSION COOKIE ONLY: If we have a running machine ID, ensure the cookie is set
-    // but DON'T change the serverStatus automatically. Let the user click "Start Preview".
-    if (globalFlyMachineId && apiUrl) {
-      console.log('🔄 Syncing session cookie for:', globalFlyMachineId);
-      flyMachineIdRef.current = globalFlyMachineId;
-
-      fetch(`${apiUrl}/fly/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machineId: globalFlyMachineId }),
-        credentials: 'include'
-      }).then(() => console.log('✅ Session cookie synced'))
-        .catch(e => console.warn('⚠️ Failed to sync session:', e));
-    }
-  }, []);
-
-  // Update currentPreviewUrl when previewUrl prop changes
-  // But don't overwrite if we already have a running server URL from global store
-  useEffect(() => {
-    if (previewUrl && previewUrl !== currentPreviewUrl && !globalServerUrl) {
-      setCurrentPreviewUrl(previewUrl);
-    }
-  }, [previewUrl]);
-
-  // NOTE: Server is NOT stopped on unmount - only when user clicks X button
-  // This allows navigating to other pages while keeping server running
-
-  // HOT RELOAD: Connect to file watcher when server is running
-  useEffect(() => {
-    const workstationId = currentWorkstation?.id;
-    // Get username from workstation info (stored when project was created)
-    const username = currentWorkstation?.githubAccountUsername?.toLowerCase() || 'default';
-    if (serverStatus === 'running' && workstationId && username) {
-      console.log('🔥 [HotReload] Connecting file watcher...');
-
-      fileWatcherService.connect(workstationId, username, (change) => {
-        console.log(`🔥 [HotReload] File changed: ${change.file}, refreshing preview...`);
-        logOutput(`[Hot Reload] ${change.file} changed`, 'preview', 0);
-
-        // Auto-refresh WebView
-        if (webViewRef.current) {
-          webViewRef.current.reload();
-        }
-      });
-    }
-
-    return () => {
-      // Don't disconnect on unmount - keep watching
-      // fileWatcherService.disconnect();
-    };
-  }, [serverStatus, currentWorkstation?.id]);
-
-  // Check server status periodically (only when server is running, not when 'checking')
-  // Note: When status is 'checking', health checks are started manually in handleStartServer
-  // with the correct URL passed directly to avoid stale state issues
-  useEffect(() => {
-    // Only start periodic health checks if server is already running
-    // Skip if 'stopped' (not started) or 'checking' (manual checks handle this)
-    if (serverStatus !== 'running') {
-      console.log(`⏸️ Skipping periodic health checks - status: ${serverStatus}`);
-      return;
-    }
-
-    // Verify we have a valid preview URL
-    if (currentPreviewUrl.includes('localhost:3001')) {
-      console.log('⏸️ Skipping health checks - no valid preview URL yet');
-      return;
-    }
-
-    console.log(`🔄 Starting periodic health checks for: ${currentPreviewUrl}`);
-
-    // Check every 5 seconds to keep connection alive
-    checkInterval.current = setInterval(checkServerStatus, 5000);
-
-    return () => {
-      if (checkInterval.current) {
-        clearInterval(checkInterval.current);
-      }
-    };
-  }, [currentPreviewUrl, serverStatus]);
-
-  // Set default project info on mount
-  // Actual detection is done by AI when user clicks Play
-  useEffect(() => {
-    if (!projectInfo) {
-      // Set placeholder info - real info comes from AI when starting
-      setProjectInfo({
-        type: 'detecting',
-        defaultPort: 3000,
-        startCommand: '',
-        installCommand: '',
-        description: 'Click Play to detect and start'
-      });
-    }
-  }, [currentWorkstation]);
-
-  // DISABLED for Holy Grail architecture - preview URL comes from SSE stream
-  // The Fly.io agent URL (https://drape-workspaces.fly.dev) proxies to the dev server
-  // DO NOT set preview URL based on local IP + port - that's for local-only mode
-  /*
-  useEffect(() => {
-    if (projectInfo && projectInfo.defaultPort && apiUrl && serverStatus === 'stopped' && !coderToken) {
-      const urlMatch = apiUrl.match(/https?:\/\/([^:\/]+)/);
-      if (urlMatch) {
-        const host = urlMatch[1];
-        const newPreviewUrl = `http://${host}:${projectInfo.defaultPort}`;
-        console.log(`🔄 Updating preview URL to: ${newPreviewUrl} (port ${projectInfo.defaultPort})`);
-        setCurrentPreviewUrl(newPreviewUrl);
-      }
-    }
-  }, [projectInfo, apiUrl, serverStatus]);
-  */
-
-  // Fallback: Force WebView ready after timeout if messages don't arrive
-  useEffect(() => {
-    if (serverStatus === 'running' && !webViewReady) {
-      const timer = setTimeout(() => {
-        console.log('⚠️ [WebView] Forcing ready due to 10s timeout - messages may not have arrived');
-        setWebViewReady(true);
-      }, 10000); // 10 seconds - shorter timeout for better UX
-      return () => clearTimeout(timer);
-    }
-  }, [serverStatus, webViewReady]);
-
-  // ============ AUTO-RECOVERY: Request machineId if missing ============
-  // 🔑 FIX 3: If server is running but machineId is lost, request a new session
-  useEffect(() => {
-    // 🔑 FIX: Also trigger if serverStatus is stopped but we have no machineId (might have been lost on backend)
-    const shouldRecover = (serverStatus === 'running' || serverStatus === 'stopped') && !globalFlyMachineId && currentWorkstation?.id;
-
-    if (shouldRecover) {
-      console.log(`⚠️ [AutoRecovery] ${serverStatus === 'running' ? 'Server running' : 'Preview panel open'} but machineId missing, requesting session details...`);
-
-      fetch(`${apiUrl}/fly/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: currentWorkstation.id }),
-        credentials: 'include'
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.machineId) {
-            console.log(`✅ [AutoRecovery] Recovered machineId: ${data.machineId}`);
-            setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
-          }
-        })
-        .catch(err => {
-          console.error('❌ [AutoRecovery] Failed to recover machineId:', err.message);
-        });
-    }
-  }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl, setGlobalFlyMachineId]);
-
-  // ============ LIVE LOGS STREAMING ============
-  // Connect to SSE stream for terminal output using XMLHttpRequest (React Native compatible)
-  useEffect(() => {
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-    let isMounted = true;
-
-    const connectToLogs = () => {
-      if (!isMounted) return;
-      // Only subscribe to logs when server is running OR starting and we have a project
-      if ((serverStatus !== 'running' && !isStarting && serverStatus !== 'checking') || !currentWorkstation?.id) {
-        return;
-      }
-
-      // Clean up any existing connection
-      if (logsXhrRef.current) {
-        logsXhrRef.current.abort();
-        logsXhrRef.current = null;
-      }
-
-      console.log('📺 Connecting to live logs stream...');
-
-      const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}`;
-      const xhr = new XMLHttpRequest();
-      logsXhrRef.current = xhr;
-
-      let lastIndex = 0;
-      let dataBuffer = '';
-
-      xhr.open('GET', logsUrl);
-      xhr.setRequestHeader('Accept', 'text/event-stream');
-
-      xhr.onprogress = () => {
-        // Process new data since last check
-        const newData = xhr.responseText.substring(lastIndex);
-        if (!newData) return;
-        lastIndex = xhr.responseText.length;
-
-        dataBuffer += newData;
-
-        // Process complete lines
-        let lineEndIndex;
-        while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
-          const line = dataBuffer.substring(0, lineEndIndex).trim();
-          dataBuffer = dataBuffer.substring(lineEndIndex + 1);
-
-          if (line.startsWith('data: ')) {
-            try {
-              const dataStr = line.substring(6);
-              if (dataStr === '[DONE]') continue;
-
-              const data = JSON.parse(dataStr);
-
-              // Skip connection/system messages
-              if (data.type === 'connected' || data.type === 'error') {
-                console.log('📺 Logs:', data);
-                continue;
-              }
-
-              // Handle session expired event - VM was released due to idle timeout
-              if (data.type === 'session_expired') {
-                console.log('⏰ Session expired:', data);
-                setSessionExpired(true);
-                setSessionExpiredMessage(data.message || 'Sessione terminata per inattività');
-                setServerStatus('stopped');
-                setIsStarting(false);
-                // Stop polling interval
-                if (checkInterval.current) {
-                  clearInterval(checkInterval.current);
-                  checkInterval.current = null;
-                }
-                continue;
-              }
-
-              // Add log line to terminal output
-              if (data.text) {
-                // Also update the status message in the loading screen in real-time
-                if (serverStatus !== 'running') {
-                  setDisplayedMessage(data.text);
-                }
-
-                setTerminalOutput(prev => {
-                  const newOutput = [...prev, data.text];
-                  // Keep only last 500 lines
-                  if (newOutput.length > 500) {
-                    return newOutput.slice(-500);
-                  }
-                  return newOutput;
-                });
-
-                // Auto-scroll to bottom
-                setTimeout(() => {
-                  terminalScrollRef.current?.scrollToEnd({ animated: true });
-                }, 50);
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-        }
-      };
-
-      xhr.onerror = () => {
-        console.log('📺 Logs stream error, will reconnect...');
-        if (isMounted) {
-          reconnectTimeout = setTimeout(connectToLogs, 3000);
-        }
-      };
-
-      xhr.onload = () => {
-        // If we got a 503 (VM starting), retry
-        if (xhr.status === 503 && isMounted) {
-          console.log('📺 VM starting (503), retrying logs in 3s...');
-          reconnectTimeout = setTimeout(connectToLogs, 3000);
-        }
-      };
-
-      xhr.send();
-    };
-
-    connectToLogs();
-
-    // Cleanup on unmount or dependency change
-    return () => {
-      isMounted = false;
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (logsXhrRef.current) {
-        logsXhrRef.current.abort();
-        logsXhrRef.current = null;
-      }
-    };
-  }, [serverStatus, isStarting, currentWorkstation?.id, apiUrl]);
+  // Environment variables
+  const [requiredEnvVars, setRequiredEnvVars] = useState<Array<{ key: string; defaultValue: string; description: string; required: boolean }> | null>(null);
+  const [envVarValues, setEnvVarValues] = useState<Record<string, string>>({});
+  const [envTargetFile, setEnvTargetFile] = useState<string>('.env');
+  const [isSavingEnv, setIsSavingEnv] = useState(false);
+
+  // ---- Custom hooks ----
+  const startup = usePreviewStartup({
+    projectId,
+    serverStatus,
+    webViewReady,
+    currentWorkstationName: currentWorkstation?.name,
+  });
+
+  const publish = usePreviewPublish({ projectId, apiUrl, serverStatus });
+
+  const chat = usePreviewChat({
+    currentWorkstationId: currentWorkstation?.id,
+    currentWorkstationName: currentWorkstation?.name,
+    webViewRef,
+  });
+
+  // ---- Server lifecycle ----
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
     const urlToCheck = urlOverride || currentPreviewUrl;
-    const maxRetries = 300; // Max 300 retries = 5 minutes of checking (needed for slow npm installs)
-
+    const maxRetries = 300;
     try {
-      console.log(`🔍 Checking server status at: ${urlToCheck} (attempt ${retryCount + 1})`);
-
-      // Try to fetch the URL using GET (more reliable than HEAD across different servers)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout (increased from 10s)
-
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
       const response = await fetch(urlToCheck, {
-        method: 'GET',
-        cache: 'no-store',
-        credentials: 'include',
+        method: 'GET', cache: 'no-store', credentials: 'include',
         headers: {
           'Coder-Session-Token': coderToken || '',
           'Accept': 'text/html',
-          'X-Drape-Check': 'true', // Help agent distinguish checks
+          'X-Drape-Check': 'true',
           ...(flyMachineIdRef.current ? { 'Fly-Force-Instance-Id': flyMachineIdRef.current } : {}),
         },
         signal: controller.signal,
       });
-
       clearTimeout(timeoutId);
 
       const agentStatus = response.headers.get('X-Drape-Agent-Status');
-
-      // Status Check Logic
-      // Note: 500 means the app has an error but the server IS running 
-      // (e.g., Next.js with corrupted favicon or build error)
       if ((response.status >= 200 && response.status < 400) || response.status === 500) {
         if (agentStatus === 'waiting') {
-          // Still installing dependencies - update UI to show this phase
-          console.log('📡 Agent is in waiting mode (installing dependencies)...');
-          setStartingMessage(t('terminal:preview.installingDeps'));
+          startup.setStartingMessage(t('terminal:preview.installingDeps'));
           if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
             setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
           }
           return;
         }
-
-        console.log(`✅ Server is running! Status: ${response.status}`);
         if (serverStatusRef.current !== 'running') {
           logOutput(`Server is running at ${urlToCheck}`, 'preview', 0);
-          if (response.status === 500) {
-            logOutput(`⚠️ Warning: Server has app errors (500)`, 'preview', 0);
-          }
         }
         setServerStatus('running');
-        clearLogs(); // Clear preview logs when server is ready
-        // Server is ready - hide the loading overlay and let WebView show content
-        setIsStarting(false);
-        // Set webViewReady after short delay to trigger smooth transition
+        startup.clearLogs();
+        startup.setIsStarting(false);
         setTimeout(() => setWebViewReady(true), 500);
       } else if (response.status === 403 || response.status === 503) {
-        // 403 often means Vite Host Check blocked, 503 means booting/npm install
-        // Update UI to show what's happening
-        setStartingMessage(response.status === 503 ? t('terminal:preview.startingDevServer') : t('terminal:preview.configuringServer'));
-
-        // Try to reach the agent's health endpoint to confirm VM is alive
+        startup.setStartingMessage(response.status === 503 ? t('terminal:preview.startingDevServer') : t('terminal:preview.configuringServer'));
         try {
           const healthUrl = urlToCheck.endsWith('/') ? `${urlToCheck}health` : `${urlToCheck}/health`;
-          const healthRes = await fetch(healthUrl, {
+          await fetch(healthUrl, {
             headers: { 'Fly-Force-Instance-Id': flyMachineIdRef.current || '' },
-            credentials: 'include',
-            signal: controller.signal
+            credentials: 'include', signal: controller.signal,
           });
-          const healthData = await healthRes.json();
-          if (healthData.status === 'ok') {
-            console.log('📡 Agent is alive and responsive.');
-          }
-        } catch (e: any) {
-          console.log(`📡 Agent health check failed: ${e.message}`);
-        }
-
-        console.log(`⚠️ Server not ready (status ${response.status}). Retrying...`);
+        } catch {}
         if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
           setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
       } else {
-        console.log(`⚠️ Server returned status: ${response.status}. Retrying...`);
-        setStartingMessage(t('terminal:preview.waitingForServer'));
+        startup.setStartingMessage(t('terminal:preview.waitingForServer'));
         if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
           setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 2000);
         }
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log(`❌ Server check timed out after 30s (Attempt ${retryCount + 1})`);
-        setStartingMessage(t('terminal:preview.connecting'));
-      } else {
-        console.log(`❌ Server check failed: ${error.message} (Attempt ${retryCount + 1})`);
-        setStartingMessage(t('terminal:preview.retryingConnection'));
-      }
-
-      // Retry if server isn't ready yet and we're still in checking mode
+      startup.setStartingMessage(error.name === 'AbortError' ? t('terminal:preview.connecting') : t('terminal:preview.retryingConnection'));
       if (serverStatusRef.current === 'checking' && retryCount < maxRetries) {
-        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 3000); // Longer wait after error
+        setTimeout(() => checkServerStatus(urlToCheck, retryCount + 1), 3000);
       }
     }
-  };
-
-  // Send error report to backend for debugging
-  const sendErrorReport = async () => {
-    if (!previewError) return;
-
-    setIsSendingReport(true);
-    try {
-      const deviceInfo = {
-        platform: Platform.OS,
-        version: Platform.Version,
-      };
-
-      await fetch(`${apiUrl}/fly/error-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: currentWorkstation?.id,
-          userId: useAuthStore.getState().user?.email,
-          errorMessage: previewError.message,
-          deviceInfo,
-          logs: recentLogsRef.current,
-          timestamp: previewError.timestamp.toISOString(),
-        }),
-      });
-
-      setReportSent(true);
-      console.log('✅ Error report sent successfully');
-    } catch (e) {
-      console.error('Failed to send error report:', e);
-    } finally {
-      setIsSendingReport(false);
-    }
-  };
-
-  // Retry preview after error
-  const handleRetryPreview = () => {
-    setPreviewError(null);
-    setReportSent(false);
-    // Reset steps to initial state
-    setStartupSteps([
-      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
-      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
-      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
-      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
-      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
-    ]);
-    setSmoothProgress(0);
-    // Start server again
-    handleStartServer();
   };
 
   const handleStartServer = async () => {
@@ -1433,102 +210,82 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       return;
     }
 
-    // 🔑 CHECK: If we already have a machineId, check if server is running first
+    // Quick health check if already have a machineId
     if (globalFlyMachineId && currentPreviewUrl) {
-      console.log(`🔍 [StartServer] machineId exists (${globalFlyMachineId}), checking if server is already running...`);
       setServerStatus('checking');
-      setIsStarting(true);
-
-      // Do a quick health check
+      startup.setIsStarting(true);
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
-
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         const response = await fetch(currentPreviewUrl, {
-          method: 'GET',
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            'Fly-Force-Instance-Id': globalFlyMachineId,
-          },
+          method: 'GET', cache: 'no-store', credentials: 'include',
+          headers: { 'Fly-Force-Instance-Id': globalFlyMachineId },
           signal: controller.signal,
         });
-
         clearTimeout(timeoutId);
-
-        // If server is responding (200-499), it's running!
         if (response.status >= 200 && response.status < 500) {
-          console.log(`✅ [StartServer] Server already running! Status: ${response.status}, skipping restart`);
           setServerStatus('running');
-          setIsStarting(false);
+          startup.setIsStarting(false);
           setWebViewReady(true);
-          return; // DON'T restart the server!
+          return;
         }
-
-        console.log(`⚠️ [StartServer] Server returned ${response.status}, will restart`);
-      } catch (error: any) {
-        console.log(`⚠️ [StartServer] Health check failed: ${error.message}, will restart`);
-      }
+      } catch {}
     }
 
-    // Reset session expired state when starting a new preview
     setSessionExpired(false);
     setSessionExpiredMessage('');
+    startup.setIsStarting(true);
+    setServerStatus('checking');
+    startup.clearLogs();
 
-    setIsStarting(true);
-    setServerStatus('checking'); // Enter checking screen
-    clearLogs(); // Clear previous logs when starting new preview
-
-    // Reset and initialize steps
-    setStartupSteps([
-      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' as const },
-      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' as const },
-      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' as const },
-      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' as const },
-      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' as const },
+    startup.setStartupSteps([
+      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' },
+      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' },
+      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' },
+      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' },
+      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' },
     ]);
-    setCurrentStepId('analyzing');
-    setStartingMessage(t('terminal:preview.analyzingProject'));
-    setTargetProgress(5); // Start at 5% for analyzing step
-    setIsNextJsProject(false); // Reset - will be detected from backend response
+    startup.setCurrentStepId('analyzing');
+    startup.setStartingMessage(t('terminal:preview.analyzingProject'));
+    startup.setTargetProgress(5);
+    startup.setIsNextJsProject(false);
 
     logSystem(`Starting AI-powered preview for ${currentWorkstation?.name || 'project'}...`, 'preview');
 
     try {
-      const userId = useTerminalStore.getState().userId || 'anonymous';
+      const userId = useWorkstationStore.getState().userId || 'anonymous';
       const userEmail = useAuthStore.getState().user?.email || 'anonymous@drape.dev';
       let githubToken: string | null = null;
       const repoUrl = currentWorkstation.repositoryUrl || currentWorkstation.githubUrl;
-
       if (repoUrl) {
         const tokenResult = await gitAccountService.getTokenForRepo(userId, repoUrl);
         githubToken = tokenResult?.token || null;
       }
-
       const username = userEmail.split('@')[0].replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
-      const previewEndpoint = USE_HOLY_GRAIL
-        ? `${apiUrl}/fly/preview/start`
-        : `${apiUrl}/preview/start`;
+      const previewEndpoint = USE_HOLY_GRAIL ? `${apiUrl}/fly/preview/start` : `${apiUrl}/preview/start`;
+
+      const authToken = await getAuthToken();
 
       return new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', previewEndpoint);
         xhr.setRequestHeader('Content-Type', 'application/json');
+        if (authToken) {
+          xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+        }
 
         let lastIndex = 0;
         let pollInterval: any = null;
         let dataBuffer = '';
-        let readyReceived = false; // Track if 'ready' event was received
-        let errorReceived = false; // Track if 'error' event was received (don't recover)
+        let readyReceived = false;
+        let errorReceived = false;
 
         const processResponse = () => {
           const newData = xhr.responseText.substring(lastIndex);
           if (!newData) return;
           lastIndex = xhr.responseText.length;
-
           dataBuffer += newData;
 
-          // Process all complete lines in the buffer
           let lineEndIndex;
           while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
             const line = dataBuffer.substring(0, lineEndIndex).trim();
@@ -1537,122 +294,79 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             if (line.startsWith('data: ')) {
               try {
                 const dataStr = line.substring(6);
-                if (dataStr === '[DONE]') {
-                  console.log('✅ SSE Stream complete ([DONE])');
-                  continue;
-                }
-
+                if (dataStr === '[DONE]') continue;
                 const parsed = JSON.parse(dataStr);
-                console.log('📬 Preview SSE:', parsed.type, parsed.step || '', parsed.machineId ? `(machineId: ${parsed.machineId})` : '');
 
                 if (parsed.type === 'warning') {
-                  // Handle warnings (e.g., Next.js version issues)
                   try {
                     const warningData = JSON.parse(parsed.step);
-                    console.warn('⚠️ Preview Warning:', warningData);
-                    // Store warning for display
                     if (warningData.type === 'nextjs-version') {
-                      setIsNextJsProject(true); // Definitely Next.js
-                      setTargetProgress(20); // Update progress for warning step
+                      startup.setIsNextJsProject(true);
+                      startup.setTargetProgress(20);
                       logOutput(`⚠️ ${warningData.message}`, 'preview', 0);
-                      logOutput(`   Recommended: ${warningData.recommendation}`, 'preview', 0);
                     }
-                  } catch (e) {
-                    console.warn('Failed to parse warning:', e);
-                  }
+                  } catch {}
                 } else if (parsed.type === 'step') {
-                  // Capture step progress for error reporting
-                  recentLogsRef.current.push(`[STEP] ${parsed.step}: ${parsed.message}`);
-                  if (recentLogsRef.current.length > 50) recentLogsRef.current.shift();
+                  startup.recentLogsRef.current.push(`[STEP] ${parsed.step}: ${parsed.message}`);
+                  if (startup.recentLogsRef.current.length > 50) startup.recentLogsRef.current.shift();
 
-                  setCurrentStepId(parsed.step);
-                  setStartingMessage(parsed.message);
+                  startup.setCurrentStepId(parsed.step);
+                  startup.setStartingMessage(parsed.message);
 
-                  // REAL progress based on backend steps
-                  // Steps: analyzing(5%) -> detecting(15%) -> booting(25%) -> install(40%) -> starting(70%) -> ready(100%)
                   const stepProgressMap: Record<string, number> = {
-                    'analyzing': 5,
-                    'cloning': 10,
-                    'detecting': 15,
-                    'warning': 20, // Next.js version warning
-                    'booting': 25,
-                    'install': 40,
-                    'installing': 40,
-                    'starting': 70, // This is where most time is spent for Next.js (compilation)
-                    'ready': 100
+                    'analyzing': 5, 'cloning': 10, 'detecting': 15, 'warning': 20,
+                    'booting': 25, 'install': 40, 'installing': 40, 'starting': 70, 'ready': 100,
                   };
-                  const newTarget = stepProgressMap[parsed.step] || targetProgress;
-                  setTargetProgress(newTarget);
+                  startup.setTargetProgress(stepProgressMap[parsed.step] || startup.targetProgress);
 
-                  // Detect Next.js project for time estimates
                   if (parsed.projectType?.toLowerCase().includes('next') ||
                     parsed.message?.toLowerCase().includes('next.js') ||
                     parsed.message?.toLowerCase().includes('turbopack')) {
-                    setIsNextJsProject(true);
+                    startup.setIsNextJsProject(true);
                   }
 
-                  setStartupSteps(prev => (prev || []).map(step => {
-                    if (step.id === parsed.step) return { ...step, status: 'active' };
-                    // Mark previous steps as complete
+                  startup.setStartupSteps(startup.startupSteps.map(step => {
+                    if (step.id === parsed.step) return { ...step, status: 'active' as const };
                     const stepOrder = ['analyzing', 'cloning', 'detecting', 'booting', 'installing', 'starting', 'ready'];
                     const currentIdx = stepOrder.indexOf(parsed.step);
                     const stepIdx = stepOrder.indexOf(step.id);
-                    if (stepIdx < currentIdx) return { ...step, status: 'complete' };
+                    if (stepIdx < currentIdx) return { ...step, status: 'complete' as const };
                     return step;
                   }));
 
                   if (parsed.step === 'ready') {
-                    readyReceived = true; // Mark that we received the ready event
-                    console.log('🎉 Server is ready, navigating...');
+                    readyReceived = true;
                     const result = parsed;
-                    console.log('📋 AI Preview result:', JSON.stringify(result, null, 2));
-
-                    // Handle final success state
                     const completeSetup = () => {
-                      // Show UI now that cookie is ready
                       setServerStatus('running');
-                      clearLogs(); // Clear preview logs when server is ready
-                      setIsStarting(false);
+                      startup.clearLogs();
+                      startup.setIsStarting(false);
                       resolve();
                     };
 
                     if (result.previewUrl) {
                       if (result.coderToken) setCoderToken(result.coderToken);
-                      // Set hasWebUI flag (default true if not specified)
                       const projectHasWebUI = result.hasWebUI !== false;
                       setHasWebUI(projectHasWebUI);
-                      // For CLI projects without web UI, mark as ready immediately
-                      if (!projectHasWebUI) {
-                        setWebViewReady(true);
-                      }
+                      if (!projectHasWebUI) setWebViewReady(true);
 
                       if (result.machineId) {
                         setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
                         flyMachineIdRef.current = result.machineId;
-
-                        // 🔑 FIX: Set session cookie FIRST, wait for propagation, THEN set URL
-                        // This ensures the WebView loads with the cookie already established
-                        fetch(`${apiUrl}/fly/session`, {
+                        getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/session`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: { 'Content-Type': 'application/json', ...authHeaders },
                           body: JSON.stringify({ machineId: result.machineId }),
-                          credentials: 'include'
-                        })
-                          .then(() => {
-                            console.log('🍪 Session cookie established');
-                            // Wait 1s for native cookie sync, then set URL to trigger WebView load
-                            setTimeout(() => {
-                              console.log('🌐 Setting preview URL after cookie sync');
-                              setCurrentPreviewUrl(result.previewUrl);
-                              completeSetup();
-                            }, 1000);
-                          })
-                          .catch(e => {
-                            console.warn('⚠️ Session fail:', e);
-                            // Try anyway with URL
+                          credentials: 'include',
+                        })).then(() => {
+                          setTimeout(() => {
                             setCurrentPreviewUrl(result.previewUrl);
                             completeSetup();
-                          });
+                          }, 1000);
+                        }).catch(() => {
+                          setCurrentPreviewUrl(result.previewUrl);
+                          completeSetup();
+                        });
                       } else {
                         setCurrentPreviewUrl(result.previewUrl);
                         completeSetup();
@@ -1662,76 +376,51 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                     }
                   }
                 } else if (parsed.type === 'error') {
-                  console.error('❌ SSE Error:', parsed.message);
-                  errorReceived = true; // Prevent recovery from overriding error state
-                  // Capture logs for error reporting
-                  recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
-                  setStartupSteps(prev => (prev || []).map(s => s.status === 'active' ? { ...s, status: 'error' } : s));
+                  errorReceived = true;
+                  startup.recentLogsRef.current.push(`[ERROR] ${parsed.message}`);
+                  startup.setStartupSteps(startup.startupSteps.map(s => s.status === 'active' ? { ...s, status: 'error' as const } : s));
                   logError(parsed.message, 'preview');
                   setServerStatus('stopped');
-                  setIsStarting(false);
-                  // Set error state for UI
-                  setPreviewError({ message: parsed.message, timestamp: new Date() });
+                  startup.setIsStarting(false);
+                  startup.setPreviewError({ message: parsed.message, timestamp: new Date() });
                   reject(new Error(parsed.message));
                 }
-              } catch (e: any) {
-                // Log parse errors - they might explain why 'ready' is not received
-                console.warn('⚠️ SSE JSON parse error:', e?.message, 'Data:', dataStr?.substring(0, 200));
-              }
-            } else if (line.startsWith(':')) {
-              // Heartbeat ping
-              console.log('💓 SSE Heartbeat');
+              } catch {}
             }
           }
         };
 
-        xhr.onprogress = () => {
-          processResponse();
-        };
-
+        xhr.onprogress = () => processResponse();
         pollInterval = setInterval(processResponse, 100);
 
         xhr.onload = async () => {
-          console.log(`📡 XHR onload status: ${xhr.status}, readyReceived: ${readyReceived}`);
           if (pollInterval) clearInterval(pollInterval);
           processResponse();
-
           if (xhr.status < 200 || xhr.status >= 300) {
             reject(new Error(`Server error: ${xhr.status}`));
             return;
           }
-
-          // 🔑 RECOVERY: If XHR completed but we never got 'ready' event, try to recover
-          // Skip recovery if we already received an error (don't override error state)
           if (!readyReceived && !errorReceived && xhr.status === 200) {
-            console.log('⚠️ XHR completed but ready event not received, attempting recovery...');
-            console.log('📋 Final response length:', xhr.responseText?.length);
-            console.log('📋 Last 500 chars:', xhr.responseText?.slice(-500));
-
-            // Try to fetch session to see if VM is actually ready
             try {
+              const fallbackAuthHeaders = await getAuthHeaders();
               const sessionRes = await fetch(`${apiUrl}/fly/session`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...fallbackAuthHeaders },
                 body: JSON.stringify({ projectId: currentWorkstation?.id }),
-                credentials: 'include'
+                credentials: 'include',
               });
               const sessionData = await sessionRes.json();
-
               if (sessionData.machineId) {
-                console.log('✅ Recovery: VM is running, manually completing setup');
                 setGlobalFlyMachineId(sessionData.machineId, currentWorkstation?.id);
                 flyMachineIdRef.current = sessionData.machineId;
                 setCurrentPreviewUrl(`${apiUrl}/preview/${currentWorkstation?.id}`);
                 setServerStatus('running');
-                setIsStarting(false);
+                startup.setIsStarting(false);
                 resolve();
               } else {
-                console.error('❌ Recovery failed: No machineId in session');
                 reject(new Error('Preview completed but ready event was lost'));
               }
-            } catch (recoveryErr: any) {
-              console.error('❌ Recovery fetch failed:', recoveryErr);
+            } catch {
               reject(new Error('Preview completed but ready event was lost'));
             }
           }
@@ -1746,2092 +435,461 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           projectId: USE_HOLY_GRAIL ? currentWorkstation.id : undefined,
           workstationId: USE_HOLY_GRAIL ? undefined : currentWorkstation.id,
           repositoryUrl: repoUrl,
-          githubToken: githubToken,
-          userEmail: userEmail,
-          username: username,
-          userId: userEmail,
+          githubToken, userEmail, username,
         }));
       });
-
     } catch (error: any) {
-      console.error('❌ Preview failed:', error);
       logError(error.message || t('terminal:preview.errorDuringStartup'), 'preview');
       setServerStatus('stopped');
-      setIsStarting(false);
-      setPreviewError({ message: error.message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
+      startup.setIsStarting(false);
+      startup.setPreviewError({ message: error.message || t('terminal:preview.errorStartingPreview'), timestamp: new Date() });
     }
   };
 
-  // Save environment variables and restart server
-  const handleSaveEnvVars = async () => {
-    if (!currentWorkstation?.id) return;
+  const handleStartWithTransition = () => {
+    startup.setIsStartTransitioning(true);
+    Animated.timing(startup.startTransitionAnim, {
+      toValue: 1, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true,
+    }).start(() => handleStartServer());
+  };
 
-    setIsSavingEnv(true);
-    logSystem(t('terminal:preview.savingEnvVars'), 'preview');
+  const handleRetryPreview = () => {
+    startup.setPreviewError(null);
+    startup.setReportSent(false);
+    startup.setStartupSteps([
+      { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' },
+      { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' },
+      { id: 'detecting', label: t('terminal:preview.steps.detecting'), status: 'pending' },
+      { id: 'booting', label: t('terminal:preview.steps.booting'), status: 'pending' },
+      { id: 'ready', label: t('terminal:preview.steps.ready'), status: 'pending' },
+    ]);
+    startup.setSmoothProgress(0);
+    handleStartServer();
+  };
 
+  const sendErrorReport = async () => {
+    if (!startup.previewError) return;
+    startup.setIsSendingReport(true);
     try {
-      const response = await fetch(`${apiUrl}/preview/env`, {
+      const authHeaders = await getAuthHeaders();
+      await fetch(`${apiUrl}/fly/error-report`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
-          workstationId: currentWorkstation.id,
-          envVars: envVarValues,
-          targetFile: envTargetFile,
+          projectId: currentWorkstation?.id,
+          userId: useAuthStore.getState().user?.email,
+          errorMessage: startup.previewError.message,
+          deviceInfo: { platform: Platform.OS, version: Platform.Version },
+          logs: startup.recentLogsRef.current,
+          timestamp: startup.previewError.timestamp.toISOString(),
         }),
       });
+      startup.setReportSent(true);
+    } catch {} finally {
+      startup.setIsSendingReport(false);
+    }
+  };
 
-      if (!response.ok) {
-        throw new Error(t('terminal:preview.saveError'));
-      }
+  const handleClose = () => {
+    if (checkInterval.current) clearInterval(checkInterval.current);
+    if ((serverStatus === 'running' || serverStatus === 'checking') && currentWorkstation?.id) {
+      if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current);
+      releaseTimerRef.current = setTimeout(async () => {
+        try {
+          const releaseAuthHeaders = await getAuthHeaders();
+          const response = await fetch(`${apiUrl}/fly/release`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...releaseAuthHeaders },
+            body: JSON.stringify({ projectId: currentWorkstation.id }),
+          });
+          if (response.ok) {
+            setPreviewServerStatus('stopped');
+            setPreviewServerUrl(null);
+            serverLogService.disconnect();
+          }
+        } catch {}
+      }, 5 * 60 * 1000);
+    }
+    Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => onClose());
+  };
 
+  const handleRefresh = () => {
+    webViewRef.current?.clearCache(true);
+    const baseUrl = currentPreviewUrl.split('?')[0];
+    setCurrentPreviewUrl(`${baseUrl}?_t=${Date.now()}`);
+    webViewRef.current?.reload();
+    checkServerStatus();
+  };
+
+  const handleSaveEnvVars = async () => {
+    if (!currentWorkstation?.id) return;
+    setIsSavingEnv(true);
+    logSystem(t('terminal:preview.savingEnvVars'), 'preview');
+    try {
+      const envAuthHeaders = await getAuthHeaders();
+      const response = await fetch(`${apiUrl}/preview/env`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...envAuthHeaders },
+        body: JSON.stringify({ workstationId: currentWorkstation.id, envVars: envVarValues, targetFile: envTargetFile }),
+      });
+      if (!response.ok) throw new Error(t('terminal:preview.saveError'));
       const result = await response.json();
-      console.log('✅ Env vars saved:', result);
-
       logOutput(t('terminal:preview.varsSavedIn', { file: result.file }), 'preview', 0);
-
-      // Clear the form and restart
       setRequiredEnvVars(null);
       setEnvVarValues({});
-
-      // Restart server
       logSystem(t('terminal:preview.restartingServer'), 'preview');
       handleStartServer();
-
     } catch (error: any) {
-      console.error('Error saving env vars:', error);
       logError(t('terminal:preview.errorWithMessage', { message: error.message }), 'preview');
     } finally {
       setIsSavingEnv(false);
     }
   };
 
-  const handleClose = () => {
-    if (checkInterval.current) {
-      clearInterval(checkInterval.current);
-    }
+  // ---- Effects ----
 
-    // ⏱️ NEW LOGIC: Start 5min timer for VM release (instead of immediate stop)
-    if ((serverStatus === 'running' || serverStatus === 'checking') && currentWorkstation?.id) {
-      console.log(`⏱️ [PreviewPanel] Starting 5min release timer for project ${currentWorkstation.id}`);
-
-      // Clear any existing timer
-      if (releaseTimerRef.current) {
-        clearTimeout(releaseTimerRef.current);
-      }
-
-      // Start 5-minute countdown
-      releaseTimerRef.current = setTimeout(async () => {
-        console.log(`⏰ [PreviewPanel] 5min expired, releasing VM for project ${currentWorkstation.id}`);
-
-        try {
-          const response = await fetch(`${apiUrl}/fly/release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: currentWorkstation.id, userId: useAuthStore.getState().user?.email || 'anonymous' }),
-          });
-
-          if (response.ok) {
-            console.log(`✅ [PreviewPanel] VM released for project ${currentWorkstation.id}`);
-            setPreviewServerStatus('stopped');
-            setPreviewServerUrl(null);
-            serverLogService.disconnect();
-          } else {
-            console.warn(`⚠️ [PreviewPanel] Failed to release VM: ${response.status}`);
-          }
-        } catch (error: any) {
-          console.error(`❌ [PreviewPanel] Release error:`, error.message);
-        }
-      }, 5 * 60 * 1000); // 5 minutes
-
-      console.log(`✅ [PreviewPanel] Timer started - VM will be released in 5 minutes if not reopened`);
-    }
-
-    // ❌ OLD LOGIC: Commented out - was stopping server immediately
-    /*
-
-    // NOTE: Don't disconnect from server logs here - keep connection alive
-    // The global serverLogService will continue streaming logs to the terminal
-    // Only disconnect when server is actually stopped or project changes
-
-    // Stop the server if running
-    if (serverStatus === 'running' || serverStatus === 'checking') {
-      const portMatch = currentPreviewUrl.match(/:(\d+)/);
-      if (portMatch && currentWorkstation?.id) {
-        const port = parseInt(portMatch[1]);
-        console.log(`⏱️ [DEPRECATED] Old stop logic - now using 5min timer`);
-
-        // Log stop command to global terminal
-        logCommand(`kill -9 $(lsof -ti:${port})`, 'preview');
-        logSystem(`Stopping server on port ${port}...`, 'preview');
-
-        fetch(`${apiUrl}terminal/stop-server`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            workstationId: currentWorkstation.id,
-            port: port
-          }),
-        }).then(() => {
-          console.log(`✅ Server stopped on port ${port}`);
-          logOutput(`Server stopped on port ${port}`, 'preview', 0);
-        }).catch((error) => {
-          console.log(`⚠️ Failed to stop server: ${error.message}`);
-          logError(`Failed to stop server: ${error.message}`, 'preview');
-        });
-      }
-
-      // Reset global state when server is stopped
-      setPreviewServerStatus('stopped');
-      setPreviewServerUrl(null);
-
-      // Disconnect from server logs since server is being stopped
-      serverLogService.disconnect();
-    }
-    */
-
-    // Close preview UI
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => onClose());
-  };
-
-  const handleRefresh = () => {
-    // Clear cache explicitly to ensure new assets (like images/css) are loaded
-    webViewRef.current?.clearCache(true);
-
-    // Force fresh content by updating URL with cache-busting timestamp
-    const baseUrl = currentPreviewUrl.split('?')[0];
-    const newUrl = `${baseUrl}?_t=${Date.now()}`;
-    setCurrentPreviewUrl(newUrl);
-
-    // Explicit reload
-    webViewRef.current?.reload();
-
-    checkServerStatus();
-  };
-
-  // Publish handler
-  const handlePublish = async () => {
-    const slug = existingPublish?.slug || publishSlug.trim();
-    if (!slug || !projectId) return;
-    setIsPublishing(true);
-    setPublishStatus('building');
-    setPublishError(null);
-    setPublishedUrl(null);
-    try {
-      const response = await fetch(`${apiUrl}/fly/project/${projectId}/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, userId: useAuthStore.getState().user?.uid }),
+  // Hot reload: connect to file watcher
+  useEffect(() => {
+    const workstationId = currentWorkstation?.id;
+    const username = currentWorkstation?.githubAccountUsername?.toLowerCase() || 'default';
+    if (serverStatus === 'running' && workstationId && username) {
+      fileWatcherService.connect(workstationId, username, (change) => {
+        logOutput(`[Hot Reload] ${change.file} changed`, 'preview', 0);
+        webViewRef.current?.reload();
       });
-      const data = await response.json();
-      if (!response.ok) {
-        setPublishStatus('error');
-        setPublishError(data.error || 'Publish failed');
-      } else {
-        setPublishStatus('done');
-        setPublishedUrl(data.url);
-        setExistingPublish({ slug: data.slug, url: data.url });
-      }
-    } catch (e: any) {
-      setPublishStatus('error');
-      setPublishError(e.message || 'Network error');
-    } finally {
-      setIsPublishing(false);
     }
-  };
+  }, [serverStatus, currentWorkstation?.id]);
 
-  const handleUnpublish = () => {
-    Alert.alert(
-      'Rimuovi pubblicazione',
-      `Il sito drape.info/p/${existingPublish?.slug} non sara' piu' accessibile.`,
-      [
-        { text: 'Annulla', style: 'cancel' },
-        {
-          text: 'Rimuovi', style: 'destructive', onPress: async () => {
-            if (!projectId) return;
+  // Periodic health checks when running
+  useEffect(() => {
+    if (serverStatus !== 'running') return;
+    if (currentPreviewUrl.includes('localhost:3001')) return;
+    checkInterval.current = setInterval(checkServerStatus, 5000);
+    return () => { if (checkInterval.current) clearInterval(checkInterval.current); };
+  }, [currentPreviewUrl, serverStatus]);
+
+  // Set default project info
+  useEffect(() => {
+    if (!projectInfo) {
+      setProjectInfo({ type: 'detecting', defaultPort: 3000, startCommand: '', installCommand: '', description: 'Click Play to detect and start' });
+    }
+  }, [currentWorkstation]);
+
+  // Fallback: force WebView ready after timeout
+  useEffect(() => {
+    if (serverStatus === 'running' && !webViewReady) {
+      const timer = setTimeout(() => setWebViewReady(true), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [serverStatus, webViewReady]);
+
+  // Auto-recovery: request machineId if missing
+  useEffect(() => {
+    const shouldRecover = (serverStatus === 'running' || serverStatus === 'stopped') && !globalFlyMachineId && currentWorkstation?.id;
+    if (shouldRecover) {
+      getAuthHeaders().then(recoverAuthHeaders => fetch(`${apiUrl}/fly/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...recoverAuthHeaders },
+        body: JSON.stringify({ projectId: currentWorkstation.id }),
+        credentials: 'include',
+      })).then(res => res.json()).then(data => {
+        if (data.machineId) setGlobalFlyMachineId(data.machineId, currentWorkstation.id);
+      }).catch(() => {});
+    }
+  }, [serverStatus, globalFlyMachineId, currentWorkstation?.id, apiUrl]);
+
+  // Live logs SSE streaming
+  useEffect(() => {
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isMounted = true;
+
+    const connectToLogs = async () => {
+      if (!isMounted) return;
+      if ((serverStatus !== 'running' && !startup.isStarting && serverStatus !== 'checking') || !currentWorkstation?.id) return;
+      if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
+
+      const logsUrl = `${apiUrl}/fly/logs/${currentWorkstation.id}`;
+      const xhr = new XMLHttpRequest();
+      logsXhrRef.current = xhr;
+      let lastIndex = 0;
+      let dataBuffer = '';
+
+      const logsAuthToken = await getAuthToken();
+      xhr.open('GET', logsUrl);
+      xhr.setRequestHeader('Accept', 'text/event-stream');
+      if (logsAuthToken) {
+        xhr.setRequestHeader('Authorization', `Bearer ${logsAuthToken}`);
+      }
+
+      xhr.onprogress = () => {
+        const newData = xhr.responseText.substring(lastIndex);
+        if (!newData) return;
+        lastIndex = xhr.responseText.length;
+        dataBuffer += newData;
+
+        let lineEndIndex;
+        while ((lineEndIndex = dataBuffer.indexOf('\n')) !== -1) {
+          const line = dataBuffer.substring(0, lineEndIndex).trim();
+          dataBuffer = dataBuffer.substring(lineEndIndex + 1);
+          if (line.startsWith('data: ')) {
             try {
-              await fetch(`${apiUrl}/fly/project/${projectId}/published`, { method: 'DELETE' });
-              setExistingPublish(null);
-              setShowPublishModal(false);
+              const dataStr = line.substring(6);
+              if (dataStr === '[DONE]') continue;
+              const data = JSON.parse(dataStr);
+              if (data.type === 'connected' || data.type === 'error') continue;
+              if (data.type === 'session_expired') {
+                setSessionExpired(true);
+                setSessionExpiredMessage(data.message || 'Sessione terminata per inattività');
+                setServerStatus('stopped');
+                startup.setIsStarting(false);
+                if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
+                continue;
+              }
+              if (data.text) {
+                if (serverStatus !== 'running') startup.setDisplayedMessage(data.text);
+                setTerminalOutput(prev => {
+                  const newOutput = [...prev, data.text];
+                  return newOutput.length > 500 ? newOutput.slice(-500) : newOutput;
+                });
+                setTimeout(() => terminalScrollRef.current?.scrollToEnd({ animated: true }), 50);
+              }
             } catch {}
           }
-        },
-      ]
-    );
-  };
-
-  const openPublishModal = () => {
-    setPublishSlug(existingPublish?.slug || '');
-    setPublishStatus('idle');
-    setPublishedUrl(null);
-    setPublishError(null);
-    setShowPublishModal(true);
-  };
-
-  // FAB expand animation - smooth spring animation
-  const expandFab = () => {
-    // Configure smooth spring animation
-    LayoutAnimation.configureNext({
-      duration: 300,
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.7 },
-    });
-    isExpandedShared.value = true;
-    setIsInputExpanded(true);
-    fabContentOpacity.setValue(0);
-    Animated.timing(fabContentOpacity, {
-      toValue: 1,
-      duration: 200,
-      delay: 100,
-      useNativeDriver: false,
-    }).start(() => {
-      inputRef.current?.focus();
-    });
-  };
-
-  // FAB collapse animation - smooth spring animation
-  const collapseFab = () => {
-    // Configure smooth spring animation
-    LayoutAnimation.configureNext({
-      duration: 250,
-      create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.8 },
-    });
-    // Fade out content first
-    Animated.timing(fabContentOpacity, {
-      toValue: 0,
-      duration: 100,
-      useNativeDriver: false,
-    }).start(() => {
-      isExpandedShared.value = false;
-      setIsInputExpanded(false);
-    });
-  };
-
-  const handleGoBack = () => {
-    if (canGoBack) {
-      webViewRef.current?.goBack();
-    }
-  };
-
-  const handleGoForward = () => {
-    if (canGoForward) {
-      webViewRef.current?.goForward();
-    }
-  };
-
-  const clearSelectedElement = () => {
-    setSelectedElement(null);
-    // Clear the visual selection overlay in the WebView
-    webViewRef.current?.injectJavaScript(`
-      if (window.__clearInspectSelection) {
-        window.__clearInspectSelection();
-      }
-      true;
-    `);
-  };
-
-  // Select parent element in the WebView
-  const selectParentElement = () => {
-    webViewRef.current?.injectJavaScript(`
-      if (window.__selectParentElement) {
-        window.__selectParentElement();
-      }
-      true;
-    `);
-  };
-
-  const handleSendMessage = async () => {
-    if (!message.trim() && !selectedElement) return;
-    if (!currentWorkstation?.id) {
-      console.error('No workstation selected');
-      return;
-    }
-
-    // Expand messages area if collapsed
-    if (isMessagesCollapsed) {
-      LayoutAnimation.configureNext({
-        duration: 200,
-        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-        update: { type: LayoutAnimation.Types.easeInEaseOut },
-      });
-      setIsMessagesCollapsed(false);
-    }
-
-    // Clear previous response accumulator but keep messages history
-    setAiResponse('');
-    setIsAiLoading(true);
-
-    const userMessage = message.trim();
-
-    // Build prompt with element context if selected
-    let prompt = userMessage;
-    if (selectedElement) {
-      prompt = `[Elemento selezionato: <${selectedElement.tag}> class="${selectedElement.className}" id="${selectedElement.id}" text="${selectedElement.text?.slice(0, 100)}"]\n\n${userMessage}`;
-    }
-
-    // Add user message to history locally (include selected element if any)
-    const newUserMsg = {
-      type: 'user' as const,
-      content: userMessage,
-      selectedElement: selectedElement ? { selector: selectedElement.selector, tag: selectedElement.tag } : undefined
-    };
-    setAiMessages(prev => [...prev, newUserMsg]);
-
-    // Create or update chat in history (like ChatPage)
-    const isFirstMessage = aiMessages.filter(m => m.type === 'user').length === 0;
-    let chatId = previewChatId;
-
-    if (isFirstMessage || !chatId) {
-      // Create new chat for this preview session
-      chatId = `preview-${Date.now()}`;
-      setPreviewChatId(chatId);
-
-      // Generate title from first message
-      let title = `${userMessage.slice(0, 35)}`;
-      if (userMessage.length > 35) title += '...';
-
-      const newChat = {
-        id: chatId,
-        title: title,
-        description: `Preview: ${currentWorkstation.name || t('terminal:preview.project')}`,
-        createdAt: new Date(),
-        lastUsed: new Date(),
-        messages: [],
-        aiModel: selectedModel,
-        repositoryId: currentWorkstation.id,
-        repositoryName: currentWorkstation.name,
+        }
       };
 
-      console.log('✨ [PreviewPanel] Creating new chat:', { chatId, title });
-      useTerminalStore.getState().addChat(newChat);
-    } else {
-      // Update lastUsed
-      useTerminalStore.getState().updateChatLastUsed(chatId);
+      xhr.onerror = () => { if (isMounted) reconnectTimeout = setTimeout(connectToLogs, 3000); };
+      xhr.onload = () => { if (xhr.status === 503 && isMounted) reconnectTimeout = setTimeout(connectToLogs, 3000); };
+      xhr.send();
+    };
+
+    connectToLogs();
+    return () => {
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
+    };
+  }, [serverStatus, startup.isStarting, currentWorkstation?.id, apiUrl]);
+
+  // Reset/restore state when project changes
+  useEffect(() => {
+    const currentId = currentWorkstation?.id;
+    if (prevWorkstationId.current && prevWorkstationId.current !== currentId) {
+      const restoredMachineId = currentId ? projectMachineIds[currentId] : null;
+      const restoredUrl = currentId ? projectPreviewUrls[currentId] : null;
+
+      if (restoredMachineId) {
+        setServerStatus('checking');
+        setGlobalFlyMachineId(restoredMachineId, currentId);
+        serverLogService.connect(currentId, apiUrl);
+        getAuthHeaders().then(switchAuthHeaders => fetch(`${apiUrl}/fly/session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...switchAuthHeaders },
+          body: JSON.stringify({ machineId: restoredMachineId, projectId: currentId }),
+          credentials: 'include',
+        })).then(() => {
+          setTimeout(() => {
+            if (restoredUrl) setCurrentPreviewUrl(restoredUrl);
+            checkServerStatus(restoredUrl || undefined);
+          }, 1000);
+        }).catch(() => {
+          if (restoredUrl) setCurrentPreviewUrl(restoredUrl);
+          checkServerStatus(restoredUrl || undefined);
+        });
+      } else {
+        setServerStatus('stopped');
+        setPreviewServerUrl(null);
+        setGlobalFlyMachineId(null);
+        setProjectInfo(null);
+        setCoderToken(null);
+        startup.setIsStarting(false);
+        setWebViewReady(false);
+        serverLogService.disconnect();
+      }
+      if (checkInterval.current) { clearInterval(checkInterval.current); checkInterval.current = null; }
     }
+    prevWorkstationId.current = currentId || null;
+  }, [currentWorkstation?.id]);
 
-    // Build conversation history for agent (like ChatPage)
-    const conversationHistory = aiMessages
-      .filter(m => m.type === 'user' || m.type === 'text')
-      .map(m => ({
-        role: m.type === 'user' ? 'user' : 'assistant',
-        content: m.content || ''
-      }));
-
-    // Clear input and selection immediately
-    setMessage('');
-    // Clear selected element and its visual overlay in WebView
-    clearSelectedElement();
-    // Turn off inspect mode button
-    setIsInspectMode(false);
-
-    // Reset agent and start new session
-    resetAgent();
-    lastProcessedEventIndexRef.current = -1;
-
-    // Preview always uses Gemini 3 Flash with minimal thinking for speed
-    const previewModel = 'gemini-3-flash';
-    const previewThinkingLevel = 'minimal';
-    console.log('🚀 [PreviewPanel] Starting agent with:', { prompt: prompt.slice(0, 50), projectId: currentWorkstation.id, model: previewModel, thinkingLevel: previewThinkingLevel });
-
-    // Start the agent stream with Gemini 3 Flash and minimal thinking
-    startAgent(prompt, currentWorkstation.id, previewModel, conversationHistory, [], previewThinkingLevel);
-  };
-
-  const toggleInspectMode = () => {
-    const newInspectMode = !isInspectMode;
-    setIsInspectMode(newInspectMode);
-
-    if (newInspectMode) {
-      // Enable inspect mode
-      webViewRef.current?.injectJavaScript(`
-        (function() {
-          // Remove existing inspector if any
-          if (window.__inspectorEnabled) return;
-          window.__inspectorEnabled = true;
-
-          // Style for overlay
-          const style = document.createElement('style');
-          style.id = '__inspector-style';
-          style.textContent = \`
-            @keyframes inspectorPulse {
-              0%, 100% { box-shadow: 0 0 0 0 rgba(139, 124, 246, 0.7); }
-              50% { box-shadow: 0 0 0 4px rgba(139, 124, 246, 0); }
-            }
-            .__inspector-overlay {
-              position: absolute !important;
-              pointer-events: none !important;
-              border: 2px solid #8B7CF6 !important;
-              background: rgba(139, 124, 246, 0.15) !important;
-              z-index: 999999 !important;
-              transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
-              animation: inspectorPulse 2s ease-in-out infinite !important;
-              border-radius: 4px !important;
-            }
-            .__inspector-tooltip {
-              position: absolute !important;
-              background: linear-gradient(135deg, #8B7CF6 0%, #7C5DFA 100%) !important;
-              color: white !important;
-              padding: 8px 12px !important;
-              font-size: 12px !important;
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-              border-radius: 8px !important;
-              top: -42px !important;
-              left: 50% !important;
-              transform: translateX(-50%) !important;
-              white-space: nowrap !important;
-              pointer-events: none !important;
-              z-index: 9999999 !important;
-              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-              font-weight: 600 !important;
-            }
-            .__inspector-tooltip::after {
-              content: '' !important;
-              position: absolute !important;
-              bottom: -6px !important;
-              left: 50% !important;
-              transform: translateX(-50%) !important;
-              border-left: 6px solid transparent !important;
-              border-right: 6px solid transparent !important;
-              border-top: 6px solid #7C5DFA !important;
-            }
-          \`;
-          document.head.appendChild(style);
-
-          // Create overlay element
-          const overlay = document.createElement('div');
-          overlay.className = '__inspector-overlay';
-          overlay.style.display = 'none';
-          document.body.appendChild(overlay);
-
-          const tooltip = document.createElement('div');
-          tooltip.className = '__inspector-tooltip';
-          overlay.appendChild(tooltip);
-
-          let lastElement = null;
-
-          // Helper to update overlay position
-          const updateOverlay = (target) => {
-            if (!target || target.classList.contains('__inspector-overlay') ||
-                target.classList.contains('__inspector-tooltip')) return;
-
-            const rect = target.getBoundingClientRect();
-            overlay.style.display = 'block';
-            overlay.style.top = (rect.top + window.scrollY) + 'px';
-            overlay.style.left = (rect.left + window.scrollX) + 'px';
-            overlay.style.width = rect.width + 'px';
-            overlay.style.height = rect.height + 'px';
-
-            const tagName = target.tagName.toLowerCase();
-            const classes = target.className ? (typeof target.className === 'string' ? target.className.split(' ').filter(c => c && !c.startsWith('__inspector')).slice(0, 2).join(' ') : '') : '';
-            const id = target.id || '';
-
-            let tooltipText = '<' + tagName + '>';
-            if (id) tooltipText = '<' + tagName + '#' + id + '>';
-            else if (classes) tooltipText = '<' + tagName + '.' + classes.split(' ').join('.') + '>';
-
-            // Add text preview to tooltip
-            const textContent = target.textContent?.trim().substring(0, 25);
-            if (textContent) {
-              tooltipText += ' "' + textContent + (target.textContent.length > 25 ? '...' : '') + '"';
-            }
-
-            // Add dimensions
-            tooltipText += '  ' + Math.round(rect.width) + '×' + Math.round(rect.height);
-
-            tooltip.textContent = tooltipText;
-            lastElement = target;
-          };
-
-          // Mouse move handler (for desktop/web)
-          const handleMouseMove = (e) => {
-            updateOverlay(e.target);
-          };
-
-          // No touch handlers needed — we use 'click' which only fires on real taps
-          // iOS WKWebView does NOT fire 'click' on scroll, only on actual taps
-
-          // Helper to select element
-          const selectElement = () => {
-            if (!lastElement) return;
-
-            const tagName = lastElement.tagName.toLowerCase();
-            const className = lastElement.className || '';
-            const id = lastElement.id || '';
-            const text = lastElement.textContent?.substring(0, 50) || '';
-
-            // Flash green to confirm selection
-            overlay.style.borderColor = '#00D084';
-            overlay.style.background = 'rgba(0, 208, 132, 0.2)';
-            overlay.style.animation = 'none';
-            overlay.style.boxShadow = '0 0 0 3px rgba(0, 208, 132, 0.3)';
-            tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
-            tooltip.textContent = '✓ Selected';
-
-            // Send message to React Native
-            window.ReactNativeWebView?.postMessage(JSON.stringify({
-              type: 'ELEMENT_SELECTED',
-              element: {
-                tag: tagName,
-                className: className,
-                id: id,
-                text: text,
-                innerHTML: lastElement.innerHTML?.substring(0, 200)
-              }
-            }));
-
-            // Store selected element for parent navigation
-            window.__selectedElement = lastElement;
-
-            // Function to select parent element
-            window.__selectParentElement = () => {
-              const parent = window.__selectedElement?.parentElement;
-              if (parent && parent !== document.body && parent !== document.documentElement) {
-                window.__selectedElement = parent;
-                lastElement = parent;
-
-                const rect = parent.getBoundingClientRect();
-                overlay.style.top = (rect.top + window.scrollY) + 'px';
-                overlay.style.left = (rect.left + window.scrollX) + 'px';
-                overlay.style.width = rect.width + 'px';
-                overlay.style.height = rect.height + 'px';
-
-                const tagName = parent.tagName.toLowerCase();
-                const className = parent.className || '';
-                const id = parent.id || '';
-                const text = parent.textContent?.substring(0, 50) || '';
-
-                window.ReactNativeWebView?.postMessage(JSON.stringify({
-                  type: 'ELEMENT_SELECTED',
-                  element: {
-                    tag: tagName,
-                    className: className,
-                    id: id,
-                    text: text,
-                    innerHTML: parent.innerHTML?.substring(0, 200)
-                  }
-                }));
-              }
-            };
-
-            // After brief flash, revert to hover style so user can keep selecting
-            setTimeout(() => {
-              overlay.style.borderColor = 'rgba(59, 130, 246, 0.8)';
-              overlay.style.background = 'rgba(59, 130, 246, 0.15)';
-              overlay.style.animation = 'inspectorPulse 2s ease-in-out infinite';
-              overlay.style.boxShadow = 'none';
-              tooltip.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-            }, 600);
-
-            // Store cleanup function
-            window.__clearInspectSelection = () => {
-              overlay.style.transition = 'opacity 0.3s ease';
-              overlay.style.opacity = '0';
-              setTimeout(() => {
-                if (window.__inspectorCleanup) {
-                  window.__inspectorCleanup();
-                }
-              }, 300);
-            };
-          };
-
-          // Click handler — fires on real taps only (not on scroll)
-          const handleClick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            // Find the element under the click/tap
-            const target = document.elementFromPoint(e.clientX, e.clientY);
-            if (target) {
-              updateOverlay(target);
-            }
-            selectElement();
-            return false;
-          };
-
-          // Attach listeners — only click + mousemove (no touch handlers = no scroll interference)
-          document.addEventListener('mousemove', handleMouseMove, true);
-          document.addEventListener('click', handleClick, true);
-
-          // Store cleanup function
-          window.__inspectorCleanup = () => {
-            document.removeEventListener('mousemove', handleMouseMove, true);
-            document.removeEventListener('click', handleClick, true);
-            overlay.remove();
-            style.remove();
-            window.__inspectorEnabled = false;
-            delete window.__inspectorCleanup;
-            delete window.__clearInspectSelection;
-          };
-
-          console.log('Inspect mode enabled');
-        })();
-        true;
-      `);
-    } else {
-      // Disable inspect mode and clear selection
-      webViewRef.current?.injectJavaScript(`
-        if (window.__inspectorCleanup) {
-          window.__inspectorCleanup();
-          console.log('Inspect mode disabled');
-        }
-        true;
-      `);
-      clearSelectedElement();
+  // Opening animation + session cookie restore
+  useEffect(() => {
+    Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+    if (globalFlyMachineId && apiUrl) {
+      flyMachineIdRef.current = globalFlyMachineId;
+      getAuthHeaders().then(initAuthHeaders => fetch(`${apiUrl}/fly/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...initAuthHeaders },
+        body: JSON.stringify({ machineId: globalFlyMachineId }),
+        credentials: 'include',
+      })).catch(() => {});
     }
-  };
+  }, []);
 
+  // Update URL when prop changes
+  useEffect(() => {
+    if (previewUrl && previewUrl !== currentPreviewUrl && !globalServerUrl) {
+      setCurrentPreviewUrl(previewUrl);
+    }
+  }, [previewUrl]);
+
+  // ---- Render ----
   return (
     <>
-      {/* Backdrop - Click to close */}
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleClose}
-      />
+      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
 
       <Reanimated.View style={[styles.container, containerAnimatedStyle]}>
         <Animated.View style={[{ flex: 1 }, { opacity: fadeAnim }]}>
-          <LinearGradient
-            colors={['#0a0a0a', '#000000']}
-            style={StyleSheet.absoluteFill}
-          />
+          <LinearGradient colors={['#0a0a0a', '#000000']} style={StyleSheet.absoluteFill} />
 
-          <KeyboardAvoidingView
-            style={{ flex: 1 }}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            keyboardVerticalOffset={insets.top}
-          >
-            {/* Header - Only show when server is running and WebView is ready */}
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={insets.top}>
             {serverStatus === 'running' && webViewReady && (
-              <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
-                <View style={styles.headerRow}>
-                  {/* Close */}
-                  <TouchableOpacity
-                    onPress={handleClose}
-                    style={styles.closeButton}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={18} color="rgba(255, 255, 255, 0.7)" />
-                  </TouchableOpacity>
-
-                  {/* URL Bar - centered */}
-                  <View style={styles.urlBar}>
-                    <View style={[
-                      styles.statusIndicator,
-                      { backgroundColor: '#00D084' }
-                    ]} />
-                    <Text style={styles.urlText} numberOfLines={1}>
-                      {currentPreviewUrl ? currentPreviewUrl.replace(/^https?:\/\//, '') : 'localhost'}
-                    </Text>
-                  </View>
-
-                  {/* Refresh */}
-                  <TouchableOpacity
-                    onPress={handleRefresh}
-                    style={styles.refreshButton}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
-                  </TouchableOpacity>
-
-                  {/* Publish / Update */}
-                  <TouchableOpacity
-                    onPress={openPublishModal}
-                    style={[styles.publishButton, existingPublish && styles.publishButtonUpdate]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name={existingPublish ? "cloud-done-outline" : "cloud-upload-outline"} size={15} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              </View>
+              <PreviewToolbar
+                currentPreviewUrl={currentPreviewUrl}
+                onClose={handleClose}
+                onRefresh={handleRefresh}
+                onPublish={publish.openPublishModal}
+                existingPublish={publish.existingPublish}
+                topInset={insets.top}
+              />
             )}
 
-            {/* WebView Preview or Start Screen */}
             <View style={styles.webViewContainer}>
               {serverStatus === 'stopped' && requiredEnvVars ? (
-                // Environment variables form
-                <View style={styles.envVarsScreen}>
-                  {/* Env vars form - scrollable list */}
-                  <ScrollView
-                    style={[styles.envVarsContainer, { marginTop: insets.top + 44 }]}
-                    contentContainerStyle={styles.envVarsScrollContent}
-                    showsVerticalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    <View style={styles.envVarsHeader}>
-                      <Text style={styles.envVarsTitle}>{t('terminal:preview.envVarsTitle')}</Text>
-                      <Text style={styles.envVarsSubtitle}>
-                        {t('terminal:preview.envVarsSubtitle')}
-                      </Text>
-                    </View>
-
-                    <View style={styles.envVarsList}>
-                      {requiredEnvVars.map((envVar) => (
-                        <View key={envVar.key} style={styles.envVarItem}>
-                          <View style={styles.envVarLabelRow}>
-                            <Text style={styles.envVarKey}>{envVar.key}</Text>
-                            {envVar.required && (
-                              <Text style={styles.envVarRequired}>*</Text>
-                            )}
-                          </View>
-                          {envVar.description && (
-                            <Text style={styles.envVarDescription}>{envVar.description}</Text>
-                          )}
-                          <TextInput
-                            style={styles.envVarInput}
-                            value={envVarValues[envVar.key] || ''}
-                            onChangeText={(text) => setEnvVarValues(prev => ({
-                              ...prev,
-                              [envVar.key]: text
-                            }))}
-                            placeholder={envVar.defaultValue || t('terminal:preview.enterValue')}
-                            placeholderTextColor="rgba(255, 255, 255, 0.3)"
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                          />
-                        </View>
-                      ))}
-                    </View>
-                  </ScrollView>
-
-                  {/* Fixed bottom buttons */}
-                  <View style={[styles.envVarsActions, { paddingBottom: insets.bottom + 16 }]}>
-                    <TouchableOpacity
-                      style={[styles.envVarsSaveButton, isSavingEnv && styles.envVarsSaveButtonDisabled]}
-                      onPress={handleSaveEnvVars}
-                      disabled={isSavingEnv}
-                      activeOpacity={0.7}
-                    >
-                      {isSavingEnv ? (
-                        <ActivityIndicator size="small" color="#fff" />
-                      ) : (
-                        <>
-                          <Ionicons name="play" size={16} color="#fff" />
-                          <Text style={styles.envVarsSaveText}>Avvia</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.envVarsSkipButton}
-                      onPress={() => setRequiredEnvVars(null)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.envVarsSkipText}>Annulla</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <PreviewEnvVarsForm
+                  requiredEnvVars={requiredEnvVars}
+                  envVarValues={envVarValues}
+                  onChangeEnvVar={(key, value) => setEnvVarValues(prev => ({ ...prev, [key]: value }))}
+                  isSaving={isSavingEnv}
+                  onSave={handleSaveEnvVars}
+                  onCancel={() => setRequiredEnvVars(null)}
+                  topInset={insets.top}
+                  bottomInset={insets.bottom}
+                />
               ) : sessionExpired ? (
-                // Session expired - show message with restart option
-                <Reanimated.View style={styles.startScreen} entering={FadeIn.duration(300)}>
-                  <LinearGradient
-                    colors={['#050505', '#0a0a0b', '#0f0f12']}
-                    style={StyleSheet.absoluteFill}
-                  >
-                    <View style={styles.ambientBlob1} />
-                    <View style={styles.ambientBlob2} />
-                  </LinearGradient>
-
-                  <View style={styles.iphoneMockup}>
-                    <View style={styles.statusBarArea}>
-                      <Text style={styles.fakeTime}>9:41</Text>
-                      <View style={styles.dynamicIsland} />
-                      <View style={styles.fakeStatusIcons}>
-                        <Ionicons name="wifi" size={10} color="#fff" />
-                        <Ionicons name="battery-full" size={10} color="#fff" />
-                      </View>
-                    </View>
-
-                    <View style={styles.iphoneScreenCentered}>
-                      {/* Session Expired Icon */}
-                      <View style={[styles.cosmicOrbContainer, { opacity: 0.6 }]}>
-                        <View style={[styles.cosmicGlowRing1, { backgroundColor: 'rgba(255, 171, 0, 0.15)' }]} />
-                        <View style={[styles.cosmicGlowRing2, { backgroundColor: 'rgba(255, 171, 0, 0.08)' }]} />
-                        <LinearGradient
-                          colors={['#FFAB00', '#FF6D00']}
-                          style={styles.cosmicOrb}
-                        >
-                          <Ionicons name="time-outline" size={32} color="#FFFFFF" />
-                        </LinearGradient>
-                      </View>
-
-                      <View style={styles.cosmicTextContainer}>
-                        <Text style={[styles.cosmicTitle, { fontSize: 16 }]}>
-                          SESSIONE SCADUTA
-                        </Text>
-                        <View style={[styles.cosmicTitleUnderline, { backgroundColor: '#FFAB00' }]} />
-                        <Text style={styles.cosmicSubtitle}>
-                          {sessionExpiredMessage || 'Sessione terminata per inattività'}
-                        </Text>
-                      </View>
-
-                      {/* Restart Button */}
-                      <TouchableOpacity
-                        style={[styles.cosmicOrbContainer, { marginTop: 24 }]}
-                        onPress={handleStartServer}
-                        activeOpacity={0.9}
-                      >
-                        <View style={styles.cosmicGlowRing1} />
-                        <View style={styles.cosmicGlowRing2} />
-
-                        <LiquidGlassView
-                          style={[styles.cosmicOrbGlass, { width: 56, height: 56, borderRadius: 28 }]}
-                          interactive={true}
-                          effect="clear"
-                          colorScheme="dark"
-                        >
-                          <LinearGradient
-                            colors={[`${AppColors.primary}CC`, '#6C5CE7CC']}
-                            style={[styles.cosmicOrbRaw, { borderRadius: 28 }]}
-                          >
-                            <Ionicons name="refresh" size={24} color="#FFFFFF" />
-                          </LinearGradient>
-                        </LiquidGlassView>
-                      </TouchableOpacity>
-
-                      <Text style={[styles.cosmicSubtitle, { marginTop: 8 }]}>
-                        {t('terminal:preview.tapToRestart')}
-                      </Text>
-                    </View>
-
-                    <View style={styles.iphoneSideButton} />
-                    <View style={styles.iphoneVolumeUp} />
-                    <View style={styles.iphoneVolumeDown} />
-                  </View>
-                </Reanimated.View>
-              ) : serverStatus === 'stopped' && previewError ? (
-                // Error screen - show error instead of start button
-                <View style={styles.startScreen}>
-                  <LinearGradient
-                    colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={styles.macDesktopOrb1} />
-                  <View style={styles.macDesktopOrb2} />
-                  <View style={styles.macDesktopOrb3} />
-
-                  <TouchableOpacity
-                    onPress={handleClose}
-                    style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                  </TouchableOpacity>
-
-                  <View style={styles.fullScreenContent}>
-                    <View style={styles.errorContainer}>
-                      <View style={styles.errorIconContainer}>
-                        <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
-                      </View>
-                      <Text style={styles.errorTitle}>{t('terminal:preview.startupFailed')}</Text>
-                      <Text style={styles.errorMessage} numberOfLines={8}>
-                        {previewError.message}
-                      </Text>
-
-                      <View style={styles.errorButtonsContainer}>
-                        <TouchableOpacity
-                          style={styles.retryButton}
-                          onPress={handleRetryPreview}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="refresh" size={18} color="#fff" />
-                          <Text style={styles.retryButtonText}>{t('common:retry')}</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
-                          onPress={sendErrorReport}
-                          disabled={isSendingReport || reportSent}
-                          activeOpacity={0.7}
-                        >
-                          {isSendingReport ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : reportSent ? (
-                            <>
-                              <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-                              <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
-                            </>
-                          ) : (
-                            <>
-                              <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
-                              <Text style={styles.sendLogsButtonText}>Invia log</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      </View>
-
-                      {reportSent && (
-                        <Text style={styles.reportSentMessage}>
-                          Grazie! Il nostro team analizzerà il problema.
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                </View>
+                <PreviewSessionExpiredScreen
+                  sessionExpiredMessage={sessionExpiredMessage}
+                  onStartServer={handleStartServer}
+                  t={t}
+                />
+              ) : serverStatus === 'stopped' && startup.previewError ? (
+                <PreviewErrorScreen
+                  previewError={startup.previewError}
+                  onClose={handleClose}
+                  onRetryPreview={handleRetryPreview}
+                  onSendErrorReport={sendErrorReport}
+                  isSendingReport={startup.isSendingReport}
+                  reportSent={startup.reportSent}
+                  topInset={insets.top}
+                  t={t}
+                />
               ) : serverStatus === 'stopped' ? (
-                // Server not running - macOS desktop style start screen
-                <View style={styles.startScreen}>
-                  {/* Same purple desktop background as loading screen */}
-                  <LinearGradient
-                    colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <View style={styles.macDesktopOrb1} />
-                  <View style={styles.macDesktopOrb2} />
-                  <View style={styles.macDesktopOrb3} />
-
-                  {/* Terminal-style window with project info */}
-                  <Animated.View style={[
-                    styles.devTerminalWindow,
-                    {
-                      opacity: startTransitionAnim.interpolate({
-                        inputRange: [0, 0.6, 1],
-                        outputRange: [1, 0.5, 0],
-                      }),
-                      transform: [{
-                        scale: startTransitionAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [1, 0.85],
-                        }),
-                      }, {
-                        translateY: startTransitionAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0, 30],
-                        }),
-                      }],
-                    }
-                  ]}>
-                    {/* Window title bar */}
-                    <View style={styles.devWindowTitleBar}>
-                      <View style={styles.devWindowDots}>
-                        <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
-                        <View style={[styles.devWindowDot, { backgroundColor: '#FEBC2E' }]} />
-                        <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
-                      </View>
-                      <Text style={styles.devWindowTitle}>
-                        {currentWorkstation?.name || t('terminal:preview.project')} — preview
-                      </Text>
-                      <View style={{ width: 44 }} />
-                    </View>
-
-                    {/* Window content */}
-                    <View style={styles.devWindowContent}>
-                      {/* Project Identity */}
-                      <View style={styles.devProjectHeader}>
-                        <View style={styles.devProjectIcon}>
-                          <Ionicons
-                            name={
-                              currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? 'logo-react' :
-                              currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? 'logo-vue' :
-                              currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? 'server-outline' :
-                              'logo-html5'
-                            }
-                            size={24}
-                            color={
-                              currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? '#61DAFB' :
-                              currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? '#4FC08D' :
-                              currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? '#fff' :
-                              '#E34F26'
-                            }
-                          />
-                        </View>
-                        <Text style={styles.devProjectName} numberOfLines={1}>
-                          {currentWorkstation?.name || t('terminal:preview.project')}
-                        </Text>
-                        <View style={styles.devStatusRow}>
-                          <View style={styles.devTechBadge}>
-                            <Text style={styles.devTechBadgeText}>
-                              {currentWorkstation?.technology || currentWorkstation?.language || 'web'}
-                            </Text>
-                          </View>
-                          <View style={styles.devDot} />
-                          <View style={styles.devStatusBadge}>
-                            <View style={[styles.devStatusDot, isStartTransitioning && { backgroundColor: '#FBBF24' }]} />
-                            <Text style={styles.devStatusText}>{isStartTransitioning ? t('terminal:preview.starting') : t('terminal:preview.readyShort')}</Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Info Card */}
-                      <View style={styles.devInfoCard}>
-                        <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>{t('terminal:preview.technology')}</Text>
-                          <Text style={styles.devInfoValue}>
-                            {currentWorkstation?.technology === 'react' ? 'React' :
-                             currentWorkstation?.technology === 'vue' ? 'Vue.js' :
-                             currentWorkstation?.technology === 'nextjs' ? 'Next.js' :
-                             currentWorkstation?.technology === 'html' ? 'HTML/CSS/JS' :
-                             currentWorkstation?.technology || 'Web'}
-                          </Text>
-                        </View>
-                        <View style={styles.devInfoDivider} />
-                        <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>{t('terminal:preview.port')}</Text>
-                          <Text style={styles.devInfoValue}>
-                            {currentWorkstation?.technology === 'nextjs' ? '3000' : '5173'}
-                          </Text>
-                        </View>
-                        <View style={styles.devInfoDivider} />
-                        <View style={styles.devInfoRow}>
-                          <Text style={styles.devInfoLabel}>{t('terminal:preview.environment')}</Text>
-                          <View style={styles.devEnvBadge}>
-                            <Text style={styles.devEnvBadgeText}>development</Text>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Start Button */}
-                      <TouchableOpacity
-                        style={styles.devStartBtn}
-                        onPress={handleStartWithTransition}
-                        activeOpacity={0.85}
-                        disabled={isStartTransitioning}
-                      >
-                        <LinearGradient
-                          colors={isStartTransitioning ? ['#4C1D95', '#4C1D95'] : [AppColors.primary, '#7C3AED']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={styles.devStartBtnGradient}
-                        >
-                          {isStartTransitioning ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <>
-                              <Ionicons name="play" size={18} color="#fff" style={{ marginLeft: 2 }} />
-                              <Text style={styles.devStartBtnText}>Avvia Anteprima</Text>
-                            </>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  </Animated.View>
-
-                  {/* macOS Dock */}
-                  <View style={styles.macDock}>
-                    <View style={styles.macDockBar}>
-                      {[
-                        { icon: 'compass-outline', color1: '#3B82F6', color2: '#1D4ED8' },
-                        { icon: 'terminal', color1: '#2D2D2D', color2: '#111111', active: true },
-                        { icon: 'shield-half-outline', color1: '#6366F1', color2: '#4338CA' },
-                        { icon: 'sparkles', color1: '#A855F7', color2: '#7C3AED' },
-                      ].map((app, i) => (
-                        <View key={i} style={styles.macDockIconWrap}>
-                          <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
-                            <LinearGradient
-                              colors={[app.color1, app.color2]}
-                              style={styles.macDockIconGradient}
-                            >
-                              <Ionicons name={app.icon as any} size={22} color="#fff" />
-                            </LinearGradient>
-                          </View>
-                          {app.active && <View style={styles.macDockDot} />}
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                </View>
+                <PreviewStartScreen
+                  currentWorkstation={currentWorkstation}
+                  isStartTransitioning={startup.isStartTransitioning}
+                  startTransitionAnim={startup.startTransitionAnim}
+                  onStartWithTransition={handleStartWithTransition}
+                  t={t}
+                />
               ) : (
-                <View style={{ flex: 1, backgroundColor: '#0a0a0c' }}>
-                  {/* LIVE APP LAYER (Below) */}
-                  <View style={StyleSheet.absoluteFill}>
-
-                    {hasWebUI ? (
-                      currentPreviewUrl && (currentPreviewUrl.startsWith('http://') || currentPreviewUrl.startsWith('https://')) ? (
-                        <WebView
-                          key={coderToken || 'init'}
-                          ref={webViewRef}
-                          source={{
-                            uri: currentPreviewUrl,
-                            headers: {
-                              'Coder-Session-Token': coderToken || '',
-                              'session_token': coderToken || '',
-                              ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                              'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`,
-                              ...(flyMachineIdRef.current ? {
-                                'X-Drape-VM-Id': flyMachineIdRef.current,
-                                'Fly-Force-Instance-Id': flyMachineIdRef.current
-                              } : {})
-                            }
-                          }}
-                          sharedCookiesEnabled={true}
-                          thirdPartyCookiesEnabled={true}
-                          // 🔑 FIX: Always show WebView (no opacity:0 hiding)
-                          // The LOADING SPIRIT MASK overlay handles the loading state
-                          // This prevents black screen when webViewReady is false
-                          style={styles.webView}
-
-                          injectedJavaScriptBeforeContentLoaded={`
-                          (function() {
-                            var token = "${coderToken || ''}";
-                            var vmId = "${globalFlyMachineId || ''}";
-                            
-                            // Set cookies
-                            if (token) {
-                              document.cookie = "coder_session_token=" + token + "; path=/; SameSite=Lax";
-                              document.cookie = "session_token=" + token + "; path=/; SameSite=Lax";
-                            }
-                            if (vmId) {
-                              document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
-                            }
-                            
-                            // Dark background
-                            if (document.head) {
-                              var style = document.createElement('style');
-                              style.innerHTML = 'html, body { background-color: #0a0a0a !important; }';
-                              document.head.appendChild(style);
-                            }
-                            
-                            // Check for React/Next.js mount
-                            var checkCount = 0;
-                            var checkInterval = setInterval(function() {
-                              checkCount++;
-                              if (document.body) {
-                                // Support multiple root element IDs
-                                var root = document.getElementById('root') ||
-                                           document.getElementById('__next') ||
-                                           document.querySelector('[data-reactroot]') ||
-                                           document.querySelector('[id^="app"]');
-                                var rootChildren = root ? root.children.length : 0;
-                                var text = document.body.innerText || '';
-
-                                // Check for blockers
-                                if (text.indexOf("Blocked request") !== -1 || text.indexOf("404 (Gateway)") !== -1) {
-                                  clearInterval(checkInterval);
-                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'TRIGGER_REFRESH' }));
-                                  return;
-                                }
-
-                                // React/Next.js mounted - or any content in body
-                                if ((root && rootChildren > 0) || document.body.children.length > 2) {
-                                  clearInterval(checkInterval);
-                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
-                                }
-
-                                // Shorter timeout - 10 seconds (20 checks * 500ms)
-                                if (checkCount >= 20) {
-                                  clearInterval(checkInterval);
-                                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
-                                }
-                              }
-                            }, 500);
-                          })();
-                          true;
-                        `}
-
-                          onLoadStart={(syntheticEvent) => {
-                            const { nativeEvent } = syntheticEvent;
-                            console.log('🔵 WebView load start:', nativeEvent.url);
-                            if (serverStatus !== 'running') {
-                              setWebViewReady(false);
-                            }
-                            setIsLoading(true);
-                          }}
-                          onLoadEnd={(syntheticEvent) => {
-                            const { nativeEvent } = syntheticEvent;
-                            console.log('✅ WebView load end:', nativeEvent.url);
-                            // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
-                            webViewRef.current?.injectJavaScript(`
-                           (function() {
-                             try {
-                               var bodyText = document.body && document.body.innerText && document.body.innerText.trim();
-                               if (bodyText && bodyText.charAt(0) === '{' && bodyText.indexOf('"error"') !== -1) {
-                                 var parsed = JSON.parse(bodyText);
-                                 if (parsed.error) {
-                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
-                                     type: 'PREVIEW_ERROR',
-                                     message: parsed.error + (parsed.message ? ': ' + parsed.message : '')
-                                   }));
-                                 }
-                               }
-                             } catch(e) {}
-                           })();
-                           true;
-                         `);
-                            webViewRef.current?.injectJavaScript(`
-                           (function() {
-                             window.addEventListener('error', function(e) {
-                               window.ReactNativeWebView?.postMessage(JSON.stringify({
-                                 type: 'JS_ERROR',
-                                 message: e.message
-                               }));
-                             });
-
-                             // Support multiple root element IDs
-                             const root = document.getElementById('root') ||
-                                          document.getElementById('__next') ||
-                                          document.querySelector('[data-reactroot]') ||
-                                          document.querySelector('[id^="app"]');
-                             const rootChildren = root ? root.children.length : 0;
-
-                             let attempts = 0;
-                             const maxAttempts = 20; // Reduced from 40 to 20 (10 seconds max)
-
-                             function checkContent() {
-                               attempts++;
-                               try {
-                                 const root = document.getElementById('root') ||
-                                              document.getElementById('__next') ||
-                                              document.querySelector('[data-reactroot]') ||
-                                              document.querySelector('[id^="app"]');
-                                 // Check root children OR any substantial body content
-                                 const rootChildren = root ? root.children.length : 0;
-                                 const hasContent = (rootChildren > 0) || (document.body.children.length > 2);
-
-                                 if (hasContent) {
-                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
-                                     type: 'PAGE_INFO',
-                                     hasContent: hasContent,
-                                     rootChildren: rootChildren,
-                                     forceReady: false
-                                   }));
-                                   return true;
-                                 }
-
-                                 // Force ready after max attempts
-                                 if (attempts >= maxAttempts) {
-                                   window.ReactNativeWebView?.postMessage(JSON.stringify({
-                                     type: 'PAGE_INFO',
-                                     hasContent: true,
-                                     rootChildren: 0,
-                                     forceReady: true
-                                   }));
-                                   return true;
-                                 }
-                               } catch(e) {}
-                               return false;
-                             }
-
-                             if (!checkContent()) {
-                               const interval = setInterval(function() {
-                                 if (checkContent()) clearInterval(interval);
-                               }, 500);
-                             }
-
-
-                           })();
-                           true;
-                         `);
-                            setIsLoading(false);
-                          }}
-
-                          onLoadProgress={({ nativeEvent }) => {
-                            if (nativeEvent.progress === 1) setIsLoading(false);
-                          }}
-                          onNavigationStateChange={(navState) => {
-                            setCanGoBack(navState.canGoBack);
-                            setCanGoForward(navState.canGoForward);
-                            setIsLoading(navState.loading);
-                          }}
-                          onShouldStartLoadWithRequest={(request) => {
-                            const url = request.url;
-                            // Extract the preview base path from currentPreviewUrl
-                            const previewBase = currentPreviewUrl.split('?')[0].replace(/\/$/, '');
-                            const previewPathMatch = previewBase.match(/\/preview\/[^\/]+/);
-                            const previewPath = previewPathMatch ? previewPathMatch[0] : null;
-
-                            // If navigating to drape.info but NOT within the preview path, rewrite it
-                            if (previewPath && url.includes('drape.info') && !url.includes(previewPath)) {
-                              // Extract the path from the URL (e.g., /login from https://drape.info/login)
-                              const urlObj = new URL(url);
-                              const targetPath = urlObj.pathname;
-
-                              // Don't intercept preview paths or special routes
-                              if (!targetPath.startsWith('/preview/') && !targetPath.startsWith('/_next/') && !targetPath.startsWith('/@')) {
-                                // Rewrite to stay within preview
-                                const newUrl = `https://drape.info${previewPath}${targetPath}${urlObj.search}`;
-                                console.log(`🔄 [Preview] Rewriting navigation: ${url} → ${newUrl}`);
-                                setCurrentPreviewUrl(newUrl);
-                                return false; // Block original navigation, we'll load the rewritten URL
-                              }
-                            }
-                            return true; // Allow all other navigations
-                          }}
-                          onMessage={(event) => {
-                            try {
-                              const data = JSON.parse(event.nativeEvent.data);
-
-                              if (data.type === 'WEBVIEW_READY') {
-                                setWebViewReady(true);
-                              }
-                              if (data.type === 'PREVIEW_ERROR') {
-                                // WebView loaded a JSON error from the proxy — show error UI
-                                console.error('❌ WebView detected proxy error:', data.message);
-                                const rawMsg = data.message || '';
-                                let userMsg = rawMsg;
-                                // Translate common proxy errors to user-friendly Italian messages
-                                if (rawMsg.includes('ECONNREFUSED')) {
-                                  userMsg = t('terminal:preview.errorServerFailed');
-                                } else if (rawMsg.includes('timeout') || rawMsg.includes('Timeout')) {
-                                  userMsg = t('terminal:preview.errorTimeout');
-                                } else if (rawMsg.includes('ENOTFOUND') || rawMsg.includes('EHOSTUNREACH')) {
-                                  userMsg = t('terminal:preview.errorContainerUnreachable');
-                                }
-                                setPreviewError({ message: userMsg, timestamp: new Date() });
-                                setServerStatus('stopped');
-                                setIsStarting(false);
-                              }
-                              if (data.type === 'TRIGGER_REFRESH') {
-                                handleRefresh();
-                              }
-                              if (data.type === 'PAGE_INFO') {
-                                if (data.rootChildren > 0 || data.forceReady) {
-                                  if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
-                                }
-                              }
-                              if (data.type === 'ELEMENT_SELECTED') {
-                                const el = data.element;
-                                let elementSelector = `<${el.tag}>`;
-                                if (el.id) elementSelector = `<${el.tag}#${el.id}>`;
-                                else if (el.className) {
-                                  const classNameStr = typeof el.className === 'string' ? el.className : (el.className?.baseVal || '');
-                                  const classes = classNameStr.split(' ').filter((c: string) => c && !c.startsWith('__inspector')).slice(0, 2);
-                                  if (classes.length > 0) elementSelector = `<${el.tag}.${classes.join('.')}>`;
-                                }
-                                // Always update selection to the new element (replaces previous)
-                                setSelectedElement({ selector: elementSelector, text: (el.text?.trim()?.substring(0, 40) || '') + (el.text?.length > 40 ? '...' : ''), tag: el.tag, className: typeof el.className === 'string' ? el.className : (el.className?.baseVal || ''), id: el.id, innerHTML: el.innerHTML });
-                                // Stay in inspect mode — user exits by pressing the button again
-                              }
-                            } catch (error) { }
-                          }}
-                          javaScriptEnabled={true}
-                          domStorageEnabled={true}
-                          startInLoadingState={false}
-                          scalesPageToFit={true}
-                          bounces={false}
-                          mixedContentMode="always"
-                          allowsInlineMediaPlayback={true}
-                          mediaPlaybackRequiresUserAction={false}
-                          originWhitelist={['*']}
-                          renderToHardwareTextureAndroid={true}
-                          shouldRasterizeIOS={true}
-                          cacheEnabled={true}
-                        />
-                      ) : (
-                        <View style={{ flex: 1, backgroundColor: '#0a0a0c' }} />
-                      )
-                    ) : (
-                      /* Terminal Output View for CLI projects */
-                      <ScrollView
-                        ref={terminalScrollRef}
-                        style={styles.terminalOutputContainer}
-                        contentContainerStyle={styles.terminalOutputContent}
-                      >
-                        <View style={styles.terminalHeader}>
-                          <View style={styles.terminalDot} />
-                          <View style={[styles.terminalDot, { backgroundColor: '#f5c542' }]} />
-                          <View style={[styles.terminalDot, { backgroundColor: '#5ac05a' }]} />
-                          <Text style={styles.terminalTitle}>Terminal Output</Text>
-                        </View>
-                        {terminalOutput.length === 0 ? (
-                          <View style={styles.terminalEmpty}>
-                            <Ionicons name="terminal" size={48} color="rgba(255,255,255,0.2)" />
-                            <Text style={styles.terminalEmptyText}>
-                              {t('terminal:preview.noWebUI')}
-                            </Text>
-                          </View>
-                        ) : (
-                          (terminalOutput || []).map((line, index) => {
-                            // Detect line type from prefix (system messages start with emoji)
-                            const isSystem = line.startsWith('🚀') || line.startsWith('🔄') || line.startsWith('⏹️') || line.startsWith('❌');
-                            const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('warn');
-                            const lineColor = isSystem ? '#6366f1' : isError ? '#f87171' : '#e0e0e0';
-                            return (
-                              <Text key={index} style={[styles.terminalLine, { color: lineColor }]}>
-                                {line}
-                              </Text>
-                            );
-                          })
-                        )}
-                      </ScrollView>
-                    )}
-                  </View>
-
-                  {/* LOADING SPIRIT MASK (Above) */}
-                  <Animated.View
-                    style={[
-                      StyleSheet.absoluteFill,
-                      { opacity: maskOpacityAnim },
-                      webViewReady && { pointerEvents: 'none' }
-                    ]}
-                  >
-                    <View style={styles.startScreen}>
-                      {/* macOS Desktop-style background */}
-                      <LinearGradient
-                        colors={['#1a0a2e', '#120826', '#0d0619', '#120826', '#1a0a2e']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      {/* Subtle ambient orbs */}
-                      <View style={styles.macDesktopOrb1} />
-                      <View style={styles.macDesktopOrb2} />
-                      <View style={styles.macDesktopOrb3} />
-
-                      {/* Close button top right */}
-                      <TouchableOpacity
-                        onPress={handleClose}
-                        style={[styles.startCloseButton, { top: insets.top + 8, right: 16 }]}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-                      </TouchableOpacity>
-
-                      {/* Content - Error or Terminal (full screen) */}
-                      <View style={styles.fullScreenContent}>
-                        {previewError ? (
-                          /* ERROR UI */
-                          <View style={styles.errorContainer}>
-                                <View style={styles.errorIconContainer}>
-                                  <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
-                                </View>
-                                <Text style={styles.errorTitle}>{t('terminal:preview.errorOccurred')}</Text>
-                                <Text style={styles.errorMessage} numberOfLines={3}>
-                                  {previewError.message}
-                                </Text>
-
-                                <View style={styles.errorButtonsContainer}>
-                                  <TouchableOpacity
-                                    style={styles.retryButton}
-                                    onPress={handleRetryPreview}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Ionicons name="refresh" size={18} color="#fff" />
-                                    <Text style={styles.retryButtonText}>{t('common:retry')}</Text>
-                                  </TouchableOpacity>
-
-                                  <TouchableOpacity
-                                    style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
-                                    onPress={sendErrorReport}
-                                    disabled={isSendingReport || reportSent}
-                                    activeOpacity={0.7}
-                                  >
-                                    {isSendingReport ? (
-                                      <ActivityIndicator size="small" color="#fff" />
-                                    ) : reportSent ? (
-                                      <>
-                                        <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-                                        <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
-                                        <Text style={styles.sendLogsButtonText}>Invia log</Text>
-                                      </>
-                                    )}
-                                  </TouchableOpacity>
-                                </View>
-
-                                {reportSent && (
-                                  <Text style={styles.reportSentMessage}>
-                                    Grazie! Il nostro team analizzerà il problema.
-                                  </Text>
-                                )}
-                              </View>
-                            ) : (
-                              /* LOADING UI - Mac Terminal Style */
-                              <View style={styles.terminalContainer}>
-                                {/* Mac Terminal Header */}
-                                <View style={styles.terminalHeader}>
-                                  <View style={styles.terminalTrafficLights}>
-                                    <View style={[styles.terminalLight, styles.terminalLightRed]} />
-                                    <View style={[styles.terminalLight, styles.terminalLightYellow]} />
-                                    <View style={[styles.terminalLight, styles.terminalLightGreen]} />
-                                  </View>
-                                  <Text style={styles.terminalTitle}>drape — bash</Text>
-                                </View>
-
-                                {/* Terminal Body with Logs */}
-                                <ScrollView
-                                  style={styles.terminalBody}
-                                  contentContainerStyle={styles.terminalContent}
-                                  showsVerticalScrollIndicator={false}
-                                  ref={(ref) => {
-                                    if (ref && previewLogs.length > 0) {
-                                      setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
-                                    }
-                                  }}
-                                >
-                                  {previewLogs.length > 0 ? (
-                                    <>
-                                      {(previewLogs || []).map((log) => (
-                                        <Text key={log.id} style={styles.terminalLogText}>
-                                          {log.message}
-                                        </Text>
-                                      ))}
-                                      {/* Blinking cursor */}
-                                      <Animated.View style={[styles.terminalCursor, {
-                                        opacity: pulseAnim.interpolate({
-                                          inputRange: [0.6, 1],
-                                          outputRange: [0, 1]
-                                        })
-                                      }]} />
-                                    </>
-                                  ) : (
-                                    <Text style={styles.terminalLogText}>
-                                      {displayedMessage || t('terminal:preview.initializingEnv')}
-                                    </Text>
-                                  )}
-                                </ScrollView>
-
-                                {/* Progress bar at bottom */}
-                                <View style={styles.terminalFooter}>
-                                  <View style={styles.terminalProgressBar}>
-                                    <View style={[
-                                      styles.terminalProgressFill,
-                                      { width: `${smoothProgress}%` }
-                                    ]} />
-                                  </View>
-                                  <Text style={styles.terminalProgressText} numberOfLines={1}>
-                                    {startingMessage || t('terminal:preview.loading')}
-                                  </Text>
-                                  {elapsedSeconds > 0 && (
-                                    <Text style={styles.terminalRemainingText}>
-                                      {elapsedSeconds < 60
-                                        ? `${elapsedSeconds}s`
-                                        : `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`}
-                                    </Text>
-                                  )}
-                                </View>
-                              </View>
-                            )}
-                          </View>
-
-                        {/* macOS Dock */}
-                        <View style={styles.macDock}>
-                          <View style={styles.macDockBar}>
-                            {[
-                              { icon: 'compass-outline', color1: '#3B82F6', color2: '#1D4ED8', label: 'Browser' },
-                              { icon: 'terminal', color1: '#2D2D2D', color2: '#111111', label: 'Terminal', active: true },
-                              { icon: 'shield-half-outline', color1: '#6366F1', color2: '#4338CA', label: 'VPN' },
-                              { icon: 'sparkles', color1: '#A855F7', color2: '#7C3AED', label: 'AI' },
-                            ].map((app, i) => (
-                              <View key={i} style={styles.macDockIconWrap}>
-                                <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
-                                  <LinearGradient
-                                    colors={[app.color1, app.color2]}
-                                    style={styles.macDockIconGradient}
-                                  >
-                                    <Ionicons name={app.icon as any} size={22} color="#fff" />
-                                  </LinearGradient>
-                                </View>
-                                {app.active && <View style={styles.macDockDot} />}
-                              </View>
-                            ))}
-                          </View>
-                        </View>
-                        </View>
-                    </Animated.View>
-                </View>
+                <PreviewWebView
+                  webViewRef={webViewRef}
+                  currentPreviewUrl={currentPreviewUrl}
+                  coderToken={coderToken}
+                  globalFlyMachineId={globalFlyMachineId}
+                  flyMachineIdRef={flyMachineIdRef}
+                  hasWebUI={hasWebUI}
+                  webViewReady={webViewReady}
+                  serverStatus={serverStatus}
+                  isLoading={isLoading}
+                  terminalOutput={terminalOutput}
+                  terminalScrollRef={terminalScrollRef}
+                  maskOpacityAnim={startup.maskOpacityAnim}
+                  previewError={startup.previewError}
+                  previewLogs={startup.previewLogs}
+                  displayedMessage={startup.displayedMessage}
+                  startingMessage={startup.startingMessage}
+                  smoothProgress={startup.smoothProgress}
+                  elapsedSeconds={startup.elapsedSeconds}
+                  pulseAnim={startup.pulseAnim}
+                  setIsLoading={setIsLoading}
+                  setCanGoBack={setCanGoBack}
+                  setCanGoForward={setCanGoForward}
+                  setWebViewReady={setWebViewReady}
+                  setCurrentPreviewUrl={setCurrentPreviewUrl}
+                  setSelectedElement={chat.setSelectedElement}
+                  setPreviewError={startup.setPreviewError}
+                  setServerStatus={setServerStatus}
+                  setIsStarting={startup.setIsStarting}
+                  handleRefresh={handleRefresh}
+                  onClose={handleClose}
+                  onRetryPreview={handleRetryPreview}
+                  onSendErrorReport={sendErrorReport}
+                  isSendingReport={startup.isSendingReport}
+                  reportSent={startup.reportSent}
+                  topInset={insets.top}
+                  t={t}
+                />
               )}
             </View>
           </KeyboardAvoidingView>
 
-          {/* AI messages now rendered inside FAB input below */}
-
-
-          {/* Animated FAB / Input Box - Only show when server is running and WebView is ready */}
           {serverStatus === 'running' && webViewReady && (
-            <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : insets.bottom + 8, left: isInputExpanded ? 12 : undefined }]}>
-
-              {/* Animated FAB that expands into input */}
-              <Animated.View
-                style={[
-                  styles.fabAnimated,
-                  isInputExpanded ? { width: '100%' } : { width: 44, height: 44 },
-                ]}
-              >
-                {isInputExpanded ? (
-                <BlurView intensity={90} tint="dark" style={[styles.fabBlur, { alignItems: 'stretch', paddingHorizontal: 0 }]}>
-                    <Animated.View style={{ flex: 1, flexDirection: 'column', opacity: fabContentOpacity }}>
-
-                      {/* AI Messages - integrated into FAB */}
-                      {(aiMessages.length > 0 || isAiLoading) && (
-                        <>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Ionicons name="sparkles" size={12} color="#fff" />
-                              <Text style={{ fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>
-                                {activeTools.length > 0 ? `${activeTools[activeTools.length - 1]}` : 'AI'}
-                              </Text>
-                              {activeTools.length > 0 && (
-                                <ActivityIndicator size="small" color={AppColors.primary} />
-                              )}
-                            </View>
-                            <TouchableOpacity onPress={() => {
-                              LayoutAnimation.configureNext({
-                                duration: 200,
-                                create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-                                update: { type: LayoutAnimation.Types.easeInEaseOut },
-                                delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-                              });
-                              setIsMessagesCollapsed(!isMessagesCollapsed);
-                            }} style={{ padding: 4 }} activeOpacity={0.7}>
-                              <Ionicons name={isMessagesCollapsed ? "chevron-up" : "chevron-down"} size={16} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                          </View>
-                          {!isMessagesCollapsed && (
-                          <ScrollView
-                            ref={aiScrollViewRef}
-                            style={{ maxHeight: 200, paddingHorizontal: 8 }}
-                            showsVerticalScrollIndicator={false}
-                            onContentSizeChange={() => aiScrollViewRef.current?.scrollToEnd({ animated: true })}
-                          >
-                            {(aiMessages || []).map((msg, index) => {
-                              if (msg.type === 'user') {
-                                return (
-                                  <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10, alignItems: 'flex-end' }]}>
-                                    <View style={{ alignItems: 'flex-end' }}>
-                                      {msg.selectedElement && (
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: 'rgba(138, 43, 226, 0.2)', borderRadius: 8 }}>
-                                          <Ionicons name="code-slash" size={10} color="#A855F7" style={{ marginRight: 4 }} />
-                                          <Text style={{ color: '#A855F7', fontSize: 10 }}>{`<${msg.selectedElement.tag}>`}</Text>
-                                        </View>
-                                      )}
-                                      <LinearGradient colors={['#007AFF', '#0055FF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.userMessageBubble}>
-                                        <Text style={styles.userMessageText}>{msg.content}</Text>
-                                      </LinearGradient>
-                                    </View>
-                                  </View>
-                                );
-                              }
-                              if (msg.type === 'thinking') {
-                                // Thinking block - show with gray italic text
-                                return (
-                                  <View key={index} style={styles.aiMessageRow}>
-                                    <View style={styles.aiThreadContainer}>
-                                      <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                                    </View>
-                                    <View style={styles.aiMessageContent}>
-                                      <Text style={styles.aiThinkingText}>
-                                        {msg.content || (msg.isThinking ? 'Thinking...' : '')}
-                                      </Text>
-                                    </View>
-                                  </View>
-                                );
-                              }
-                              if (msg.type === 'budget_exceeded') {
-                                // Budget exceeded - show compact card with upgrade button
-                                return (
-                                  <View key={index} style={{ marginVertical: 8, marginHorizontal: 4, backgroundColor: 'rgba(139, 124, 246, 0.1)', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: 'rgba(139, 124, 246, 0.2)' }}>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                      <Ionicons name="flash" size={14} color={AppColors.primary} style={{ marginRight: 8 }} />
-                                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>Budget AI esaurito</Text>
-                                    </View>
-                                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>
-                                      Passa a Go per continuare
-                                    </Text>
-                                    <TouchableOpacity
-                                      onPress={() => useNavigationStore.getState().navigateTo('plans')}
-                                      style={{ marginTop: 10, backgroundColor: AppColors.primary, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 16, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                                      activeOpacity={0.7}
-                                    >
-                                      <Ionicons name="rocket-outline" size={14} color="#fff" />
-                                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#fff' }}>Passa a Go</Text>
-                                    </TouchableOpacity>
-                                  </View>
-                                );
-                              }
-                              if (msg.type === 'tool_start' || msg.type === 'tool_result') {
-                                // Hide signal_completion from UI
-                                if (msg.tool === 'signal_completion') return null;
-                                const toolConfig: Record<string, { icon: string; label: string; color: string }> = {
-                                  'Read': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                                  'Edit': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                                  'Write': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
-                                  'Glob': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
-                                  'Grep': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
-                                  'Bash': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
-                                  'Task': { icon: 'git-branch-outline', label: 'TASK', color: '#DB61A2' },
-                                  'WebFetch': { icon: 'globe-outline', label: 'FETCH', color: '#79C0FF' },
-                                  'WebSearch': { icon: 'search-outline', label: 'SEARCH', color: '#79C0FF' },
-                                  'TodoWrite': { icon: 'checkbox-outline', label: 'TODO', color: '#F9826C' },
-                                  'AskUserQuestion': { icon: 'help-circle-outline', label: 'ASK', color: '#D29922' },
-                                  'read_file': { icon: 'document-text-outline', label: 'READ', color: '#58A6FF' },
-                                  'edit_file': { icon: 'create-outline', label: 'EDIT', color: '#3FB950' },
-                                  'write_file': { icon: 'document-outline', label: 'WRITE', color: '#3FB950' },
-                                  'run_command': { icon: 'terminal-outline', label: 'BASH', color: '#F0883E' },
-                                  'list_directory': { icon: 'folder-open-outline', label: 'LIST', color: '#A371F7' },
-                                  'glob_search': { icon: 'folder-outline', label: 'GLOB', color: '#A371F7' },
-                                  'grep_search': { icon: 'search-outline', label: 'GREP', color: '#FFA657' },
-                                  'launch_sub_agent': { icon: 'git-branch-outline', label: 'AGENT', color: '#DB61A2' },
-                                  'signal_completion': { icon: 'checkmark-circle-outline', label: 'DONE', color: '#3FB950' },
-                                };
-                                const cfg = toolConfig[msg.tool || ''] || { icon: 'cog-outline', label: msg.tool?.replace(/_/g, ' ').toUpperCase().slice(0, 8) || 'TOOL', color: '#8B949E' };
-                                const isComplete = msg.type === 'tool_result';
-                                const isSuccess = msg.success !== false;
-                                const displayName = msg.filePath ? msg.filePath.split('/').pop() || msg.filePath : msg.pattern || '';
-                                return (
-                                  <View key={index} style={styles.aiMessageRow}>
-                                    <View style={styles.aiThreadContainer}>
-                                      <View style={[styles.aiThreadDot, { backgroundColor: isComplete ? (isSuccess ? '#3FB950' : '#F85149') : cfg.color }]} />
-                                    </View>
-                                    <View style={styles.aiToolRow}>
-                                      <View style={[styles.aiToolBadge, { backgroundColor: `${cfg.color}15`, borderColor: `${cfg.color}30` }]}>
-                                        <Ionicons name={cfg.icon as any} size={12} color={cfg.color} />
-                                        <Text style={[styles.aiToolBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
-                                      </View>
-                                      {displayName ? <Text style={styles.aiToolFileName} numberOfLines={1}>{displayName}</Text> : null}
-                                      {!isComplete ? (
-                                        <ActivityIndicator size="small" color={cfg.color} style={{ marginLeft: 8 }} />
-                                      ) : (
-                                        <Ionicons name={isSuccess ? 'checkmark-circle' : 'close-circle'} size={16} color={isSuccess ? '#3FB950' : '#F85149'} style={{ marginLeft: 8 }} />
-                                      )}
-                                    </View>
-                                  </View>
-                                );
-                              }
-                              // Default: text message
-                              return (
-                                <View key={index} style={styles.aiMessageRow}>
-                                  <View style={styles.aiThreadContainer}>
-                                    <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                                  </View>
-                                  <View style={styles.aiMessageContent}>
-                                    <Text style={styles.aiResponseText}>{msg.content}</Text>
-                                  </View>
-                                </View>
-                              );
-                            })}
-                            {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
-                              <View style={styles.aiMessageRow}>
-                                <View style={styles.aiThreadContainer}>
-                                  <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
-                                </View>
-                                <View style={styles.aiMessageContent}>
-                                  <Text style={styles.aiThinkingText}>Thinking...</Text>
-                                </View>
-                              </View>
-                            )}
-                            {/* TodoList - show current todos from agent */}
-                            {currentTodos.length > 0 && (
-                              <View style={{ paddingHorizontal: 4, paddingTop: 8 }}>
-                                <TodoList todos={currentTodos} />
-                              </View>
-                            )}
-                          </ScrollView>
-                          )}
-                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 8 }} />
-                        </>
-                      )}
-
-                      {/* Context Bar - Selected Element (Inside Input) */}
-                      {selectedElement && (
-                        <>
-                          <View style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingHorizontal: 12,
-                            paddingTop: 10,
-                            paddingBottom: 8,
-                            gap: 6,
-                          }}>
-                            {/* Parent button */}
-                            <TouchableOpacity
-                              onPress={selectParentElement}
-                              style={{
-                                padding: 6,
-                                borderRadius: 6,
-                                backgroundColor: 'rgba(255,255,255,0.1)',
-                                borderWidth: 1,
-                                borderColor: 'rgba(255,255,255,0.15)',
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.6)" />
-                            </TouchableOpacity>
-                            {/* Element tag badge */}
-                            <View style={{
-                              flex: 1,
-                              flexShrink: 1,
-                              backgroundColor: 'rgba(139, 124, 246, 0.15)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(139, 124, 246, 0.3)',
-                              paddingHorizontal: 10,
-                              paddingVertical: 5,
-                              borderRadius: 8,
-                            }}>
-                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
-                                {selectedElement.selector}
-                              </Text>
-                            </View>
-                            {/* Close button */}
-                            <TouchableOpacity onPress={clearSelectedElement} style={{ padding: 4, flexShrink: 0 }}>
-                              <Ionicons name="close" size={16} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                          </View>
-                          {/* Divider */}
-                          <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 12 }} />
-                        </>
-                      )}
-
-                      <View style={{ flexDirection: 'row', alignItems: 'flex-end', paddingRight: 4, paddingTop: 2 }}>
-                        {/* Collapse Button */}
-                        <TouchableOpacity
-                          onPress={collapseFab}
-                          style={styles.previewInputButton}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons
-                            name="chevron-forward"
-                            size={20}
-                            color="rgba(255, 255, 255, 0.5)"
-                          />
-                        </TouchableOpacity>
-
-                        {/* Inspect Mode Button */}
-                        <TouchableOpacity
-                          onPress={toggleInspectMode}
-                          style={[
-                            styles.previewInputButton,
-                            isInspectMode && styles.previewInputButtonActive
-                          ]}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons
-                            name="scan-outline"
-                            size={18}
-                            color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
-                          />
-                        </TouchableOpacity>
-
-                        {/* Text Input */}
-                        <TextInput
-                          ref={inputRef}
-                          style={styles.previewInput}
-                          value={message}
-                          onChangeText={setMessage}
-                          placeholder="Chiedi modifiche..."
-                          placeholderTextColor="rgba(255, 255, 255, 0.35)"
-                          multiline
-                          maxLength={500}
-                          onSubmitEditing={handleSendMessage}
-                          keyboardAppearance="dark"
-                          returnKeyType="send"
-                        />
-
-                        {/* Dismiss Keyboard Button - only show when keyboard is open */}
-                        {keyboardHeight > 0 && (
-                          <TouchableOpacity
-                            onPress={() => Keyboard.dismiss()}
-                            style={styles.previewInputButton}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name="chevron-down"
-                              size={18}
-                              color="rgba(255, 255, 255, 0.5)"
-                            />
-                          </TouchableOpacity>
-                        )}
-
-                        {/* Send/Stop Button */}
-                        <TouchableOpacity
-                          onPress={agentStreaming || isAiLoading ? () => { stopAgent(); setIsAiLoading(false); } : handleSendMessage}
-                          disabled={!agentStreaming && !isAiLoading && !message.trim()}
-                          style={styles.previewSendButton}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[
-                            styles.previewSendButtonInner,
-                            (agentStreaming || isAiLoading) ? styles.previewSendButtonStop : (message.trim() && styles.previewSendButtonActive)
-                          ]}>
-                            <Ionicons
-                              name={agentStreaming || isAiLoading ? "stop" : "arrow-up"}
-                              size={16}
-                              color={(agentStreaming || isAiLoading) ? '#fff' : (message.trim() ? '#fff' : 'rgba(255, 255, 255, 0.3)')}
-                            />
-                          </View>
-                        </TouchableOpacity>
-                      </View>
-                    </Animated.View>
-                </BlurView>
-                ) : (
-                  <TouchableOpacity
-                    onPress={expandFab}
-                    style={{ flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 22 }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="pencil" size={18} color="#fff" />
-                  </TouchableOpacity>
-                )
-                }
-              </Animated.View>
-            </Reanimated.View>
+            <PreviewAIChat
+              isInputExpanded={chat.isInputExpanded}
+              isMessagesCollapsed={chat.isMessagesCollapsed}
+              showPastChats={chat.showPastChats}
+              message={chat.message}
+              aiMessages={chat.aiMessages}
+              activeTools={chat.activeTools}
+              isAiLoading={chat.isAiLoading}
+              agentStreaming={chat.agentStreaming}
+              keyboardHeight={chat.keyboardHeight}
+              selectedElement={chat.selectedElement}
+              isInspectMode={chat.isInspectMode}
+              currentTodos={chat.currentTodos}
+              previewChatId={chat.previewChatId}
+              chatHistory={chat.chatHistory}
+              currentWorkstationId={currentWorkstation?.id}
+              inputRef={chat.inputRef}
+              aiScrollViewRef={chat.aiScrollViewRef}
+              fabContentOpacity={chat.fabContentOpacity}
+              bottomInset={insets.bottom}
+              onExpandFab={chat.expandFab}
+              onCollapseFab={chat.collapseFab}
+              setMessage={chat.setMessage}
+              setIsMessagesCollapsed={chat.setIsMessagesCollapsed}
+              setShowPastChats={chat.setShowPastChats}
+              onSendMessage={chat.handleSendMessage}
+              onStopAgent={() => { chat.stopAgent(); chat.setIsAiLoading(false); }}
+              onToggleInspectMode={chat.toggleInspectMode}
+              onClearSelectedElement={chat.clearSelectedElement}
+              onSelectParentElement={chat.selectParentElement}
+              onLoadPastChat={chat.loadPastChat}
+              onStartNewChat={chat.startNewChat}
+            />
           )}
-        </Animated.View >
-      </Reanimated.View >
+        </Animated.View>
+      </Reanimated.View>
 
-      {/* Publish Modal */}
-      <Modal
-        visible={showPublishModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => !isPublishing && setShowPublishModal(false)}
-      >
-        <View style={styles.publishModalOverlay}>
-          <View style={styles.publishModalContent}>
-            {publishStatus === 'done' && publishedUrl ? (
-              <>
-                <Ionicons name="checkmark-circle" size={48} color="#00D084" style={{ alignSelf: 'center', marginBottom: 12 }} />
-                <Text style={styles.publishModalTitle}>Pubblicato!</Text>
-                <Text style={styles.publishModalUrl}>{publishedUrl}</Text>
-                <View style={styles.publishModalActions}>
-                  <TouchableOpacity
-                    style={styles.publishActionButton}
-                    onPress={() => {
-                      Share.share({ url: publishedUrl, message: publishedUrl });
-                    }}
-                  >
-                    <Ionicons name="share-outline" size={18} color="#fff" />
-                    <Text style={styles.publishActionText}>Condividi</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.publishActionButton}
-                    onPress={() => Linking.openURL(publishedUrl)}
-                  >
-                    <Ionicons name="open-outline" size={18} color="#fff" />
-                    <Text style={styles.publishActionText}>Apri</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  style={styles.publishCloseBtn}
-                  onPress={() => setShowPublishModal(false)}
-                >
-                  <Text style={styles.publishCloseBtnText}>Chiudi</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={styles.publishModalTitle}>
-                  {existingPublish ? 'Aggiorna pubblicazione' : 'Pubblica sito'}
-                </Text>
-                <Text style={styles.publishModalSubtitle}>
-                  {existingPublish
-                    ? `Il sito verra' ricostruito e aggiornato`
-                    : 'Scegli un nome per il tuo sito'}
-                </Text>
-                <View style={styles.publishSlugRow}>
-                  <Text style={styles.publishSlugPrefix}>drape.info/p/</Text>
-                  {existingPublish ? (
-                    <Text style={[styles.publishSlugInput, { color: 'rgba(255,255,255,0.6)' }]}>
-                      {existingPublish.slug}
-                    </Text>
-                  ) : (
-                    <TextInput
-                      style={styles.publishSlugInput}
-                      value={publishSlug}
-                      onChangeText={(text) => setPublishSlug(text.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      editable={!isPublishing}
-                      placeholder="nome-progetto"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                  )}
-                </View>
-                {existingPublish && !isPublishing && (
-                  <>
-                    <View style={styles.publishModalActions}>
-                      <TouchableOpacity
-                        style={styles.publishActionButton}
-                        onPress={() => Linking.openURL(existingPublish.url)}
-                      >
-                        <Ionicons name="open-outline" size={16} color="#fff" />
-                        <Text style={styles.publishActionText}>Apri sito</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.publishActionButton}
-                        onPress={() => Share.share({ url: existingPublish.url, message: existingPublish.url })}
-                      >
-                        <Ionicons name="share-outline" size={16} color="#fff" />
-                        <Text style={styles.publishActionText}>Condividi</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={styles.publishModalActions}>
-                      <TouchableOpacity
-                        style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
-                        onPress={handleUnpublish}
-                      >
-                        <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
-                        <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>Rimuovi</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </>
-                )}
-                {publishError && (
-                  <Text style={styles.publishError}>{publishError}</Text>
-                )}
-                {isPublishing && (
-                  <View style={styles.publishProgressRow}>
-                    <ActivityIndicator size="small" color="#007AFF" />
-                    <Text style={styles.publishProgressText}>
-                      {publishStatus === 'building' ? 'Building...' : 'Aggiornamento...'}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.publishModalButtons}>
-                  <TouchableOpacity
-                    style={styles.publishCancelBtn}
-                    onPress={() => setShowPublishModal(false)}
-                    disabled={isPublishing}
-                  >
-                    <Text style={styles.publishCancelBtnText}>Annulla</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.publishConfirmBtn, isPublishing && { opacity: 0.5 }]}
-                    onPress={handlePublish}
-                    disabled={isPublishing || (!existingPublish && !publishSlug.trim())}
-                  >
-                    <Ionicons name={existingPublish ? "refresh" : "cloud-upload-outline"} size={16} color="#fff" />
-                    <Text style={styles.publishConfirmBtnText}>
-                      {existingPublish ? 'Aggiorna' : 'Pubblica'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-      </Modal>
+      <PreviewPublishSheet
+        visible={publish.showPublishModal}
+        publishSlug={publish.publishSlug}
+        onChangeSlug={publish.setPublishSlug}
+        isPublishing={publish.isPublishing}
+        publishStatus={publish.publishStatus}
+        publishedUrl={publish.publishedUrl}
+        publishError={publish.publishError}
+        existingPublish={publish.existingPublish}
+        onPublish={publish.handlePublish}
+        onUnpublish={publish.handleUnpublish}
+        onClose={publish.closePublishModal}
+      />
 
-      {/* AskUserQuestion Modal */}
       <AskUserQuestionModal
-        visible={!!pendingQuestion}
-        questions={pendingQuestion || []}
-        onAnswer={(answers) => {
-          // Format answers as response
-          const questions = pendingQuestion || [];
-          const responseLines = questions.map((q: any, idx: number) => {
-            const answer = answers[`q${idx}`] || '';
-            return `${q.question}: ${answer}`;
-          }).join('\n');
-
-          const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
-          console.log('[Preview] User answers:', responseMessage);
-
-          // Clear pending question
-          setPendingQuestion(null);
-
-          // Resume agent with the answers
-          if (currentWorkstation?.id) {
-            lastProcessedEventIndexRef.current = -1;
-            resetAgent();
-            setAiMessages(prev => [...prev, { type: 'user', content: responseMessage }]);
-            startAgent(responseMessage, currentWorkstation.id, 'gemini-3-flash', [], [], 'minimal');
-          }
-        }}
-        onCancel={() => setPendingQuestion(null)}
+        visible={!!chat.pendingQuestion}
+        questions={chat.pendingQuestion || []}
+        onAnswer={chat.handleQuestionAnswer}
+        onCancel={() => {}}
       />
     </>
   );
@@ -3840,1750 +898,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 const styles = StyleSheet.create({
   backdrop: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'transparent',
     zIndex: 999,
   },
   container: {
     position: 'absolute',
-    // left is animated via containerAnimatedStyle
-    right: 0,
-    top: 0,
-    bottom: 0,
+    right: 0, top: 0, bottom: 0,
     zIndex: 1000,
     overflow: 'hidden',
-  },
-  header: {
-    paddingHorizontal: 10,
-    paddingBottom: 8,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  closeButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  refreshButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  publishButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  publishButtonUpdate: {
-    backgroundColor: '#00D084',
-  },
-  urlBar: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 8,
-  },
-  urlText: {
-    flex: 1,
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.5)',
   },
   webViewContainer: {
     flex: 1,
     position: 'relative',
-    backgroundColor: '#0a0a0a', // Dark background to prevent white flash
-  },
-  webView: {
-    flex: 1,
-    backgroundColor: '#0a0a0a', // Solid dark background to hide initial white paint
-  },
-  // Terminal output styles for CLI projects
-  terminalOutputContainer: {
-    flex: 1,
-    backgroundColor: '#0d0d0d',
-  },
-  terminalOutputContent: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  terminalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 16,
-  },
-  terminalDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#ff5f56',
-    marginRight: 8,
-  },
-  terminalTitle: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.6)',
-    textAlign: 'center',
-    marginRight: 44, // Compensate for dots
-  },
-  terminalEmpty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60,
-  },
-  terminalEmptyText: {
-    marginTop: 16,
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  terminalLine: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 12,
-    color: '#e0e0e0',
-    lineHeight: 18,
-    marginBottom: 2,
-  },
-  loadingContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: '#0a0a0a',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  startScreen: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  // Terminal window (macOS style)
-  devTerminalWindow: {
-    width: '92%',
-    maxWidth: 380,
-    borderRadius: 12,
-    backgroundColor: 'rgba(30, 30, 30, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 24,
-    elevation: 12,
-  },
-  devWindowTitleBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  devWindowDots: {
-    flexDirection: 'row',
-    gap: 7,
-    marginRight: 12,
-  },
-  devWindowDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  devWindowTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.45)',
-  },
-  devWindowContent: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  // Dev-tool style start screen
-  devStartContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 28,
-    paddingBottom: 80,
-  },
-  devProjectHeader: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  devProjectIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  devProjectName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: -0.3,
-    marginBottom: 10,
-    textAlign: 'center',
-    maxWidth: '90%',
-  },
-  devStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  devTechBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  devTechBadgeText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.5)',
-    textTransform: 'lowercase',
-  },
-  devDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  devStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  devStatusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22C55E',
-  },
-  devStatusText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.5)',
-  },
-  devStartBtn: {
-    width: '100%',
-    maxWidth: 280,
-    height: 50,
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: 20,
-    marginBottom: 32,
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  devStartBtnGradient: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  devStartBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-    letterSpacing: 0.2,
-  },
-  devInfoCard: {
-    width: '100%',
-    maxWidth: 280,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    paddingVertical: 4,
-  },
-  devInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  devInfoLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.35)',
-  },
-  devInfoValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.75)',
-  },
-  devInfoDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginHorizontal: 16,
-  },
-  devEnvBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.2)',
-  },
-  devEnvBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#22C55E',
-  },
-  devUpgradeFooter: {
-    position: 'absolute',
-    bottom: 32,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  devUpgradeBanner: {
-    width: '100%',
-    maxWidth: 320,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  devUpgradeIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: 'rgba(139, 92, 246, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  devUpgradeTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  devGoBadge: {
-    backgroundColor: 'rgba(139, 92, 246, 0.15)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 92, 246, 0.3)',
-  },
-  devGoBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: AppColors.primary,
-  },
-  devUpgradeSubtitle: {
-    fontSize: 11,
-    fontWeight: '400',
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 1,
-  },
-  // macOS Dock
-  macDock: {
-    position: 'absolute',
-    bottom: 18,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 5,
-  },
-  macDockBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 22,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
-  macDockIconWrap: {
-    alignItems: 'center',
-    gap: 5,
-  },
-  macDockIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  macDockIconActive: {
-    shadowColor: AppColors.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-  },
-  macDockIconGradient: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 14,
-  },
-  macDockDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  // macOS Desktop wallpaper orbs
-  macDesktopOrb1: {
-    position: 'absolute',
-    top: '10%',
-    left: '-15%',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: 'rgba(139, 92, 246, 0.25)',
-  },
-  macDesktopOrb2: {
-    position: 'absolute',
-    top: '5%',
-    right: '-10%',
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: 'rgba(124, 58, 237, 0.2)',
-  },
-  macDesktopOrb3: {
-    position: 'absolute',
-    bottom: '15%',
-    left: '20%',
-    width: 350,
-    height: 350,
-    borderRadius: 175,
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -100,
-    left: -50,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: 'rgba(139, 124, 246, 0.08)',
-    opacity: 0.6,
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -150,
-    right: -80,
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: 'rgba(139, 124, 246, 0.05)',
-    opacity: 0.5,
-  },
-  startCloseButton: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  // iPhone 15 Pro mockup styles
-  iphoneMockup: {
-    width: 280,
-    height: 570,
-    backgroundColor: '#1c1c1e',
-    borderRadius: 54,
-    borderWidth: 6,
-    borderColor: '#3a3a3c',
-    overflow: 'hidden',
-    position: 'relative',
-    // Titanium frame effect
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.6,
-    shadowRadius: 32,
-    elevation: 20,
-  },
-  statusBarArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 6,
-    backgroundColor: '#0a0a0c',
-    marginHorizontal: 4,
-    marginTop: 4,
-    borderTopLeftRadius: 50,
-    borderTopRightRadius: 50,
-  },
-  dynamicIsland: {
-    width: 72,
-    height: 20,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    marginHorizontal: 8,
-  },
-  iphoneScreen: {
-    flex: 1,
-    backgroundColor: '#0a0a0c',
-    marginHorizontal: 4,
-    marginBottom: 4,
-    borderBottomLeftRadius: 50,
-    borderBottomRightRadius: 50,
-    overflow: 'hidden',
-  },
-  fakeTime: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#fff',
-    width: 32,
-  },
-  fakeStatusIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    width: 32,
-    justifyContent: 'flex-end',
-  },
-  fakeAppContent: {
-    flex: 1,
-    paddingHorizontal: 14,
-    gap: 12,
-  },
-  fakeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  fakeAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(139, 124, 246, 0.4)',
-  },
-  fakeHeaderText: {
-    gap: 4,
-  },
-  fakeLine: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  fakeCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-    padding: 10,
-  },
-  fakeCardImage: {
-    width: '100%',
-    height: 70,
-    borderRadius: 8,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  homeIndicator: {
-    width: 100,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    alignSelf: 'center',
-    marginBottom: 8,
-    marginTop: 'auto',
-  },
-  // Side buttons
-  iphoneSideButton: {
-    position: 'absolute',
-    right: -4,
-    top: 120,
-    width: 4,
-    height: 60,
-    backgroundColor: '#3a3a3c',
-    borderTopLeftRadius: 2,
-    borderBottomLeftRadius: 2,
-  },
-  iphoneVolumeUp: {
-    position: 'absolute',
-    left: -4,
-    top: 100,
-    width: 4,
-    height: 28,
-    backgroundColor: '#3a3a3c',
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
-  },
-  iphoneVolumeDown: {
-    position: 'absolute',
-    left: -4,
-    top: 140,
-    width: 4,
-    height: 28,
-    backgroundColor: '#3a3a3c',
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
-  },
-  startBottomSection: {
-    position: 'absolute',
-    bottom: 100,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  startButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: AppColors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  startButtonDisabled: {
-    opacity: 0.6,
-  },
-  startingMessageContainer: {
-    marginTop: 16,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  startingMessage: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.7)',
-    textAlign: 'center',
-  },
-  projectTypeText: {
-    marginTop: 12,
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
-    textAlign: 'center',
-  },
-  selectedElementContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
-  selectedElementChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(30, 30, 46, 0.95)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingLeft: 8,
-    paddingRight: 6,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  chipIconContainer: {
-    width: 22,
-    height: 22,
-    borderRadius: 5,
-    backgroundColor: 'rgba(139, 124, 246, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipContent: {
-    flex: 1,
-    gap: 1,
-  },
-  chipSelector: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: AppColors.primary,
-    fontFamily: 'monospace',
-    letterSpacing: 0.2,
-  },
-  chipText: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.5)',
-    lineHeight: 13,
-  },
-  chipClose: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewInputButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  previewInputButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
-  },
-  previewInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#fff',
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    maxHeight: 100,
-    lineHeight: 20,
-  },
-  previewSendButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewSendButtonInner: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewSendButtonActive: {
-    backgroundColor: AppColors.primary,
-  },
-  previewSendButtonStop: {
-    backgroundColor: '#FF6B6B',
-  },
-  // New animated FAB styles
-  fabInputWrapper: {
-    position: 'absolute',
-    // left is animated via fabWrapperAnimatedStyle (12 when sidebar visible, -38 when hidden -> expands)
-    right: 12,
-    alignItems: 'flex-end', // FAB starts from right
-    zIndex: 200, // Above keyboard background filler
-  },
-  fabAnimated: {
-    minHeight: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(20, 20, 28, 0.85)',
-    // Shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  fabBlur: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 4,
-    overflow: 'hidden',
-  },
-  fabButton: {
-    flex: 1,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Environment variables form styles
-  envVarsScreen: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-  envVarsContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  envVarsScrollContent: {
-    paddingBottom: 20,
-  },
-  envVarsHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
-    gap: 4,
-  },
-  envVarsTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#fff',
-    marginTop: 8,
-  },
-  envVarsSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
-    textAlign: 'center',
-  },
-  envVarsList: {
-    gap: 12,
-  },
-  envVarItem: {
-    gap: 4,
-  },
-  envVarLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  envVarKey: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontFamily: 'monospace',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  envVarRequired: {
-    fontSize: 11,
-    color: AppColors.primary,
-    fontWeight: '600',
-  },
-  envVarDescription: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.3)',
-    marginBottom: 2,
-  },
-  envVarInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: '#fff',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  envVarsActions: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    gap: 10,
-    alignItems: 'center',
-  },
-  envVarsSaveButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: AppColors.primary,
-    paddingVertical: 12,
-    borderRadius: 10,
-    gap: 6,
-  },
-  envVarsSaveButtonDisabled: {
-    opacity: 0.6,
-  },
-  envVarsSaveText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  envVarsSkipButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  envVarsSkipText: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  // Error overlay styles
-  errorOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  errorCard: {
-    backgroundColor: 'rgba(30, 30, 46, 0.95)',
-    borderRadius: 20,
-    padding: 32,
-    alignItems: 'center',
-    maxWidth: 300,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorMessage: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  errorCloseButton: {
-    backgroundColor: AppColors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  errorCloseText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  // Error UI styles (inside iPhone mockup)
-  errorContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  errorIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  errorButtonsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 24,
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: AppColors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
-  },
-  retryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  sendLogsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
-  sendLogsButtonSent: {
-    borderColor: 'rgba(76, 175, 80, 0.4)',
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-  },
-  sendLogsButtonText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  reportSentMessage: {
-    marginTop: 16,
-    fontSize: 12,
-    color: 'rgba(76, 175, 80, 0.8)',
-    textAlign: 'center',
-  },
-  // AI Response Panel styles
-  aiResponsePanel: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    maxHeight: 300,
-    backgroundColor: 'rgba(15, 15, 25, 0.7)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  aiResponseHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  aiResponseHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  aiResponseTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.primary,
-  },
-  aiResponseClose: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  aiResponseScroll: {
-    maxHeight: 240,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  aiResponseText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: 20,
-  },
-  aiLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8,
-  },
-  aiLoadingText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  // New ChatPage-like styles for AI messages
-  aiMessageRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-    gap: 8,
-  },
-  aiThreadContainer: {
-    width: 20,
-    alignItems: 'center',
-    paddingTop: 6,
-  },
-  aiThreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  aiMessageContent: {
-    flex: 1,
-  },
-  aiThinkingText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontStyle: 'italic',
-  },
-  aiToolRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  aiToolBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    gap: 4,
-  },
-  aiToolBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  aiToolFileName: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginLeft: 8,
-    fontFamily: 'monospace',
-    maxWidth: 150,
-  },
-  headerIconContainer: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    backgroundColor: AppColors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  userMessageBubble: {
-    borderRadius: 16,
-    borderBottomRightRadius: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    maxWidth: '85%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  userMessageText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '500',
-    lineHeight: 18,
-  },
-  // New Premium "Pulse" Redesign Styles
-  ambientBlob1: {
-    position: 'absolute',
-    top: '10%',
-    left: '-20%',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primary,
-    opacity: 0.04,
-    filter: 'blur(80px)',
-  },
-  ambientBlob2: {
-    position: 'absolute',
-    bottom: '5%',
-    right: '-10%',
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: '#6C5CE7',
-    opacity: 0.03,
-    filter: 'blur(100px)',
-  },
-  iphoneScreenCentered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    backgroundColor: '#0a0a0c',
-  },
-  spiritContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 160,
-    marginBottom: 50,
-  },
-  spiritOrb: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: AppColors.primary,
-    position: 'absolute',
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 40,
-    elevation: 10,
-  },
-  spiritCore: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#fff',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.9,
-    shadowRadius: 15,
-    elevation: 15,
-  },
-  spiritGlow: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  pulseStatusContainer: {
-    alignItems: 'center',
-    gap: 16,
-  },
-  pulseStatusLabel: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: -0.8,
-    fontFamily: 'Inter-Bold',
-    textAlign: 'center',
-  },
-  pulseStatusMessage: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.4)',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 16,
-    fontFamily: 'Inter-Medium',
-  },
-  logsScrollView: {
-    maxHeight: 120,
-    width: '100%',
-    paddingHorizontal: 20,
-  },
-  logsContent: {
-    gap: 6,
-    paddingVertical: 8,
-  },
-  logText: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.65)',
-    textAlign: 'center',
-    lineHeight: 16,
-    fontFamily: 'Courier New',
-    letterSpacing: 0.3,
-  },
-  // Full screen content wrapper
-  fullScreenContent: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 60,
-  },
-  // Mac Terminal Styles
-  terminalContainer: {
-    width: '100%',
-    maxWidth: 700,
-    height: '80%',
-    alignSelf: 'center',
-    backgroundColor: '#1E1E1E',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-  },
-  terminalHeader: {
-    height: 28,
-    backgroundColor: '#2B2B2B',
-    borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-  },
-  terminalTrafficLights: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  terminalLight: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-  },
-  terminalLightRed: {
-    backgroundColor: '#7A6AD9',
-  },
-  terminalLightYellow: {
-    backgroundColor: '#9B8AFF',
-  },
-  terminalLightGreen: {
-    backgroundColor: '#BEB4FF',
-  },
-  terminalTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.45)',
-    fontFamily: 'SF-Pro-Text-Medium',
-    letterSpacing: 0.3,
-    marginRight: 32, // Offset for traffic lights
-  },
-  terminalBody: {
-    flex: 1,
-    backgroundColor: '#1A1A1A',
-  },
-  terminalContent: {
-    padding: 12,
-    paddingTop: 8,
-    gap: 2,
-  },
-  terminalLogText: {
-    fontSize: 10,
-    color: '#9B8AFF',
-    lineHeight: 16,
-    fontFamily: 'Courier New',
-    letterSpacing: 0.2,
-  },
-  terminalCursor: {
-    width: 6,
-    height: 14,
-    backgroundColor: '#9B8AFF',
-    marginTop: 2,
-    marginLeft: 2,
-  },
-  terminalFooter: {
-    height: 26,
-    backgroundColor: '#2B2B2B',
-    borderTopWidth: 0.5,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    gap: 10,
-  },
-  terminalProgressBar: {
-    flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 1.5,
-    overflow: 'hidden',
-  },
-  terminalProgressFill: {
-    height: '100%',
-    backgroundColor: '#9B8AFF',
-    borderRadius: 1.5,
-  },
-  terminalProgressText: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontFamily: 'SF-Pro-Text-Semibold',
-    flex: 1,
-  },
-  terminalRemainingText: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.4)',
-    fontFamily: 'SF-Pro-Text-Semibold',
-    textAlign: 'right',
-  },
-  miniProgressContainer: {
-    position: 'absolute',
-    bottom: 50,
-    left: 40,
-    right: 40,
-    alignItems: 'center',
-  },
-  miniProgressBarBase: {
-    width: '100%',
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 1,
-    overflow: 'visible',
-    marginBottom: 10,
-  },
-  miniProgressBarActive: {
-    height: '100%',
-    borderRadius: 1,
-  },
-  miniProgressBarGlow: {
-    position: 'absolute',
-    right: 0,
-    top: -4,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: AppColors.primary,
-    shadowColor: AppColors.primary,
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    opacity: 0.8,
-  },
-  miniProgressText: {
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.3)',
-    fontWeight: '700',
-    letterSpacing: 1,
-    fontFamily: 'Inter-Bold',
-  },
-  loadingFooter: {
-    position: 'absolute',
-    bottom: 40,
-    width: '100%',
-    alignItems: 'center',
-  },
-  loadingFooterText: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.2)',
-    fontFamily: 'Inter-Regular',
-  },
-  // Cosmic Energy Styles
-  cosmicOrbContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 200,
-    height: 200,
-    marginBottom: 40,
-  },
-  cosmicOrb: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 30,
-    elevation: 20,
-    zIndex: 5,
-  },
-  cosmicOrbGlass: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    overflow: 'hidden',
-    zIndex: 5,
-  },
-  cosmicOrbRaw: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 65,
-    overflow: 'hidden',
-  },
-  cosmicGlowRing1: {
-    position: 'absolute',
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
-  },
-  cosmicGlowRing2: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(139, 124, 246, 0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.05)',
-  },
-  cosmicTextContainer: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  cosmicTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 2,
-    fontFamily: 'Inter-Black',
-    textAlign: 'center',
-    width: '100%',
-  },
-  cosmicTitleUnderline: {
-    width: 40,
-    height: 3,
-    backgroundColor: AppColors.primary,
-    borderRadius: 2,
-    marginBottom: 8,
-  },
-  cosmicSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.3)',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontFamily: 'Inter-Medium',
-  },
-  // Previous styles (keeping for reference if needed elsewhere)
-  startupStepsCard: {
-    display: 'none', // Removed in Pulse design
-  },
-  // Premium CTA High-End Redesign
-  premiumBanner: {
-    width: '90%',
-    maxWidth: 320,
-    height: 64,
-    borderRadius: 32,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  premiumBannerRound: {
-    width: '90%',
-    maxWidth: 320,
-    height: 64,
-    borderRadius: 32,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 15,
-  },
-  premiumGlass: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 32,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  premiumBannerContentRaw: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    gap: 14,
-  },
-  premiumBannerContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    gap: 14,
-  },
-  premiumIconContainerGlass: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(155, 138, 255, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(155, 138, 255, 0.2)',
-  },
-  premiumBannerTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#fff',
-    fontFamily: 'Inter-Black',
-    letterSpacing: -0.2,
-  },
-  proBadge: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.3)',
-  },
-  proBadgeText: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: AppColors.primary,
-    fontFamily: 'Inter-Black',
-  },
-  premiumBannerSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.45)',
-    fontFamily: 'Inter-Medium',
-    letterSpacing: -0.1,
-  },
-  premiumArrow: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Publish modal styles
-  publishModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  publishModalContent: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 28,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  publishModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  publishModalSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.5)',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  publishSlugRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
-  },
-  publishSlugPrefix: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.4)',
-  },
-  publishSlugInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#fff',
-    padding: 0,
-  },
-  publishError: {
-    fontSize: 12,
-    color: '#FF4444',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  publishProgressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 16,
-  },
-  publishProgressText: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.6)',
-  },
-  publishModalButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  publishCancelBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-  },
-  publishCancelBtnText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontWeight: '600',
-  },
-  publishConfirmBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 14,
-    borderRadius: 20,
-    backgroundColor: '#007AFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  publishConfirmBtnText: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  publishModalUrl: {
-    fontSize: 14,
-    color: '#007AFF',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  publishModalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  publishActionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    paddingVertical: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  publishActionText: {
-    fontSize: 13,
-    color: '#fff',
-    fontWeight: '500',
-  },
-  publishCloseBtn: {
-    paddingVertical: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    alignItems: 'center',
-  },
-  publishCloseBtnText: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontWeight: '500',
   },
 });

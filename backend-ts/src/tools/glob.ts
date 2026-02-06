@@ -1,6 +1,7 @@
 import fg from 'fast-glob';
 import path from 'path';
 import { config } from '../config';
+import { sanitizePath } from '../utils/helpers';
 
 /**
  * Search for files matching a glob pattern
@@ -15,7 +16,8 @@ export async function globSearch(
   searchPath?: string
 ): Promise<string> {
   try {
-    const root = path.join(config.projectsRoot, projectId, searchPath || '');
+    const baseDir = path.join(config.projectsRoot, projectId);
+    const root = searchPath ? sanitizePath(baseDir, searchPath) : baseDir;
 
     const results = await fg(pattern, {
       cwd: root,

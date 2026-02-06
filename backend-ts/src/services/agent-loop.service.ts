@@ -160,6 +160,21 @@ export class AgentLoop {
       while (shouldContinue && this.iterationCount < MAX_ITERATIONS) {
         this.iterationCount++;
 
+        // Re-check budget mid-run to prevent runaway costs
+        if (this.iterationCount > 1) {
+          const midRunBudgetCheck = this.checkBudget();
+          if (midRunBudgetCheck.exceeded) {
+            log.warn(`[AgentLoop] Budget exceeded mid-run for user ${this.userId} (plan: ${this.userPlan}, ${midRunBudgetCheck.percentUsed}% used)`);
+            yield {
+              type: 'budget_exceeded',
+              message: 'Hai esaurito il budget AI per questo mese.',
+              percentUsed: midRunBudgetCheck.percentUsed,
+              plan: this.userPlan,
+            };
+            break;
+          }
+        }
+
         yield {
           type: 'iteration_start',
           iteration: this.iterationCount,
@@ -296,9 +311,23 @@ export class AgentLoop {
           }
         } catch (error: any) {
           log.error(`[AgentLoop] AI streaming error: ${error.message}`);
+          // Extract clean error message for the user
+          let userMessage = error.message || 'Unknown error';
+          // Parse nested JSON error messages (e.g. Gemini 503)
+          try {
+            const match = userMessage.match(/"message"\s*:\s*"([^"]+)"/);
+            if (match) userMessage = match[1];
+          } catch {}
+          if (userMessage.includes('overload')) {
+            userMessage = 'Il modello AI è temporaneamente sovraccarico. Riprova tra qualche secondo.';
+          } else if (userMessage.includes('rate limit') || userMessage.includes('429')) {
+            userMessage = 'Troppi messaggi. Attendi qualche secondo e riprova.';
+          } else if (userMessage.includes('timeout') || userMessage.includes('ETIMEDOUT')) {
+            userMessage = 'Timeout nella risposta AI. Riprova.';
+          }
           yield {
             type: 'error',
-            error: `AI error: ${error.message}`,
+            error: userMessage,
           };
           return;
         }
@@ -630,7 +659,7 @@ export class AgentLoop {
       yield {
         type: 'fatal_error',
         error: error.message,
-        stack: error.stack,
+        ...(process.env.NODE_ENV !== 'production' && { stack: error.stack }),
       };
     }
   }

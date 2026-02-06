@@ -55,7 +55,6 @@ class DeviceService {
       await SecureStore.setItemAsync(DEVICE_ID_KEY, newDeviceId);
       this.deviceId = newDeviceId;
 
-      console.log('[DeviceService] Generated new device ID:', newDeviceId.substring(0, 20) + '...');
       return newDeviceId;
     } catch (error) {
       console.error('[DeviceService] Error getting device ID:', error);
@@ -106,7 +105,6 @@ class DeviceService {
         }
       }, { merge: true });
 
-      console.log('[DeviceService] Registered as active device for user:', userId);
     } catch (error) {
       console.error('[DeviceService] Error registering device:', error);
       throw error;
@@ -125,7 +123,6 @@ class DeviceService {
       const userDoc = await getDoc(userRef);
 
       if (!userDoc.exists()) {
-        console.log('[DeviceService] User document not found');
         return true; // Allow if no user doc (first login)
       }
 
@@ -133,16 +130,12 @@ class DeviceService {
       const activeDevice = userData?.activeDevice as ActiveDeviceData | undefined;
 
       if (!activeDevice) {
-        console.log('[DeviceService] No active device registered');
         return true; // Allow if no active device set
       }
 
       const isActive = activeDevice.deviceId === deviceId;
 
       if (!isActive) {
-        console.log('[DeviceService] This device is NOT the active device');
-        console.log('[DeviceService] Active:', activeDevice.deviceId?.substring(0, 20) + '...');
-        console.log('[DeviceService] This:', deviceId.substring(0, 20) + '...');
       }
 
       return isActive;
@@ -163,7 +156,6 @@ class DeviceService {
         activeDevice: null
       }, { merge: true });
 
-      console.log('[DeviceService] Cleared active device for user:', userId);
     } catch (error) {
       console.error('[DeviceService] Error clearing active device:', error);
     }

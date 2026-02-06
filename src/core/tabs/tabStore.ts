@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { useTerminalStore } from '../terminal/terminalStore';
 
 export type TabType = 'terminal' | 'file' | 'chat' | 'settings' | 'github' | 'browser' | 'preview' | 'tasks';
 
@@ -77,20 +76,11 @@ export const useTabStore = create<TabStore>((set) => ({
   }),
 
   removeTabsByWorkstation: (workstationId) => set((state) => {
-    console.log('🗑️🗑️🗑️ [TabStore] === REMOVE TABS BY WORKSTATION ===');
-    console.log('🗑️ [TabStore] workstationId:', workstationId);
 
     // Extract projectId if workstationId has ws- prefix
     const projectId = workstationId.startsWith('ws-')
       ? workstationId.substring(3)
       : workstationId;
-    console.log('🗑️ [TabStore] projectId (extracted):', projectId);
-
-    // Log all current tabs
-    console.log('🗑️ [TabStore] ALL CURRENT TABS:');
-    state.tabs.forEach(t => {
-      console.log(`   - id: "${t.id}", type: "${t.type}", wsId: "${t.workstationId}", items: ${t.terminalItems?.length || 0}`);
-    });
 
     // Find all tabs to remove (by workstationId, projectId, or by id containing either)
     const tabsToRemove = state.tabs.filter(t =>
@@ -103,14 +93,8 @@ export const useTabStore = create<TabStore>((set) => ({
       t.id.includes(`ws-${projectId}`)
     );
 
-    console.log('🗑️ [TabStore] TABS TO REMOVE:', tabsToRemove.length);
-    tabsToRemove.forEach(t => {
-      console.log(`   - id: "${t.id}", type: "${t.type}", items: ${t.terminalItems?.length || 0}`);
-    });
-
     // Keep all chats in chatHistory (don't delete any)
     // Chats are only deleted manually by the user from ChatPanel
-    console.log('✅ [TabStore] Preserving all chats in chatHistory');
 
     const newTabs = state.tabs.filter(t =>
       t.workstationId !== workstationId &&
@@ -121,8 +105,6 @@ export const useTabStore = create<TabStore>((set) => ({
       !t.id.includes(projectId) &&
       !t.id.includes(`ws-${projectId}`)
     );
-
-    console.log('🗑️ Removed', tabsToRemove.length, 'tabs, remaining:', newTabs.length);
 
     // If active tab was removed, switch to the first remaining tab
     let newActiveId = state.activeTabId;
@@ -137,7 +119,6 @@ export const useTabStore = create<TabStore>((set) => ({
   }),
 
   resetTabs: () => {
-    console.log('🗑️🗑️🗑️ [TabStore] === RESET TABS TO DEFAULT ===');
     set({
       tabs: [
         {
@@ -150,11 +131,9 @@ export const useTabStore = create<TabStore>((set) => ({
       ],
       activeTabId: 'chat-main',
     });
-    console.log('🗑️ [TabStore] Tabs reset complete - only chat-main remains');
   },
 
   clearTabs: () => {
-    console.log('🗑️🗑️🗑️ [TabStore] === CLEAR TABS (KEEP CHAT) ===');
     set((state) => {
       // Keep only chat tabs
       const chatTabs = state.tabs.filter(t => t.type === 'chat');
@@ -183,11 +162,9 @@ export const useTabStore = create<TabStore>((set) => ({
   })),
 
   addTerminalItem: (tabId, item) => {
-    console.log('🔵 Store addTerminalItem called:', { tabId, itemId: item?.id, itemType: item?.type, itemContent: item?.content?.substring(0, 50), isExecuting: item?.isExecuting });
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       const currentItems = tab?.terminalItems || [];
-      console.log('🔵 Current items count:', currentItems.length, '→ New count:', currentItems.length + 1);
       return {
         tabs: state.tabs.map(t =>
           t.id === tabId
@@ -202,7 +179,6 @@ export const useTabStore = create<TabStore>((set) => ({
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       const existingItem = tab?.terminalItems?.find(item => item.id === itemId);
-      console.log('🔵 Updating terminal item by ID:', itemId, 'found:', !!existingItem, 'items:', tab?.terminalItems?.map(i => i.id));
 
       if (!existingItem) {
         console.warn('⚠️ Item not found for update! ID:', itemId);
@@ -224,7 +200,6 @@ export const useTabStore = create<TabStore>((set) => ({
   },
 
   clearTerminalItems: (tabId) => {
-    console.log('🔵 Clearing terminal items for tab:', tabId);
     set((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
@@ -235,7 +210,6 @@ export const useTabStore = create<TabStore>((set) => ({
   },
 
   removeTerminalItemById: (tabId, itemId) => {
-    console.log('🔵 Removing terminal item by ID:', itemId, 'from tab:', tabId);
     set((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
@@ -246,7 +220,6 @@ export const useTabStore = create<TabStore>((set) => ({
   },
 
   removeTerminalItemsByType: (tabId, type) => {
-    console.log('🔵 Removing terminal items of type:', type, 'from tab:', tabId);
     set((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
@@ -257,7 +230,6 @@ export const useTabStore = create<TabStore>((set) => ({
   },
 
   updateTerminalItemsByType: (tabId, oldType, updates) => {
-    console.log('🔵 Updating terminal items of type:', oldType, 'in tab:', tabId);
     set((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId

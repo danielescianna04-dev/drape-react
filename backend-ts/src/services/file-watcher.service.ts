@@ -82,6 +82,16 @@ class FileWatcherService {
   }
 
   /**
+   * Deregister a WebSocket client from file change events
+   */
+  deregisterClient(projectId: string, ws: WebSocket): void {
+    this.clients.get(projectId)?.delete(ws);
+    if (this.clients.get(projectId)?.size === 0) {
+      this.clients.delete(projectId);
+    }
+  }
+
+  /**
    * Manually notify about a file change (e.g., after write via API)
    */
   notifyChange(projectId: string, filePath: string, type: 'file_created' | 'file_changed' | 'file_deleted' = 'file_changed'): void {

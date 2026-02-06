@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 import { config } from '../../config/config';
 
 export interface AIMessage {
@@ -24,7 +24,7 @@ export class AIService {
 
   async sendMessage(messages: AIMessage[], model: string = 'auto'): Promise<AIResponse> {
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         `${this.baseUrl}${config.endpoints.chat}`,
         { messages, model },
         {
@@ -45,7 +45,7 @@ export class AIService {
 
   async executeCommand(command: string): Promise<string> {
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         `${this.baseUrl}${config.endpoints.terminal}`,
         { command },
         {
@@ -66,7 +66,7 @@ export class AIService {
 
   async executeAgent(task: string): Promise<any> {
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         `${this.baseUrl}${config.endpoints.agent}`,
         { task },
         {
@@ -87,7 +87,7 @@ export class AIService {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await axios.get(
+      const response = await apiClient.get(
         `${this.baseUrl}${config.endpoints.health}`,
         { timeout: 5000 }
       );
@@ -103,7 +103,7 @@ export class AIService {
     summary: string;
   }> {
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         `${this.baseUrl}/ai/analyze-project`,
         { workstationId },
         { timeout: 30000 }
@@ -117,7 +117,7 @@ export class AIService {
 
   async modifyFile(workstationId: string, filePath: string, content: string): Promise<void> {
     try {
-      await axios.post(
+      await apiClient.post(
         `${this.baseUrl}/workstation/modify-file`,
         { workstationId, filePath, content },
         { timeout: 10000 }
@@ -141,7 +141,7 @@ export class AIService {
   ): Promise<AIResponse> {
     try {
       // Fetch project context from the agent
-      const contextResponse = await axios.get(
+      const contextResponse = await apiClient.get(
         `${this.baseUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`,
         { timeout: 10000 }
       );
@@ -170,7 +170,6 @@ export class AIService {
         return msg;
       });
 
-      console.log('🧠 [AI] Sending message with project context');
       return this.sendMessage(enhancedMessages, model);
 
     } catch (error) {

@@ -133,8 +133,28 @@ const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
   displayName: firebaseUser.displayName,
   photoURL: firebaseUser.photoURL,
   createdAt: new Date(firebaseUser.metadata.creationTime || Date.now()),
-  plan: 'free', // Default plan
+  plan: 'free', // Default plan, will be overwritten by Firestore data
 });
+
+/**
+ * Load the user's plan from Firestore 'users/{uid}' document.
+ * Returns the plan string or 'free' as default.
+ */
+const loadUserPlanFromFirestore = async (uid: string): Promise<'free' | 'go'> => {
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    const userDoc = await getDoc(userDocRef);
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      const plan = data?.plan;
+      if (plan === 'go') return 'go';
+    }
+    return 'free';
+  } catch (error) {
+    console.warn('[AuthStore] Failed to load user plan from Firestore:', error);
+    return 'free';
+  }
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -145,18 +165,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   deviceCheckFailed: false,
 
   initialize: () => {
-    console.log('🔐 [AuthStore] Initializing auth listener...');
 
     onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log('🔐 [AuthStore] Auth state changed:', firebaseUser?.email || 'null');
 
       const newUserId = firebaseUser?.uid || null;
       const userChanged = previousUserId !== null && previousUserId !== newUserId;
 
       // Detect user change (switching accounts)
       if (userChanged) {
-        console.log('🔄 [AuthStore] USER CHANGED from', previousUserId, 'to', newUserId);
-        console.log('🗑️ [AuthStore] Resetting all user-specific state...');
 
         // Reset tabs to default state
         useTabStore.getState().resetTabs();
@@ -178,7 +194,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const isActive = await deviceService.isActiveDevice(firebaseUser.uid);
 
         if (!isActive) {
-          console.log('🚫 [AuthStore] This device is not the active device, forcing logout');
           set({ deviceCheckFailed: true, isInitialized: true, isLoading: false });
 
           // Show alert and sign out
@@ -191,6 +206,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }
 
         const drapeUser = mapFirebaseUser(firebaseUser);
+
+        // Load the user's actual plan from Firestore
+        const userPlan = await loadUserPlanFromFirestore(firebaseUser.uid);
+        drapeUser.plan = userPlan;
+
         set({ user: drapeUser, isInitialized: true, isLoading: false, deviceCheckFailed: false });
 
         // Update terminalStore userId
@@ -199,8 +219,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Update projectStore userId and reload projects for this user
         useProjectStore.getState().setUserId(firebaseUser.uid);
         useProjectStore.getState().loadUserProjects();
-
-        console.log('✅ [AuthStore] User logged in:', drapeUser.email);
 
         // Sync Git accounts from Firebase (for cross-device access)
         gitAccountService.syncFromFirebase(firebaseUser.uid).catch(err => {
@@ -242,7 +260,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           globalTerminalLog: [],
         });
 
-        console.log('🔐 [AuthStore] User logged out, all state reset');
       }
     });
   },
@@ -251,9 +268,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      console.log('🔐 [AuthStore] Signing in:', email);
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const drapeUser = mapFirebaseUser(userCredential.user);
+
+      // Load actual plan from Firestore
+      drapeUser.plan = await loadUserPlanFromFirestore(userCredential.user.uid);
 
       set({ user: drapeUser, isLoading: false });
       useTerminalStore.setState({ userId: userCredential.user.uid });
@@ -265,7 +284,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Register this device as the active device
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
-      console.log('✅ [AuthStore] Sign in successful:', drapeUser.email);
     } catch (error: any) {
       console.error('❌ [AuthStore] Sign in error:', error.code);
 
@@ -300,7 +318,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      console.log('🔐 [AuthStore] Creating account:', email);
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
       // Update profile with display name
@@ -324,7 +341,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       useProjectStore.getState().setUserId(userCredential.user.uid);
       useProjectStore.setState({ projects: [] });
 
-      console.log('✅ [AuthStore] Sign up successful:', drapeUser.email);
     } catch (error: any) {
       console.error('❌ [AuthStore] Sign up error:', error.code);
 
@@ -354,7 +370,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       const { user } = get();
-      console.log('🔐 [AuthStore] Logging out...');
 
       // Reset tabs BEFORE signing out (so we have clean state for next user)
       useTabStore.getState().resetTabs();
@@ -393,7 +408,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await signOut(auth);
       set({ user: null, isLoading: false, deviceCheckFailed: false });
 
-      console.log('✅ [AuthStore] Logout successful, all state reset');
     } catch (error: any) {
       console.error('❌ [AuthStore] Logout error:', error);
       set({ error: 'Errore durante il logout', isLoading: false });
@@ -405,10 +419,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      console.log('🔐 [AuthStore] Sending password reset:', email);
       await sendPasswordResetEmail(auth, email);
       set({ isLoading: false });
-      console.log('✅ [AuthStore] Password reset email sent');
     } catch (error: any) {
       console.error('❌ [AuthStore] Password reset error:', error.code);
 
@@ -442,7 +454,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      console.log('🔐 [AuthStore] Signing in with Google...');
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, credential);
       const drapeUser = mapFirebaseUser(userCredential.user);
@@ -468,6 +479,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const isNew = !userDoc.exists();
+
+      // Load plan from Firestore user document (existing users have plan field)
+      if (!isNew && userDoc.exists()) {
+        const userData = userDoc.data();
+        drapeUser.plan = userData?.plan === 'go' ? 'go' : 'free';
+      }
+
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
@@ -482,7 +500,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Register this device as the active device
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
-      console.log('✅ [AuthStore] Google sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
       console.error('❌ [AuthStore] Google sign in error:', error);
       const errorMessage = 'Errore durante l\'accesso con Google';
@@ -495,7 +512,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      console.log('🔐 [AuthStore] Signing in with Apple...');
 
       // Generate nonce for security
       const nonce = Math.random().toString(36).substring(2, 15);
@@ -560,6 +576,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       const isNew = !userDoc.exists();
+
+      // Load plan from Firestore user document (existing users have plan field)
+      if (!isNew && userDoc.exists()) {
+        const userData = userDoc.data();
+        drapeUser.plan = userData?.plan === 'go' ? 'go' : 'free';
+      }
+
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
       useTerminalStore.setState({ userId: userCredential.user.uid });
 
@@ -574,7 +597,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Register this device as the active device
       await deviceService.registerAsActiveDevice(userCredential.user.uid);
 
-      console.log('✅ [AuthStore] Apple sign in successful:', drapeUser.email, isNew ? '(new user)' : '');
     } catch (error: any) {
       console.error('❌ [AuthStore] Apple sign in error:', error);
 
@@ -598,7 +620,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const isActive = await deviceService.isActiveDevice(user.uid);
 
       if (!isActive) {
-        console.log('🚫 [AuthStore] Device check failed - another device is active');
         set({ deviceCheckFailed: true });
 
         Alert.alert(

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager } from 'react-native';
+import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager, Keyboard } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +20,7 @@ import { GitSheet } from './GitSheet';
 import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { IntegrationsFAB } from './IntegrationsFAB';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 
@@ -43,8 +43,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
-  const previewServerUrl = useTerminalStore((state) => state.previewServerUrl);
-  const apiUrl = useTabStore((state) => state.apiUrl);
+  const previewServerUrl = useUIStore((state) => state.previewServerUrl);
+  const apiUrl = ''; // apiUrl comes from NetworkConfig, not TabStore
 
   // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
@@ -127,7 +127,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     if ((previewJustOpened || isPreviewTabActive) && !isSidebarHidden) {
       // Delay animation until after interactions (preview mounting) complete
       const task = InteractionManager.runAfterInteractions(() => {
-        console.log('👁️ [VSCodeSidebar] Preview activated, auto-hiding sidebar');
         sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
         setIsSidebarHidden(true);
       });
@@ -147,6 +146,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, []);
 
   const togglePanel = useCallback((panel: PanelType) => {
+    Keyboard.dismiss();
     if (panel === 'preview') {
       setShowPreviewPanel(prev => !prev);
       setActivePanel(null); // Clear other panels when toggling preview
@@ -166,6 +166,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, []);
 
   const handleEnvVarsClick = useCallback(() => {
+    Keyboard.dismiss();
     // Open as tab instead of panel
     setShowPreviewPanel(false); // Close preview when switching to env vars
     const envVarsTab = tabs.find(t => t.id === 'env-vars');
@@ -182,6 +183,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [tabs, setActiveTab, addTab]);
 
   const handleSupabasePress = useCallback(() => {
+    Keyboard.dismiss();
     // Open as tab instead of panel (keep FAB visible)
     const supabaseTab = tabs.find(t => t.id === 'integration-supabase');
     if (supabaseTab) {
@@ -197,6 +199,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, [tabs, setActiveTab, addTab]);
 
   const handleFigmaPress = useCallback(() => {
+    Keyboard.dismiss();
     // Open as tab instead of panel (keep FAB visible)
     const figmaTab = tabs.find(t => t.id === 'integration-figma');
     if (figmaTab) {

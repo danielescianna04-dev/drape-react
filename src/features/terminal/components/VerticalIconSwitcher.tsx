@@ -82,21 +82,57 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
   const startY = useSharedValue(0);
 
   const ICON_SIZE = 44;
+  const iconCount = icons.length;
 
   const handleIndexChange = (newIndex: number) => {
     setActiveIndex(newIndex);
     onIconChange?.(newIndex);
-    // Don't execute action here - only on tap!
   };
 
-  const handleTap = () => {
-    // Execute the action of the currently selected icon
-    icons[activeIndex]?.action();
+  const executeAction = (index: number) => {
+    icons[index]?.action();
+  };
+
+  const switchToIndex = (newIndex: number) => {
+    'worklet';
+    const targetY = -newIndex * ICON_SIZE;
+    translateY.value = withSpring(targetY, {
+      damping: 18,
+      stiffness: 180,
+      mass: 0.8,
+    });
+    runOnJS(handleIndexChange)(newIndex);
   };
 
   const tapGesture = Gesture.Tap()
-    .onEnd(() => {
-      runOnJS(handleTap)();
+    .onEnd((event) => {
+      'worklet';
+      // Calculate which icon is under the tap, accounting for translateY offset
+      // Icon i visual center = (i * ICON_SIZE + ICON_SIZE/2) + translateY.value
+      const tapY = event.y;
+      let closestIndex = 0;
+      let closestDist = Infinity;
+
+      for (let i = 0; i < iconCount; i++) {
+        const iconCenter = i * ICON_SIZE + ICON_SIZE / 2 + translateY.value;
+        const dist = Math.abs(tapY - iconCenter);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestIndex = i;
+        }
+      }
+
+      // Current active index from translateY
+      const currentActive = Math.round(-translateY.value / ICON_SIZE);
+      const clampedCurrent = Math.max(0, Math.min(iconCount - 1, currentActive));
+
+      if (closestIndex !== clampedCurrent) {
+        // Tapped a different icon — switch to it
+        switchToIndex(closestIndex);
+      } else {
+        // Tapped the already-active icon — execute its action
+        runOnJS(executeAction)(closestIndex);
+      }
     });
 
   const panGesture = Gesture.Pan()
@@ -105,9 +141,8 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
     })
     .onUpdate((event) => {
       const newTranslation = startY.value + event.translationY;
-      const maxScroll = (icons.length - 1) * ICON_SIZE;
+      const maxScroll = (iconCount - 1) * ICON_SIZE;
 
-      // Smoother rubber band effect at edges
       if (newTranslation > 0) {
         translateY.value = newTranslation * 0.3;
       } else if (Math.abs(newTranslation) > maxScroll) {
@@ -121,13 +156,12 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
       const velocity = event.velocityY;
       let targetIndex = Math.round(Math.abs(translateY.value) / ICON_SIZE);
 
-      // Consider velocity for smoother flick gestures
       if (Math.abs(velocity) > 500) {
         const velocityBoost = velocity > 0 ? -1 : 1;
         targetIndex = Math.round((Math.abs(translateY.value) + velocityBoost * ICON_SIZE * 0.5) / ICON_SIZE);
       }
 
-      targetIndex = Math.max(0, Math.min(icons.length - 1, targetIndex));
+      targetIndex = Math.max(0, Math.min(iconCount - 1, targetIndex));
 
       const targetY = -targetIndex * ICON_SIZE;
       translateY.value = withSpring(targetY, {
@@ -137,12 +171,12 @@ export const VerticalIconSwitcher = ({ icons, onIconChange }: Props) => {
         velocity: velocity,
       });
 
-      if (targetIndex !== activeIndex) {
+      const currentActive = Math.round(-startY.value / ICON_SIZE);
+      if (targetIndex !== currentActive) {
         runOnJS(handleIndexChange)(targetIndex);
       }
     });
 
-  // Combine tap and pan gestures - pan takes priority during drag
   const composedGesture = Gesture.Race(tapGesture, panGesture);
 
   return (

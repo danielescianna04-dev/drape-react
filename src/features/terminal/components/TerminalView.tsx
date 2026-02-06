@@ -6,9 +6,10 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { AppColors } from '../../../shared/theme/colors';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 import { config } from '../../../config/config';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { ChatInput } from '../../../shared/components/ChatInput';
 
 interface Props {
@@ -24,7 +25,8 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
-  const { currentWorkstation, globalTerminalLog, addGlobalTerminalLog } = useTerminalStore();
+  const { currentWorkstation } = useWorkstationStore();
+  const { globalTerminalLog, addGlobalTerminalLog } = useUIStore();
 
   // Get terminal items based on sourceTabId
   // Now includes GLOBAL log from all sources (preview, AI, etc.)
@@ -108,7 +110,7 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
     });
 
     try {
-      const response = await axios.post(
+      const response = await apiClient.post(
         `${config.apiUrl}/terminal/execute`,
         {
           command: command,

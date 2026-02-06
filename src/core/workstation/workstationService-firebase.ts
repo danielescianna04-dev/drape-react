@@ -1,7 +1,7 @@
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 import { config } from '../../config/config';
 
 const COLLECTION = 'user_projects';
@@ -92,7 +92,6 @@ export const workstationService = {
       };
 
       const docRef = await addDoc(collection(db, COLLECTION), project);
-      console.log('📂 [saveGitProject] Created new project:', docRef.id, 'name:', repoName);
 
       return {
         ...project,
@@ -141,7 +140,6 @@ export const workstationService = {
       };
 
       await setDoc(doc(db, COLLECTION, projectId), project);
-      console.log('📂 [saveProjectWithId] Saved project:', projectId, 'name:', name);
 
       return { ...project, id: projectId };
     } catch (error) {
@@ -187,7 +185,7 @@ export const workstationService = {
           headers['Authorization'] = `Bearer ${token}`;
         }
 
-        result = await axios.post(url, {
+        result = await apiClient.post(url, {
           projectId: project.id,
           repositoryUrl: project.repositoryUrl,
           githubToken: token, // Also pass in body for cloneRepository
@@ -202,7 +200,7 @@ export const workstationService = {
       // Legacy Coder path
       if (project.type === 'git' && project.repositoryUrl) {
         // Progetto Git - clona da repository
-        result = await axios.post(`${API_BASE_URL}/workstation/create`, {
+        result = await apiClient.post(`${API_BASE_URL}/workstation/create`, {
           repositoryUrl: project.repositoryUrl,
           userId: project.userId,
           projectId: project.id,
@@ -211,7 +209,7 @@ export const workstationService = {
         });
       } else {
         // Progetto personale - carica da Cloud Storage
-        result = await axios.post(`${API_BASE_URL}/workstation/create`, {
+        result = await apiClient.post(`${API_BASE_URL}/workstation/create`, {
           projectName: project.name,
           userId: project.userId,
           projectId: project.id,
@@ -223,7 +221,6 @@ export const workstationService = {
     } catch (error: any) {
       // Use console.log for expected auth errors (401) to avoid error overlay
       if (error.response?.status === 401) {
-        console.log('🔐 [createWorkstationForProject] Auth required (401)');
       } else {
         console.error('❌ [createWorkstation]', error.message);
       }
@@ -241,7 +238,7 @@ export const workstationService = {
           headers['Authorization'] = `Bearer ${githubToken}`;
         }
 
-        const response = await axios.get(`${FLY_API_BASE}/project/${workstationId}/files`, {
+        const response = await apiClient.get(`${FLY_API_BASE}/project/${workstationId}/files`, {
           params: {
             githubToken,
             repositoryUrl // Pass repo URL so backend can clone if missing
@@ -258,26 +255,13 @@ export const workstationService = {
         ? `${API_BASE_URL}/workstation/${workstationId}/files?repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${workstationId}/files`;
 
-      console.log('🌐 Making request to:', url);
-      console.log('🌐 API_BASE_URL:', API_BASE_URL);
-      console.log('🌐 workstationId:', workstationId);
-      console.log('🌐 repositoryUrl:', repositoryUrl);
-      console.log('🌐 Has GitHub token:', !!githubToken);
-
-      // Create a custom axios instance with extended timeout for cloning operations
-      const axiosLongTimeout = axios.create({
-        timeout: 600000 // 10 minutes for large repository clones
-      });
-
       // Add Authorization header if token is provided
       const headers: Record<string, string> = {};
       if (githubToken) {
         headers['Authorization'] = `Bearer ${githubToken}`;
       }
 
-      console.log('🌐 About to make GET request...');
-      const response = await axiosLongTimeout.get(url, { headers });
-      console.log('🌐 Response received:', response.status);
+      const response = await apiClient.get(url, { headers, timeout: 600000 });
       const files = response.data.files || [];
 
       // Convert file objects to path strings for compatibility
@@ -294,7 +278,6 @@ export const workstationService = {
     } catch (error: any) {
       // Don't use console.error for expected auth errors to avoid error overlay on phone
       if (error.response?.status === 401 || error.response?.status === 403) {
-        console.log('🔐 [getWorkstationFiles] Auth required:', error.response?.status);
       } else {
         console.error('Error getting workstation files:', error);
       }
@@ -333,7 +316,7 @@ export const workstationService = {
     previewUrl?: string | null;
   }> {
     try {
-      const response = await axios.post(`${API_BASE_URL}/terminal/execute`, {
+      const response = await apiClient.post(`${API_BASE_URL}/terminal/execute`, {
         command,
         workstationId
       });
@@ -351,7 +334,7 @@ export const workstationService = {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
         // Read file via backend API
-        const response = await axios.get(
+        const response = await apiClient.get(
           `${FLY_API_BASE}/project/${projectId}/file?path=${encodeURIComponent(filePath)}`
         );
         return response.data.content;
@@ -362,7 +345,7 @@ export const workstationService = {
         ? `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${projectId}/file-content?filePath=${encodeURIComponent(filePath)}`;
 
-      const response = await axios.get(url);
+      const response = await apiClient.get(url);
       return response.data.content;
     } catch (error: any) {
       console.error('Error getting file content:', error);
@@ -376,7 +359,7 @@ export const workstationService = {
       // 🚀 HOLY GRAIL: Use Fly.io API
       if (USE_HOLY_GRAIL) {
         // Save file via backend API
-        await axios.post(`${FLY_API_BASE}/project/${projectId}/file`, {
+        await apiClient.post(`${FLY_API_BASE}/project/${projectId}/file`, {
           path: filePath,
           content
         });
@@ -384,7 +367,7 @@ export const workstationService = {
       }
 
       // Legacy Coder path
-      await axios.post(`${API_BASE_URL}/workstation/${projectId}/file-content`, {
+      await apiClient.post(`${API_BASE_URL}/workstation/${projectId}/file-content`, {
         filePath,
         content,
         repositoryUrl
@@ -402,7 +385,7 @@ export const workstationService = {
         ? `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
         : `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}`;
 
-      const response = await axios.get(url);
+      const response = await apiClient.get(url);
       return response.data.results || [];
     } catch (error: any) {
       console.error('Error searching in files:', error);
@@ -416,40 +399,28 @@ export const workstationService = {
       // Handle both formats: "projectId" or "ws-projectId"
       const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
 
-      console.log('🗑️🗑️🗑️ [DELETE] Starting delete');
-      console.log('🗑️ [DELETE] Original projectId:', projectId);
-      console.log('🗑️ [DELETE] Clean projectId:', cleanProjectId);
-      console.log('🗑️ [DELETE] API_BASE_URL:', API_BASE_URL);
-
       // 1. Prima elimina i file clonati dal backend (try both IDs)
       for (const id of [projectId, cleanProjectId]) {
         try {
-          console.log('🗑️ [DELETE] Trying backend delete for:', id);
-          const response = await axios.delete(`${API_BASE_URL}/workstation/${id}?force=true`);
-          console.log('✅ [DELETE] Backend response for', id, ':', JSON.stringify(response.data));
+          const response = await apiClient.delete(`${API_BASE_URL}/workstation/${id}?force=true`);
         } catch (backendError: any) {
           console.warn('⚠️ [DELETE] Backend error for', id, ':', backendError?.response?.data || backendError?.message);
         }
       }
 
       // 2. Poi elimina da Firebase (use clean ID for Firebase document)
-      console.log('🗑️ [DELETE] Deleting from Firebase collection:', COLLECTION, 'doc:', cleanProjectId);
       try {
         await deleteDoc(doc(db, COLLECTION, cleanProjectId));
-        console.log('✅ [DELETE] Firebase document deleted:', cleanProjectId);
       } catch (fbError: any) {
         console.error('❌ [DELETE] Firebase error:', fbError);
         // Also try with original ID just in case
         if (cleanProjectId !== projectId) {
-          console.log('🗑️ [DELETE] Retrying Firebase delete with original ID:', projectId);
           await deleteDoc(doc(db, COLLECTION, projectId));
-          console.log('✅ [DELETE] Firebase document deleted with original ID');
         } else {
           throw fbError;
         }
       }
 
-      console.log('🗑️🗑️🗑️ [DELETE] Complete for projectId:', projectId);
     } catch (error) {
       console.error('❌ [DELETE] Error:', error);
       throw error;
@@ -459,11 +430,9 @@ export const workstationService = {
   // Aggiorna account GitHub collegato al progetto
   async updateProjectGitHubAccount(projectId: string, githubUsername: string): Promise<void> {
     try {
-      console.log('🔗 Linking GitHub account to project:', { projectId, githubUsername });
       await updateDoc(doc(db, COLLECTION, projectId), {
         githubAccountUsername: githubUsername,
       });
-      console.log('✅ GitHub account linked successfully');
     } catch (error) {
       console.error('Error updating project GitHub account:', error);
       throw error;
@@ -473,11 +442,9 @@ export const workstationService = {
   // Rimuovi account GitHub dal progetto
   async removeProjectGitHubAccount(projectId: string): Promise<void> {
     try {
-      console.log('🔓 Unlinking GitHub account from project:', projectId);
       await updateDoc(doc(db, COLLECTION, projectId), {
         githubAccountUsername: null,
       });
-      console.log('✅ GitHub account unlinked successfully');
     } catch (error) {
       console.error('Error removing project GitHub account:', error);
       throw error;
@@ -487,11 +454,9 @@ export const workstationService = {
   // Segna progetto come clonato
   async markProjectAsCloned(projectId: string): Promise<void> {
     try {
-      console.log('✓ Marking project as cloned:', projectId);
       await updateDoc(doc(db, COLLECTION, projectId), {
         cloned: true,
       });
-      console.log('✅ Project marked as cloned');
     } catch (error) {
       console.error('Error marking project as cloned:', error);
       throw error;
@@ -502,9 +467,7 @@ export const workstationService = {
   async updateWorkstation(workstationId: string, updates: Partial<{ name: string }>): Promise<void> {
     try {
       const cleanId = workstationId.startsWith('ws-') ? workstationId.substring(3) : workstationId;
-      console.log('📝 Updating workstation:', cleanId, updates);
       await updateDoc(doc(db, COLLECTION, cleanId), updates);
-      console.log('✅ Workstation updated');
     } catch (error) {
       console.error('Error updating workstation:', error);
       throw error;
@@ -515,11 +478,9 @@ export const workstationService = {
   async updateLastAccessed(projectId: string): Promise<void> {
     try {
       // Use the original projectId - AI-generated projects use full 'ws-' prefix
-      console.log('🕐 Updating lastAccessed for project:', projectId);
       await updateDoc(doc(db, COLLECTION, projectId), {
         lastAccessed: new Date(),
       });
-      console.log('✅ lastAccessed updated');
     } catch (error) {
       console.error('Error updating lastAccessed:', error);
       // Don't throw - this is a non-critical update
@@ -543,7 +504,6 @@ export const workstationService = {
       };
 
       const docRef = await addDoc(collection(db, COLLECTION), project);
-      console.log('📂 Created new workstation:', docRef.id);
 
       return {
         id: docRef.id,
@@ -595,14 +555,12 @@ export const workstationService = {
 
   // Legacy methods per compatibilità
   async saveWorkstation(workstation: WorkstationInfo): Promise<void> {
-    console.log('Legacy saveWorkstation called:', workstation);
   },
 
   async getWorkstations(): Promise<WorkstationInfo[]> {
     try {
       const userId = auth.currentUser?.uid;
       if (!userId) {
-        console.log('⚠️ getWorkstations: No authenticated user');
         return [];
       }
       const projects = await this.getUserProjects(userId);

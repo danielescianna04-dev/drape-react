@@ -4,6 +4,25 @@ import { ExecResult } from '../types';
 
 const execAsync = promisify(execCb);
 
+/**
+ * Escape a string for safe use as a shell argument.
+ * Wraps the value in single quotes and escapes any embedded single quotes.
+ * e.g. "it's here" -> 'it'\''s here'
+ */
+export function shellEscape(str: string): string {
+  return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * Validate that a projectId contains only safe characters.
+ * Throws if the value is invalid.
+ */
+export function validateProjectId(projectId: string): void {
+  if (!projectId || !/^[a-zA-Z0-9_-]+$/.test(projectId)) {
+    throw new Error(`Invalid projectId: ${projectId}`);
+  }
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

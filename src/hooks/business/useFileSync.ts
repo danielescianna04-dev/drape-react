@@ -29,27 +29,22 @@ export const useFileSync = () => {
             if (event.type === 'file_created' && timeSinceSubscription < 3000) {
                 burstCountRef.current++;
                 if (burstCountRef.current === 1) {
-                    console.log(`⏳ [useFileSync] Ignoring initial file burst for ${projectId} (3s grace period)`);
                 }
                 return; // Skip processing this event
             }
 
             // Log burst summary if we had one
             if (burstCountRef.current > 0 && timeSinceSubscription >= 3000) {
-                console.log(`✅ [useFileSync] Initial burst complete: ignored ${burstCountRef.current} events`);
                 burstCountRef.current = 0; // Reset counter
             }
 
-            console.log(`📡 [useFileSync] File change detected: ${event.type} ${event.path} for project ${projectId}`);
             // Invalidate cache for this project so the next load will fetch fresh data
             useFileCacheStore.getState().clearCache(projectId);
         };
 
-        console.log(`🔌 [useFileSync] Subscribing to file changes for project: ${projectId}`);
         websocketService.subscribeToFiles(projectId, handleFileChange);
 
         return () => {
-            console.log(`🔌 [useFileSync] Unsubscribing from file changes for project: ${projectId}`);
             websocketService.unsubscribeFromFiles(projectId, handleFileChange);
         };
     }, [projectId]);

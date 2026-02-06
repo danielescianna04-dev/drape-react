@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { asyncHandler } from '../middleware/async-handler';
 import { log } from '../utils/logger';
 import { config } from '../config';
 
@@ -8,7 +9,7 @@ export const githubRouter = Router();
  * POST /github/device-flow
  * Start GitHub OAuth device flow
  */
-githubRouter.post('/device-flow', async (req: Request, res: Response) => {
+githubRouter.post('/device-flow', asyncHandler(async (req: Request, res: Response) => {
   try {
     const clientId = config.githubClientId || req.body.client_id;
     const scope = req.body.scope || 'repo read:user user:email';
@@ -39,16 +40,16 @@ githubRouter.post('/device-flow', async (req: Request, res: Response) => {
 
     res.json(data);
   } catch (error: any) {
-    log.error('[GitHub] Device flow error:', error.message);
-    res.status(500).json({ error: 'Failed to start device flow', message: error.message });
+    log.error('[GitHub] Device flow error:', error);
+    res.status(500).json({ error: 'Failed to start device flow' });
   }
-});
+}));
 
 /**
  * POST /github/poll-device
  * Exchange device code for access token (poll)
  */
-githubRouter.post('/poll-device', async (req: Request, res: Response) => {
+githubRouter.post('/poll-device', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { device_code, client_id } = req.body;
     const clientId = client_id || config.githubClientId;
@@ -85,16 +86,16 @@ githubRouter.post('/poll-device', async (req: Request, res: Response) => {
 
     res.json(data);
   } catch (error: any) {
-    log.error('[GitHub] Poll device error:', error.message);
-    res.status(500).json({ error: 'Failed to poll device', message: error.message });
+    log.error('[GitHub] Poll device error:', error);
+    res.status(500).json({ error: 'Failed to poll device' });
   }
-});
+}));
 
 /**
  * GET /github/user
  * Get authenticated user info
  */
-githubRouter.get('/user', async (req: Request, res: Response) => {
+githubRouter.get('/user', asyncHandler(async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -115,16 +116,16 @@ githubRouter.get('/user', async (req: Request, res: Response) => {
     const data = await response.json();
     res.json(data);
   } catch (error: any) {
-    log.error('[GitHub] Get user error:', error.message);
-    res.status(500).json({ error: 'Failed to get user', message: error.message });
+    log.error('[GitHub] Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user' });
   }
-});
+}));
 
 /**
  * GET /github/repos
  * List user's repositories
  */
-githubRouter.get('/repos', async (req: Request, res: Response) => {
+githubRouter.get('/repos', asyncHandler(async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -152,7 +153,7 @@ githubRouter.get('/repos', async (req: Request, res: Response) => {
     const data = await response.json();
     res.json(data);
   } catch (error: any) {
-    log.error('[GitHub] Get repos error:', error.message);
-    res.status(500).json({ error: 'Failed to get repos', message: error.message });
+    log.error('[GitHub] Get repos error:', error);
+    res.status(500).json({ error: 'Failed to get repos' });
   }
-});
+}));

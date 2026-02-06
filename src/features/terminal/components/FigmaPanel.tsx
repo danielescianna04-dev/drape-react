@@ -5,9 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useAnimatedStyle } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useSidebarOffset } from '../context/SidebarContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 interface Props {
   onClose: () => void;
@@ -27,7 +28,7 @@ const FIGMA_PURPLE = '#A259FF';
 
 export const FigmaPanel = ({ onClose }: Props) => {
   const insets = useSafeAreaInsets();
-  const { currentWorkstation } = useTerminalStore();
+  const { currentWorkstation } = useWorkstationStore();
   const { sidebarTranslateX } = useSidebarOffset();
 
   const [config, setConfig] = useState<FigmaConfig>({
@@ -59,7 +60,12 @@ export const FigmaPanel = ({ onClose }: Props) => {
       setIsLoading(true);
       const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
-        setConfig(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Load access token from SecureStore
+        const projectId = currentWorkstation?.id || 'global';
+        const accessToken = await SecureStore.getItemAsync(`figma_token_${projectId}`);
+        if (accessToken) parsed.accessToken = accessToken;
+        setConfig(parsed);
       }
     } catch (error) {
       console.error('Failed to load Figma config:', error);
@@ -122,7 +128,13 @@ export const FigmaPanel = ({ onClose }: Props) => {
         fileKey,
       };
       setConfig(newConfig);
-      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+      // Save config without accessToken to AsyncStorage, token goes to SecureStore
+      const { accessToken: tokenToStore, ...safeConfig } = newConfig;
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(safeConfig));
+      const projectId = currentWorkstation?.id || 'global';
+      if (tokenToStore) {
+        await SecureStore.setItemAsync(`figma_token_${projectId}`, tokenToStore);
+      }
 
       Alert.alert('Connesso!', `Ciao ${userData.handle || 'utente'}! Figma connesso.`);
     } catch (error) {
@@ -152,6 +164,8 @@ export const FigmaPanel = ({ onClose }: Props) => {
               isConnected: false,
             });
             await AsyncStorage.removeItem(getStorageKey());
+            const projectId = currentWorkstation?.id || 'global';
+            await SecureStore.deleteItemAsync(`figma_token_${projectId}`);
           },
         },
       ]
@@ -442,7 +456,12 @@ export const FigmaPanel = ({ onClose }: Props) => {
                                 fileName: data.name || '',
                               };
                               setConfig(newConfig);
-                              await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+                              const { accessToken: tokenToStore, ...safeConfig } = newConfig;
+                              await AsyncStorage.setItem(getStorageKey(), JSON.stringify(safeConfig));
+                              const projectId = currentWorkstation?.id || 'global';
+                              if (tokenToStore) {
+                                await SecureStore.setItemAsync(`figma_token_${projectId}`, tokenToStore);
+                              }
                             } catch (e) {
                               setConfig(prev => ({ ...prev, fileUrl: newUrl, fileKey }));
                             }

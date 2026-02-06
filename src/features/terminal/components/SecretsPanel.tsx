@@ -5,8 +5,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { config } from '../../../config/config';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { useSidebarOffset } from '../context/SidebarContext';
 
 interface Props {
@@ -33,7 +34,7 @@ type AIStatus = 'not_started' | 'analyzing' | 'complete' | 'error';
 
 export const SecretsPanel = ({ onClose }: Props) => {
   const insets = useSafeAreaInsets();
-  const { currentWorkstation } = useTerminalStore();
+  const { currentWorkstation } = useWorkstationStore();
   const { sidebarTranslateX } = useSidebarOffset();
   const [envVars, setEnvVars] = useState<EnvVariable[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,8 +109,10 @@ export const SecretsPanel = ({ onClose }: Props) => {
     }
     try {
       setIsLoading(true);
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`
+        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`,
+        { headers: authHeaders }
       );
       if (!response.ok) throw new Error('Failed to load');
       const data = await response.json();
@@ -140,9 +143,10 @@ export const SecretsPanel = ({ onClose }: Props) => {
   const reloadProjectVars = async () => {
     if (!currentWorkstation?.id) return;
     try {
-      console.log('[SecretsPanel] Reloading project vars after AI complete...');
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`
+        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`,
+        { headers: authHeaders }
       );
       if (!response.ok) return;
       const data = await response.json();
@@ -151,7 +155,6 @@ export const SecretsPanel = ({ onClose }: Props) => {
         (v: EnvVariable, index: number, self: EnvVariable[]) =>
           index === self.findIndex((t) => t.key === v.key)
       );
-      console.log('[SecretsPanel] Got project vars:', existingEnvVars.length);
 
       if (existingEnvVars.length > 0) {
         // Mantieni le variabili user-configured e aggiungi quelle dal progetto
@@ -175,9 +178,10 @@ export const SecretsPanel = ({ onClose }: Props) => {
   const startAIAnalysis = async () => {
     if (!currentWorkstation?.id) return;
     try {
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(
         `${config.apiUrl}/workstation/${currentWorkstation.id}/env-analyze`,
-        { method: 'POST' }
+        { method: 'POST', headers: authHeaders }
       );
       if (response.ok) {
         const data = await response.json();
@@ -207,8 +211,10 @@ export const SecretsPanel = ({ onClose }: Props) => {
   const checkAIStatus = async () => {
     if (!currentWorkstation?.id) return;
     try {
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(
-        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-analyze/status`
+        `${config.apiUrl}/workstation/${currentWorkstation.id}/env-analyze/status`,
+        { headers: authHeaders }
       );
       if (response.ok) {
         const data = await response.json();
@@ -245,11 +251,12 @@ export const SecretsPanel = ({ onClose }: Props) => {
     if (!currentWorkstation?.id) return;
     try {
       setIsSaving(true);
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(
         `${config.apiUrl}/workstation/${currentWorkstation.id}/env-variables`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
           body: JSON.stringify({ variables: envVars }),
         }
       );

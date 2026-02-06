@@ -13,6 +13,7 @@ import { useTerminalStore } from '../../../core/terminal/terminalStore';
 import { useGitCacheStore } from '../../../core/cache/gitCacheStore';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { config } from '../../../config/config';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../core/github/githubService';
 import { useTabStore } from '../../../core/tabs/tabStore';
@@ -98,7 +99,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (visible && currentWorkstation?.id) {
       // Prevent double-start from React StrictMode or rapid prop changes
       if (hasStartedRef.current) {
-        console.log('⚠️ [GitSheet] Already started loading, skipping');
         return;
       }
       hasStartedRef.current = true;
@@ -108,7 +108,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       const isCacheValid = useGitCacheStore.getState().isCacheValid(currentWorkstation.id, 5 * 60 * 1000); // 5 min
 
       if (cachedData && isCacheValid) {
-        console.log('✅ [GitSheet] Using CACHED data - instant UI!');
         // Set all data from cache immediately
         setCommits(cachedData.commits.map(c => ({ ...c, date: new Date(c.date) })));
         setBranches(cachedData.branches);
@@ -124,7 +123,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       }
 
       // No cache - load normally
-      console.log('🟡 [GitSheet] No cache - loading...');
       setGitLoading(true);
 
       const timeoutId = setTimeout(() => {
@@ -135,7 +133,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       }, 10000);
 
       loadAccountInfo().then((accounts) => {
-        console.log('✅ [GitSheet] loadAccountInfo resolved - calling loadGitData directly');
         clearTimeout(timeoutId);
         loadGitData(accounts || []);
       }).catch((err) => {
@@ -168,11 +165,9 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   }, [onClose, tabs, setActiveTab, addTab]);
 
   const loadAccountInfo = async (): Promise<GitAccount[]> => {
-    console.log('🔶 [GitSheet] loadAccountInfo START');
     const startTime = Date.now();
     try {
       const accounts = await gitAccountService.getAllAccounts(userId);
-      console.log(`⏱️ [GitSheet] getAllAccounts took ${Date.now() - startTime}ms`);
       setGitAccounts(accounts);
       accountsRef.current = accounts; // Store in ref for immediate access
 
@@ -198,7 +193,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       console.error('Error loading git accounts:', error);
       return [];
     } finally {
-      console.log(`✅ [GitSheet] loadAccountInfo DONE in ${Date.now() - startTime}ms`);
       setLoading(false);
     }
   };
@@ -208,13 +202,11 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
     // Prevent multiple simultaneous calls
     if (isLoadingRef.current) {
-      console.log('⚠️ [GitSheet] loadGitData already running, skipping');
       return;
     }
     isLoadingRef.current = true;
 
     const totalStart = Date.now();
-    console.log('🔄 [GitSheet] loadGitData START');
     setGitLoading(true);
     setErrorMsg(null);
 
@@ -231,7 +223,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
         if (match) {
           const [, owner, repo] = match;
-          console.log(`🚀 [GitSheet] Fast path: GitHub API for ${owner}/${repo}`);
 
           try {
             // Get token - use passed accounts or ref to avoid Firebase call
@@ -242,7 +233,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             if (githubAccount) {
               token = await gitAccountService.getToken(githubAccount, userId);
             }
-            console.log(`⏱️ [GitSheet] Token fetch: ${Date.now() - tokenStart}ms (accounts passed: ${!!passedAccounts}, count: ${accounts.length})`);
 
             // Fetch from GitHub API (FAST!)
             const apiStart = Date.now();
@@ -250,10 +240,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               githubService.getCommits(owner, repo, token || undefined),
               githubService.getBranches(owner, repo, token || undefined)
             ]);
-            console.log(`⏱️ [GitSheet] GitHub API fetch: ${Date.now() - apiStart}ms`);
 
             if (commitsData && commitsData.length > 0) {
-              console.log(`✅ [GitSheet] GitHub API: ${commitsData.length} commits in ${Date.now() - totalStart}ms TOTAL`);
 
               // Determine current branch from GitHub default
               localCurrentBranch = branchesData?.find((b: any) => b.name === 'main' || b.name === 'master')?.name || 'main';
@@ -295,7 +283,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               });
 
               // STOP LOADING - user sees commits instantly!
-              console.log(`✅ [GitSheet] setGitLoading(false) - TOTAL TIME: ${Date.now() - totalStart}ms`);
               setGitLoading(false);
 
               // 2. Fetch status from backend IN BACKGROUND (for Changes tab)
@@ -310,7 +297,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       }
 
       // FALLBACK: Backend (slow, needs VM boot)
-      console.log(`📦 [GitSheet] Slow path: Backend git status... (${Date.now() - totalStart}ms elapsed)`);
       await fetchBackendStatus(localCurrentBranch);
 
     } catch (error) {
@@ -319,7 +305,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         setErrorMsg(t('terminal:git.unableToLoadData'));
       }
     } finally {
-      console.log(`🏁 [GitSheet] loadGitData FINALLY - TOTAL: ${Date.now() - totalStart}ms`);
       setGitLoading(false);
       isLoadingRef.current = false; // Reset guard
     }
@@ -330,8 +315,10 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     if (!currentWorkstation?.id) return;
 
     try {
-      console.log('📡 [GitSheet] Fetching backend status (for Changes)...');
-      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`);
+      const authHeaders = await getAuthHeaders();
+      const localResponse = await fetch(`${config.apiUrl}/git/status/${currentWorkstation.id}`, {
+        headers: authHeaders,
+      });
       const localData = await localResponse.json();
 
       if (localData?.isGitRepo) {
@@ -344,7 +331,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             untracked: changes.untracked || [],
             deleted: changes.deleted || [],
           });
-          console.log('✅ [GitSheet] Backend status loaded (Changes ready)');
         }
 
         // Update cache with status
@@ -434,13 +420,15 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     setActionLoading(action);
     try {
       const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const authHeaders = await getAuthHeaders();
 
       // First stash
       const stashResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation!.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
+          'X-Git-Token': token || '',
         },
         body: JSON.stringify({ action: 'push', message: 'Auto-stash before pull' }),
       });
@@ -455,7 +443,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
+          'X-Git-Token': token || '',
         },
       });
 
@@ -465,7 +454,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            ...authHeaders,
+            'X-Git-Token': token || '',
           },
           body: JSON.stringify({ action: 'pop' }),
         });
@@ -482,7 +472,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            ...authHeaders,
+            'X-Git-Token': token || '',
           },
           body: JSON.stringify({ action: 'pop' }),
         });
@@ -500,12 +491,14 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     setActionLoading(action);
     try {
       const token = await gitAccountService.getToken(linkedAccount!, userId);
+      const authHeaders = await getAuthHeaders();
 
       const response = await fetch(`${config.apiUrl}/git/${action}/${currentWorkstation!.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
+          'X-Git-Token': token || '',
         },
       });
 
@@ -569,12 +562,14 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     setActionLoading('commit');
     try {
       const token = await gitAccountService.getToken(linkedAccount, userId);
+      const authHeaders = await getAuthHeaders();
 
       const response = await fetch(`${config.apiUrl}/git/commit/${currentWorkstation.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          ...authHeaders,
+          'X-Git-Token': token || '',
         },
         body: JSON.stringify({
           files: Array.from(selectedFiles),
@@ -746,7 +741,6 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               </View>
             ) : activeSection === 'commits' ? (
               <View style={styles.commitsList}>
-
 
                 {commits.slice(0, 10).map((commit, index) => (
                   <TouchableOpacity

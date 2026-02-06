@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { workstationService, UserProject } from '../workstation/workstationService-firebase';
+import { getAuthHeaders } from '../api/getAuthToken';
 
 interface ProjectState {
   projects: UserProject[];
@@ -29,9 +30,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      console.log('📋 Loading projects for user:', userId);
       const projects = await workstationService.getUserProjects(userId);
-      console.log('✅ Projects loaded:', projects.length, 'projects -', projects.map(p => p.name).join(', '));
 
       set({ projects, isLoading: false });
     } catch (error) {
@@ -45,21 +44,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      console.log('🔗 Creating Git project:', repositoryUrl);
 
       // STEP 1: Check visibility BEFORE creating anything
-      console.log('🔍 Checking repo visibility before import...');
       const apiUrl = workstationService.getApiUrl();
+      const authHeaders = await getAuthHeaders();
       const visibilityResponse = await fetch(`${apiUrl}/repo/check-visibility`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ repositoryUrl, githubToken }),
       });
 
       const visibilityData = await visibilityResponse.json();
 
       if (!visibilityResponse.ok || visibilityData.requiresAuth) {
-        console.log('🔐 Repository requires authentication');
         set({ isLoading: false });
         const authError = new Error('Authentication required');
         (authError as any).requiresAuth = true;
@@ -67,15 +64,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         throw authError;
       }
 
-      console.log('✅ Repository is accessible, proceeding...');
-
       // Save to Firebase
       const project = await workstationService.saveGitProject(repositoryUrl, userId);
-      console.log('✅ Git project saved to Firebase:', project.name);
 
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project, githubToken);
-      console.log('✅ Workstation created:', workstation.workstationId);
 
       // Reload projects
       await loadUserProjects();
@@ -98,15 +91,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      console.log('📁 Creating personal project:', name);
 
       // Save to Firebase
       const project = await workstationService.savePersonalProject(name, userId);
-      console.log('✅ Personal project saved to Firebase:', project.name);
 
       // Create workstation
       const workstation = await workstationService.createWorkstationForProject(project);
-      console.log('✅ Workstation created:', workstation.workstationId);
 
       // Reload projects
       await loadUserProjects();
@@ -128,11 +118,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      console.log('🎯 Selecting project:', project.name);
 
       // Create workstation for existing project
       const workstation = await workstationService.createWorkstationForProject(project);
-      console.log('✅ Workstation created for existing project:', workstation.workstationId);
 
       set({
         currentProject: project,
@@ -151,10 +139,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      console.log('🗑️ Deleting project:', projectId);
 
       await workstationService.deleteProject(projectId);
-      console.log('✅ Project deleted from Firebase');
 
       // Reload projects
       const { loadUserProjects } = get();

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 import { config } from '../../config/config';
 import { useFileCacheStore } from '../cache/fileCacheStore';
 
@@ -269,7 +269,7 @@ export class ToolService {
     projectId: string,
     filePath: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/read-file`,
       { projectId, filePath }
     );
@@ -291,7 +291,7 @@ export class ToolService {
     filePath: string,
     content: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/write-file`,
       { projectId, filePath, content }
     );
@@ -299,7 +299,6 @@ export class ToolService {
     if (response.data.success) {
       // Invalidate file cache so FileExplorer shows updated files
       useFileCacheStore.getState().clearCache(projectId);
-      console.log(`📁 [ToolService] Cache invalidated after write: ${filePath}`);
 
       const diffInfo = response.data.diffInfo;
 
@@ -328,7 +327,7 @@ export class ToolService {
     oldString: string,
     newString: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/edit-file`,
       { projectId, filePath, oldString, newString }
     );
@@ -336,7 +335,6 @@ export class ToolService {
     if (response.data.success) {
       // Invalidate file cache so FileExplorer shows updated files
       useFileCacheStore.getState().clearCache(projectId);
-      console.log(`📁 [ToolService] Cache invalidated after edit: ${filePath}`);
 
       const diffInfo = response.data.diffInfo;
 
@@ -357,7 +355,7 @@ export class ToolService {
     projectId: string,
     directory: string = '.'
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/list-directory`,
       { projectId, directory }
     );
@@ -379,7 +377,7 @@ export class ToolService {
     projectId: string,
     pattern: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/search-files`,
       { projectId, pattern }
     );
@@ -406,7 +404,7 @@ export class ToolService {
     projectId: string,
     command: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/execute-command`,
       { projectId, command }
     );
@@ -433,7 +431,7 @@ export class ToolService {
     projectId: string,
     gitCommand: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/git-command`,
       { projectId, gitCommand }
     );
@@ -460,7 +458,7 @@ export class ToolService {
     projectId: string,
     filePaths: string[]
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/read-multiple-files`,
       { projectId, filePaths }
     );
@@ -490,7 +488,7 @@ export class ToolService {
     projectId: string,
     edits: Array<{type: 'write' | 'edit', filePath: string, content?: string, oldString?: string, newString?: string}>
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/edit-multiple-files`,
       { projectId, edits }
     );
@@ -498,7 +496,6 @@ export class ToolService {
     if (response.data.success) {
       // Invalidate file cache so FileExplorer shows updated files
       useFileCacheStore.getState().clearCache(projectId);
-      console.log(`📁 [ToolService] Cache invalidated after edit_multiple_files`);
 
       const results = response.data.results;
       let output = `Editing ${results.length} files atomically...\n\n`;
@@ -526,7 +523,7 @@ export class ToolService {
     projectId: string,
     folderPath: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/create-folder`,
       { projectId, folderPath }
     );
@@ -534,7 +531,6 @@ export class ToolService {
     if (response.data.success) {
       // Invalidate file cache so FileExplorer shows the new folder
       useFileCacheStore.getState().clearCache(projectId);
-      console.log(`📁 [ToolService] Cache invalidated after create_folder: ${folderPath}`);
       // Clean path for display (remove leading ./ if present)
       const cleanPath = folderPath.replace(/^\.\//, '');
       return `📁 Folder created: ${cleanPath}\n└─ Location: /${cleanPath}/`;
@@ -550,7 +546,7 @@ export class ToolService {
     projectId: string,
     filePath: string
   ): Promise<string> {
-    const response = await axios.post(
+    const response = await apiClient.post(
       `${this.API_URL}/workstation/delete-file`,
       { projectId, filePath }
     );
@@ -558,7 +554,6 @@ export class ToolService {
     if (response.data.success) {
       // Invalidate file cache so FileExplorer reflects the deletion
       useFileCacheStore.getState().clearCache(projectId);
-      console.log(`📁 [ToolService] Cache invalidated after delete_file: ${filePath}`);
       // Clean path for display
       const cleanPath = filePath.replace(/^\.\//, '');
       return `🗑️ Deleted: ${cleanPath}`;
@@ -581,7 +576,6 @@ export class ToolService {
       return aiResponse;
     }
 
-    console.log('🔧 Detected tool calls:', toolCalls);
 
     let enrichedResponse = aiResponse;
 

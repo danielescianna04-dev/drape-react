@@ -42,12 +42,10 @@ export const sharedGitAccountService = {
       addedAt: new Date(),
     };
 
-    console.log('💾 [SharedGitAccount] Saving to Firebase:', id);
     await setDoc(doc(db, COLLECTION, id), {
       ...account,
       addedAt: account.addedAt.toISOString(),
     });
-    console.log('✅ [SharedGitAccount] Saved successfully:', id);
 
     return account;
   },
@@ -55,7 +53,6 @@ export const sharedGitAccountService = {
   // Get all shared accounts (visible to all users)
   async getSharedAccounts(): Promise<SharedGitAccount[]> {
     try {
-      console.log('📥 [SharedGitAccount] Loading shared accounts from Firebase...');
       const q = query(collection(db, COLLECTION), orderBy('addedAt', 'desc'));
       const snapshot = await getDocs(q);
 
@@ -68,7 +65,6 @@ export const sharedGitAccountService = {
         } as SharedGitAccount;
       });
 
-      console.log('✅ [SharedGitAccount] Loaded', accounts.length, 'shared accounts');
       return accounts;
     } catch (error) {
       console.error('❌ [SharedGitAccount] Error loading:', error);
@@ -95,19 +91,15 @@ export const sharedGitAccountService = {
     const account = accounts.find(a => a.id === id);
 
     if (!account) {
-      console.log('⚠️ [SharedGitAccount] Account not found:', id);
       return false;
     }
 
     // Only the user who added it can delete
     if (account.addedBy !== userId) {
-      console.log('⚠️ [SharedGitAccount] Cannot delete - not the owner');
       return false;
     }
 
-    console.log('🗑️ [SharedGitAccount] Deleting:', id);
     await deleteDoc(doc(db, COLLECTION, id));
-    console.log('✅ [SharedGitAccount] Deleted successfully');
     return true;
   },
 };

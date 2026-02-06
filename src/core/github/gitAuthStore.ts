@@ -27,12 +27,6 @@ export const useGitAuthStore = create<GitAuthState>((set, get) => ({
 
   requestAuth: (request) => {
     const id = `auth-${Date.now()}`;
-    console.log('🔐 [GitAuthStore] requestAuth called:', {
-      reason: request.reason,
-      repositoryUrl: request.repositoryUrl,
-      owner: request.owner,
-      id,
-    });
     set({
       showAuthPopup: true,
       currentRequest: {
@@ -40,16 +34,12 @@ export const useGitAuthStore = create<GitAuthState>((set, get) => ({
         id,
       },
     });
-    console.log('🔐 [GitAuthStore] showAuthPopup set to TRUE');
   },
 
   completeAuth: (token) => {
-    console.log('🔐 [GitAuthStore] completeAuth called with token:', token?.substring(0, 10) + '...');
     const { currentRequest } = get();
     if (currentRequest) {
-      console.log('🔐 [GitAuthStore] Calling onSuccess callback...');
       currentRequest.onSuccess(token);
-      console.log('🔐 [GitAuthStore] onSuccess callback completed');
     } else {
       console.warn('🔐 [GitAuthStore] No currentRequest found!');
     }
@@ -57,7 +47,6 @@ export const useGitAuthStore = create<GitAuthState>((set, get) => ({
       showAuthPopup: false,
       currentRequest: null,
     });
-    console.log('🔐 [GitAuthStore] Popup closed');
   },
 
   cancelAuth: () => {
@@ -87,19 +76,15 @@ export const requestGitAuth = (
     owner?: string;
   }
 ): Promise<string> => {
-  console.log('🔐 [requestGitAuth] Called with reason:', reason);
   return new Promise((resolve, reject) => {
-    console.log('🔐 [requestGitAuth] Creating promise and calling requestAuth...');
     useGitAuthStore.getState().requestAuth({
       reason,
       repositoryUrl: options?.repositoryUrl,
       owner: options?.owner,
       onSuccess: (token) => {
-        console.log('🔐 [requestGitAuth] onSuccess called with token');
         resolve(token);
       },
       onCancel: () => {
-        console.log('🔐 [requestGitAuth] onCancel called');
         reject(new Error('Authentication cancelled'));
       },
     });

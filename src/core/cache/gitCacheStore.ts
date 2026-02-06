@@ -88,7 +88,6 @@ export const useGitCacheStore = create<GitCacheState>()(
                         }
                     }
                 }));
-                console.log(`🔀 [GitCache] Cached ${data.commits.length} commits, ${data.branches.length} branches for ${projectId}`);
             },
 
             isCacheValid: (projectId: string, maxAgeMs = DEFAULT_CACHE_MAX_AGE) => {
@@ -103,14 +102,12 @@ export const useGitCacheStore = create<GitCacheState>()(
                 set(state => {
                     const newCache = { ...state.cache };
                     delete newCache[projectId];
-                    console.log(`🔀 [GitCache] Cleared cache for ${projectId}`);
                     return { cache: newCache };
                 });
             },
 
             clearAllCache: () => {
                 set({ cache: {} });
-                console.log(`🔀 [GitCache] Cleared all cache`);
             },
         }),
         {

@@ -6,7 +6,7 @@ import Animated, { useAnimatedStyle, interpolate } from 'react-native-reanimated
 import { BlurView } from 'expo-blur';
 import { AppColors, withOpacity } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../../../features/terminal/context/SidebarContext';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { PanelHeader } from '../../../shared/components/organisms';
 
 interface Props {
@@ -28,7 +28,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
     setAutoApprove,
     setIsTerminalMode,
     setIsToolsExpanded,
-  } = useTerminalStore();
+  } = useUIStore();
 
   const animatedStyle = useAnimatedStyle(() => {
     // Quando la sidebar è a -50 (nascosta), noi vogliamo traslare di -44 per arrivare a 0

@@ -6,6 +6,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { config } from '../../config/config';
+import { getAuthToken } from '../../core/api/getAuthToken';
 
 export interface PreviewLog {
     id: number;
@@ -29,7 +30,7 @@ export function usePreviewLogs(options: UsePreviewLogsOptions = {}) {
     const wsRef = useRef<WebSocket | null>(null);
     const lastLogIdRef = useRef<number>(0);
 
-    const connect = useCallback(() => {
+    const connect = useCallback(async () => {
         if (!enabled) return;
 
         // Close existing connection
@@ -38,14 +39,14 @@ export function usePreviewLogs(options: UsePreviewLogsOptions = {}) {
         }
 
         try {
-            const url = config.wsUrl + '/ws';
-            console.log('📡 [PreviewLogs] Connecting to WebSocket:', url);
+            const authToken = await getAuthToken();
+            const baseUrl = config.wsUrl + '/ws';
+            const url = authToken ? `${baseUrl}?token=${encodeURIComponent(authToken)}` : baseUrl;
 
             const ws = new WebSocket(url);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log('✅ [PreviewLogs] WebSocket connected - subscribing to logs');
                 ws.send(JSON.stringify({ type: 'subscribe_logs' }));
             };
 

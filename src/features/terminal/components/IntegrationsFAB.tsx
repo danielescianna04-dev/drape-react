@@ -57,7 +57,6 @@ export const IntegrationsFAB: React.FC<IntegrationsFABProps> = ({
           translateY.value = y;
         }
       } catch (e) {
-        console.log('Failed to load FAB position:', e);
       }
     };
     loadPosition();
@@ -68,7 +67,6 @@ export const IntegrationsFAB: React.FC<IntegrationsFABProps> = ({
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ x, y }));
     } catch (e) {
-      console.log('Failed to save FAB position:', e);
     }
   };
 

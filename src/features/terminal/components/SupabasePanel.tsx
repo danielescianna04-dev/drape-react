@@ -5,9 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn, useAnimatedStyle } from 'react-native-reanimated';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useSidebarOffset } from '../context/SidebarContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 interface Props {
   onClose: () => void;
@@ -26,7 +27,7 @@ const SUPABASE_GREEN = '#3ECF8E';
 
 export const SupabasePanel = ({ onClose }: Props) => {
   const insets = useSafeAreaInsets();
-  const { currentWorkstation } = useTerminalStore();
+  const { currentWorkstation } = useWorkstationStore();
   const { sidebarTranslateX } = useSidebarOffset();
 
   const [config, setConfig] = useState<SupabaseConfig>({
@@ -60,7 +61,12 @@ export const SupabasePanel = ({ onClose }: Props) => {
       setIsLoading(true);
       const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
-        setConfig(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Load service key from SecureStore
+        const projectId = currentWorkstation?.id || 'global';
+        const serviceKey = await SecureStore.getItemAsync(`supabase_service_key_${projectId}`);
+        if (serviceKey) parsed.serviceKey = serviceKey;
+        setConfig(parsed);
       }
     } catch (error) {
       console.error('Failed to load Supabase config:', error);
@@ -72,7 +78,15 @@ export const SupabasePanel = ({ onClose }: Props) => {
   const saveConfig = async () => {
     try {
       setIsSaving(true);
-      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(config));
+      const { serviceKey, ...safeConfig } = config;
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(safeConfig));
+      // Store service key in SecureStore
+      const projectId = currentWorkstation?.id || 'global';
+      if (serviceKey) {
+        await SecureStore.setItemAsync(`supabase_service_key_${projectId}`, serviceKey);
+      } else {
+        await SecureStore.deleteItemAsync(`supabase_service_key_${projectId}`);
+      }
       setIsEditing(false);
       Alert.alert('Salvato', 'Configurazione Supabase salvata');
     } catch (error) {
@@ -100,7 +114,12 @@ export const SupabasePanel = ({ onClose }: Props) => {
 
       if (response.ok || response.status === 200) {
         setConfig(prev => ({ ...prev, isConnected: true }));
-        await AsyncStorage.setItem(getStorageKey(), JSON.stringify({ ...config, isConnected: true }));
+        const { serviceKey, ...safeConfig } = config;
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify({ ...safeConfig, isConnected: true }));
+        const projectId = currentWorkstation?.id || 'global';
+        if (serviceKey) {
+          await SecureStore.setItemAsync(`supabase_service_key_${projectId}`, serviceKey);
+        }
         Alert.alert('Connesso!', 'Connessione a Supabase riuscita');
       } else {
         throw new Error(`Status: ${response.status}`);
@@ -132,6 +151,8 @@ export const SupabasePanel = ({ onClose }: Props) => {
               isConnected: false,
             });
             await AsyncStorage.removeItem(getStorageKey());
+            const projectId = currentWorkstation?.id || 'global';
+            await SecureStore.deleteItemAsync(`supabase_service_key_${projectId}`);
           },
         },
       ]

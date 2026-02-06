@@ -38,8 +38,36 @@ async function main() {
   // WebSocket server
   const wss = new WebSocket.Server({ server });
 
-  wss.on('connection', (ws: WebSocket) => {
-    log.info('[WS] Client connected');
+  wss.on('connection', async (ws: WebSocket, req) => {
+    // Extract token from query parameter
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const token = url.searchParams.get('token');
+
+    let userId: string | null = null;
+
+    if (token) {
+      try {
+        const auth = firebaseService.getAuth();
+        if (auth) {
+          const decoded = await auth.verifyIdToken(token);
+          userId = decoded.uid;
+        }
+      } catch (err) {
+        log.warn('[WS] Invalid auth token');
+        ws.close(4001, 'Invalid auth token');
+        return;
+      }
+    } else {
+      log.warn('[WS] No auth token provided');
+      ws.close(4001, 'Auth token required');
+      return;
+    }
+
+    log.info(`[WS] Client connected (userId: ${userId})`);
+
+    // Track cleanup functions for this connection
+    let removeLogListener: (() => void) | null = null;
+    const subscribedFileProjects = new Set<string>();
 
     ws.send(JSON.stringify({
       type: 'connected',
@@ -62,17 +90,28 @@ async function main() {
             if (projectId) {
               await fileWatcherService.startWatching(projectId);
               fileWatcherService.registerClient(projectId, ws);
+              subscribedFileProjects.add(projectId);
               ws.send(JSON.stringify({ type: 'subscribed_files', projectId }));
             }
             break;
           }
 
-          case 'unsubscribe_files':
+          case 'unsubscribe_files': {
+            const { projectId } = msg;
+            if (projectId) {
+              fileWatcherService.deregisterClient(projectId, ws);
+              subscribedFileProjects.delete(projectId);
+            }
             ws.send(JSON.stringify({ type: 'unsubscribed_files' }));
             break;
+          }
 
           case 'subscribe_logs':
-            log.addListener((entry) => {
+            // Remove previous listener if re-subscribing
+            if (removeLogListener) {
+              removeLogListener();
+            }
+            removeLogListener = log.addListener((entry) => {
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'backend_log', log: entry }));
               }
@@ -99,6 +138,16 @@ async function main() {
 
     ws.on('close', () => {
       log.info('[WS] Client disconnected');
+      // Clean up log listener
+      if (removeLogListener) {
+        removeLogListener();
+        removeLogListener = null;
+      }
+      // Clean up file watcher subscriptions
+      for (const projectId of subscribedFileProjects) {
+        fileWatcherService.deregisterClient(projectId, ws);
+      }
+      subscribedFileProjects.clear();
     });
   });
 
@@ -136,6 +185,8 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('uncaughtException', (err) => {
     log.error('Uncaught exception:', err.message);
+    // Allow log flush then exit — uncaught exceptions leave the process in an undefined state
+    setTimeout(() => process.exit(1), 1000);
   });
   process.on('unhandledRejection', (err: any) => {
     log.error('Unhandled rejection:', err?.message || err);

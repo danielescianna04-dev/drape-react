@@ -49,7 +49,6 @@ export const ProblemScreen = () => {
 
   const handleSend = () => {
     if (message.trim()) {
-      console.log('Message sent:', message);
       setMessage('');
     }
   };

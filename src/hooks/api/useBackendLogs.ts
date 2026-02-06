@@ -6,6 +6,7 @@
 
 import { useEffect, useCallback, useRef } from 'react';
 import { config } from '../../config/config';
+import { getAuthToken } from '../../core/api/getAuthToken';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { TerminalItemType } from '../../shared/types';
 
@@ -32,7 +33,7 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastLogIdRef = useRef<number>(0);
 
-    const connect = useCallback(() => {
+    const connect = useCallback(async () => {
         if (!enabled) return;
 
         // Close existing connection
@@ -41,14 +42,14 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
         }
 
         try {
-            const url = config.wsUrl + '/ws';
-            console.log('📡 [BackendLogs] Connecting to WebSocket:', url);
+            const authToken = await getAuthToken();
+            const baseUrl = config.wsUrl + '/ws';
+            const url = authToken ? `${baseUrl}?token=${encodeURIComponent(authToken)}` : baseUrl;
 
             const ws = new WebSocket(url);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log('✅ [BackendLogs] WebSocket connected - subscribing to logs');
                 // Subscribe to backend logs
                 ws.send(JSON.stringify({ type: 'subscribe_logs' }));
             };
@@ -80,7 +81,6 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
                             source: 'backend',
                         });
                     } else if (data.type === 'subscribed_logs') {
-                        console.log('✅ [BackendLogs] Subscribed to backend logs stream');
                     }
                 } catch (e) {
                     // Ignore parse errors
@@ -97,7 +97,6 @@ export function useBackendLogs(options: UseBackendLogsOptions = {}) {
 
                 // Auto-reconnect after 5 seconds
                 reconnectTimeoutRef.current = setTimeout(() => {
-                    console.log('🔄 [BackendLogs] Reconnecting...');
                     connect();
                 }, 5000);
             };

@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 import { config } from '../../../config/config';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -57,7 +57,7 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     if (step === 'device-flow' && deviceFlow) {
       intervalId = setInterval(async () => {
         try {
-          const response = await axios.post(`${API_BASE_URL}/github/poll-device`, {
+          const response = await apiClient.post(`${API_BASE_URL}/github/poll-device`, {
             device_code: deviceFlow.device_code,
             client_id: GITHUB_CLIENT_ID,
           });
@@ -91,37 +91,28 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     setIsLoading(true);
     setError(null);
     try {
-      console.log('🌐 Starting GitHub Web Browser OAuth...');
 
       const redirectUri = AuthSession.makeRedirectUri({
         scheme: 'drape',
         path: 'auth/callback'
       });
 
-      console.log('Redirect URI:', redirectUri);
-
       const authUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=repo,user`;
 
-      console.log('Opening browser with URL:', authUrl);
-
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-
-      console.log('Browser result:', result);
 
       if (result.type === 'success' && result.url) {
         const url = new URL(result.url);
         const code = url.searchParams.get('code');
 
         if (code) {
-          console.log('✅ Got authorization code, exchanging for token...');
 
-          const response = await axios.post(`${API_BASE_URL}/github/exchange-code`, {
+          const response = await apiClient.post(`${API_BASE_URL}/github/exchange-code`, {
             code,
             redirect_uri: redirectUri,
           });
 
           if (response.data.access_token) {
-            console.log('✅ Token received successfully');
             onAuthenticated(response.data.access_token);
           } else {
             throw new Error('No access token in response');
@@ -144,16 +135,12 @@ export const GitHubAuthModal = ({ visible, onClose, onAuthenticated, repositoryU
     setIsLoading(true);
     setError(null);
     try {
-      console.log('🔐 Starting GitHub device flow...');
-      console.log('API URL:', API_BASE_URL);
-      console.log('Client ID:', GITHUB_CLIENT_ID);
 
-      const response = await axios.post(`${API_BASE_URL}/github/device-flow`, {
+      const response = await apiClient.post(`${API_BASE_URL}/github/device-flow`, {
         client_id: GITHUB_CLIENT_ID,
         scope: 'repo,user',
       });
 
-      console.log('✅ Device flow started:', response.data);
       setDeviceFlow(response.data);
       setStep('device-flow');
     } catch (err: any) {

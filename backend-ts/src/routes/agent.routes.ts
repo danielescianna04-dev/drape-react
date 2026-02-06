@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
+import { getUserPlan, verifyProjectOwnership } from '../middleware/auth';
 import { AgentLoop } from '../services/agent-loop.service';
 import { getToolDefinitions } from '../tools';
 import { getTodos } from '../tools/todo-write';
@@ -38,15 +39,23 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     conversationHistory,
     images,
     thinkingLevel,
-    userId,
-    userPlan
   } = req.body;
+
+  const userId = req.userId!;
+  const userPlan = await getUserPlan(userId);
 
   if (!prompt) {
     throw new ValidationError('prompt is required');
   }
   if (!projectId) {
     throw new ValidationError('projectId is required');
+  }
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
   // Determine mode from URL path
@@ -150,6 +159,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 // POST /execute-tool - Single tool execution
 agentRouter.post('/execute-tool', asyncHandler(async (req, res) => {
   const { tool, input, projectId } = req.body;
+  const userId = req.userId!;
 
   if (!tool) {
     throw new ValidationError('tool is required');
@@ -159,6 +169,13 @@ agentRouter.post('/execute-tool', asyncHandler(async (req, res) => {
   }
   if (!projectId) {
     throw new ValidationError('projectId is required');
+  }
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership (execute-tool)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
   log.info(`[Agent] Executing tool ${tool} for project ${projectId}`);
@@ -185,6 +202,14 @@ const planStore = new Map<string, any>();
 // GET /plan/:projectId - Get pending plan
 agentRouter.get('/plan/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
+  const userId = req.userId!;
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership (get-plan)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
 
   const plan = planStore.get(projectId);
 
@@ -198,12 +223,20 @@ agentRouter.get('/plan/:projectId', asyncHandler(async (req, res) => {
 // POST /approve-plan - Approve or reject a plan
 agentRouter.post('/approve-plan', asyncHandler(async (req, res) => {
   const { projectId, approved } = req.body;
+  const userId = req.userId!;
 
   if (!projectId) {
     throw new ValidationError('projectId is required');
   }
   if (typeof approved !== 'boolean') {
     throw new ValidationError('approved must be a boolean');
+  }
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(userId, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership (approve-plan)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
   const plan = planStore.get(projectId);

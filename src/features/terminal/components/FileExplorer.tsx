@@ -5,7 +5,7 @@ import { AppColors } from '../../../shared/theme/colors';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { gitAccountService } from '../../../core/git/gitAccountService';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { websocketService } from '../../../core/websocket/websocketService';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -50,18 +50,15 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
   // Subscribe to cache invalidation - auto-refresh when AI modifies files
   useEffect(() => {
-    const unsubscribe = useFileCacheStore.subscribe(
-      (state) => state.lastClearedProject,
-      (clearedProjectId) => {
-        if (clearedProjectId === projectId) {
-          console.log('📁 [FileExplorer] Cache invalidated, refreshing files...');
-          loadFiles(true); // Force refresh
-        }
+    let prevCleared = useFileCacheStore.getState().lastClearedProject;
+    const unsubscribe = useFileCacheStore.subscribe((state) => {
+      if (state.lastClearedProject !== prevCleared && state.lastClearedProject === projectId) {
+        loadFiles(true); // Force refresh
       }
-    );
+      prevCleared = state.lastClearedProject;
+    });
     return unsubscribe;
   }, [projectId]);
-
 
   // Debounced content search
   useEffect(() => {
@@ -96,14 +93,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       // 2. If we have cache (even stale) and not forcing refresh, show it immediately
       if (cachedFiles && !forceRefresh) {
-        console.log(`📁 [FileExplorer] Using cached files (${cachedFiles.length}) - Valid: ${isCacheValid}`);
         setFiles(cachedFiles);
         setLoading(false);
 
         // If cache is valid, stop here. If stale, continue to fetch in background.
         if (isCacheValid) return;
 
-        console.log('stock [FileExplorer] Cache is stale, revalidating in background...');
       } else {
         // No cache? Show loading
         setLoading(true);
@@ -113,14 +108,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       // Get token for this repo (auto-detect provider from URL)
       let gitToken: string | null = null;
-      const userId = useTerminalStore.getState().userId || 'anonymous';
+      const userId = useWorkstationStore.getState().userId || 'anonymous';
       try {
         if (repositoryUrl) {
           // Try to get token for specific repo provider
           const tokenData = await gitAccountService.getTokenForRepo(userId, repositoryUrl);
           if (tokenData) {
             gitToken = tokenData.token;
-            console.log(`🔐 Using ${tokenData.account.provider} token for:`, tokenData.account.username);
           }
         }
         // Fallback to default account if no provider-specific token
@@ -128,16 +122,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           const defaultTokenData = await gitAccountService.getDefaultToken(userId);
           if (defaultTokenData) {
             gitToken = defaultTokenData.token;
-            console.log(`🔐 Using default ${defaultTokenData.account.provider} token for:`, defaultTokenData.account.username);
           }
         }
       } catch (tokenErr) {
-        console.log('⚠️ Could not get Git token, trying without:', tokenErr);
       }
 
       const fileList = await workstationService.getWorkstationFiles(projectId, repositoryUrl, gitToken || undefined);
-      console.log('📂 Files received from backend:', fileList.length);
-      console.log('📂 First 10 files:', fileList.slice(0, 10));
 
       // Save to cache
       useFileCacheStore.getState().setFiles(projectId, fileList, repositoryUrl);
@@ -148,14 +138,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
 
       // Check if authentication is required for private repo
       if (err.requiresAuth && repositoryUrl && onAuthRequired) {
-        console.log('🔐 Authentication required for private repo');
         onAuthRequired(repositoryUrl);
         setError('Repository privata - richiesta autenticazione');
       } else {
         // If no cache and retries left, retry after a delay (VM might still be starting)
         const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
         if (!cachedFiles && retryCount < 3) {
-          console.log(`🔄 [FileExplorer] Retry ${retryCount + 1}/3 in 2s...`);
           setTimeout(() => loadFiles(false, retryCount + 1), 2000);
           return;
         }

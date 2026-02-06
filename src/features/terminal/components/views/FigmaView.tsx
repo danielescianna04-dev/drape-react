@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { FigmaLogo } from '../../../../shared/components/icons/FigmaLogo';
 
 interface Props {
@@ -53,7 +54,12 @@ export const FigmaView = ({ tab }: Props) => {
       setIsLoading(true);
       const saved = await AsyncStorage.getItem(getStorageKey());
       if (saved) {
-        setConfig(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        // Load access token from SecureStore
+        const projectId = currentWorkstation?.id || 'global';
+        const accessToken = await SecureStore.getItemAsync(`figma_token_${projectId}`);
+        if (accessToken) parsed.accessToken = accessToken;
+        setConfig(parsed);
       }
     } catch (error) {
       console.error('Failed to load Figma config:', error);
@@ -112,7 +118,13 @@ export const FigmaView = ({ tab }: Props) => {
         fileKey,
       };
       setConfig(newConfig);
-      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+      // Save config without accessToken to AsyncStorage, token goes to SecureStore
+      const { accessToken: tokenToStore, ...safeConfig } = newConfig;
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(safeConfig));
+      const projectId = currentWorkstation?.id || 'global';
+      if (tokenToStore) {
+        await SecureStore.setItemAsync(`figma_token_${projectId}`, tokenToStore);
+      }
 
       Alert.alert('Connesso!', `Ciao ${userData.handle || 'utente'}! Figma connesso.`);
     } catch (error) {
@@ -142,6 +154,8 @@ export const FigmaView = ({ tab }: Props) => {
               isConnected: false,
             });
             await AsyncStorage.removeItem(getStorageKey());
+            const projectId = currentWorkstation?.id || 'global';
+            await SecureStore.deleteItemAsync(`figma_token_${projectId}`);
           },
         },
       ]
@@ -430,7 +444,12 @@ export const FigmaView = ({ tab }: Props) => {
                                 fileName: data.name || '',
                               };
                               setConfig(newConfig);
-                              await AsyncStorage.setItem(getStorageKey(), JSON.stringify(newConfig));
+                              const { accessToken: tokenToStore, ...safeConfig } = newConfig;
+                              await AsyncStorage.setItem(getStorageKey(), JSON.stringify(safeConfig));
+                              const projectId = currentWorkstation?.id || 'global';
+                              if (tokenToStore) {
+                                await SecureStore.setItemAsync(`figma_token_${projectId}`, tokenToStore);
+                              }
                             } catch (e) {
                               setConfig(prev => ({ ...prev, fileUrl: newUrl, fileKey }));
                             }

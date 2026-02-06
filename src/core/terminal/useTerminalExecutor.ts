@@ -1,8 +1,10 @@
-import { useTerminalStore } from './terminalStore';
+import { useUIStore } from './uiStore';
+import { useWorkstationStore } from './workstationStore';
 import { terminalExecutor } from './terminalExecutor';
 import { TerminalItemType } from '../../shared/types';
 export const useTerminalExecutor = () => {
-  const { addTerminalItem, setLoading, currentWorkstation } = useTerminalStore();
+  const { addTerminalItem, setLoading } = useUIStore();
+  const { currentWorkstation } = useWorkstationStore();
 
   const executeCommand = async (command: string, workstationId?: string) => {
     // Add command to terminal

@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../api/getAuthToken';
 
 export type AgentMode = 'fast' | 'planning';
 
@@ -51,12 +52,13 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
       const apiUrl = config.apiUrl;
 
       try {
-        console.log(`[useAgentStream] Starting stream for project: ${projectId}, mode: ${mode}`);
 
+        const authHeaders = await getAuthHeaders();
         const response = await fetch(`${apiUrl}/agent/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            ...authHeaders,
           },
           body: JSON.stringify({
             projectId,
@@ -82,7 +84,6 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
           const { done, value } = await reader.read();
 
           if (done) {
-            console.log('[useAgentStream] Stream complete');
             break;
           }
 
@@ -104,8 +105,6 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
                   ...eventData,
                   timestamp: Date.now(),
                 };
-
-                console.log('[useAgentStream] Event:', event.type, event.tool || event.message);
 
                 // Update state based on event type
                 if (event.type === 'tool_start') {
@@ -141,7 +140,6 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
         }
       } catch (error: any) {
         if (error.name === 'AbortError') {
-          console.log('[useAgentStream] Stream aborted by user');
           setStatus('idle');
         } else {
           console.error('[useAgentStream] Stream error:', error);
@@ -167,7 +165,6 @@ export const useAgentStream = (options: UseAgentStreamOptions = {}) => {
 
   const cancel = useCallback(() => {
     if (abortControllerRef.current) {
-      console.log('[useAgentStream] Cancelling stream');
       abortControllerRef.current.abort();
     }
   }, []);

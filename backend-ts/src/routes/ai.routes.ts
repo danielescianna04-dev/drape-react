@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { asyncHandler } from '../middleware/async-handler';
 import { aiProviderService } from '../services/ai-provider.service';
 import { log } from '../utils/logger';
 
@@ -8,7 +9,7 @@ export const aiRouter = Router();
  * POST /ai/recommend
  * AI-powered technology recommendation based on project description
  */
-aiRouter.post('/recommend', async (req: Request, res: Response) => {
+aiRouter.post('/recommend', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { description } = req.body;
 
@@ -77,7 +78,7 @@ Respond with ONLY the technology ID (e.g., "react", "python", "html") - nothing 
       rawResponse: response
     });
   } catch (error: any) {
-    log.error('[AI] Recommendation error:', error.message);
-    res.status(500).json({ error: 'AI recommendation failed', message: error.message });
+    log.error('[AI] Recommendation error:', error);
+    res.status(500).json({ error: 'AI recommendation failed' });
   }
-});
+}));

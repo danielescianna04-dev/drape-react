@@ -90,13 +90,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   // Mode Management
   setMode: (mode) => {
-    console.log(`[AgentStore] Setting mode: ${mode}`);
     set({ mode });
   },
 
   // Execution Control
   startAgent: () => {
-    console.log('[AgentStore] Starting agent');
     set({
       isRunning: true,
       error: null,
@@ -105,7 +103,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   stopAgent: () => {
-    console.log('[AgentStore] Stopping agent');
     set({
       isRunning: false,
       currentTool: null,
@@ -113,7 +110,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   reset: () => {
-    console.log('[AgentStore] Resetting agent state');
     set({
       mode: null,
       isRunning: false,
@@ -132,31 +128,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   // Event Management
   addEvent: (event) => {
-    console.log(`[AgentStore] Adding event: ${event.type}`, event.tool || '');
     set((state) => ({
       events: [...state.events, event],
     }));
   },
 
   clearEvents: () => {
-    console.log('[AgentStore] Clearing events');
     set({ events: [] });
   },
 
   // Tool Management
   setCurrentTool: (tool) => {
-    console.log(`[AgentStore] Current tool: ${tool || 'none'}`);
     set({ currentTool: tool });
   },
 
   // AgentPlan Management
   setAgentPlan: (plan) => {
-    console.log('[AgentStore] Setting plan:', plan ? `${plan.steps.length} steps` : 'null');
     set({ plan });
   },
 
   updateAgentPlanStep: (stepId, updates) => {
-    console.log(`[AgentStore] Updating plan step ${stepId}:`, updates);
     set((state) => {
       if (!state.plan) return state;
 
@@ -180,25 +171,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   clearError: () => {
-    console.log('[AgentStore] Clearing error');
     set({ error: null });
   },
 
   // Summary Management
   setSummary: (summary) => {
-    console.log('[AgentStore] Setting summary:', summary);
     set({ summary });
   },
 
   // Iteration Management
   setIteration: (iteration) => {
-    console.log(`[AgentStore] Setting iteration: ${iteration}`);
     set({ iteration });
   },
 
   // File Tracking
   addFilesCreated: (files) => {
-    console.log(`[AgentStore] Adding created files: ${files.join(', ')}`);
     set((state) => {
       const uniqueFiles = Array.from(new Set([...state.filesCreated, ...files]));
       return { filesCreated: uniqueFiles };
@@ -206,7 +193,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   addFilesModified: (files) => {
-    console.log(`[AgentStore] Adding modified files: ${files.join(', ')}`);
     set((state) => {
       const uniqueFiles = Array.from(new Set([...state.filesModified, ...files]));
       return { filesModified: uniqueFiles };
@@ -214,7 +200,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   clearFileTracking: () => {
-    console.log('[AgentStore] Clearing file tracking');
     set({
       filesCreated: [],
       filesModified: [],
@@ -223,12 +208,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   // Context Management
   setCurrentProjectId: (projectId) => {
-    console.log(`[AgentStore] Setting current project ID: ${projectId}`);
     set({ currentProjectId: projectId });
   },
 
   setCurrentPrompt: (prompt) => {
-    console.log('[AgentStore] Setting current prompt');
     set({ currentPrompt: prompt });
   },
 }));

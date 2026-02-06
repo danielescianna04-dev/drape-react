@@ -8,7 +8,7 @@ import { projectDetectorService } from './project-detector.service';
 import { dependencyService } from './dependency.service';
 import { devServerService } from './dev-server.service';
 import { containerLifecycleService } from './container-lifecycle.service';
-import { execShell } from '../utils/helpers';
+import { execShell, shellEscape } from '../utils/helpers';
 import { config } from '../config';
 import path from 'path';
 
@@ -303,7 +303,7 @@ class WorkspaceService {
 
     log.info(`[Workspace] Cloning ${repoUrl} to ${projectId}`);
     const result = await execShell(
-      `git clone --depth 1 "${cloneUrl}" "${projectDir}"`,
+      `git clone --depth 1 ${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
       '/tmp',
       120000,
     );

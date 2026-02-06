@@ -1,4 +1,4 @@
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 import { config } from '../../config/config';
 import { logCommand, logOutput, logError } from './terminalLogger';
 import { TerminalSource } from '../../shared/types';
@@ -31,7 +31,7 @@ class TerminalExecutor {
     logCommand(command, source);
 
     try {
-      const response = await axios.post(`${API_URL}/terminal/execute`, {
+      const response = await apiClient.post(`${API_URL}/terminal/execute`, {
         command,
         workstationId,
         cwd: cwd || '~',
@@ -69,7 +69,7 @@ class TerminalExecutor {
 
   async createSession(workstationId: string): Promise<TerminalSession> {
     try {
-      const response = await axios.post(`${API_URL}/terminal/session`, {
+      const response = await apiClient.post(`${API_URL}/terminal/session`, {
         workstationId,
       });
 

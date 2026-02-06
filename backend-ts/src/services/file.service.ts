@@ -6,7 +6,7 @@ import { config } from '../config';
 import { log } from '../utils/logger';
 import { FileEntry, FileContent, Result, GrepMatch } from '../types';
 import { BINARY_EXTENSIONS, IGNORED_DIRS, MAX_FILE_SIZE, MAX_FILES_LIST } from '../utils/constants';
-import { sanitizePath, execShell } from '../utils/helpers';
+import { sanitizePath, execShell, shellEscape } from '../utils/helpers';
 
 class FileService {
   private projectPath(projectId: string): string {
@@ -159,7 +159,7 @@ class FileService {
       const base = this.projectPath(projectId);
       const maxResults = options?.maxResults || 100;
       const excludes = IGNORED_DIRS.map(d => `--exclude-dir=${d}`).join(' ');
-      const cmd = `grep -rn ${excludes} --include='*.*' -m ${maxResults} "${pattern.replace(/"/g, '\\"')}" "${base}" 2>/dev/null || true`;
+      const cmd = `grep -rn ${excludes} --include='*.*' -m ${maxResults} -e ${shellEscape(pattern)} ${shellEscape(base)} 2>/dev/null || true`;
       const result = await execShell(cmd, base, 10000);
 
       const matches: GrepMatch[] = result.stdout

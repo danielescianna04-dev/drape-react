@@ -16,7 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useGitAuthStore } from '../../../core/github/gitAuthStore';
 import { githubTokenService } from '../../../core/github/githubTokenService';
@@ -74,27 +74,20 @@ export const GitAuthPopup = React.memo(() => {
     let intervalId: NodeJS.Timeout | null = null;
 
     if (step === 'device-flow' && deviceFlow) {
-      console.log('🔄 Starting device flow polling, interval:', deviceFlow.interval, 'seconds');
 
       intervalId = setInterval(async () => {
         try {
-          console.log('🔄 Polling for token...');
-          const response = await axios.post(`${API_BASE_URL}/github/poll-device`, {
+          const response = await apiClient.post(`${API_BASE_URL}/github/poll-device`, {
             device_code: deviceFlow.device_code,
             client_id: GITHUB_CLIENT_ID,
           });
 
-          console.log('🔄 Poll response:', response.data);
-
           if (response.data.access_token) {
-            console.log('✅ Token received!');
             if (intervalId) clearInterval(intervalId);
             handleAuthSuccess(response.data.access_token);
           } else if (response.data.error === 'authorization_pending') {
-            console.log('⏳ Authorization pending, continuing to poll...');
             // Continue polling
           } else if (response.data.error) {
-            console.log('❌ Error:', response.data.error);
             setError(t('settings:gitAuth.errors.errorPrefix', { message: response.data.error_description || response.data.error }));
             if (intervalId) clearInterval(intervalId);
             setIsLoading(false);
@@ -110,7 +103,6 @@ export const GitAuthPopup = React.memo(() => {
 
     return () => {
       if (intervalId) {
-        console.log('🛑 Stopping polling');
         clearInterval(intervalId);
       }
     };
@@ -122,7 +114,6 @@ export const GitAuthPopup = React.memo(() => {
       // Use getAllAccounts to get both local and shared accounts from Firebase
       const accs = await gitAccountService.getAllAccounts(userId);
       setAccounts(accs);
-      console.log('🔐 [GitAuthPopup] Loaded accounts (local + shared):', accs.length);
 
       // If no accounts, go directly to options
       if (accs.length === 0) {
@@ -156,27 +147,20 @@ export const GitAuthPopup = React.memo(() => {
 
   const handleAuthSuccess = async (token: string) => {
     try {
-      console.log('✅ [handleAuthSuccess] Token received, validating...');
       // Save the token
       const validation = await githubTokenService.validateToken(token);
-      console.log('✅ [handleAuthSuccess] Validation result:', validation);
       if (validation.valid && validation.username) {
-        console.log('✅ [handleAuthSuccess] Saving token for user:', validation.username);
         // Save to githubTokenService (for auth flow)
         await githubTokenService.saveToken(validation.username, token, userId);
-        console.log('✅ [handleAuthSuccess] Token saved to githubTokenService');
 
         // ALSO save to gitAccountService (for Settings screen)
         try {
           await gitAccountService.saveAccount('github', token, userId);
-          console.log('✅ [handleAuthSuccess] Token saved to gitAccountService (for Settings)');
         } catch (syncErr) {
           console.warn('⚠️ [handleAuthSuccess] Could not sync to gitAccountService:', syncErr);
         }
       }
-      console.log('✅ [handleAuthSuccess] Calling completeAuth...');
       completeAuth(token);
-      console.log('✅ [handleAuthSuccess] completeAuth called - popup should close now');
     } catch (error) {
       console.error('❌ [handleAuthSuccess] Error:', error);
       setError(t('settings:gitAuth.errors.tokenSaveError'));
@@ -201,7 +185,7 @@ export const GitAuthPopup = React.memo(() => {
         const code = url.searchParams.get('code');
 
         if (code) {
-          const response = await axios.post(`${API_BASE_URL}/github/exchange-code`, {
+          const response = await apiClient.post(`${API_BASE_URL}/github/exchange-code`, {
             code,
             redirect_uri: redirectUri,
           });
@@ -226,7 +210,7 @@ export const GitAuthPopup = React.memo(() => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await axios.post(`${API_BASE_URL}/github/device-flow`, {
+      const response = await apiClient.post(`${API_BASE_URL}/github/device-flow`, {
         client_id: GITHUB_CLIENT_ID,
         scope: 'repo,user',
       });

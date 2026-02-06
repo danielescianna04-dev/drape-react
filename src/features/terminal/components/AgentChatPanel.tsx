@@ -10,13 +10,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { config } from '../../../config/config';
 import { AppColors } from '../../../shared/theme/colors';
-import { useTerminalStore } from '../../../core/terminal/terminalStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { TerminalItemType } from '../../../shared/types';
 import { useAgentStream } from '../../../hooks/useAgentStream';
 import { AgentProgress } from '../../../shared/components/molecules/AgentProgress';
 import { PlanApprovalModal } from '../../../shared/components/modals/PlanApprovalModal';
-import axios from 'axios';
+import apiClient from '../../../core/api/apiClient';
 
 interface Props {
   onClose?: () => void;
@@ -35,7 +35,7 @@ export const AgentChatPanel = ({ onClose, projectId }: Props) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const agentStream = useAgentStream();
 
-  const { currentWorkstation } = useTerminalStore();
+  const { currentWorkstation } = useWorkstationStore();
   const { addTab, tabs } = useTabStore();
 
   // Load project context on mount
@@ -45,15 +45,13 @@ export const AgentChatPanel = ({ onClose, projectId }: Props) => {
       if (!pid) return;
 
       try {
-        const response = await axios.get(
+        const response = await apiClient.get(
           `${config.apiUrl}/agent/context/${pid}`
         );
         if (response.data.success) {
           setProjectContext(response.data.context);
-          console.log('✅ Loaded project context:', response.data.context);
         }
       } catch (error) {
-        console.log('ℹ️ No project context found');
       }
     };
 

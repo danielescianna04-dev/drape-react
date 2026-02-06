@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 
 const TOKEN_PREFIX = 'github-token-';
 const ACCOUNTS_KEY = 'github-accounts';
@@ -19,7 +19,6 @@ export const githubTokenService = {
     const key = `${TOKEN_PREFIX}${userId}-${owner}`;
     try {
       await SecureStore.setItemAsync(key, token);
-      console.log('GitHub token saved securely for', owner);
 
       // Fetch user info and save account
       const account = await this.fetchAndSaveAccount(owner, token, userId);
@@ -33,7 +32,7 @@ export const githubTokenService = {
   async fetchAndSaveAccount(owner: string, token: string, userId: string): Promise<GitHubAccount | null> {
     try {
       // Fetch user info from GitHub
-      const response = await axios.get('https://api.github.com/user', {
+      const response = await apiClient.get('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
@@ -107,9 +106,7 @@ export const githubTokenService = {
     try {
       const token = await SecureStore.getItemAsync(key);
       if (token) {
-        console.log('GitHub token retrieved for', owner);
       } else {
-        console.log('No GitHub token found for', owner);
       }
       return token;
     } catch (error) {
@@ -149,7 +146,6 @@ export const githubTokenService = {
       const filtered = accounts.filter(a => a.owner !== owner);
       await AsyncStorage.setItem(`${ACCOUNTS_KEY}-${userId}`, JSON.stringify(filtered));
 
-      console.log('GitHub token deleted for', owner);
     } catch (error) {
       console.error('Error deleting GitHub token:', error);
       throw error;
@@ -158,7 +154,7 @@ export const githubTokenService = {
 
   async validateToken(token: string): Promise<{ valid: boolean; username?: string; avatarUrl?: string }> {
     try {
-      const response = await axios.get('https://api.github.com/user', {
+      const response = await apiClient.get('https://api.github.com/user', {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',

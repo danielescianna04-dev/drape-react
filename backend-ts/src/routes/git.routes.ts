@@ -3,12 +3,13 @@ import path from 'path';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
 import { config } from '../config';
-import { execShell } from '../utils/helpers';
+import { execShell, shellEscape, validateProjectId } from '../utils/helpers';
 import { log } from '../utils/logger';
 
 export const gitRouter = Router();
 
 function projectDir(projectId: string): string {
+  validateProjectId(projectId);
   return path.join(config.projectsRoot, projectId);
 }
 
@@ -17,6 +18,11 @@ function getAuthUrl(url: string, token?: string): string {
     return url.replace('https://', `https://${token}@`);
   }
   return url;
+}
+
+function stripTokenFromUrl(url: string): string {
+  // Remove token from https://token@github.com/... format
+  return url.replace(/https:\/\/[^@]+@/, 'https://');
 }
 
 // GET /git/status/:projectId
@@ -60,48 +66,78 @@ gitRouter.get('/status/:projectId', asyncHandler(async (req, res) => {
 // POST /git/fetch/:projectId
 gitRouter.post('/fetch/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = (req.headers['x-git-token'] as string) || undefined;
 
   // Set auth if token provided
   if (token) {
     const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
     const url = remote.stdout.trim();
     if (url) {
-      await execShell(`git remote set-url origin "${getAuthUrl(url, token)}"`, dir);
+      await execShell(`git remote set-url origin ${shellEscape(getAuthUrl(url, token))}`, dir);
     }
   }
 
   const result = await execShell('git fetch --all 2>&1', dir, 30000);
+
+  // Reset remote URL to remove token
+  if (token) {
+    const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
+    const currentUrl = remote.stdout.trim();
+    if (currentUrl) {
+      await execShell(`git remote set-url origin ${shellEscape(stripTokenFromUrl(currentUrl))}`, dir).catch(() => {});
+    }
+  }
+
   res.json({ success: result.exitCode === 0, message: 'Fetch complete', output: result.stdout, error: result.stderr });
 }));
 
 // POST /git/pull/:projectId
 gitRouter.post('/pull/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = (req.headers['x-git-token'] as string) || undefined;
 
   if (token) {
     const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
     const url = remote.stdout.trim();
-    if (url) await execShell(`git remote set-url origin "${getAuthUrl(url, token)}"`, dir);
+    if (url) await execShell(`git remote set-url origin ${shellEscape(getAuthUrl(url, token))}`, dir);
   }
 
   const result = await execShell('git pull 2>&1', dir, 60000);
+
+  // Reset remote URL to remove token
+  if (token) {
+    const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
+    const currentUrl = remote.stdout.trim();
+    if (currentUrl) {
+      await execShell(`git remote set-url origin ${shellEscape(stripTokenFromUrl(currentUrl))}`, dir).catch(() => {});
+    }
+  }
+
   res.json({ success: result.exitCode === 0, message: 'Pull complete', output: result.stdout, error: result.stderr });
 }));
 
 // POST /git/push/:projectId
 gitRouter.post('/push/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = (req.headers['x-git-token'] as string) || undefined;
 
   if (token) {
     const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
     const url = remote.stdout.trim();
-    if (url) await execShell(`git remote set-url origin "${getAuthUrl(url, token)}"`, dir);
+    if (url) await execShell(`git remote set-url origin ${shellEscape(getAuthUrl(url, token))}`, dir);
   }
 
   const result = await execShell('git push 2>&1', dir, 60000);
+
+  // Reset remote URL to remove token
+  if (token) {
+    const remote = await execShell('git remote get-url origin 2>/dev/null || echo ""', dir);
+    const currentUrl = remote.stdout.trim();
+    if (currentUrl) {
+      await execShell(`git remote set-url origin ${shellEscape(stripTokenFromUrl(currentUrl))}`, dir).catch(() => {});
+    }
+  }
+
   res.json({ success: result.exitCode === 0, message: 'Push complete', output: result.stdout, error: result.stderr });
 }));
 
@@ -114,13 +150,13 @@ gitRouter.post('/commit/:projectId', asyncHandler(async (req, res) => {
   // Stage files
   if (files && Array.isArray(files) && files.length > 0) {
     for (const file of files) {
-      await execShell(`git add "${file}"`, dir);
+      await execShell(`git add ${shellEscape(file)}`, dir);
     }
   } else {
     await execShell('git add -A', dir);
   }
 
-  const result = await execShell(`git commit -m "${message.replace(/"/g, '\\"')}" 2>&1`, dir);
+  const result = await execShell(`git commit -m ${shellEscape(message)} 2>&1`, dir);
   res.json({ success: result.exitCode === 0, message: 'Commit created', output: result.stdout, error: result.stderr });
 }));
 
@@ -130,7 +166,7 @@ gitRouter.post('/checkout/:projectId', asyncHandler(async (req, res) => {
   const { branch, create } = req.body;
   if (!branch) throw new ValidationError('branch required');
 
-  const cmd = create ? `git checkout -b "${branch}" 2>&1` : `git checkout "${branch}" 2>&1`;
+  const cmd = create ? `git checkout -b ${shellEscape(branch)} 2>&1` : `git checkout ${shellEscape(branch)} 2>&1`;
   const result = await execShell(cmd, dir);
   res.json({ success: result.exitCode === 0, message: `Checked out ${branch}`, output: result.stdout });
 }));
@@ -152,7 +188,7 @@ gitRouter.get('/branches/:projectId', asyncHandler(async (req, res) => {
 gitRouter.post('/init/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);
   const { repoUrl } = req.body;
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = (req.headers['x-git-token'] as string) || undefined;
 
   const results: string[] = [];
 
@@ -165,10 +201,15 @@ gitRouter.post('/init/:projectId', asyncHandler(async (req, res) => {
 
   if (repoUrl) {
     const authUrl = getAuthUrl(repoUrl, token);
-    await execShell(`git remote add origin "${authUrl}" 2>&1`, dir);
+    await execShell(`git remote add origin ${shellEscape(authUrl)} 2>&1`, dir);
     await execShell('git branch -M main 2>&1', dir);
     const push = await execShell('git push -u origin main 2>&1', dir, 60000);
     results.push(push.stdout);
+
+    // Reset remote URL to remove token
+    if (token) {
+      await execShell(`git remote set-url origin ${shellEscape(stripTokenFromUrl(authUrl))}`, dir).catch(() => {});
+    }
   }
 
   res.json({ success: true, message: 'Git initialized', results });
@@ -181,7 +222,7 @@ gitRouter.post('/stash/:projectId', asyncHandler(async (req, res) => {
 
   let cmd: string;
   switch (action) {
-    case 'push': cmd = message ? `git stash push -m "${message}" 2>&1` : 'git stash push 2>&1'; break;
+    case 'push': cmd = message ? `git stash push -m ${shellEscape(message)} 2>&1` : 'git stash push 2>&1'; break;
     case 'pop': cmd = 'git stash pop 2>&1'; break;
     case 'list': cmd = 'git stash list 2>&1'; break;
     default: throw new ValidationError('action must be push, pop, or list');

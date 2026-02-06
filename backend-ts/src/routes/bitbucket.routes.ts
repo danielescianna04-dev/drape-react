@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import { asyncHandler } from '../middleware/async-handler';
 import { log } from '../utils/logger';
 import { config } from '../config';
 
@@ -11,7 +13,7 @@ const BITBUCKET_TOKEN_URL = 'https://bitbucket.org/site/oauth2/access_token';
  * POST /bitbucket/authorize
  * Generate Bitbucket OAuth authorization URL
  */
-bitbucketRouter.post('/authorize', async (req: Request, res: Response) => {
+bitbucketRouter.post('/authorize', asyncHandler(async (req: Request, res: Response) => {
   try {
     const clientId = config.bitbucketClientId || req.body.client_id;
     const redirectUri = req.body.redirect_uri || config.bitbucketRedirectUri;
@@ -23,7 +25,7 @@ bitbucketRouter.post('/authorize', async (req: Request, res: Response) => {
       return;
     }
 
-    const state = Math.random().toString(36).substring(2, 15);
+    const state = crypto.randomBytes(16).toString('hex');
 
     const authUrl = new URL(BITBUCKET_AUTH_URL);
     authUrl.searchParams.set('client_id', clientId);
@@ -39,20 +41,20 @@ bitbucketRouter.post('/authorize', async (req: Request, res: Response) => {
       state,
     });
   } catch (error: any) {
-    log.error('[Bitbucket] Authorize error:', error.message);
-    res.status(500).json({ error: 'Failed to generate authorization URL', message: error.message });
+    log.error('[Bitbucket] Authorize error:', error);
+    res.status(500).json({ error: 'Failed to generate authorization URL' });
   }
-});
+}));
 
 /**
  * POST /bitbucket/callback
  * Exchange authorization code for access token
  */
-bitbucketRouter.post('/callback', async (req: Request, res: Response) => {
+bitbucketRouter.post('/callback', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { code, redirect_uri } = req.body;
     const clientId = config.bitbucketClientId || req.body.client_id;
-    const clientSecret = config.bitbucketClientSecret || req.body.client_secret;
+    const clientSecret = config.bitbucketClientSecret;
     const finalRedirectUri = redirect_uri || config.bitbucketRedirectUri;
 
     if (!code) {
@@ -60,8 +62,13 @@ bitbucketRouter.post('/callback', async (req: Request, res: Response) => {
       return;
     }
 
-    if (!clientId || !clientSecret) {
-      res.status(400).json({ error: 'client_id and client_secret are required' });
+    if (!clientId) {
+      res.status(400).json({ error: 'client_id is required' });
+      return;
+    }
+
+    if (!clientSecret) {
+      res.status(500).json({ error: 'OAuth client secret not configured on server' });
       return;
     }
 
@@ -103,28 +110,33 @@ bitbucketRouter.post('/callback', async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    log.error('[Bitbucket] Callback error:', error.message);
-    res.status(500).json({ error: 'Failed to exchange code for token', message: error.message });
+    log.error('[Bitbucket] Callback error:', error);
+    res.status(500).json({ error: 'Failed to exchange code for token' });
   }
-});
+}));
 
 /**
  * POST /bitbucket/refresh
  * Refresh access token using refresh token
  */
-bitbucketRouter.post('/refresh', async (req: Request, res: Response) => {
+bitbucketRouter.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { refresh_token } = req.body;
     const clientId = config.bitbucketClientId || req.body.client_id;
-    const clientSecret = config.bitbucketClientSecret || req.body.client_secret;
+    const clientSecret = config.bitbucketClientSecret;
 
     if (!refresh_token) {
       res.status(400).json({ error: 'refresh_token is required' });
       return;
     }
 
-    if (!clientId || !clientSecret) {
-      res.status(400).json({ error: 'client_id and client_secret are required' });
+    if (!clientId) {
+      res.status(400).json({ error: 'client_id is required' });
+      return;
+    }
+
+    if (!clientSecret) {
+      res.status(500).json({ error: 'OAuth client secret not configured on server' });
       return;
     }
 
@@ -164,16 +176,16 @@ bitbucketRouter.post('/refresh', async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    log.error('[Bitbucket] Refresh error:', error.message);
-    res.status(500).json({ error: 'Failed to refresh token', message: error.message });
+    log.error('[Bitbucket] Refresh error:', error);
+    res.status(500).json({ error: 'Failed to refresh token' });
   }
-});
+}));
 
 /**
  * GET /bitbucket/user
  * Get authenticated user info
  */
-bitbucketRouter.get('/user', async (req: Request, res: Response) => {
+bitbucketRouter.get('/user', asyncHandler(async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -194,16 +206,16 @@ bitbucketRouter.get('/user', async (req: Request, res: Response) => {
     const data = await response.json();
     res.json(data);
   } catch (error: any) {
-    log.error('[Bitbucket] Get user error:', error.message);
-    res.status(500).json({ error: 'Failed to get user', message: error.message });
+    log.error('[Bitbucket] Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user' });
   }
-});
+}));
 
 /**
  * GET /bitbucket/repos
  * List user's repositories
  */
-bitbucketRouter.get('/repos', async (req: Request, res: Response) => {
+bitbucketRouter.get('/repos', asyncHandler(async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -231,7 +243,7 @@ bitbucketRouter.get('/repos', async (req: Request, res: Response) => {
     const data = await response.json();
     res.json(data);
   } catch (error: any) {
-    log.error('[Bitbucket] Get repos error:', error.message);
-    res.status(500).json({ error: 'Failed to get repos', message: error.message });
+    log.error('[Bitbucket] Get repos error:', error);
+    res.status(500).json({ error: 'Failed to get repos' });
   }
-});
+}));

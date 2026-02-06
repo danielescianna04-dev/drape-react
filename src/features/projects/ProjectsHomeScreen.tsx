@@ -20,8 +20,9 @@ import { LoadingModal } from '../../shared/components/molecules/LoadingModal';
 import { ProjectLoadingOverlay } from '../../shared/components/molecules/ProjectLoadingOverlay';
 import { filePrefetchService } from '../../core/cache/filePrefetchService';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
-import axios from 'axios';
+import apiClient from '../../core/api/apiClient';
 import { config } from '../../config/config';
+import { getAuthHeaders } from '../../core/api/getAuthToken';
 import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
@@ -89,9 +90,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   // Debug: log when component mounts
   useEffect(() => {
     const cached = useTerminalStore.getState().workstations;
-    console.log('🏠 [Home] Component MOUNTED - cached workstations:', cached.length);
     return () => {
-      console.log('🏠 [Home] Component UNMOUNTED');
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
       }
@@ -115,7 +114,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           }, 800);
         }
       } catch (error) {
-        console.log('Error checking tutorial status:', error);
       }
     };
     checkTutorial();
@@ -162,7 +160,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       }, 100);
       const cachedData = useTerminalStore.getState().workstations;
       const hasCachedData = cachedData.length > 0;
-      console.log('🏠 [Home] useFocusEffect triggered - hasCachedData:', hasCachedData);
 
       // Se abbiamo già dati in cache, usali subito e aggiorna in background
       if (hasCachedData) {
@@ -176,10 +173,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           .slice(0, 5);
         setRecentProjects(sorted);
         setLoading(false);
-        console.log('🏠 [Home] Using cached data - refreshing in background');
         loadRecentProjects(true); // silent refresh
       } else {
-        console.log('🏠 [Home] No cache - showing skeleton');
         loadRecentProjects(false);
       }
       return () => clearTimeout(timer);
@@ -248,7 +243,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
   const loadRecentProjects = async (silent = false) => {
     const startTime = Date.now();
-    console.log(`🏠 [Home] loadRecentProjects START (silent=${silent})`);
 
     // Solo mostra skeleton se non è silent e non abbiamo già dati
     if (!silent && recentProjects.length === 0) {
@@ -257,7 +251,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     try {
       const workstations = await workstationService.getWorkstations();
-      console.log(`⏱️ [Home] getWorkstations took ${Date.now() - startTime}ms, found ${workstations.length} projects`);
 
       // Salva nello store globale per persistenza tra remount
       loadWorkstations(workstations);
@@ -271,7 +264,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         })
         .slice(0, 5);
       setRecentProjects(recent);
-      console.log(`✅ [Home] loadRecentProjects DONE in ${Date.now() - startTime}ms`);
     } catch (error) {
       console.error('❌ [Home] Error loading recent projects:', error);
     } finally {
@@ -384,7 +376,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       await animateProgressTo(65, 'Caricamento file...', 500);
 
       // Upload files in bulk
-      await axios.post(`${config.apiUrl}/fly/project/${project.id}/upload-files`, { files }, { timeout: 60000 });
+      await apiClient.post(`${config.apiUrl}/fly/project/${project.id}/upload-files`, { files }, { timeout: 60000 });
 
       await animateProgressTo(100, 'Apertura...', 400);
 
@@ -433,7 +425,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // Try to access the repo without authentication
       // If successful, it's public. If 404, it's private (or doesn't exist)
-      const response = await axios.get(`https://api.github.com/repos/${owner}/${repo}`, {
+      const response = await apiClient.get(`https://api.github.com/repos/${owner}/${repo}`, {
         timeout: 5000,
         validateStatus: (status) => status < 500, // Don't throw on 4xx
       });
@@ -447,7 +439,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         setRepoVisibility('unknown');
       }
     } catch (error) {
-      console.log('Error checking repo visibility:', error);
       setRepoVisibility('unknown');
     }
   };
@@ -456,7 +447,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const handleProjectOpen = async (project: any) => {
    try {
     const startTime = Date.now();
-    console.log('🚀 [Home] Opening project:', project.name);
 
     // Show loading overlay IMMEDIATELY
     setLoadingProjectName(project.name);
@@ -475,7 +465,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     // Release previous project's VM when switching (with grace period)
     const { currentWorkstation } = useTerminalStore.getState();
     if (currentWorkstation && currentWorkstation.id !== project.id) {
-      console.log('🔄 [Home] Switching project - releasing VM for previous project:', currentWorkstation.id);
 
       // Show "Freeing resources" step
       await animateProgressTo(8, 'Liberando risorse...', 500);
@@ -486,15 +475,15 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 8000);
+          const releaseAuthHeaders = await getAuthHeaders();
           const res = await fetch(`${config.apiUrl}/fly/release`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId: releaseProjectId, userId: user?.email || 'anonymous' }),
+            headers: { 'Content-Type': 'application/json', ...releaseAuthHeaders },
+            body: JSON.stringify({ projectId: releaseProjectId }),
             signal: controller.signal,
           });
           clearTimeout(timeout);
           if (res.ok) {
-            console.log('✅ [Home] Released VM for previous project:', releaseProjectId);
           } else {
             console.warn(`⚠️ [Home] Release returned ${res.status}, attempt ${attempt}`);
             if (attempt < 3) {
@@ -515,7 +504,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // Wait for the 2-second grace period (process kill + resource cleanup)
       await animateProgressTo(12, 'Liberando risorse...', 2000);
-      console.log('✅ [Home] Grace period complete - VM resources freed');
     }
 
     const repoUrl = project.repositoryUrl || project.githubUrl;
@@ -534,7 +522,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     const isSameWorkstation = currentWorkstation?.id === project.id;
 
     if (hasCachedFiles && existingMachineId && isSameWorkstation) {
-      console.log('⚡ [Home] Cache hit! Opening same workstation immediately');
 
       // Animate from current progress (12% after grace period) to 100%
       await animateProgressTo(100, 'Apertura...', 400);
@@ -561,7 +548,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       }, 200);
 
       // Update cache in background (non-blocking)
-      console.log('🔄 [Home] Refreshing cache in background...');
       const backgroundUpdate = async () => {
         const gitPromises: Promise<any>[] = [];
 
@@ -612,7 +598,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
         // Run both in parallel
         await Promise.all(gitPromises).catch(() => { });
-        console.log('✅ [Home] Background refresh complete');
       };
       backgroundUpdate();
       return;
@@ -626,7 +611,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
     if (repoUrl && !existingMachineId) {
       try {
-        console.log('🔥 [Home] Starting VM warmup (blocking)...');
         // Start from 12% (after grace period) to 25%
         animateProgressTo(25, 'Allocazione VM', 1200);
 
@@ -642,14 +626,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutes
 
         try {
+          const cloneAuthHeaders = await getAuthHeaders();
           var response = await fetch(`${config.apiUrl}/fly/clone`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...cloneAuthHeaders },
             body: JSON.stringify({
               workstationId: project.id,
               repositoryUrl: repoUrl,
               githubToken: token,
-              userId: user?.email || 'anonymous',
             }),
             signal: controller.signal,
           });
@@ -668,14 +652,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
         // Save project info (for Next.js warnings, etc.)
         if (data.projectInfo) {
-          console.log('📋 [Home] Project info received from warmup:', JSON.stringify(data.projectInfo));
           useTerminalStore.getState().setProjectInfo(data.projectInfo);
         }
 
         // VM warmup done - animate to 65%
         animateProgressTo(65, 'Rilevamento progetto', 500);
 
-        console.log('✅ [Home] VM warmup complete in', Date.now() - startTime, 'ms');
         vmCompleted = true;
       } catch (e: any) {
         console.warn('⚠️ [Home] VM warmup error:', e.message);
@@ -689,10 +671,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         }
       }
     } else if (existingMachineId && isSameWorkstation) {
-      console.log(`✨ [Home] Skipping VM warmup - same workstation already has active VM: ${existingMachineId}`);
       vmCompleted = true;
     } else if (existingMachineId && !isSameWorkstation) {
-      console.log(`🔄 [Home] Different workstation - will allocate new VM (existing: ${existingMachineId})`);
     }
 
     // 2 & 3. Git Data + Files Prefetch (in parallel) - only if VM completed
@@ -708,7 +688,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
               if (!match) return null;
 
               const [, owner, repo] = match;
-              console.log('🔄 [Home] Prefetching git data for', owner + '/' + repo);
               animateProgressTo(75, 'Caricamento git data', 1200);
 
               // Get token
@@ -750,7 +729,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                   isGitRepo: true
                 });
 
-                console.log('✅ [Home] Git data cached:', commitsData.length, 'commits in', Date.now() - startTime, 'ms');
               }
               return commitsData;
             } catch (e: any) {
@@ -766,10 +744,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         parallelFetches.push(
           (async () => {
             try {
-              console.log('📁 [Home] Prefetching files...');
               animateProgressTo(85, 'Caricamento file', 1500);
               const result = await filePrefetchService.prefetchFiles(project.id, repoUrl);
-              console.log('✅ [Home] Files cached in', Date.now() - startTime, 'ms');
               return result;
             } catch (e: any) {
               console.warn('⚠️ [Home] File prefetch error:', e.message);
@@ -785,13 +761,10 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           Promise.all(parallelFetches),
           new Promise((_, reject) => setTimeout(() => reject(new Error('Data prefetch timeout')), 10000))
         ]);
-        console.log('✅ [Home] Data prefetch complete');
       } catch (e: any) {
         console.warn('⚠️ [Home] Data prefetch timeout, continuing anyway');
       }
     }
-
-    console.log('🎉 [Home] All prefetch complete in', Date.now() - startTime, 'ms - opening project');
 
     // Animate to completion and WAIT for it
     await animateProgressTo(100, 'Apertura...', 800);
@@ -872,14 +845,12 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style: 'destructive',
           onPress: async () => {
             try {
-              console.log('🗑️ [Home] Deleting project:', selectedProject.id);
               // Delete from backend AND Firebase
               await workstationService.deleteProject(selectedProject.id);
               // Remove from local store
               await useTerminalStore.getState().removeWorkstation(selectedProject.id);
               handleCloseMenu();
               loadRecentProjects();
-              console.log('✅ [Home] Project deleted:', selectedProject.id);
             } catch (error) {
               console.error('❌ [Home] Error deleting project:', error);
               Alert.alert(t('common:error'), t('all.unableToLoad'));
@@ -992,7 +963,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     try {
       await AsyncStorage.setItem(TUTORIAL_KEY, 'true');
     } catch (error) {
-      console.log('Error saving tutorial status:', error);
     }
   };
 
