@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppColors } from '../../shared/theme/colors';
@@ -290,19 +291,131 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   };
 
   const handleBrowseFiles = async () => {
+    // Project markers — at least one must be present to validate as a project
+    const PROJECT_MARKERS = [
+      'package.json', 'index.html', 'requirements.txt', 'setup.py',
+      'Cargo.toml', 'go.mod', 'pubspec.yaml', 'pom.xml', 'build.gradle',
+      'Gemfile', 'composer.json', 'tsconfig.json', 'Makefile', 'CMakeLists.txt',
+    ];
+
+    // Patterns to skip during upload
+    const SKIP_PATTERNS = [
+      'node_modules/', '.git/', 'dist/', 'build/', '.next/', '__pycache__/',
+      '.DS_Store', 'Thumbs.db',
+    ];
+
+    const shouldSkip = (name: string) =>
+      SKIP_PATTERNS.some(p => name.includes(p));
+
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
+        multiple: true,
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        Alert.alert(t('file.selected'), `${file.name}\n${((file.size || 0) / 1024).toFixed(1)} KB`);
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      // Filter out junk files
+      const validAssets = result.assets.filter(f => !shouldSkip(f.name));
+      if (validAssets.length === 0) {
+        Alert.alert(t('common:error'), 'Nessun file valido selezionato');
+        return;
       }
-    } catch (error) {
-      console.error('Error picking document:', error);
-      Alert.alert(t('common:error'), t('file.unableToOpen'));
+
+      // Validate: at least one project marker file
+      const hasMarker = validAssets.some(f =>
+        PROJECT_MARKERS.some(m => f.name === m || f.name.endsWith(`/${m}`))
+      );
+      if (!hasMarker) {
+        Alert.alert(
+          'Non è un progetto',
+          'Seleziona i file di un progetto (con package.json, index.html, requirements.txt, ecc.)'
+        );
+        return;
+      }
+
+      // Determine project name from first marker
+      const markerFile = validAssets.find(f => PROJECT_MARKERS.includes(f.name));
+      const projectName = markerFile
+        ? markerFile.name.replace(/\.[^.]+$/, '') === markerFile.name
+          ? 'Local Project'
+          : markerFile.name.replace(/\.[^.]+$/, '')
+        : validAssets[0].name.replace(/\.[^.]+$/, '');
+
+      // Show loading overlay
+      setLoadingProjectName(projectName);
+      currentProgressRef.current = 5;
+      setLoadingProgress(5);
+      setLoadingStep('Lettura file...');
+      setIsLoadingProject(true);
+
+      // Read file contents
+      const files: { path: string; content: string }[] = [];
+      for (const asset of validAssets) {
+        try {
+          // Skip large files (>1MB)
+          if (asset.size && asset.size > 1024 * 1024) continue;
+
+          const content = await FileSystem.readAsStringAsync(asset.uri);
+          files.push({ path: asset.name, content });
+        } catch {
+          // Skip unreadable files (binary, etc.)
+        }
+      }
+
+      if (files.length === 0) {
+        setIsLoadingProject(false);
+        Alert.alert(t('common:error'), 'Impossibile leggere i file selezionati');
+        return;
+      }
+
+      await animateProgressTo(25, 'Creazione progetto...', 500);
+
+      // Create project in Firebase
+      const userId = user?.uid || 'anonymous';
+      const project = await workstationService.savePersonalProject(projectName, userId);
+
+      await animateProgressTo(45, 'Preparazione workspace...', 500);
+
+      // Create workspace on backend (creates dir on Hetzner)
+      await workstationService.createWorkstationForProject(project);
+
+      await animateProgressTo(65, 'Caricamento file...', 500);
+
+      // Upload files in bulk
+      await axios.post(`${config.apiUrl}/fly/project/${project.id}/upload-files`, { files }, { timeout: 60000 });
+
+      await animateProgressTo(100, 'Apertura...', 400);
+
+      // Brief pause at 100%
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Open the project
+      onOpenProject({
+        ...project,
+        files: files.map(f => f.path),
+        language: 'Unknown',
+        folderId: null,
+      });
+
+      // Clean up loading overlay
+      setTimeout(() => {
+        if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+        setIsLoadingProject(false);
+        setLoadingProjectName('');
+        currentProgressRef.current = 0;
+        setLoadingProgress(0);
+        setLoadingStep('');
+      }, 200);
+
+    } catch (error: any) {
+      console.error('Error opening local project:', error);
+      setIsLoadingProject(false);
+      setLoadingProjectName('');
+      setLoadingProgress(0);
+      setLoadingStep('');
+      Alert.alert(t('common:error'), error.message || 'Errore durante l\'apertura del progetto');
     }
   };
 

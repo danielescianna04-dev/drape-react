@@ -132,6 +132,25 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
   res.json({ success: true, path: filePath, message: 'File saved' });
 }));
 
+// POST /fly/project/:id/upload-files (bulk upload)
+flyRouter.post('/project/:id/upload-files', asyncHandler(async (req: Request, res: Response) => {
+  const projectId = req.params.id;
+  const { files } = req.body;
+  if (!files || !Array.isArray(files)) throw new ValidationError('files array required');
+
+  await fileService.ensureProjectDir(projectId);
+
+  let uploaded = 0;
+  for (const file of files) {
+    if (file.path && file.content !== undefined) {
+      await fileService.writeFile(projectId, file.path, file.content);
+      uploaded++;
+    }
+  }
+
+  res.json({ success: true, filesCount: uploaded });
+}));
+
 // POST /fly/project/:id/exec
 flyRouter.post('/project/:id/exec', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
