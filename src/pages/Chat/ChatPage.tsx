@@ -98,6 +98,19 @@ interface ChatPageProps {
   animatedStyle?: any;
 }
 
+/**
+ * Strip raw XML tool call markup that some models output as text instead of using native tool_use.
+ * Removes <function_calls>, <tool_code>, <tool_name>, </invoke>, etc.
+ */
+function stripToolCallXml(text: string): string {
+  if (!text) return text;
+  // Remove entire XML tool call blocks: <function_calls>...</function_calls>
+  let cleaned = text.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
+  // Remove partial/unclosed tags that stream in chunks
+  cleaned = cleaned.replace(/<\/?(?:function_calls|tool_code|tool_name|invoke|antml:invoke|antml:parameter|parameters)[^>]*>/g, '');
+  return cleaned.trim();
+}
+
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
@@ -742,17 +755,19 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             // This prevents the visual gap where thinking disappears before text appears
             const thinkingItemId = currentAgentMessageIdRef.current!;
             streamingContentRef.current = delta;
+            const cleanContent = stripToolCallXml(streamingContentRef.current);
             updateTerminalItemById(currentTab.id, thinkingItemId, {
               isThinking: false,
-              content: delta,
+              content: cleanContent,
             });
             // Keep the same item ID for further streaming updates
             currentAgentMessageIdRef.current = thinkingItemId;
           } else if (currentAgentMessageIdRef.current) {
             // Already streaming - accumulate and update
             streamingContentRef.current += delta;
+            const cleanContent = stripToolCallXml(streamingContentRef.current);
             updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
-              content: streamingContentRef.current,
+              content: cleanContent,
             });
           } else {
             // Edge case: no thinking, no streaming - create new message
@@ -2482,8 +2497,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   else if (parsed.text) {
                     streamedContent += parsed.text;
 
-                    // Function to update UI with content
+                    // Function to update UI with content (strip any raw XML tool call markup)
                     const updateContent = () => {
+                      const cleanContent = stripToolCallXml(streamedContent);
                       useTabStore.setState((state) => ({
                         tabs: state.tabs.map(t =>
                           t.id === tab.id
@@ -2491,7 +2507,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                               ...t,
                               terminalItems: t.terminalItems?.map(item =>
                                 item.id === streamingMessageId
-                                  ? { ...item, content: streamedContent, isThinking: false }
+                                  ? { ...item, content: cleanContent, isThinking: false }
                                   : item
                               )
                             }
@@ -2991,6 +3007,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               ) : null}
               ListFooterComponent={terminalItems.length > 0 ? (
                 <>
+                  {/* Reliable "Thinking..." indicator as footer fallback */}
+                  {/* Shows when loading/streaming but no AI content visible yet */}
+                  {(isLoading || agentStreaming) &&
+                    !processedTerminalItems.some(p => p.item.isThinking) &&
+                    (processedTerminalItems.length === 0 ||
+                      processedTerminalItems[processedTerminalItems.length - 1]?.item?.type === TerminalItemType.USER_MESSAGE) && (
+                    <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                      <View style={{
+                        backgroundColor: 'rgba(255,255,255,0.05)',
+                        borderRadius: 16,
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                      }}>
+                        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, fontStyle: 'italic' }}>
+                          Thinking...
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
                   {/* Show TodoList if agent has active todos */}
                   {currentTodos.length > 0 && (
                     <TodoList todos={currentTodos} />
