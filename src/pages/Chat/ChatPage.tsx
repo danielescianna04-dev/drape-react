@@ -81,7 +81,7 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 const AI_MODELS = [
   { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true },
   { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false },
+  { id: 'gpt-5-2', name: 'GPT 5.2', IconComponent: OpenAIIcon, hasThinking: false },
   { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];

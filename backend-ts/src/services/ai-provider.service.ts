@@ -134,9 +134,9 @@ class AIProviderService {
       costPerMInputToken: 1.25,
       costPerMOutputToken: 10.0,
     },
-    'gpt-5-3': {
+    'gpt-5-2': {
       provider: 'openai',
-      modelId: 'gpt-5.3',
+      modelId: 'gpt-5.2',
       maxTokens: 16384,
       supportsTools: true,
       supportsStreaming: true,
@@ -906,7 +906,7 @@ class AIProviderService {
       const requestParams: any = {
         model: modelConfig.modelId,
         messages: formattedMessages,
-        max_tokens: options?.maxTokens || modelConfig.maxTokens,
+        max_completion_tokens: options?.maxTokens || modelConfig.maxTokens,
         stream: true,
         stream_options: { include_usage: true },
       };

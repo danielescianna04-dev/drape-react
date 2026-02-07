@@ -27,6 +27,7 @@ export type AgentEventType =
   | 'message'
   | 'text_delta'
   | 'plan_ready'
+  | 'ask_user_question'
   | 'usage'
   | 'complete'
   | 'error'
@@ -300,6 +301,7 @@ export function useAgentStream(
         'message',
         'text_delta',
         'plan_ready',
+        'ask_user_question',
         'usage',
         'budget_exceeded',
         'complete',
@@ -488,6 +490,7 @@ export function useAgentStream(
       'message',
       'text_delta',
       'plan_ready',
+      'ask_user_question',
       'usage',
       'budget_exceeded',
       'complete',

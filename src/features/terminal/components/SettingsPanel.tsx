@@ -53,7 +53,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
   const models = [
     { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', description: 'Anthropic - Potenza creativa illimitata', icon: 'infinite' },
     { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', description: 'Anthropic - Equilibrio perfetto e codice d\'élite', icon: 'sparkles' },
-    { id: 'gpt-5-3', name: 'GPT 5.3', description: 'OpenAI - Intelligenza versatile di ultima generazione', icon: 'bulb' },
+    { id: 'gpt-5-2', name: 'GPT 5.2', description: 'OpenAI - Intelligenza versatile di ultima generazione', icon: 'bulb' },
     { id: 'gemini-3-0-pro', name: 'Gemini 3.0 Pro', description: 'Google - Ragionamento multimodale avanzato', icon: 'planet' },
     { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google - Risposte istantanee ad alta efficienza', icon: 'flash' },
   ];
