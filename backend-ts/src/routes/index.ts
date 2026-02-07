@@ -11,9 +11,10 @@ import { healthRouter } from './health.routes';
 import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
 import { aiRouter } from './ai.routes';
+import { iapRouter } from './iap.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 import { config } from '../config';
-import { requireAuth } from '../middleware/auth';
+import { optionalAuth } from '../middleware/auth';
 
 export function mountRoutes(app: Express): void {
   // Health & logs (root level) — public
@@ -47,6 +48,9 @@ export function mountRoutes(app: Express): void {
 
   // --- Public routes (no auth required) ---
 
+  // IAP — webhook is public (Apple calls it), verify-receipt has its own requireAuth
+  app.use('/iap', iapRouter);
+
   // OAuth callbacks — public
   app.use('/github', githubRouter);
   app.use('/oauth/gitlab', gitlabRouter);
@@ -54,16 +58,17 @@ export function mountRoutes(app: Express): void {
 
   // --- Auth-protected routes ---
 
-  // Agent routes — requires auth
-  app.use('/agent', requireAuth, agentRouter);
+  // Agent routes — optionalAuth (supports old app versions without auth token)
+  app.use('/agent', optionalAuth, agentRouter);
 
-  // Notifications — requires auth
-  app.use('/notifications', requireAuth, notificationRouter);
+  // Notifications — optionalAuth (supports old app versions without auth token)
+  app.use('/notifications', optionalAuth, notificationRouter);
 
-  // Workstation — requires auth
-  app.use('/workstation', requireAuth, workstationRouter);
+  // Workstation — optionalAuth (supports old app versions that may not send token yet)
+  // verifyProjectOwnership already returns true during migration period
+  app.use('/workstation', optionalAuth, workstationRouter);
 
-  // Fly — requires auth, except /fly/health and /fly/status which are public
+  // Fly — optionalAuth (supports old app versions without auth token)
   app.get('/fly/health', (req, res) => {
     res.json({ status: 'ok', backend: 'docker-ts', timestamp: new Date().toISOString() });
   });
@@ -72,13 +77,13 @@ export function mountRoutes(app: Express): void {
     req.url = '/status';
     flyRouter(req, res, next);
   });
-  app.use('/fly', requireAuth, flyRouter);
+  app.use('/fly', optionalAuth, flyRouter);
 
-  // Git — requires auth
-  app.use('/git', requireAuth, gitRouter);
+  // Git — optionalAuth (supports old app versions without auth token)
+  app.use('/git', optionalAuth, gitRouter);
 
-  // AI — requires auth
-  app.use('/ai', requireAuth, aiRouter);
+  // AI — optionalAuth (supports old app versions without auth token)
+  app.use('/ai', optionalAuth, aiRouter);
 
   // Root info — public
   app.get('/', (req, res) => {

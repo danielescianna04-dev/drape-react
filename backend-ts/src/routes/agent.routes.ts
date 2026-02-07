@@ -41,12 +41,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     thinkingLevel,
   } = req.body;
 
-  if (!req.userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  const userId = req.userId;
-  const userPlan = await getUserPlan(userId);
+  const userId = req.userId || 'anonymous';
 
   if (!prompt) {
     throw new ValidationError('prompt is required');
@@ -55,8 +50,12 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     throw new ValidationError('projectId is required');
   }
 
-  // Verify project ownership (lenient during migration)
-  const isOwner = await verifyProjectOwnership(userId, projectId);
+  // Parallelize Firebase calls to reduce latency
+  const [userPlan, isOwner] = await Promise.all([
+    getUserPlan(userId),
+    verifyProjectOwnership(userId, projectId),
+  ]);
+
   if (!isOwner) {
     log.warn(`[AUTH] User ${userId} tried to access project ${projectId} without ownership`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -163,7 +162,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 // POST /execute-tool - Single tool execution
 agentRouter.post('/execute-tool', asyncHandler(async (req, res) => {
   const { tool, input, projectId } = req.body;
-  const userId = req.userId!;
+  const userId = req.userId || 'anonymous';
 
   if (!tool) {
     throw new ValidationError('tool is required');
@@ -206,7 +205,7 @@ const planStore = new Map<string, any>();
 // GET /plan/:projectId - Get pending plan
 agentRouter.get('/plan/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const userId = req.userId!;
+  const userId = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(userId, projectId);
@@ -227,7 +226,7 @@ agentRouter.get('/plan/:projectId', asyncHandler(async (req, res) => {
 // POST /approve-plan - Approve or reject a plan
 agentRouter.post('/approve-plan', asyncHandler(async (req, res) => {
   const { projectId, approved } = req.body;
-  const userId = req.userId!;
+  const userId = req.userId || 'anonymous';
 
   if (!projectId) {
     throw new ValidationError('projectId is required');

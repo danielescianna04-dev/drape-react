@@ -7,6 +7,25 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { TodoList } from '../../../shared/components/molecules/TodoList';
+import { stripToolCallXml } from '../../../shared/utils/stripToolCallXml';
+
+/** Strip markdown code blocks and truncate for the compact preview chat overlay. */
+function cleanPreviewText(text: string): string {
+  if (!text) return text;
+  let cleaned = stripToolCallXml(text);
+  // Replace fenced code blocks (```...```) with a short label
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, '[code]');
+  // Replace inline backtick spans that look like full lines of code (>60 chars)
+  cleaned = cleaned.replace(/`[^`]{60,}`/g, '[code]');
+  // Collapse multiple consecutive [code] markers
+  cleaned = cleaned.replace(/(\[code\]\s*){2,}/g, '[code] ');
+  // Truncate if still too long
+  cleaned = cleaned.trim();
+  if (cleaned.length > 300) {
+    cleaned = cleaned.slice(0, 300) + '…';
+  }
+  return cleaned;
+}
 
 export interface AIMessage {
   type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded';
@@ -253,6 +272,11 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                       </View>
                     )}
                     {(aiMessages || []).map((msg, index) => {
+                      // Skip empty messages — thinking closed without content, empty text after XML strip
+                      if (msg.type === 'thinking' && !msg.content?.trim() && !msg.isThinking) return null;
+                      if (msg.type === 'text' && !msg.content?.trim()) return null;
+                      // Skip text messages that are only code (no explanation)
+                      if (msg.type === 'text' && cleanPreviewText(msg.content).replace(/\[code\]/g, '').trim() === '') return null;
                       if (msg.type === 'user') {
                         return (
                           <View key={index} style={[styles.aiMessageRow, { justifyContent: 'flex-end', paddingRight: 4, marginBottom: 10, alignItems: 'flex-end' }]}>
@@ -361,12 +385,12 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                             <View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
                           </View>
                           <View style={styles.aiMessageContent}>
-                            <Text style={styles.aiResponseText}>{msg.content}</Text>
+                            <Text style={styles.aiResponseText}>{cleanPreviewText(msg.content)}</Text>
                           </View>
                         </View>
                       );
                     })}
-                    {isAiLoading && !aiMessages.some(m => m.type !== 'user') && (
+                    {isAiLoading && (aiMessages.length === 0 || aiMessages[aiMessages.length - 1]?.type === 'user') && (
                       <View style={styles.aiMessageRow}>
                         <View style={styles.aiThreadContainer}>
                           <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />

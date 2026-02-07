@@ -62,8 +62,9 @@ export class AgentLoop {
 
   // Budget limits per plan (monthly EUR)
   private static readonly PLAN_BUDGETS: Record<string, number> = {
-    free: 1.50,
+    free: 2.00,
     go: 7.50,
+    starter: 10.00,
     pro: 50.00,
     team: 200.00,
   };
@@ -145,8 +146,8 @@ export class AgentLoop {
       log.info(`[AgentLoop] Starting agent for project ${this.projectId} with model ${this.model}`);
       this.session = await workspaceService.getOrCreateContainer(this.projectId, this.userId || 'anonymous');
 
-      // 3. Build system prompt with project context
-      const systemPrompt = await this.buildSystemPrompt();
+      // 3. Build system prompt with project context + user language
+      const systemPrompt = await this.buildSystemPrompt(prompt);
 
       // 4. Add user message to conversation
       const userMessage = this.buildUserMessage(prompt, images);
@@ -472,7 +473,6 @@ export class AgentLoop {
           if (currentToolName === 'read_file' && currentTool.input?.file_path) {
             toolSignature = `${currentToolName}:${currentTool.input.file_path}`;
           } else if (currentToolName === 'edit_file' && currentTool.input) {
-            // Include file_path + hash of old_string to distinguish different edits
             const oldStringHash = currentTool.input.old_string
               ? currentTool.input.old_string.substring(0, 50).replace(/\s+/g, '')
               : '';
@@ -483,6 +483,9 @@ export class AgentLoop {
             toolSignature = `${currentToolName}:${currentTool.input.pattern}`;
           } else if (currentToolName === 'search_files' && currentTool.input?.pattern) {
             toolSignature = `${currentToolName}:${currentTool.input.pattern}`;
+          } else if ((currentToolName === 'run_command' || currentToolName === 'execute_command') && currentTool.input?.command) {
+            // Include the command itself — different commands are NOT a loop
+            toolSignature = `${currentToolName}:${currentTool.input.command.substring(0, 80)}`;
           }
 
           if (toolSignature === lastToolSignature) {
@@ -667,7 +670,7 @@ export class AgentLoop {
   /**
    * Build system prompt with project context
    */
-  private async buildSystemPrompt(): Promise<string> {
+  private async buildSystemPrompt(userPrompt?: string): Promise<string> {
     const basePrompt = this.getBasePromptForMode();
 
     // Get project file tree
@@ -702,7 +705,19 @@ export class AgentLoop {
       }
     }
 
-    return basePrompt + projectContext + sessionInfo;
+    // Detect user language and add explicit directive
+    let languageDirective = '';
+    if (userPrompt) {
+      // Simple heuristic: check for common Italian/Spanish/French/German words
+      const lowerPrompt = userPrompt.toLowerCase();
+      const italianMarkers = ['fammi', 'crea', 'aggiungi', 'modifica', 'scrivi', 'fai', 'voglio', 'vorrei', 'puoi', 'come', 'cosa', 'perché', 'anche', 'questo', 'quello', 'sono', 'della', 'delle', 'nella', 'pagina', 'sito', 'nuovo', 'nuova', 'eventi', 'con', 'per', 'una', 'che', 'gli', 'dai', 'alla'];
+      const italianCount = italianMarkers.filter(w => lowerPrompt.includes(w)).length;
+      if (italianCount >= 2) {
+        languageDirective = `\n\n## LANGUAGE: ITALIAN\nThe user is writing in Italian. You MUST respond ENTIRELY in Italian. Every text output, todo item, explanation, and completion message MUST be in Italian. Do NOT use English.\n`;
+      }
+    }
+
+    return basePrompt + languageDirective + projectContext + sessionInfo;
   }
 
   /**
@@ -726,6 +741,8 @@ You are in FAST mode. Prioritize speed and efficiency:
 - **MINIMIZE TOOL CALLS** - Use write_file to rewrite entire files instead of multiple edit_file calls
 - Complete the task in as few iterations as possible
 - When done, call signal_completion with a summary
+
+CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote their message in. If the user writes in Italian, ALL your text output (explanations, comments in code, todo items, completion messages) MUST be in Italian. If English, reply in English. NEVER switch language mid-conversation.
 `;
         break;
 
@@ -745,6 +762,8 @@ You are in PLANNING mode. Your goal is to create a detailed execution plan WITHO
 - DO NOT execute any write operations (edit_file, write_file, run_command)
 - DO NOT make any actual changes to files
 - ONLY analyze and create the plan
+
+CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote their message in. If the user writes in Italian, ALL your text output (plan steps, descriptions, todo items) MUST be in Italian. NEVER switch language.
 `;
         break;
 
@@ -758,6 +777,8 @@ You are in EXECUTE mode. Follow plans carefully:
 - Update the todo list as you progress
 - Handle errors gracefully
 - When done, call signal_completion with a summary
+
+CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote their message in. If the user writes in Italian, ALL your text output MUST be in Italian. NEVER switch language.
 `;
         break;
     }

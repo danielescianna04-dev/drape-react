@@ -24,6 +24,7 @@ export interface UserProject {
   workstationId?: string;
   status: 'creating' | 'running' | 'stopped';
   cloned?: boolean; // Se il progetto è già stato clonato (per evitare clone multipli)
+  source?: string; // 'local' per progetti aperti da file locale
 }
 
 export const workstationService = {
@@ -105,7 +106,7 @@ export const workstationService = {
   },
 
   // Salva progetto personale su Firebase
-  async savePersonalProject(name: string, userId: string): Promise<UserProject> {
+  async savePersonalProject(name: string, userId: string, source?: string): Promise<UserProject> {
     try {
       const project: Omit<UserProject, 'id'> = {
         name,
@@ -113,7 +114,8 @@ export const workstationService = {
         userId,
         createdAt: new Date(),
         lastAccessed: new Date(),
-        status: 'creating'
+        status: 'creating',
+        ...(source ? { source } : {}),
       };
 
       const docRef = await addDoc(collection(db, COLLECTION), project);
@@ -190,6 +192,7 @@ export const workstationService = {
           projectId: project.id,
           repositoryUrl: project.repositoryUrl,
           githubToken: token, // Also pass in body for cloneRepository
+          ...(project.source ? { source: project.source } : {}),
         }, { headers, timeout: 30000 });
 
         return {

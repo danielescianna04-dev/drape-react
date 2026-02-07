@@ -17,6 +17,15 @@ class ContainerLifecycleService {
     const { default: fs } = await import('fs/promises');
     await fs.mkdir(`${config.cacheRoot}/next-build/${projectId}`, { recursive: true });
 
+    // Fix ownership so container user (1000:1000) can write node_modules etc.
+    const { execSync } = await import('child_process');
+    try {
+      execSync(`chown -R 1000:1000 "${config.projectsRoot}/${projectId}"`, { timeout: 10000 });
+      execSync(`chown -R 1000:1000 "${config.cacheRoot}/next-build/${projectId}"`, { timeout: 10000 });
+    } catch (e: any) {
+      log.warn(`[Lifecycle] chown failed (non-fatal): ${e.message}`);
+    }
+
     const container = await dockerService.createContainer({ projectId });
 
     // Wait for agent to be healthy

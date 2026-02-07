@@ -36,7 +36,10 @@ import { InfoSection } from './components/InfoSection';
 import { DeviceSection } from './components/DeviceSection';
 import { AccountActionsSection } from './components/AccountActionsSection';
 import { EditNameModal } from './components/EditNameModal';
+import { LegalPage } from './components/LegalPage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useIAPStore } from '../../core/iap/iapStore';
+import { IAP_PRODUCT_IDS, getProductId } from '../../core/iap/iapConstants';
 
 interface SystemStatus {
   tokens: {
@@ -117,11 +120,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [showPlanSelection, setShowPlanSelection] = useState(initialShowPlans);
   const [showResourceUsage, setShowResourceUsage] = useState(false);
   const [tokenTimeframe, setTokenTimeframe] = useState<'24h' | '7d' | '30d'>('24h');
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'max'>(user?.plan || 'free');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'starter' | 'pro' | 'team'>(user?.plan || 'free');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases } = useIAPStore();
   const [showEditName, setShowEditName] = useState(false);
+  const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 
@@ -436,30 +441,40 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   };
 
   const renderPlanSelection = () => {
+    // Get localized prices from App Store (fallback to hardcoded)
+    const getPrice = (productId: string, fallback: string): string => {
+      const product = iapProducts.find(p => p.productId === productId);
+      return product?.localizedPrice || fallback;
+    };
+
     const plans = [
       {
         id: 'free',
         name: 'Starter',
         price: '€0',
         description: 'Per chi vuole esplorare le basi.',
-        features: ['2 progetti + 1 clonato', '5 preview al mese', 'Budget AI base', '500MB Storage Cloud'],
+        features: ['3 progetti + 2 clonati', '5 preview al mese', 'Budget AI base', '1GB Storage Cloud'],
         color: '#94A3B8'
       },
       {
         id: 'go',
         name: 'Go',
-        price: billingCycle === 'monthly' ? '€23.99' : '€19.99',
+        price: billingCycle === 'monthly'
+          ? getPrice(IAP_PRODUCT_IDS.GO_MONTHLY, '€22.99')
+          : getPrice(IAP_PRODUCT_IDS.GO_YEARLY, '€19.17'),
         description: 'Per chi vuole creare sul serio.',
-        features: ['5 progetti + 5 clonati', '20 preview al mese', 'Budget AI potenziato', '2GB Storage Cloud', 'Supporto email'],
+        features: ['10 progetti + 5 clonati', '20 preview al mese', 'Budget AI potenziato', '5GB Storage Cloud', 'Supporto email'],
         color: AppColors.primary,
         isPopular: true
       },
       {
         id: 'pro',
         name: 'Pro',
-        price: billingCycle === 'monthly' ? '€49.99' : '€39.99',
+        price: billingCycle === 'monthly'
+          ? getPrice(IAP_PRODUCT_IDS.PRO_MONTHLY, '€39.99')
+          : getPrice(IAP_PRODUCT_IDS.PRO_YEARLY, '€33.33'),
         description: 'Potenza massima per sviluppatori.',
-        features: ['Progetti illimitati', 'Preview illimitate', 'Budget AI illimitato', '10GB Storage Cloud', 'Supporto prioritario'],
+        features: ['50 progetti + 25 clonati', 'Preview illimitate', 'Budget AI illimitato', '10GB Storage Cloud', 'Supporto prioritario'],
         color: '#F472B6'
       }
     ];
@@ -566,7 +581,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               }
             }}
           >
-            {plans.map((plan, idx) => (
+            {plans.map((plan, idx) => {
+              // "Piano Attuale" only if exact product matches (plan + billing cycle)
+              const isExactCurrent = plan.id === 'free'
+                ? (currentPlan === 'free' || currentPlan === 'starter')
+                : currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle);
+
+              return (
               <TouchableOpacity
                 key={plan.id}
                 style={[
@@ -575,15 +596,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 ]}
                 activeOpacity={0.9}
                 onPress={() => {
-                  if (currentPlan !== plan.id) {
-                    Alert.alert(
-                      'Cambio Piano',
-                      `Vuoi passare al piano ${plan.name}?`,
-                      [
-                        { text: 'Annulla', style: 'cancel' },
-                        { text: 'Conferma', onPress: () => setCurrentPlan(plan.id as any) }
-                      ]
-                    );
+                  if (!isExactCurrent && plan.id !== 'free' && !isPurchasing) {
+                    iapPurchase(plan.id as 'go' | 'pro', billingCycle);
                   }
                 }}
               >
@@ -603,7 +617,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     <Text style={styles.planNameSmall}>{plan.name}</Text>
                     <Text style={styles.planDescriptionSmall}>{plan.description}</Text>
                   </View>
-                  {currentPlan === plan.id && (
+                  {isExactCurrent && (
                     <View style={[styles.activeIndicator, { backgroundColor: `${plan.color}20` }]}>
                       <Ionicons name="checkmark" size={12} color={plan.color} />
                     </View>
@@ -626,16 +640,28 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   ))}
                 </View>
 
-                <View style={[
-                  styles.planActionBtn,
-                  currentPlan === plan.id ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' } : { backgroundColor: plan.color }
-                ]}>
-                  <Text style={[styles.planActionText, currentPlan === plan.id && { color: 'rgba(255,255,255,0.4)' }]}>
-                    {currentPlan === plan.id ? 'Piano Attuale' : `Attiva ${plan.name}`}
+                <TouchableOpacity
+                  style={[
+                    styles.planActionBtn,
+                    isExactCurrent
+                      ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }
+                      : { backgroundColor: plan.color },
+                    isPurchasing && plan.id !== 'free' && !isExactCurrent && { opacity: 0.6 },
+                  ]}
+                  disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
+                  onPress={() => {
+                    if (plan.id !== 'free' && !isPurchasing) {
+                      iapPurchase(plan.id as 'go' | 'pro', billingCycle);
+                    }
+                  }}
+                >
+                  <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
+                    {isExactCurrent ? 'Piano Attuale' : plan.id === 'free' ? 'Piano Gratuito' : `Attiva ${plan.name}`}
                   </Text>
-                </View>
+                </TouchableOpacity>
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </ScrollView>
           </Animated.View>
 
@@ -648,11 +674,29 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             ))}
           </Animated.View>
 
-          <Animated.Text style={[styles.legalNotice, {
-            opacity: planFooterAnim,
-          }]}>
-            Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.
-          </Animated.Text>
+          <Animated.View style={{ opacity: planFooterAnim, alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={restorePurchases}
+              disabled={isRestoring}
+              style={{ paddingVertical: 12 }}
+            >
+              <Text style={{ color: AppColors.primary, fontSize: 13, fontWeight: '600' }}>
+                {isRestoring ? 'Ripristino in corso...' : 'Ripristina Acquisti'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.legalNotice}>
+              Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga disattivato almeno 24 ore prima della scadenza del periodo corrente. Puoi gestire e cancellare i tuoi abbonamenti nelle Impostazioni del tuo account Apple ID.
+            </Text>
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={() => setShowLegal('privacy')}>
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalLinkSeparator}>  ·  </Text>
+              <TouchableOpacity onPress={() => setShowLegal('terms')}>
+                <Text style={styles.legalLinkText}>Termini di Servizio</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
         </ScrollView>
       </Animated.View>
     );
@@ -892,7 +936,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         />
 
         {/* Info Section */}
-        <InfoSection loading={loading} t={t} />
+        <InfoSection
+          loading={loading}
+          t={t}
+          onOpenTerms={() => setShowLegal('terms')}
+          onOpenPrivacy={() => setShowLegal('privacy')}
+        />
 
         {/* Device Section */}
         <DeviceSection
@@ -941,6 +990,10 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
         t={t}
       />
+
+      {showLegal && (
+        <LegalPage type={showLegal} onClose={() => setShowLegal(null)} />
+      )}
     </Animated.View>
   );
 };
@@ -1225,8 +1278,24 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.2)',
     textAlign: 'center',
     marginTop: 10,
-    paddingHorizontal: 50,
+    paddingHorizontal: 30,
     lineHeight: 16,
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  legalLinkText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    textDecorationLine: 'underline',
+  },
+  legalLinkSeparator: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.15)',
   },
   // Resource Dashboard Styles
   mainMonitorCard: {

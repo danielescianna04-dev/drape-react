@@ -45,6 +45,8 @@ import { AnthropicIcon, GoogleIcon } from '../../shared/components/icons';
 import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
 import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
+import { useChatEngine, type ChatEngineMessage } from '../../hooks/engine/useChatEngine';
+import { stripToolCallXml } from '../../shared/utils/stripToolCallXml';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 // PlanApprovalModal removed - plans now shown inline in chat
@@ -98,19 +100,6 @@ interface ChatPageProps {
   animatedStyle?: any;
 }
 
-/**
- * Strip raw XML tool call markup that some models output as text instead of using native tool_use.
- * Removes <function_calls>, <tool_code>, <tool_name>, </invoke>, etc.
- */
-function stripToolCallXml(text: string): string {
-  if (!text) return text;
-  // Remove entire XML tool call blocks: <function_calls>...</function_calls>
-  let cleaned = text.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
-  // Remove partial/unclosed tags that stream in chunks
-  cleaned = cleaned.replace(/<\/?(?:function_calls|tool_code|tool_name|invoke|antml:invoke|antml:parameter|parameters)[^>]*>/g, '');
-  return cleaned.trim();
-}
-
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
@@ -118,6 +107,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const scrollViewRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX, hideSidebar, showSidebar, setForceHideToggle } = useSidebarOffset();
+
+  // ── Auto-scroll tracking ────────────────────────────────────────
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+  const isNearBottomRef = useRef(true);        // true = user hasn't scrolled up
 
   // Destructure chat state for easier access
   const {
@@ -184,760 +178,241 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     transform: [{ translateX: shimmerX.value }, { skewX: '-20deg' }],
   }));
 
-  // Track processed events to avoid duplicates in terminal
-  const processedEventIdsRef = useRef<Set<string>>(new Set());
+  // ── Engine: shared event processing ──────────────────────────────
+  const engine = useChatEngine(agentEvents, agentStreaming);
 
-  // Track tool_start inputs to get filenames later (since tool_complete may not have input)
-  const toolInputsRef = useRef<Map<string, any>>(new Map());
+  // Bridge refs to sync engine.messages → tabStore terminal items
+  const preThinkingIdRef = useRef<string | null>(null);
+  const engineIdMapRef = useRef<Map<string, string>>(new Map());
+  const prevEngineMessagesRef = useRef<ChatEngineMessage[]>([]);
 
-  // Track executing item IDs by tool ID (to link tool_start with tool_complete)
-  const executingToolItemsRef = useRef<Map<string, string>>(new Map());
+  // ── Tool formatting helpers ──────────────────────────────────────
 
-  // Track tool start timestamps for minimum display time
-  const toolStartTimesRef = useRef<Map<string, number>>(new Map());
-  const MIN_TOOL_DISPLAY_MS = 400; // Minimum time to show executing indicator
+  /** Format the executing message shown while a tool is running */
+  const getToolStartMessage = (tool: string, input: any): string => {
+    let parsedInput: any = {};
+    try {
+      parsedInput = typeof input === 'string' ? JSON.parse(input) : (input || {});
+    } catch { parsedInput = input || {}; }
 
-  // Track accumulated streaming content (to avoid losing deltas due to async state updates)
-  const streamingContentRef = useRef<string>('');
+    const getFileName = (i: any) => {
+      const path = i?.path || i?.filePath || i?.file_path || '';
+      return path ? path.split('/').pop() || path : '';
+    };
 
-  // Track accumulated thinking content for real-time streaming
-  const thinkingContentRef = useRef<string>('');
-
-  // Track accumulated cost for the current agent session
-  const sessionCostRef = useRef<{ costEur: number; inputTokens: number; outputTokens: number }>({
-    costEur: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-  });
-
-  // Effect to map agent events to terminal items (Old School Style - Restored UI)
-  useEffect(() => {
-    if (!agentEvents || agentEvents.length === 0) return;
-
-    agentEvents.forEach(event => {
-      // Use composite key (id + type) since tool_start and tool_complete share the same id
-      const eventKey = `${event.id}-${event.type}`;
-      if (processedEventIdsRef.current.has(eventKey)) return;
-      processedEventIdsRef.current.add(eventKey);
-
-      // 0. ITERATION_START -> Reset thinking for new iteration (so each iteration has separate thinking)
-      if (event.type === 'iteration_start') {
-        const iteration = (event as any).iteration || 1;
-        // After first iteration, close previous thinking and create new placeholder immediately
-        if (iteration > 1) {
-          // Close previous thinking if exists
-          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-            updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
-              isThinking: false, // Mark as complete
-            });
-          }
-
-          // IMMEDIATELY create new thinking placeholder - never leave user waiting
-          const newThinkingId = `agent-thinking-${Date.now()}`;
-          currentAgentMessageIdRef.current = newThinkingId;
-          thinkingContentRef.current = ''; // Reset thinking content for new iteration
-          streamingContentRef.current = ''; // Reset streaming content so first text_delta converts properly
-
-          addTerminalItem({
-            id: newThinkingId,
-            content: '',
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(),
-            isThinking: true,
-            thinkingContent: '',
-          });
+    const toolMessages: Record<string, (i: any) => string> = {
+      'read_file': (i) => { const f = getFileName(i); return f ? `Read ${f}\n└─ Reading...` : `Read file\n└─ Reading...`; },
+      'write_file': (i) => { const f = getFileName(i); return f ? `Write ${f}\n└─ Writing...` : `Write file\n└─ Writing...`; },
+      'edit_file': (i) => { const f = getFileName(i); return f ? `Edit ${f}\n└─ Editing...` : `Edit file\n└─ Editing...`; },
+      'list_directory': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
+      'list_files': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
+      'search_in_files': (i) => { const p = i?.pattern || i?.query; return p ? `Search "${p}"\n└─ Searching...` : `Search\n└─ Searching...`; },
+      'grep_search': (i) => { const p = i?.pattern || i?.query; return p ? `Search "${p}"\n└─ Searching...` : `Search\n└─ Searching...`; },
+      'glob_files': (i) => { const p = i?.pattern; return p ? `Glob pattern: ${p}\n└─ Searching...` : `Glob\n└─ Searching...`; },
+      'run_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
+      'execute_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
+      'web_search': (i) => { const q = i?.query; return q ? `Web search\n└─ "${q}"...` : `Web search\n└─ Searching...`; },
+      'web_fetch': () => `Fetch URL\n└─ Loading...`,
+      'ask_user_question': (i) => {
+        const questions = i?.questions;
+        if (Array.isArray(questions) && questions.length > 0) {
+          const questionText = questions.map((q: any) => q?.question || q).join('\n   ');
+          return `User Question\n└─ ${questionText}`;
         }
-        return;
-      }
+        return `User Question\n└─ Waiting for response...`;
+      },
+      'todo_write': () => `Todo List\n└─ Updating...`,
+    };
 
-      // 0.4. THINKING_START -> Create thinking placeholder if not exists
-      if (event.type === 'thinking_start') {
-        // Only create if we don't already have a thinking item
-        if (!currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-          const newThinkingId = `agent-thinking-${Date.now()}`;
-          currentAgentMessageIdRef.current = newThinkingId;
-          thinkingContentRef.current = '';
-          streamingContentRef.current = ''; // Reset so first text_delta converts properly
+    const getMessage = toolMessages[tool];
+    if (getMessage) {
+      try { return getMessage(parsedInput); } catch { return `${tool}\n└─ Running...`; }
+    }
+    return `${tool}\n└─ Running...`;
+  };
 
-          addTerminalItem({
-            id: newThinkingId,
-            content: '',
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(),
-            isThinking: true,
-            thinkingContent: '',
-          });
-        }
-        return;
-      }
-
-      // 0.5. THINKING -> Stream thinking content in real-time (letter by letter effect)
-      if (event.type === 'thinking' && (event as any).text) {
-        const thinkingText = (event as any).text;
-
-        // Create thinking item if not exists
-        if (!currentAgentMessageIdRef.current || !currentAgentMessageIdRef.current.startsWith('agent-thinking-')) {
-          currentAgentMessageIdRef.current = `agent-thinking-${Date.now()}`;
-          thinkingContentRef.current = ''; // Reset for new thinking
-          streamingContentRef.current = ''; // Reset so first text_delta converts properly
-
-          // Add new thinking item
-          addTerminalItem({
-            id: currentAgentMessageIdRef.current,
-            content: '',
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(),
-            isThinking: true,
-            thinkingContent: thinkingText,
-          });
-          thinkingContentRef.current = thinkingText;
+  /** Format a completed tool result for terminal display */
+  const formatToolResult = (tool: string, toolInput: any, rawResult: any): string => {
+    let result = '';
+    let hasError = false;
+    let errorMessage = '';
+    try {
+      if (rawResult !== null && rawResult !== undefined) {
+        if (typeof rawResult === 'object' && rawResult.success === false) {
+          hasError = true;
+          errorMessage = rawResult.error || 'Unknown error';
+        } else if (typeof rawResult === 'object' && rawResult.content) {
+          result = typeof rawResult.content === 'string' ? rawResult.content : JSON.stringify(rawResult.content);
+        } else if (typeof rawResult === 'object' && rawResult.message) {
+          result = rawResult.message;
         } else {
-          // Accumulate and update existing thinking item in real-time
-          thinkingContentRef.current += thinkingText;
-          updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
-            thinkingContent: thinkingContentRef.current,
-          });
-        }
-        return;
-      }
-
-      // 0.6. THINKING END -> No-op: keep isThinking=true until actual content arrives
-      // (text_delta, message, or complete/done will handle the transition)
-      // Setting isThinking=false here would cause the item to be filtered out
-      // (content is still '' and isThinking=false fails the processedTerminalItems filter)
-      if (event.type === 'thinking_end') {
-        return;
-      }
-
-      // 1. TOOL START -> Show executing indicator for ALL tools
-      if (event.type === 'tool_start') {
-        // Store the input for later use in tool_complete
-        if (event.tool && event.input) {
-          toolInputsRef.current.set(event.tool, event.input);
-        }
-
-        // Generate formatted message matching tool_complete format (but with loading indicator)
-        const getToolStartMessage = (tool: string, input: any): string => {
-          // Parse input safely
-          let parsedInput: any = {};
-          try {
-            parsedInput = typeof input === 'string' ? JSON.parse(input) : (input || {});
-          } catch {
-            parsedInput = input || {};
-          }
-
-          const getFileName = (i: any) => {
-            const path = i?.path || i?.filePath || '';
-            return path ? path.split('/').pop() || path : '?';
-          };
-
-          const toolMessages: Record<string, (i: any) => string> = {
-            'read_file': (i) => `Read ${getFileName(i)}\n└─ Reading...`,
-            'write_file': (i) => `Write ${getFileName(i)}\n└─ Writing...`,
-            'edit_file': (i) => `Edit ${getFileName(i)}\n└─ Editing...`,
-            'list_directory': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
-            'list_files': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
-            'search_in_files': (i) => `Search "${i?.pattern || i?.query || '?'}"\n└─ Searching...`,
-            'grep_search': (i) => `Search "${i?.pattern || i?.query || '?'}"\n└─ Searching...`,
-            'glob_files': (i) => `Glob pattern: ${i?.pattern || '?'}\n└─ Searching...`,
-            'run_command': (i) => `Run command\n└─ ${(i?.command || '?').substring(0, 50)}...`,
-            'execute_command': (i) => `Run command\n└─ ${(i?.command || '?').substring(0, 50)}...`,
-            'web_search': (i) => `Web search\n└─ "${i?.query || '?'}"...`,
-            'web_fetch': (i) => `Fetch URL\n└─ Loading...`,
-            'ask_user_question': (i) => {
-              const questions = i?.questions;
-              if (Array.isArray(questions) && questions.length > 0) {
-                const questionText = questions.map((q: any) => q?.question || q).join('\n   ');
-                return `User Question\n└─ ${questionText}`;
-              }
-              return `User Question\n└─ Waiting for response...`;
-            },
-            'todo_write': () => `Todo List\n└─ Updating...`,
-            'signal_completion': () => `Completion\n└─ Finishing...`,
-          };
-
-          const getMessage = toolMessages[tool];
-          if (getMessage) {
-            try {
-              return getMessage(parsedInput);
-            } catch {
-              return `${tool}\n└─ Running...`;
-            }
-          }
-          return `${tool}\n└─ Running...`;
-        };
-
-        // Skip signal_completion as it's internal
-        if (event.tool !== 'signal_completion') {
-          const message = getToolStartMessage(event.tool || '', event.input);
-          const itemId = `${event.id}-executing`;
-
-          // Reset streaming message ref so next message creates new item
-          if (currentAgentMessageIdRef.current?.startsWith('streaming-msg-')) {
-            currentAgentMessageIdRef.current = null;
-          }
-
-          // Store the item ID and start time
-          executingToolItemsRef.current.set(event.id, itemId);
-          toolStartTimesRef.current.set(event.id, Date.now());
-
-          addTerminalItem({
-            id: itemId,
-            content: message,
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(event.timestamp),
-            isExecuting: true, // Mark as executing for styling
-          });
+          result = typeof rawResult === 'string' ? rawResult : JSON.stringify(rawResult);
         }
       }
+    } catch { result = ''; }
 
-      // 2. TOOL INPUT -> Just store input, don't show indicator (handled by tool_start)
-      else if (event.type === 'tool_input') {
-        // Store the input for later use in tool_complete
-        if (event.tool && event.input) {
-          toolInputsRef.current.set(event.tool, event.input);
-        }
+    let input: any = {};
+    try {
+      if (toolInput) {
+        input = typeof toolInput === 'string' ? JSON.parse(toolInput) : toolInput;
       }
+    } catch { input = {}; }
 
-      // 3. TOOL COMPLETE -> Replace executing indicator with formatted result
-      // Handle signal_completion specially - show as completion message
-      else if (event.type === 'tool_complete' && event.tool === 'signal_completion') {
-        // Extract completion message from input
-        let completionMessage = '';
+    const getFileName = (i: any) => {
+      const filePath = i?.file_path || i?.path || i?.filePath || '';
+      return filePath ? filePath.split('/').pop() || filePath : '';
+    };
+
+    if (tool === 'read_file') {
+      const f = getFileName(input);
+      const lines = result ? result.split('\n').length : 0;
+      return `Read ${f || 'file'}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
+    }
+    if (tool === 'write_file') {
+      const f = getFileName(input);
+      if (hasError) return `Write ${f || 'file'}\n└─ Error: ${errorMessage}`;
+      return `Write ${f || 'file'}\n└─ File created\n\n${result}`;
+    }
+    if (tool === 'edit_file') {
+      const f = getFileName(input);
+      if (hasError) return `Edit ${f || 'file'}\n└─ Error: ${errorMessage}`;
+      return `Edit ${f || 'file'}\n└─ File modified\n\n${result}`;
+    }
+    if (tool === 'glob_files') {
+      const pattern = input?.pattern || 'files';
+      const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+      return `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
+    }
+    if (tool === 'list_directory' || tool === 'list_files') {
+      const dir = input?.directory || input?.dirPath || input?.path || '.';
+      const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
+      return `List files in ${dir}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
+    }
+    if (tool === 'search_in_files' || tool === 'grep_search') {
+      const pattern = input?.pattern || input?.query || 'pattern';
+      const matches = result ? result.split('\n').filter((l: string) => l.includes(':')).length : 0;
+      return `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
+    }
+    if (tool === 'run_command' || tool === 'execute_command') {
+      const cmd = input?.command || 'command';
+      if (cmd.startsWith('curl')) {
+        const urlMatch = cmd.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
+        const url = urlMatch ? urlMatch[1] : cmd.substring(5).trim();
+        let exitCode = 0, stdout = '', stderr = '';
         try {
-          const input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
-          completionMessage = input?.result || '';
-        } catch (e) {
-          console.warn('[ChatPage] Failed to parse signal_completion input:', e);
-        }
-
-        if (completionMessage) {
-          // Add completion message as an AI response
-          addTerminalItem({
-            id: `completion-${Date.now()}`,
-            content: completionMessage,
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(event.timestamp),
-            isAgentMessage: true,
-          });
-        }
+          if (typeof rawResult === 'object' && rawResult !== null) {
+            exitCode = rawResult.exitCode || 0;
+            stdout = rawResult.stdout || '';
+            stderr = rawResult.stderr || '';
+          } else if (typeof result === 'string' && result.includes('exitCode')) {
+            const parsed = JSON.parse(result);
+            exitCode = parsed.exitCode || 0;
+            stdout = parsed.stdout || '';
+            stderr = parsed.stderr || '';
+          }
+        } catch { stdout = result || ''; }
+        const curlHasError = exitCode !== 0 || stderr;
+        const status = curlHasError ? `Error (exit ${exitCode})` : 'Completed';
+        let output = '';
+        if (stdout && stdout.trim()) output = `\n\n${stdout}`;
+        if (stderr && stderr.trim()) output += `\n\nError: ${stderr}`;
+        return `Execute: curl ${url}\n└─ ${status}${output}`;
       }
-      // Handle other tool completions
-      else if (event.type === 'tool_complete' && event.tool !== 'signal_completion') {
-        const resultPreview = typeof event.result === 'string' ? event.result.substring(0, 100) : event.result;
-        const resultLines = typeof event.result === 'string' ? event.result.split('\n').length : 0;
-        let formattedOutput = '';
-
-        // Safely get result as string - handle object results with .content field
-        let result = '';
-        let hasError = false;
-        let errorMessage = '';
-        try {
-          if (event.result !== null && event.result !== undefined) {
-            // Check if result is an error object
-            if (typeof event.result === 'object' && event.result.success === false) {
-              hasError = true;
-              errorMessage = event.result.error || 'Unknown error';
-            }
-            // If result is an object with .content field, extract it
-            else if (typeof event.result === 'object' && event.result.content) {
-              result = typeof event.result.content === 'string'
-                ? event.result.content
-                : JSON.stringify(event.result.content);
-            }
-            // If result is an object with .message field (e.g., write_file), extract it
-            else if (typeof event.result === 'object' && event.result.message) {
-              result = event.result.message;
-            } else {
-              result = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
-            }
-          }
-        } catch (e) {
-          console.warn('[ChatPage] Failed to stringify tool result:', e);
-          result = '';
-        }
-
-        // Log extracted result
-        const extractedResultLines = result.split('\n').length;
-
-        // If there's an error, we'll format it as normal but with error message
-        // The red dot will be shown automatically by TerminalItem based on "Error:" text
-
-        // Safely parse input - try event.input first, then fallback to stored input
-        let input: any = {};
-        try {
-          if (event.input) {
-            input = typeof event.input === 'string' ? JSON.parse(event.input) : event.input;
-          } else if (event.tool && toolInputsRef.current.has(event.tool)) {
-            // Fallback to stored input from tool_input event
-            const storedInput = toolInputsRef.current.get(event.tool);
-            input = typeof storedInput === 'string' ? JSON.parse(storedInput) : storedInput;
-          }
-        } catch (e) {
-          console.warn('[ChatPage] Failed to parse tool input:', e);
-          input = {};
-        }
-
-        // Format based on tool type (matching old UI expectations)
-        if (event.tool === 'read_file') {
-          const lines = result ? result.split('\n').length : 0;
-          const filePath = input?.file_path || input?.path || input?.filePath || '?';
-          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
-          formattedOutput = `Read ${fileName}\n└─ ${lines} line${lines !== 1 ? 's' : ''}\n\n${result}`;
-        }
-        else if (event.tool === 'write_file') {
-          const filePath = input?.file_path || input?.path || input?.filePath || '?';
-          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
-          formattedOutput = `Write ${fileName}\n└─ File created\n\n${result}`;
-        }
-        else if (event.tool === 'edit_file') {
-          const filePath = input?.file_path || input?.path || input?.filePath || '?';
-          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
-          if (hasError) {
-            // Show error without the diff box
-            formattedOutput = `Edit ${fileName}\n└─ Error: ${errorMessage}`;
-          } else {
-            // Show success with diff
-            formattedOutput = `Edit ${fileName}\n└─ File modified\n\n${result}`;
-          }
-        }
-        else if (event.tool === 'write_file') {
-          const filePath = input?.file_path || input?.path || input?.filePath || '?';
-          const fileName = filePath !== '?' ? filePath.split('/').pop() || filePath : '?';
-
-          if (hasError) {
-            formattedOutput = `Write ${fileName}\n└─ Error: ${errorMessage}`;
-          } else {
-            // Try to extract bytes from result message
-            let bytes = 0;
-            try {
-              if (typeof result === 'string') {
-                const bytesMatch = result.match(/(\d+)\s+bytes/);
-                if (bytesMatch) {
-                  bytes = parseInt(bytesMatch[1]);
-                }
-              }
-            } catch (e) {
-              console.warn('[ChatPage] Failed to parse bytes:', e);
-            }
-
-            formattedOutput = bytes > 0
-              ? `Write ${fileName}\n└─ File created (${bytes} bytes)`
-              : `Write ${fileName}\n└─ File created`;
-          }
-        }
-        else if (event.tool === 'glob_files') {
-          const pattern = input?.pattern || '?';
-          const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
-          formattedOutput = `Glob pattern: ${pattern}\n└─ Found ${fileCount} file(s)\n\n${result}`;
-        }
-        else if (event.tool === 'list_directory' || event.tool === 'list_files') {
-          const dir = input?.directory || input?.dirPath || input?.path || '.';
-          const fileCount = result ? result.split('\n').filter((l: string) => l.trim()).length : 0;
-          formattedOutput = `List files in ${dir}\n└─ ${fileCount} file${fileCount !== 1 ? 's' : ''}\n\n${result}`;
-        }
-        else if (event.tool === 'search_in_files' || event.tool === 'grep_search') {
-          const pattern = input?.pattern || input?.query || '?';
-          const matches = result ? result.split('\n').filter((l: string) => l.includes(':')).length : 0;
-          formattedOutput = `Search "${pattern}"\n└─ ${matches} match${matches !== 1 ? 'es' : ''}\n\n${result}`;
-        }
-        else if (event.tool === 'run_command' || event.tool === 'execute_command') {
-          const cmd = input?.command || '?';
-
-          // Check if this is a curl command
-          if (cmd.startsWith('curl')) {
-            // Extract URL from curl command
-            const urlMatch = cmd.match(/curl\s+(?:-[sS]\s+)?(?:['"])?([^\s'"]+)/);
-            const url = urlMatch ? urlMatch[1] : cmd.substring(5).trim();
-
-            // Check for error in result
-            let exitCode = 0;
-            let stdout = '';
-            let stderr = '';
-
-            try {
-              // Try parsing event.result as object first
-              if (typeof event.result === 'object' && event.result !== null) {
-                exitCode = event.result.exitCode || 0;
-                stdout = event.result.stdout || '';
-                stderr = event.result.stderr || '';
-              }
-              // If result is a string (already stringified), try to parse it
-              else if (typeof result === 'string' && result.includes('exitCode')) {
-                const parsed = JSON.parse(result);
-                exitCode = parsed.exitCode || 0;
-                stdout = parsed.stdout || '';
-                stderr = parsed.stderr || '';
-              }
-            } catch (e) {
-              console.warn('[ChatPage] Failed to parse curl result:', e);
-              // If parsing fails, just show the raw result as stdout
-              stdout = result || '';
-            }
-
-            const hasError = exitCode !== 0 || stderr;
-            const status = hasError ? `Error (exit ${exitCode})` : 'Completed';
-
-            // Format: Execute: curl <url>\n└─ status\n\noutput (if any)
-            // Only include output if it's meaningful (not empty and not just JSON metadata)
-            let output = '';
-            if (stdout && stdout.trim()) {
-              output = `\n\n${stdout}`;
-            }
-            if (stderr && stderr.trim()) {
-              output += `\n\nError: ${stderr}`;
-            }
-
-            formattedOutput = `Execute: curl ${url}\n└─ ${status}${output}`;
-          } else {
-            // Regular command - extract stdout from result object first
-            let actualOutput = result;
-
-            // If result is an object with stdout, extract it
-            if (typeof event.result === 'object' && event.result !== null && event.result.stdout) {
-              actualOutput = event.result.stdout;
-            }
-
-            // Regular command - truncate long outputs
-            const resultLines = (actualOutput || '').split('\n');
-            const MAX_OUTPUT_LINES = 50;
-
-            let truncatedResult = actualOutput;
-            if (resultLines.length > MAX_OUTPUT_LINES) {
-              truncatedResult = resultLines.slice(0, MAX_OUTPUT_LINES).join('\n') +
-                `\n\n... (${resultLines.length - MAX_OUTPUT_LINES} more lines - expand to see all)`;
-            }
-            formattedOutput = `Execute: ${cmd}\n└─ Command completed\n\n${truncatedResult}`;
-          }
-        }
-        else if (event.tool === 'launch_sub_agent') {
-          // Parse sub-agent info
-          const agentType = input?.subagent_type || input?.type || 'agent';
-          const description = input?.description || input?.prompt?.substring(0, 60) || 'Task';
-
-          // Check for error
-          if (hasError) {
-            formattedOutput = `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
-          } else {
-            // Parse result if available
-            let summary = '';
-            try {
-              if (typeof event.result === 'object' && event.result.summary) {
-                summary = event.result.summary;
-              } else if (typeof result === 'string' && result.length > 0 && result !== 'undefined') {
-                summary = result;
-              }
-            } catch (e) {
-              console.warn('[ChatPage] Failed to parse sub-agent result:', e);
-            }
-
-            const summaryText = summary ? `\n\n${summary}` : '';
-            formattedOutput = `Agent: ${agentType}\n└─ Completed\n\n${description}${summaryText}`;
-          }
-        }
-        else if (event.tool === 'todo_write') {
-          // Parse todos from input
-          let todos = [];
-          try {
-            todos = input?.todos || [];
-          } catch (e) {
-            console.warn('[ChatPage] Failed to parse todos:', e);
-          }
-
-          const totalTasks = todos.length;
-          const completedTasks = todos.filter((t: any) => t.status === 'completed').length;
-          const inProgressTasks = todos.filter((t: any) => t.status === 'in_progress').length;
-
-          // Format todos as lines
-          const todoLines = todos.map((todo: any) => {
-            const status = todo.status || 'pending';
-            const content = todo.content || '';
-            return `${status}|${content}`;
-          }).join('\n');
-
-          formattedOutput = `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
-        }
-        else if (event.tool === 'web_search') {
-          // Parse web search results from event.result object
-          let searchResults: any[] = [];
-          let query = '';
-          let count = 0;
-
-          try {
-            // event.result is already an object for web_search
-            if (typeof event.result === 'object' && event.result.results) {
-              searchResults = event.result.results || [];
-              query = event.result.query || input?.query || '?';
-              count = event.result.count || searchResults.length;
-            }
-          } catch (e) {
-            console.warn('[ChatPage] Failed to parse web search results:', e);
-          }
-
-          // Format results as lines: title|url|snippet
-          const resultLines = searchResults.map((r: any) => {
-            const title = r.title || 'Untitled';
-            const url = r.url || '';
-            const snippet = r.snippet || '';
-            return `${title}|${url}|${snippet}`;
-          }).join('\n');
-
-          formattedOutput = `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${resultLines}`;
-        }
-        else if (event.tool === 'ask_user_question') {
-          // Parse ask_user_question results
-          let questions: any[] = [];
-          let answers: any = {};
-
-          try {
-            // Get questions from input
-            if (input?.questions) {
-              questions = input.questions;
-            }
-            // Get answers from result
-            if (typeof event.result === 'object' && event.result.answers) {
-              answers = event.result.answers;
-            }
-          } catch (e) {
-            console.warn('[ChatPage] Failed to parse ask_user_question:', e);
-          }
-
-          // Format as question|answer pairs
-          const qaLines = questions.map((q: any, index: number) => {
-            const question = q.question || '';
-            const answer = answers[`q${index}`] || 'No answer';
-            return `${question}|${answer}`;
-          }).join('\n');
-
-          formattedOutput = `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
-        }
-        else {
-          // Generic format for unknown tools
-          formattedOutput = `${event.tool}\n└─ Completed\n\n${result}`;
-        }
-
-        // Find the executing item ID from the map using event.id (toolId)
-        // Both tool_start and tool_complete have the same event.id from backend
-        const executingItemId = executingToolItemsRef.current.get(event.id) || `${event.id}-executing`;
-
-        // Calculate time since tool started
-        const startTime = toolStartTimesRef.current.get(event.id) || Date.now();
-        const elapsed = Date.now() - startTime;
-        const delay = Math.max(0, MIN_TOOL_DISPLAY_MS - elapsed);
-
-        // Update after minimum display time (so user always sees the executing indicator)
-        const doUpdate = () => {
-          updateTerminalItemById(currentTab.id, executingItemId, {
-            content: formattedOutput,
-            isExecuting: false, // Remove pulsing animation
-          });
-          // Clean up the map entries
-          executingToolItemsRef.current.delete(event.id);
-          toolStartTimesRef.current.delete(event.id);
-        };
-
-        if (delay > 0) {
-          setTimeout(doUpdate, delay);
-        } else {
-          doUpdate();
-        }
+      let actualOutput = result;
+      if (typeof rawResult === 'object' && rawResult !== null && rawResult.stdout) {
+        actualOutput = rawResult.stdout;
       }
-
-      // Handle TEXT_DELTA events (real-time streaming from AI)
-      else if (event.type === 'text_delta') {
-        const delta = (event as any).delta || (event as any).text;
-        if (delta) {
-          // Check if this is the FIRST text delta after thinking (convert thinking → streaming)
-          // Use streamingContentRef === '' to detect first delta (reset when thinking items are created)
-          const isFirstDeltaAfterThinking = currentAgentMessageIdRef.current?.startsWith('agent-thinking-') && streamingContentRef.current === '';
-          if (isFirstDeltaAfterThinking) {
-            // Convert thinking item directly into streaming message (in-place)
-            // This prevents the visual gap where thinking disappears before text appears
-            const thinkingItemId = currentAgentMessageIdRef.current!;
-            streamingContentRef.current = delta;
-            const cleanContent = stripToolCallXml(streamingContentRef.current);
-            updateTerminalItemById(currentTab.id, thinkingItemId, {
-              isThinking: false,
-              content: cleanContent,
-            });
-            // Keep the same item ID for further streaming updates
-            currentAgentMessageIdRef.current = thinkingItemId;
-          } else if (currentAgentMessageIdRef.current) {
-            // Already streaming - accumulate and update
-            streamingContentRef.current += delta;
-            const cleanContent = stripToolCallXml(streamingContentRef.current);
-            updateTerminalItemById(currentTab?.id || '', currentAgentMessageIdRef.current, {
-              content: cleanContent,
-            });
-          } else {
-            // Edge case: no thinking, no streaming - create new message
-            streamingContentRef.current = delta;
-            const newStreamingId = `streaming-msg-${Date.now()}`;
-            currentAgentMessageIdRef.current = newStreamingId;
-
-            addTerminalItem({
-              id: newStreamingId,
-              content: delta,
-              type: TerminalItemType.OUTPUT,
-              timestamp: new Date(event.timestamp),
-            });
-          }
-        }
+      const cmdResultLines = (actualOutput || '').split('\n');
+      const MAX_OUTPUT_LINES = 50;
+      let truncatedResult = actualOutput;
+      if (cmdResultLines.length > MAX_OUTPUT_LINES) {
+        truncatedResult = cmdResultLines.slice(0, MAX_OUTPUT_LINES).join('\n') +
+          `\n\n... (${cmdResultLines.length - MAX_OUTPUT_LINES} more lines - expand to see all)`;
       }
-
-      // Handle MESSAGE events (complete messages, fallback)
-      else if (event.type === 'message' || event.type === 'response') {
-        // Extract message content
-        const msg = (event as any).content || (event as any).message || (event as any).text || (event as any).output;
-        let content = msg;
-        if (typeof msg === 'object' && msg !== null) {
-          content = msg.text || msg.content || msg.message || JSON.stringify(msg);
+      return `Execute: ${cmd}\n└─ Command completed\n\n${truncatedResult}`;
+    }
+    if (tool === 'web_fetch') {
+      const url = input?.url || 'URL';
+      const urlShort = url.length > 50 ? url.substring(0, 50) + '...' : url;
+      return `Fetch: ${urlShort}\n└─ Completed\n\n${result.substring(0, 2000)}${result.length > 2000 ? '...' : ''}`;
+    }
+    if (tool === 'launch_sub_agent') {
+      const agentType = input?.subagent_type || input?.type || 'agent';
+      const description = input?.description || input?.prompt?.substring(0, 60) || 'Task';
+      if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
+      let summary = '';
+      try {
+        if (typeof rawResult === 'object' && rawResult?.summary) summary = rawResult.summary;
+        else if (typeof result === 'string' && result.length > 0 && result !== 'undefined') summary = result;
+      } catch { /* ignore */ }
+      return `Agent: ${agentType}\n└─ Completed\n\n${description}${summary ? `\n\n${summary}` : ''}`;
+    }
+    if (tool === 'todo_write') {
+      let todos: any[] = [];
+      try { todos = input?.todos || []; } catch { /* ignore */ }
+      const totalTasks = todos.length;
+      const completedTasks = todos.filter((t: any) => t.status === 'completed').length;
+      const inProgressTasks = todos.filter((t: any) => t.status === 'in_progress').length;
+      const todoLines = todos.map((todo: any) => `${todo.status || 'pending'}|${todo.content || ''}`).join('\n');
+      return `Todo List\n└─ ${totalTasks} task${totalTasks !== 1 ? 's' : ''} (${completedTasks} done, ${inProgressTasks} in progress)\n\n${todoLines}`;
+    }
+    if (tool === 'web_search') {
+      let searchResults: any[] = [];
+      let query = '', count = 0;
+      try {
+        if (typeof rawResult === 'object' && rawResult?.results) {
+          searchResults = rawResult.results || [];
+          query = rawResult.query || input?.query || 'query';
+          count = rawResult.count || searchResults.length;
         }
+      } catch { /* ignore */ }
+      const srLines = searchResults.map((r: any) => `${r.title || 'Untitled'}|${r.url || ''}|${r.snippet || ''}`).join('\n');
+      return `Web Search "${query}"\n└─ ${count} result${count !== 1 ? 's' : ''} found\n\n${srLines}`;
+    }
+    if (tool === 'ask_user_question') {
+      let questions: any[] = [];
+      let answers: any = {};
+      try {
+        if (input?.questions) questions = input.questions;
+        if (typeof rawResult === 'object' && rawResult?.answers) answers = rawResult.answers;
+      } catch { /* ignore */ }
+      const qaLines = questions.map((q: any, idx: number) => `${q.question || ''}|${answers[`q${idx}`] || 'No answer'}`).join('\n');
+      return `User Question\n└─ ${questions.length} question${questions.length !== 1 ? 's' : ''} answered\n\n${qaLines}`;
+    }
+    return `${tool}\n└─ Completed\n\n${result}`;
+  };
 
-        if (content && content.trim()) {
-          // If we have a thinking placeholder that hasn't been converted yet, convert it
-          // (streamingContentRef === '' means no text_delta has set content yet)
-          if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-') && streamingContentRef.current === '') {
-            const thinkingItemId = currentAgentMessageIdRef.current;
-            // Convert thinking item into a streaming message in-place
-            streamingContentRef.current = content;
-            updateTerminalItemById(currentTab.id, thinkingItemId, {
-              isThinking: false,
-              content: content,
-              isAgentMessage: true,
-            });
-            // Re-use the same ID as streaming message so further content appends to it
-            currentAgentMessageIdRef.current = thinkingItemId;
-          }
-          // Check if we have an existing streaming message to append to
-          else if (currentAgentMessageIdRef.current) {
-            const existingStreamingId = currentAgentMessageIdRef.current;
-            const currentTab = tabs.find(t => t.id === activeTabId);
-            const existingItem = currentTab?.terminalItems?.find(i => i.id === existingStreamingId);
-            const currentContent = existingItem?.content || '';
+  /** Map a ChatEngineMessage to terminal item properties */
+  const formatEngineMessage = (msg: ChatEngineMessage): any => {
+    const costProps: any = {};
+    if ((msg as any).costEur) {
+      costProps.costEur = (msg as any).costEur;
+      costProps.tokensUsed = (msg as any).tokensUsed;
+    }
 
-            updateTerminalItemById(currentTab?.id || '', existingStreamingId, {
-              content: currentContent + content,
-            });
-          } else {
-            // Create new streaming message
-            const newStreamingId = `streaming-msg-${event.id}`;
-            currentAgentMessageIdRef.current = newStreamingId;
+    switch (msg.type) {
+      case 'thinking':
+        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isThinking: msg.isThinking, thinkingContent: msg.thinkingContent || '' };
+      case 'text':
+        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isThinking: false, thinkingContent: '', ...costProps };
+      case 'tool_start':
+        return { content: getToolStartMessage(msg.tool!, msg.toolInput), type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: true };
+      case 'tool_complete':
+        return { content: formatToolResult(msg.tool!, msg.toolInput, msg.toolResult), type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: false };
+      case 'tool_error':
+        return { content: `${msg.tool}\n└─ Error`, type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: false };
+      case 'error':
+        return { content: msg.content || 'Errore sconosciuto', type: TerminalItemType.ERROR, timestamp: msg.timestamp };
+      case 'budget_exceeded':
+        return { content: '__BUDGET_EXCEEDED__', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
+      case 'completion':
+        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isAgentMessage: true };
+      default:
+        return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
+    }
+  };
 
-            addTerminalItem({
-              id: newStreamingId,
-              content: content,
-              type: TerminalItemType.OUTPUT,
-              timestamp: new Date(event.timestamp),
-            });
-          }
-        }
-      }
-
-      // Handle errors explicitly
-      // Budget exceeded — show upgrade CTA instead of error
-      else if (event.type === 'budget_exceeded') {
-        // Mark thinking as completed (keep visible)
-        if (currentAgentMessageIdRef.current?.startsWith('agent-thinking-')) {
-          updateTerminalItemById(currentTab.id, currentAgentMessageIdRef.current, {
-            isThinking: false,
-          });
-          currentAgentMessageIdRef.current = null;
-        }
-
-        addTerminalItem({
-          id: `budget-exceeded-${Date.now()}`,
-          content: `__BUDGET_EXCEEDED__`,
-          type: TerminalItemType.OUTPUT,
-          timestamp: new Date(event.timestamp),
-        });
-      }
-
-      else if (event.type === 'error' || event.type === 'fatal_error') {
-        addTerminalItem({
-          id: event.id,
-          content: event.error || event.message || 'Errore sconosciuto',
-          type: TerminalItemType.ERROR,
-          timestamp: new Date(event.timestamp),
-        });
-      }
-
-      // Handle usage events to track cost
-      else if (event.type === 'usage') {
-        sessionCostRef.current = {
-          costEur: (event as any).totalCostEur || 0,
-          inputTokens: (event as any).totalInputTokens || 0,
-          outputTokens: (event as any).totalOutputTokens || 0,
-        };
-      }
-
-      // Handle complete/done events to finalize the streaming message with cost
-      else if (event.type === 'complete' || event.type === 'done') {
-        // Show the completion message ONLY if there's no existing streaming message
-        const completionResult = (event as any).result;
-        const hasStreamingMessage = currentAgentMessageIdRef.current?.startsWith('streaming-msg-');
-
-        if (completionResult && typeof completionResult === 'string' && completionResult.trim() && !hasStreamingMessage) {
-          addTerminalItem({
-            id: `completion-${Date.now()}`,
-            content: completionResult,
-            type: TerminalItemType.OUTPUT,
-            timestamp: new Date(),
-            isAgentMessage: true,
-          });
-        }
-
-        const currentMessageId = currentAgentMessageIdRef.current;
-        if (currentMessageId && currentTab?.id && sessionCostRef.current.costEur > 0) {
-          // Update the terminal item with cost information
-          useTabStore.setState((state) => ({
-            tabs: state.tabs.map(t =>
-              t.id === currentTab.id
-                ? {
-                    ...t,
-                    terminalItems: t.terminalItems?.map(item =>
-                      item.id === currentMessageId
-                        ? {
-                            ...item,
-                            costEur: sessionCostRef.current.costEur,
-                            tokensUsed: {
-                              input: sessionCostRef.current.inputTokens,
-                              output: sessionCostRef.current.outputTokens,
-                            },
-                          }
-                        : item
-                    ) || [],
-                  }
-                : t
-            ),
-          }));
-        }
-
-        // Reset session cost for next run
-        sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
-
-        // SAFETY: Close any remaining thinking blocks that weren't closed by thinking_end
-        if (currentTab?.id) {
-          useTabStore.setState((state) => ({
-            tabs: state.tabs.map(t =>
-              t.id === currentTab.id
-                ? {
-                    ...t,
-                    terminalItems: t.terminalItems?.map(item =>
-                      item.isThinking ? { ...item, isThinking: false } : item
-                    ) || [],
-                  }
-                : t
-            ),
-          }));
-        }
-      }
-    });
-  }, [agentEvents]);
-
-  // New Claude Code components state
-  const [currentTodos, setCurrentTodos] = useState<any[]>([]);
-  const [pendingQuestion, setPendingQuestion] = useState<any>(null);
+  // Sub-agent state (not handled by engine)
   const [currentSubAgent, setCurrentSubAgent] = useState<any>(null);
 
   // Agent store - use specific selectors to prevent unnecessary re-renders
@@ -947,14 +422,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const agentFilesModified = useAgentStore((state) => state.filesModified);
   const setCurrentPrompt = useAgentStore((state) => state.setCurrentPrompt);
   const setCurrentProjectId = useAgentStore((state) => state.setCurrentProjectId);
-
-  // Ref to store a stable message ID for the current agent session
-  // This is set when the user sends a message, before starting the agent
-  const currentAgentMessageIdRef = useRef<string | null>(null);
-
-  // Track how many agent messages we've already shown as terminal items
-  // This allows us to create SEPARATE items for each new message
-  const shownAgentMessagesCountRef = useRef<number>(0);
 
   // Tools bottom sheet state
   const [showToolsSheet, setShowToolsSheet] = useState(false);
@@ -1187,9 +654,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setScrollPaddingBottom(300);
 
       // Scroll to bottom of new tab after a brief delay
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: false });
-      }, 100);
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(false), 100);
 
       // Update previous tab reference
       previousTabIdRef.current = currentTab.id;
@@ -1221,6 +687,40 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Use atomic function from store to avoid race conditions
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
+
+  // ── Bridge: sync engine.messages → tabStore terminal items ───────
+  useEffect(() => {
+    if (!currentTab?.id) return;
+    const prev = prevEngineMessagesRef.current;
+    const curr = engine.messages;
+    const idMap = engineIdMapRef.current;
+
+    for (const msg of curr) {
+      const prevMsg = prev.find(p => p.id === msg.id);
+
+      if (!prevMsg && !idMap.has(msg.id)) {
+        // New message — replace pre-thinking placeholder if it exists
+        // (React may batch thinking_start + text_delta, so first message can be 'text' not 'thinking')
+        // Mark in idMap FIRST to prevent duplicate adds on rapid re-renders
+        if (preThinkingIdRef.current) {
+          const preId = preThinkingIdRef.current;
+          idMap.set(msg.id, preId);
+          preThinkingIdRef.current = null;
+          updateTerminalItemById(currentTab.id, preId, formatEngineMessage(msg));
+        } else {
+          idMap.set(msg.id, msg.id);
+          addTerminalItem({ id: msg.id, ...formatEngineMessage(msg) });
+        }
+      } else if (prevMsg && prevMsg !== msg) {
+        // Changed message (reference changed) — update in tabStore
+        const terminalId = idMap.get(msg.id) || msg.id;
+        updateTerminalItemById(currentTab.id, terminalId, formatEngineMessage(msg));
+      }
+      // If !prevMsg && idMap.has(msg.id) → already processed, skip (prevents duplicates)
+    }
+
+    prevEngineMessagesRef.current = curr;
+  }, [engine.messages, currentTab?.id]);
 
   // Handle plan approval
   const handlePlanApprove = useCallback(() => {
@@ -1289,30 +789,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [agentPlan, agentMode, planItemId, currentTab?.id, agentCurrentPrompt]);
 
-  // Process agent events for todos, questions, and sub-agents
+  // Process agent events for sub-agents (todos + questions handled by engine)
   useEffect(() => {
     if (!agentEvents || agentEvents.length === 0) return;
-
-    // Extract latest todo_update event
-    const todoEvents = agentEvents.filter((e: any) => e.type === 'todo_update');
-    if (todoEvents.length > 0) {
-      const latestTodo = todoEvents[todoEvents.length - 1];
-      setCurrentTodos((latestTodo as any).todos || []);
-    }
-
-    // Extract latest ask_user_question event
-    const questionEvents = agentEvents.filter((e: any) => e.type === 'ask_user_question');
-    if (questionEvents.length > 0) {
-      const latestQuestion = questionEvents[questionEvents.length - 1];
-      setPendingQuestion((latestQuestion as any).questions || null);
-    }
 
     // Extract latest sub_agent_start event
     const subAgentStartEvents = agentEvents.filter((e: any) => e.type === 'sub_agent_start');
     const subAgentCompleteEvents = agentEvents.filter((e: any) => e.type === 'sub_agent_complete');
 
     if (subAgentCompleteEvents.length > subAgentStartEvents.length - 1) {
-      // Sub-agent completed
       setCurrentSubAgent(null);
     } else if (subAgentStartEvents.length > 0) {
       const latestSubAgent = subAgentStartEvents[subAgentStartEvents.length - 1];
@@ -1364,34 +849,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   //   }
   // }, [currentProjectInfo]);
 
-  // Mark thinking as complete when agent finishes
-  // The actual thinking content is now handled in real-time in the main agentEvents useEffect
-  useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
-      const isComplete = agentEvents.some(e => e.type === 'complete' || e.type === 'done');
-
-      // Mark all thinking items as done when agent completes
-      if (isComplete) {
-        useTabStore.setState((state) => ({
-          tabs: state.tabs.map(t =>
-            t.id === currentTab.id
-              ? {
-                ...t,
-                terminalItems: t.terminalItems?.map(item =>
-                  item.id?.startsWith('agent-thinking-')
-                    ? { ...item, isThinking: false }
-                    : item
-                ).filter(item =>
-                  item.id !== 'agent-streaming'
-                ) || []
-              }
-              : t
-          )
-        }));
-      }
-    }
-  }, [agentStreaming, agentEvents, currentTab?.id]);
-
   // Effect for cache invalidation and chat saving on agent completion
   useEffect(() => {
     if (!agentStreaming && agentEvents.length > 0 && currentTab?.id) {
@@ -1401,7 +858,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         const existingChat = useChatStore.getState().chatHistory.find(c => c.id === chatId);
 
         if (existingChat) {
-          // Get fresh tab state from store to ensure we have latest messages
           const freshTab = useTabStore.getState().tabs.find(t => t.id === currentTab.id);
           const updatedMessages = freshTab?.terminalItems || [];
 
@@ -1412,7 +868,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
       }
 
-      // Invalidate file cache when agent completes - triggers FileExplorer refresh
+      // Invalidate file cache when agent completes
       if (currentTab?.data?.projectId) {
         const hadFileChanges = agentEvents.some(e =>
           e.type === 'tool_complete' &&
@@ -1425,12 +881,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         }
       }
 
-      // Reset agent message refs when agent completes
-      // This ensures next agent session starts with fresh state
-      currentAgentMessageIdRef.current = null;
-      shownAgentMessagesCountRef.current = 0;
-      streamingContentRef.current = '';
-      thinkingContentRef.current = '';
+      // NOTE: Do NOT reset prevEngineMessagesRef/engineIdMapRef here!
+      // The engine still has messages and the bridge would re-add them all.
+      // Bridge refs are only reset in handleSend/handleStop when engine.reset() is called.
     }
   }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId]);
 
@@ -1440,10 +893,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       Platform.OS === 'ios' ? 'keyboardDidShow' : 'keyboardDidShow',
       () => {
         if (hasChatStarted && terminalItems.length > 0) {
-          // Delay scroll slightly to ensure layout has updated
-          setTimeout(() => {
-            scrollViewRef.current?.scrollToEnd({ animated: true });
-          }, 100);
+          setTimeout(() => scrollToBottom(true), 100);
         }
       }
     );
@@ -1451,7 +901,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     return () => {
       keyboardDidShow.remove();
     };
-  }, [hasChatStarted, terminalItems.length]);
+  }, [hasChatStarted, terminalItems.length, scrollToBottom]);
 
   // Keyboard listeners - move input box up when keyboard opens
   useEffect(() => {
@@ -1469,9 +919,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           // Chat mode: adjust scroll padding and scroll to end
           const extraPadding = e.endCoordinates.height - insets.bottom + 80;
           setScrollPaddingBottom(300 + extraPadding);
-          setTimeout(() => {
-            scrollViewRef.current?.scrollToEnd({ animated: true });
-          }, 150);
+          setTimeout(() => scrollToBottom(true), 150);
         }
       }
     );
@@ -1797,17 +1245,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       timestamp: new Date(),
     });
 
-    // Reset refs for new agent session
-    const thinkingId = `agent-thinking-${Date.now()}`;
-    currentAgentMessageIdRef.current = thinkingId;
-    shownAgentMessagesCountRef.current = 0;
-    streamingContentRef.current = '';
-    thinkingContentRef.current = '';
-    processedEventIdsRef.current.clear();
+    // Reset engine and bridge for new session
+    engine.reset();
+    prevEngineMessagesRef.current = [];
+    engineIdMapRef.current.clear();
 
-    // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+    // Add pre-thinking placeholder for instant UX
+    const preId = `pre-thinking-${Date.now()}`;
+    preThinkingIdRef.current = preId;
     addTerminalItem({
-      id: thinkingId,
+      id: preId,
       content: '',
       type: TerminalItemType.OUTPUT,
       timestamp: new Date(),
@@ -1830,6 +1277,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Clear loading state
     setLoading(false);
 
+    // Reset engine and bridge
+    engine.reset();
+    prevEngineMessagesRef.current = [];
+    engineIdMapRef.current.clear();
+    preThinkingIdRef.current = null;
+
     // Remove any "Thinking..." placeholders from the current tab
     if (currentTab?.id) {
       useTabStore.setState((state) => ({
@@ -1845,11 +1298,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         )
       }));
     }
-
-    // Reset the agent message refs
-    currentAgentMessageIdRef.current = null;
-    streamingContentRef.current = '';
-    thinkingContentRef.current = '';
   }, [stopAgent, currentTab?.id]);
 
   const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
@@ -1923,8 +1371,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           // Could not generate AI title, using default
         }
       };
-      // Fire and forget - don't wait for AI title
-      generateAITitle();
+      // Delay AI title generation to not compete with agent SSE connection on slow networks
+      setTimeout(() => generateAITitle(), 3000);
 
       if (existingChat) {
         // Chat already exists, update description and lastUsed
@@ -1966,16 +1414,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // If agent mode AND we have a workstation, use agent stream
     if (isAgentMode && currentWorkstation?.id) {
-      // Reset ALL refs for new agent session (CRITICAL: prevents event ID collisions)
-      const thinkingId = `agent-thinking-${Date.now()}`;
-      currentAgentMessageIdRef.current = thinkingId;
-      shownAgentMessagesCountRef.current = 0;
-      streamingContentRef.current = '';
-      thinkingContentRef.current = ''; // Reset thinking content for new session
-      processedEventIdsRef.current.clear(); // CRITICAL: Clear processed events for new session
+      // Reset engine and bridge for new session
+      engine.reset();
+      prevEngineMessagesRef.current = [];
+      engineIdMapRef.current.clear();
 
       // Add user message to terminal with images
-      // Clean images to avoid circular references in store
       const cleanImagesForStore = imagesToSend ? imagesToSend.map(img => ({
         uri: String(img.uri || ''),
         base64: String(img.base64 || ''),
@@ -1987,17 +1431,19 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         content: userMessage,
         type: TerminalItemType.USER_MESSAGE,
         timestamp: new Date(),
-        images: cleanImagesForStore, // Attach cleaned images to terminal item
+        images: cleanImagesForStore,
       });
 
-      // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+      // Add pre-thinking placeholder for instant UX (engine will replace it)
+      const preId = `pre-thinking-${Date.now()}`;
+      preThinkingIdRef.current = preId;
       addTerminalItem({
-        id: thinkingId,
+        id: preId,
         content: '',
         type: TerminalItemType.OUTPUT,
         timestamp: new Date(),
         isThinking: true,
-        thinkingContent: '', // Will be updated when real thinking arrives
+        thinkingContent: '',
       });
 
       setInput('');
@@ -2005,9 +1451,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setLoading(true);
 
       // Force scroll to bottom so user sees the Thinking... placeholder immediately
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 50);
 
       // Store the prompt in the agent store
       setCurrentPrompt(userMessage);
@@ -2016,6 +1461,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Build conversation history from terminal items (ALL messages, no limits - Claude Code style)
       // Filter only actual conversation (user messages and assistant responses, not tool outputs)
       // Include images in history for multimodal context
+      const MAX_HISTORY_MESSAGES = 40;
+      const MAX_MESSAGE_CHARS = 6000;
       const conversationHistory = (currentTab?.terminalItems || [])
         .filter(item =>
           item.type === TerminalItemType.USER_MESSAGE ||
@@ -2026,21 +1473,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question') &&
             !item.content?.startsWith('List files') && item.content !== '__BUDGET_EXCEEDED__')
         )
-        // NO slice() - send ALL conversation history, backend will handle summarization if needed
+        .slice(-MAX_HISTORY_MESSAGES)
         .map(item => {
+          const content = item.content || '';
           const historyItem: any = {
             role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
-            content: item.content || ''
+            content: content.length > MAX_MESSAGE_CHARS
+              ? content.slice(0, MAX_MESSAGE_CHARS) + '\n...(truncated)'
+              : content,
           };
           // Include images if present (for multimodal context)
           if (item.images && item.images.length > 0) {
-            historyItem.images = item.images.map(img => {
-              // Create clean object to avoid circular references
-              return {
-                base64: String(img.base64 || ''),
-                type: String(img.type || 'image/jpeg')
-              };
-            });
+            historyItem.images = item.images.map(img => ({
+              base64: String(img.base64 || ''),
+              type: String(img.type || 'image/jpeg'),
+            }));
           }
           return historyItem;
         });
@@ -2099,9 +1546,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       });
 
       // Force scroll to bottom so user sees the Thinking... placeholder immediately
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 50);
     }
 
     setLoading(true);
@@ -2800,13 +2246,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }).filter(processed => !processed.isOutputAfterTerminalCommand);
   }, [terminalItems, isLoading]);
 
-  // Scroll to end when items count changes OR last item content updates (streaming)
-  const lastItemContent = terminalItems[terminalItems.length - 1]?.content;
-  useEffect(() => {
-    if (terminalItems.length > 0 && processedTerminalItems.length > 0) {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
+  // ── Scroll helpers ────────────────────────────────────────────────
+  const scrollToBottom = useCallback((animated = true) => {
+    const offset = contentHeightRef.current - layoutHeightRef.current;
+    if (offset > 0) {
+      scrollViewRef.current?.scrollToOffset({ offset, animated });
     }
-  }, [terminalItems.length, lastItemContent, processedTerminalItems.length]);
+  }, []);
 
   return (
     <Animated.View style={[
@@ -2895,7 +2341,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               data={processedTerminalItems}
-              keyExtractor={(processed) => processed.item.id || `item-${Math.random()}`}
+              keyExtractor={(processed, index) => processed.item.id || `item-${index}`}
+              onContentSizeChange={(_w, h) => {
+                contentHeightRef.current = h;
+                if (isNearBottomRef.current) {
+                  const offset = h - layoutHeightRef.current;
+                  if (offset > 0) {
+                    scrollViewRef.current?.scrollToOffset({ offset, animated: true });
+                  }
+                }
+              }}
+              onLayout={(e) => { layoutHeightRef.current = e.nativeEvent.layout.height; }}
+              onScroll={(e) => {
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+                isNearBottomRef.current = distanceFromBottom < 150;
+              }}
+              scrollEventThrottle={100}
               renderItem={({ item: processed }) => {
                 const { item, isNextItemAI, outputItem, shouldShowLoading } = processed;
 
@@ -3029,8 +2491,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   )}
 
                   {/* Show TodoList if agent has active todos */}
-                  {currentTodos.length > 0 && (
-                    <TodoList todos={currentTodos} />
+                  {engine.currentTodos.length > 0 && (
+                    <TodoList todos={engine.currentTodos} />
                   )}
 
                   {/* Show SubAgentStatus if a sub-agent is running */}
@@ -3043,11 +2505,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             {/* AskUserQuestion Modal */}
             <AskUserQuestionModal
-              visible={!!pendingQuestion}
-              questions={pendingQuestion || []}
+              visible={!!engine.pendingQuestion}
+              questions={engine.pendingQuestion || []}
               onAnswer={(answers) => {
                 // Format answers as a response message to continue the agent
-                const questions = pendingQuestion || [];
+                const questions = engine.pendingQuestion || [];
                 const responseLines = questions.map((q: any, idx: number) => {
                   const answer = answers[`q${idx}`] || '';
                   return `${q.question}: ${answer}`;
@@ -3055,18 +2517,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
                 const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
 
-                // Clear pending question first
-                setPendingQuestion(null);
-
                 // Resume agent with the answers by sending as a new message
                 if (currentWorkstation?.id) {
-                  // Reset refs for new agent session
-                  const thinkingId = `agent-thinking-${Date.now()}`;
-                  currentAgentMessageIdRef.current = thinkingId;
-                  shownAgentMessagesCountRef.current = 0;
-                  streamingContentRef.current = '';
-                  thinkingContentRef.current = '';
-                  processedEventIdsRef.current.clear();
+                  // Reset engine and bridge for new session
+                  engine.reset();
+                  prevEngineMessagesRef.current = [];
+                  engineIdMapRef.current.clear();
 
                   // Add user response to terminal
                   addTerminalItem({
@@ -3076,9 +2532,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     timestamp: new Date(),
                   });
 
-                  // IMMEDIATELY show thinking placeholder - never leave user waiting with blank screen
+                  // Add pre-thinking placeholder for instant UX
+                  const preId = `pre-thinking-${Date.now()}`;
+                  preThinkingIdRef.current = preId;
                   addTerminalItem({
-                    id: thinkingId,
+                    id: preId,
                     content: '',
                     type: TerminalItemType.OUTPUT,
                     timestamp: new Date(),
@@ -3090,7 +2548,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 }
               }}
               onCancel={() => {
-                setPendingQuestion(null);
+                // No-op: engine manages pendingQuestion state
               }}
             />
 

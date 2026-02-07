@@ -133,6 +133,23 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
                 }
 
+                // Prevent zoom out below 1.0 — force viewport
+                var existingMeta = document.querySelector('meta[name="viewport"]');
+                if (existingMeta) {
+                  var content = existingMeta.getAttribute('content') || '';
+                  if (content.indexOf('minimum-scale') === -1) {
+                    existingMeta.setAttribute('content', content + ', minimum-scale=1.0');
+                  } else {
+                    existingMeta.setAttribute('content', content.replace(/minimum-scale=[0-9.]+/, 'minimum-scale=1.0'));
+                  }
+                } else {
+                  var meta = document.createElement('meta');
+                  meta.name = 'viewport';
+                  meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+                  if (document.head) document.head.appendChild(meta);
+                  else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(meta); });
+                }
+
                 // Dark background
                 if (document.head) {
                   var style = document.createElement('style');

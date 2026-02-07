@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Linking } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import Constants from 'expo-constants';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
@@ -7,9 +7,11 @@ import { SettingItem } from './SettingItem';
 interface InfoSectionProps {
   loading: boolean;
   t: (key: string) => string;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
 }
 
-export const InfoSection: React.FC<InfoSectionProps> = ({ loading, t }) => {
+export const InfoSection: React.FC<InfoSectionProps> = ({ loading, t, onOpenTerms, onOpenPrivacy }) => {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('info.title')}</Text>
@@ -26,13 +28,13 @@ export const InfoSection: React.FC<InfoSectionProps> = ({ loading, t }) => {
             icon="document-text-outline"
             iconColor="#94A3B8"
             title={t('info.termsOfService')}
-            onPress={() => Linking.openURL('https://drape.app/terms')}
+            onPress={onOpenTerms}
           />
           <SettingItem
             icon="shield-checkmark-outline"
             iconColor="#94A3B8"
             title={t('info.privacyPolicy')}
-            onPress={() => Linking.openURL('https://drape.app/privacy')}
+            onPress={onOpenPrivacy}
             isLast
           />
         </View>

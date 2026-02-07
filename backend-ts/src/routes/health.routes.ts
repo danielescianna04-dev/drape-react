@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
-import { requireAuth, getUserPlan } from '../middleware/auth';
+import { optionalAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
 import { sessionService } from '../services/session.service';
@@ -22,7 +22,7 @@ healthRouter.get('/health', asyncHandler(async (req, res) => {
 }));
 
 // GET /logs/stream — SSE of backend logs
-healthRouter.get('/logs/stream', requireAuth, (req, res) => {
+healthRouter.get('/logs/stream', optionalAuth, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -37,27 +37,27 @@ healthRouter.get('/logs/stream', requireAuth, (req, res) => {
 });
 
 // GET /logs/recent
-healthRouter.get('/logs/recent', requireAuth, (req, res) => {
+healthRouter.get('/logs/recent', optionalAuth, (req, res) => {
   const count = parseInt(req.query.count as string) || 100;
   res.json({ logs: log.getRecent(count), count });
 });
 
 // GET /stats/system-status — Per-user system status for iOS SettingsScreen
-healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, res) => {
+healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, res) => {
   try {
-    const userId = req.userId!;
-    const planId = await getUserPlan(userId);
+    // Use query param userId if provided (old app versions), fall back to auth
+    const userId = (req.query.userId as string) || req.userId || 'anonymous';
+    const planId = (req.query.planId as string) || await getUserPlan(userId);
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
-      free:    { tokens: 50000, previews: 5, projects: 3, search: 50 },
-      go:      { tokens: 500000, previews: 20, projects: 10, search: 200 },
-      starter: { tokens: 500000, previews: 5, projects: 10, search: 200 },
-      pro:     { tokens: 2000000, previews: 10, projects: 50, search: 1000 },
-      team:    { tokens: 10000000, previews: 50, projects: 200, search: 5000 },
+      starter: { tokens: 50000, previews: 5, projects: 5, search: 50 },
+      go:      { tokens: 500000, previews: 20, projects: 15, search: 200 },
+      pro:     { tokens: 2000000, previews: 10, projects: 75, search: 1000 },
+      team:    { tokens: 10000000, previews: 50, projects: 300, search: 5000 },
     };
 
-    const limits = planLimits[planId] || planLimits.free;
+    const limits = planLimits[planId] || planLimits.starter;
 
     // Get real AI usage from metrics
     const monthStart = new Date();
@@ -77,14 +77,18 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
       hourly.push(hourEntries.reduce((sum, e) => sum + e.inputTokens + e.outputTokens, 0));
     }
 
-    // Active sessions/previews
-    const sessions = await sessionService.getAll();
-    const activePreviews = sessions.filter(s => s.previewPort != null).length;
-    const activeProjects = sessions.length;
+    // Active sessions/previews (per-user, not global)
+    const userSessions = await sessionService.getByUserId(userId);
+    const activePreviews = userSessions.filter(s => s.previewPort != null).length;
+    const activeProjects = userSessions.length;
 
     // Search usage (tracked as operation)
     const searchOps = metricsService.getOperationEntries('web_search', 10000)
       .filter(o => o.timestamp >= monthStart.getTime()).length;
+
+    // Storage usage
+    const storageLimits = getPlanProjectLimits(planId);
+    const storageMb = await getUserStorageMb(userId);
 
     res.json({
       tokens: {
@@ -108,6 +112,11 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
         limit: limits.search,
         percent: limits.search > 0 ? Math.round((searchOps / limits.search) * 100) : 0,
       },
+      storage: {
+        usedMb: storageMb,
+        limitMb: storageLimits.maxStorageMb,
+        percent: storageLimits.maxStorageMb > 0 ? Math.round((storageMb / storageLimits.maxStorageMb) * 100) : 0,
+      },
     });
   } catch (error: any) {
     log.error('[Stats] system-status error:', error);
@@ -116,26 +125,19 @@ healthRouter.get('/stats/system-status', requireAuth, asyncHandler(async (req, r
 }));
 
 // GET /ai/budget/:userId — AI budget status for iOS SettingsScreen
-healthRouter.get('/ai/budget/:userId', requireAuth, asyncHandler(async (req, res) => {
+healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, res) => {
   try {
     const userId = req.params.userId;
-
-    // Verify the authenticated user is requesting their own budget
-    if (req.userId !== userId) {
-      res.status(403).json({ success: false, error: 'Cannot view another user\'s budget' });
-      return;
-    }
-    const planId = await getUserPlan(userId);
+    const planId = (req.query.planId as string) || await getUserPlan(userId);
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      free:    { name: 'Free', monthlyBudgetEur: 2.00 },
+      starter: { name: 'Starter', monthlyBudgetEur: 2.00 },
       go:      { name: 'Go', monthlyBudgetEur: 7.50 },
-      starter: { name: 'Starter', monthlyBudgetEur: 10.00 },
       pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
       team:    { name: 'Team', monthlyBudgetEur: 200.00 },
     };
 
-    const plan = planBudgets[planId] || planBudgets.free;
+    const plan = planBudgets[planId] || planBudgets.starter;
 
     // Get this month's AI spending from metrics
     const monthStart = new Date();

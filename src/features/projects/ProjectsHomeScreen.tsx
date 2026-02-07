@@ -140,7 +140,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loadingProjectName, setLoadingProjectName] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStep, setLoadingStep] = useState('');
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'enterprise'>('free');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'starter' | 'pro' | 'team'>(user?.plan || 'free');
   const [showUpgradeCta, setShowUpgradeCta] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -150,6 +150,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const currentProgressRef = useRef(0);
   const [focusKey, setFocusKey] = useState(0);
+
+  // Keep currentPlan in sync with auth store
+  useEffect(() => {
+    if (user?.plan) setCurrentPlan(user.plan);
+  }, [user?.plan]);
 
   // Reload projects when screen comes into focus
   useFocusEffect(
@@ -378,7 +383,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
       // Create project in Firebase
       const userId = user?.uid || 'anonymous';
-      const project = await workstationService.savePersonalProject(projectName, userId);
+      const project = await workstationService.savePersonalProject(projectName, userId, 'local');
 
       await animateProgressTo(45, 'Preparazione workspace...', 500);
 
@@ -419,7 +424,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       setLoadingProjectName('');
       setLoadingProgress(0);
       setLoadingStep('');
-      Alert.alert(t('common:error'), error.message || t('projects:file.errorOpeningProject'));
+
+      const errCode = error?.response?.data?.error;
+      if (errCode === 'LOCAL_LIMIT_EXCEEDED') {
+        const max = error.response.data.limits?.maxLocal || '?';
+        Alert.alert('Limite raggiunto', `Hai raggiunto il limite di ${max} progetti locali per il tuo piano. Elimina un progetto o fai upgrade.`);
+      } else if (errCode === 'STORAGE_LIMIT_EXCEEDED') {
+        const maxMb = error.response.data.limits?.maxStorageMb || '?';
+        Alert.alert('Storage pieno', `Hai raggiunto il limite di ${maxMb}MB di storage per il tuo piano. Elimina un progetto o fai upgrade.`);
+      } else {
+        Alert.alert(t('common:error'), error.message || t('projects:file.errorOpeningProject'));
+      }
     }
   };
 
@@ -655,8 +670,17 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
         const data = await response.json();
 
-        // Check for server errors (503 = pool exhausted)
+        // Check for limit errors
         if (!response.ok) {
+          if (data?.error === 'CLONE_LIMIT_EXCEEDED') {
+            throw new Error(`Hai raggiunto il limite di ${data.limits?.maxCloned || 2} repository clonati.\nPassa a un piano superiore per clonare di più.`);
+          }
+          if (data?.error === 'STORAGE_LIMIT_EXCEEDED') {
+            throw new Error(`Spazio esaurito (${data.limits?.usedMb || 0}MB / ${data.limits?.maxStorageMb || 500}MB).\nElimina progetti o passa a un piano superiore.`);
+          }
+          if (data?.error === 'PROJECT_LIMIT_EXCEEDED') {
+            throw new Error(`Hai raggiunto il limite di progetti per il tuo piano.\nPassa a un piano superiore.`);
+          }
           const errorMsg = data?.error || data?.message || 'Server non disponibile';
           console.error('❌ [Home] VM warmup failed:', response.status, errorMsg);
           throw new Error(errorMsg);

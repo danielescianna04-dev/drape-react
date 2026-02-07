@@ -2,6 +2,9 @@
 <Workspace
    version = "1.0">
    <FileRef
+      location = "group:DrapeStoreKit.storekit">
+   </FileRef>
+   <FileRef
       location = "group:Drape.xcodeproj">
    </FileRef>
    <FileRef

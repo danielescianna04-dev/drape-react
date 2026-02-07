@@ -3,7 +3,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { fileService } from '../services/file.service';
@@ -22,7 +22,7 @@ export const flyRouter = Router();
 flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
   const { workstationId, projectId, repositoryUrl, githubToken } = req.body;
   const id = projectId || workstationId;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!id) throw new ValidationError('workstationId or projectId required');
 
   // Verify project ownership
@@ -30,6 +30,30 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
   if (!isOwner) {
     log.warn(`[AUTH] User ${uid} tried to access project ${id} without ownership (clone)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  // Enforce clone + storage limits for new clones
+  if (uid !== 'anonymous' && repositoryUrl) {
+    const planId = await getUserPlan(uid);
+    const limits = getPlanProjectLimits(planId);
+    const counts = await countUserProjects(uid);
+    if (counts.cloned >= limits.maxCloned) {
+      return res.status(403).json({
+        success: false,
+        error: 'CLONE_LIMIT_EXCEEDED',
+        limits: { maxCloned: limits.maxCloned, current: counts.cloned },
+        message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
+      });
+    }
+    const storageMb = await getUserStorageMb(uid);
+    if (storageMb >= limits.maxStorageMb) {
+      return res.status(403).json({
+        success: false,
+        error: 'STORAGE_LIMIT_EXCEEDED',
+        limits: { maxStorageMb: limits.maxStorageMb, usedMb: storageMb },
+        message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
+      });
+    }
   }
 
   const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken);
@@ -45,7 +69,7 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
 // POST /fly/preview/start — Start preview (SSE streaming)
 flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response) => {
   const { projectId, repositoryUrl, githubToken } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -96,7 +120,7 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
 // POST /fly/preview/stop
 flyRouter.post('/preview/stop', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -112,8 +136,33 @@ flyRouter.post('/preview/stop', asyncHandler(async (req, res) => {
 
 // POST /fly/project/create
 flyRouter.post('/project/create', asyncHandler(async (req, res) => {
-  const { projectId, repositoryUrl, githubToken } = req.body;
+  const { projectId, repositoryUrl, githubToken, source } = req.body;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
+
+  // Enforce local file limits
+  if (uid !== 'anonymous' && source === 'local') {
+    const planId = await getUserPlan(uid);
+    const limits = getPlanProjectLimits(planId);
+    const counts = await countUserProjects(uid);
+    if (counts.local >= limits.maxLocal) {
+      return res.status(403).json({
+        success: false,
+        error: 'LOCAL_LIMIT_EXCEEDED',
+        limits: { maxLocal: limits.maxLocal, current: counts.local },
+        message: `Hai raggiunto il limite di ${limits.maxLocal} progetti locali per il piano ${planId}`,
+      });
+    }
+    const storageMb = await getUserStorageMb(uid);
+    if (storageMb >= limits.maxStorageMb) {
+      return res.status(403).json({
+        success: false,
+        error: 'STORAGE_LIMIT_EXCEEDED',
+        limits: { maxStorageMb: limits.maxStorageMb, usedMb: storageMb },
+        message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
+      });
+    }
+  }
 
   await fileService.ensureProjectDir(projectId);
 
@@ -129,7 +178,7 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
 flyRouter.get('/project/:id/files', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -146,7 +195,7 @@ flyRouter.get('/project/:id/files', asyncHandler(async (req, res) => {
 flyRouter.get('/project/:id/file', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   const filePath = req.query.path as string;
   if (!filePath) throw new ValidationError('path required');
 
@@ -166,7 +215,7 @@ flyRouter.get('/project/:id/file', asyncHandler(async (req, res) => {
 flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   const { path: filePath, content } = req.body;
   if (!filePath) throw new ValidationError('path required');
 
@@ -192,7 +241,7 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
 flyRouter.post('/project/:id/upload-files', asyncHandler(async (req: Request, res: Response) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   const { files } = req.body;
   if (!files || !Array.isArray(files)) throw new ValidationError('files array required');
 
@@ -221,7 +270,7 @@ flyRouter.post('/project/:id/exec', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
   const { command, cwd } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!command) throw new ValidationError('command required');
 
   // Verify project ownership
@@ -239,7 +288,7 @@ flyRouter.post('/project/:id/exec', asyncHandler(async (req, res) => {
 flyRouter.get('/project/:id/env', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -265,7 +314,7 @@ flyRouter.get('/project/:id/env', asyncHandler(async (req, res) => {
 flyRouter.post('/project/:id/env', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   const { variables } = req.body;
 
   // Verify project ownership
@@ -285,7 +334,7 @@ flyRouter.post('/project/:id/env', asyncHandler(async (req, res) => {
 flyRouter.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -317,7 +366,7 @@ flyRouter.post('/project/:id/env/analyze', asyncHandler(async (req, res) => {
 // POST /fly/heartbeat
 flyRouter.post('/heartbeat', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -338,7 +387,7 @@ flyRouter.post('/heartbeat', asyncHandler(async (req, res) => {
 // POST /fly/release
 flyRouter.post('/release', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -355,7 +404,7 @@ flyRouter.post('/release', asyncHandler(async (req, res) => {
 // POST /fly/reload
 flyRouter.post('/reload', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -438,7 +487,7 @@ flyRouter.post('/inspect', asyncHandler(async (req, res) => {
 // GET /fly/logs/:projectId — SSE log stream from container
 flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -480,7 +529,7 @@ flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
 // POST /fly/session
 flyRouter.post('/session', asyncHandler(async (req, res) => {
   const { projectId } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
@@ -513,7 +562,7 @@ flyRouter.post('/pool/recycle', asyncHandler(async (req, res) => {
 flyRouter.get('/project/:id/published', asyncHandler(async (req: Request, res: Response) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -536,7 +585,7 @@ flyRouter.get('/project/:id/published', asyncHandler(async (req: Request, res: R
 flyRouter.delete('/project/:id/published', asyncHandler(async (req: Request, res: Response) => {
   const projectId = req.params.id;
   validateProjectId(projectId);
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -570,7 +619,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
   const projectId = req.params.id;
   validateProjectId(projectId);
   const { slug } = req.body;
-  const userId = req.userId!;
+  const userId = req.userId || 'anonymous';
   if (!slug) throw new ValidationError('slug required');
 
   // Verify project ownership
@@ -607,16 +656,29 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
   let srcDir: string;
 
   if (hasBuildScript) {
-    // 4a. Build project in container
+    // 4a. Install deps if node_modules is missing
+    const hasNodeModules = await fileService.exists(projectId, 'node_modules');
+    if (!hasNodeModules) {
+      log.info(`[Publish] Installing dependencies for ${projectId}...`);
+      const installResult = await workspaceService.exec(projectId, userId, 'npm install --legacy-peer-deps', '/home/coder/project');
+      if (installResult.exitCode !== 0) {
+        log.error(`[Publish] npm install failed for ${projectId}:`, installResult.stderr || installResult.stdout);
+        res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+        return;
+      }
+    }
+
+    // 4b. Build project in container
     log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
-    const buildResult = await workspaceService.exec(projectId, userId, 'npm run build', '/home/coder/project');
+    const buildResult = await workspaceService.exec(projectId, userId, 'CI=false npm run build', '/home/coder/project');
     if (buildResult.exitCode !== 0) {
-      log.error(`[Publish] Build failed for ${projectId}:`, buildResult.stderr);
-      res.status(500).json({ error: 'Build failed', stderr: buildResult.stderr?.substring(0, 500) });
+      const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+      log.error(`[Publish] Build failed for ${projectId}:`, errorOutput);
+      res.status(500).json({ error: 'Build failed', stderr: errorOutput.substring(0, 500) });
       return;
     }
 
-    // 4b. Detect build output directory
+    // 4c. Detect build output directory
     const outputDirs = ['dist', 'build', 'out', '.next/standalone'];
     let outputDir: string | null = null;
     for (const dir of outputDirs) {
@@ -631,7 +693,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     }
     srcDir = path.join(config.projectsRoot, projectId, outputDir);
   } else {
-    // 4c. No build step — publish project root directly (HTML/CSS/JS)
+    // 4d. No build step — publish project root directly (HTML/CSS/JS)
     log.info(`[Publish] No build script found, publishing project root for ${projectId}`);
     srcDir = path.join(config.projectsRoot, projectId);
   }

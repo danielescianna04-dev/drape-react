@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -26,7 +26,7 @@ export const workstationRouter = Router();
 // GET /workstation/:projectId/files
 workstationRouter.get('/:projectId/files', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
@@ -46,7 +46,7 @@ workstationRouter.post('/read-file', asyncHandler(async (req, res) => {
   if (!projectId || !file) throw new ValidationError('projectId and filePath required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (read-file)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -71,7 +71,7 @@ workstationRouter.post('/write-file', asyncHandler(async (req, res) => {
   if (!projectId || !file) throw new ValidationError('projectId and filePath required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (write-file)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -97,7 +97,7 @@ workstationRouter.post('/edit-file', asyncHandler(async (req, res) => {
   }
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (edit-file)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -129,7 +129,7 @@ workstationRouter.post('/undo-file', asyncHandler(async (req, res) => {
   if (!projectId || !filePath) throw new ValidationError('projectId and filePath required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (undo-file)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -145,7 +145,7 @@ workstationRouter.post('/create-folder', asyncHandler(async (req, res) => {
   if (!projectId || !folderPath) throw new ValidationError('projectId and folderPath required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (create-folder)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -161,7 +161,7 @@ workstationRouter.post('/delete-file', asyncHandler(async (req, res) => {
   if (!projectId || !filePath) throw new ValidationError('projectId and filePath required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (delete-file)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -177,7 +177,7 @@ workstationRouter.post('/list-directory', asyncHandler(async (req, res) => {
   if (!projectId) throw new ValidationError('projectId required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (list-directory)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -193,7 +193,7 @@ workstationRouter.post('/glob-files', asyncHandler(async (req, res) => {
   if (!projectId || !pattern) throw new ValidationError('projectId and pattern required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (glob-files)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -209,7 +209,7 @@ workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
   if (!projectId || !pattern) throw new ValidationError('projectId and pattern required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (search-files)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -227,7 +227,7 @@ workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
 // POST /workstation/execute-command
 workstationRouter.post('/execute-command', asyncHandler(async (req, res) => {
   const { projectId, command } = req.body;
-  const uid = req.userId!;
+  const uid = req.userId || 'anonymous';
   if (!projectId || !command) throw new ValidationError('projectId and command required');
 
   // Verify project ownership
@@ -247,7 +247,7 @@ workstationRouter.post('/read-multiple-files', asyncHandler(async (req, res) => 
   if (!projectId || !Array.isArray(filePaths)) throw new ValidationError('projectId and filePaths required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (read-multiple-files)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -274,7 +274,7 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
   if (!projectId || !Array.isArray(edits)) throw new ValidationError('projectId and edits required');
 
   // Verify project ownership
-  const isOwner = await verifyProjectOwnership(req.userId!, projectId);
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (edit-multiple-files)`);
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
@@ -308,7 +308,7 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
 // DELETE /workstation/:projectId
 workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
-  const userId = req.userId!;
+  const userId = req.userId || 'anonymous';
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(userId, projectId);
@@ -326,6 +326,41 @@ workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
 workstationRouter.post('/create', asyncHandler(async (req, res) => {
   const { projectId, repositoryUrl, githubToken, projectName } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
+
+  // Enforce project limits (created vs cloned)
+  const userId = req.userId || 'anonymous';
+  if (userId !== 'anonymous') {
+    const planId = await getUserPlan(userId);
+    const limits = getPlanProjectLimits(planId);
+    const counts = await countUserProjects(userId);
+    const isClone = !!repositoryUrl;
+
+    if (isClone && counts.cloned >= limits.maxCloned) {
+      return res.status(403).json({
+        success: false,
+        error: 'PROJECT_LIMIT_EXCEEDED',
+        limits: { maxProjects: limits.maxCloned, maxCloned: limits.maxCloned, current: counts.cloned },
+        message: `Hai raggiunto il limite di ${limits.maxCloned} progetti clonati per il piano ${planId}`,
+      });
+    }
+    if (!isClone && counts.created >= limits.maxCreated) {
+      return res.status(403).json({
+        success: false,
+        error: 'PROJECT_LIMIT_EXCEEDED',
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: counts.created },
+        message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
+      });
+    }
+    const storageMb = await getUserStorageMb(userId);
+    if (storageMb >= limits.maxStorageMb) {
+      return res.status(403).json({
+        success: false,
+        error: 'STORAGE_LIMIT_EXCEEDED',
+        limits: { maxStorageMb: limits.maxStorageMb, usedMb: storageMb },
+        message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
+      });
+    }
+  }
 
   await fileService.ensureProjectDir(projectId);
 
@@ -348,6 +383,31 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
 workstationRouter.post('/create-with-template', asyncHandler(async (req, res) => {
   const { projectName, technology, description, projectId } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
+
+  // Enforce project creation + storage limits
+  const userId = req.userId || 'anonymous';
+  if (userId !== 'anonymous') {
+    const planId = await getUserPlan(userId);
+    const limits = getPlanProjectLimits(planId);
+    const counts = await countUserProjects(userId);
+    if (counts.created >= limits.maxCreated) {
+      return res.status(403).json({
+        success: false,
+        error: 'PROJECT_LIMIT_EXCEEDED',
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: counts.created },
+        message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
+      });
+    }
+    const storageMb = await getUserStorageMb(userId);
+    if (storageMb >= limits.maxStorageMb) {
+      return res.status(403).json({
+        success: false,
+        error: 'STORAGE_LIMIT_EXCEEDED',
+        limits: { maxStorageMb: limits.maxStorageMb, usedMb: storageMb },
+        message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
+      });
+    }
+  }
 
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);

@@ -58,9 +58,8 @@ async function main() {
         return;
       }
     } else {
-      log.warn('[WS] No auth token provided');
-      ws.close(4001, 'Auth token required');
-      return;
+      log.info('[WS] No auth token provided — allowing anonymous connection');
+      userId = 'anonymous';
     }
 
     log.info(`[WS] Client connected (userId: ${userId})`);

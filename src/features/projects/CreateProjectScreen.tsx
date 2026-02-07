@@ -416,6 +416,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
           return;
         }
+        if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
+          Alert.alert('Spazio esaurito', `Hai usato ${result.limits?.usedMb || 0}MB su ${result.limits?.maxStorageMb || 500}MB disponibili.\nElimina progetti o passa a un piano superiore.`);
+          setIsCreating(false);
+          liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
+          return;
+        }
         throw new Error(result.error || 'Failed to start project creation');
       }
 
@@ -477,6 +483,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
           setProjectLimit(result.limits?.maxProjects || 3);
           setShowUpgradeModal(true);
+          setIsCreating(false);
+          setCreationTask(null);
+          liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
+          return;
+        }
+        if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
+          Alert.alert('Spazio esaurito', `Hai usato ${result.limits?.usedMb || 0}MB su ${result.limits?.maxStorageMb || 500}MB disponibili.\nElimina progetti o passa a un piano superiore.`);
           setIsCreating(false);
           setCreationTask(null);
           liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));

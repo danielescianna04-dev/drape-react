@@ -14,11 +14,13 @@ class FileService {
   }
 
   /**
-   * Ensure project directory exists on NVMe
+   * Ensure project directory exists on NVMe with correct ownership (1000:1000 for container user)
    */
   async ensureProjectDir(projectId: string): Promise<string> {
     const dir = this.projectPath(projectId);
     await fs.mkdir(dir, { recursive: true });
+    // Ensure container user (1000:1000) can write — backend runs as root
+    try { await fs.chown(dir, 1000, 1000); } catch { /* non-fatal */ }
     return dir;
   }
 
@@ -58,13 +60,20 @@ class FileService {
   async writeFile(projectId: string, filePath: string, content: string | Buffer): Promise<Result> {
     try {
       const fullPath = sanitizePath(this.projectPath(projectId), filePath);
-      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      const dir = path.dirname(fullPath);
+      await fs.mkdir(dir, { recursive: true });
 
       if (typeof content === 'string') {
         await fs.writeFile(fullPath, content, 'utf-8');
       } else {
         await fs.writeFile(fullPath, content);
       }
+
+      // Ensure container user (1000:1000) owns new files/dirs
+      try {
+        await fs.chown(fullPath, 1000, 1000);
+        await fs.chown(dir, 1000, 1000);
+      } catch { /* non-fatal */ }
 
       return { success: true };
     } catch (e: any) {
@@ -92,6 +101,7 @@ class FileService {
     try {
       const fullPath = sanitizePath(this.projectPath(projectId), folderPath);
       await fs.mkdir(fullPath, { recursive: true });
+      try { await fs.chown(fullPath, 1000, 1000); } catch { /* non-fatal */ }
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };

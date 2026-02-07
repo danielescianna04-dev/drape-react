@@ -65,6 +65,13 @@ export const config = {
   containerMemoryMb: optionalInt('CONTAINER_MEMORY_MB', 4096),
   containerCpus: optionalInt('CONTAINER_CPUS', 4),
   containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 15 * 60 * 1000),
+
+  // Apple IAP
+  appleIapKeyId: optional('APPLE_IAP_KEY_ID', ''),
+  appleIapIssuerId: optional('APPLE_IAP_ISSUER_ID', ''),
+  appleIapBundleId: optional('APPLE_IAP_BUNDLE_ID', 'com.drape.app'),
+  appleIapKeyPath: optional('APPLE_IAP_KEY_PATH', './apple-iap-key.p8'),
+  appleIapEnvironment: optional('APPLE_IAP_ENVIRONMENT', 'sandbox'),
 } as const;
 
 export type Config = typeof config;

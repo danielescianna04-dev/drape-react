@@ -77,6 +77,11 @@ function startPresenceTracking(userId: string) {
         email: auth.currentUser?.email || ''
       }).catch((err) => console.warn('[Auth] Failed to restore presence on active:', err?.message || err));
       startHeartbeat();
+
+      // Refresh subscription plan on foreground (catches renewals/cancellations while backgrounded)
+      import('../iap/iapStore').then(({ useIAPStore }) => {
+        useIAPStore.getState().refreshPlan();
+      }).catch(() => {});
     }
   });
 
@@ -104,7 +109,7 @@ export interface DrapeUser {
   displayName: string | null;
   photoURL: string | null;
   createdAt: Date;
-  plan?: 'free' | 'go';
+  plan?: 'free' | 'go' | 'starter' | 'pro' | 'team';
 }
 
 interface AuthState {
@@ -141,14 +146,17 @@ const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
  * Load the user's plan from Firestore 'users/{uid}' document.
  * Returns the plan string or 'free' as default.
  */
-const loadUserPlanFromFirestore = async (uid: string): Promise<'free' | 'go'> => {
+type PlanId = 'free' | 'go' | 'starter' | 'pro' | 'team';
+const VALID_PLANS: PlanId[] = ['free', 'go', 'starter', 'pro', 'team'];
+
+const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
   try {
     const userDocRef = doc(db, 'users', uid);
     const userDoc = await getDoc(userDocRef);
     if (userDoc.exists()) {
       const data = userDoc.data();
       const plan = data?.plan;
-      if (plan === 'go') return 'go';
+      if (plan && VALID_PLANS.includes(plan)) return plan as PlanId;
     }
     return 'free';
   } catch (error) {
@@ -228,6 +236,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         // Initialize push notifications (non-blocking)
         pushNotificationService.initialize(firebaseUser.uid).catch((err) => console.warn('[Auth] Failed to initialize push notifications:', err?.message || err));
+
+        // Initialize IAP (non-blocking)
+        import('../iap/iapStore').then(({ useIAPStore }) => {
+          useIAPStore.getState().initialize();
+        }).catch(err => console.warn('[Auth] IAP init failed:', err));
 
         // Start presence tracking for admin dashboard
         if (presenceCleanup) presenceCleanup(); // Clean up any existing
@@ -484,7 +497,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Load plan from Firestore user document (existing users have plan field)
       if (!isNew && userDoc.exists()) {
         const userData = userDoc.data();
-        drapeUser.plan = userData?.plan === 'go' ? 'go' : 'free';
+        drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });
@@ -581,7 +594,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Load plan from Firestore user document (existing users have plan field)
       if (!isNew && userDoc.exists()) {
         const userData = userDoc.data();
-        drapeUser.plan = userData?.plan === 'go' ? 'go' : 'free';
+        drapeUser.plan = (userData?.plan && VALID_PLANS.includes(userData.plan)) ? userData.plan as PlanId : 'free';
       }
 
       set({ user: drapeUser, isLoading: false, isNewUser: isNew });

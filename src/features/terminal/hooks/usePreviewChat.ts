@@ -1,10 +1,36 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { LayoutAnimation, TextInput, Keyboard, Platform, Animated } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useAgentStream } from '../../../hooks/api/useAgentStream';
+import { useChatEngine, type ChatEngineMessage } from '../../../hooks/engine/useChatEngine';
 import { useChatStore } from '../../../core/terminal/chatStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import type { AIMessage } from '../components/PreviewAIChat';
+
+// ── Engine → AIMessage mapping ───────────────────────────────────────────────
+
+function mapEngineToAI(m: ChatEngineMessage): AIMessage {
+  switch (m.type) {
+    case 'thinking':
+      return { type: 'thinking', content: m.thinkingContent || m.content, isThinking: m.isThinking };
+    case 'tool_start':
+      return { type: 'tool_start', content: m.content, tool: m.tool, toolId: m.toolId, filePath: m.filePath, pattern: m.pattern };
+    case 'tool_complete':
+      return { type: 'tool_result', content: m.content, tool: m.tool, toolId: m.toolId, success: m.toolSuccess, filePath: m.filePath, pattern: m.pattern };
+    case 'tool_error':
+      return { type: 'tool_result', content: m.content, tool: m.tool, toolId: m.toolId, success: false, filePath: m.filePath, pattern: m.pattern };
+    case 'budget_exceeded':
+      return { type: 'budget_exceeded', content: m.content };
+    case 'error':
+      return { type: 'text', content: m.content };
+    case 'completion':
+    case 'text':
+    default:
+      return { type: 'text', content: m.content };
+  }
+}
+
+// ── Hook params ──────────────────────────────────────────────────────────────
 
 interface UsePreviewChatParams {
   currentWorkstationId: string | undefined;
@@ -16,7 +42,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   const chatHistory = useChatStore((state) => state.chatHistory);
   const selectedModel = useUIStore((state) => state.selectedModel);
 
-  // Agent stream
+  // ── Agent stream ────────────────────────────────────────────────────────
   const {
     start: startAgent,
     stop: stopAgent,
@@ -25,222 +51,57 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     reset: resetAgent,
   } = useAgentStream('fast');
 
-  // Chat state
-  const [message, setMessage] = useState('');
-  const [aiMessages, setAiMessages] = useState<AIMessage[]>([]);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [activeTools, setActiveTools] = useState<string[]>([]);
-  const [aiResponse, setAiResponse] = useState<string>('');
-  const [previewChatId, setPreviewChatId] = useState<string | null>(null);
-  const [currentTodos, setCurrentTodos] = useState<any[]>([]);
-  const [pendingQuestion, setPendingQuestion] = useState<any[] | null>(null);
+  // ── Shared chat engine ──────────────────────────────────────────────────
+  const engine = useChatEngine(agentEvents, agentStreaming);
 
-  // Inspect mode
+  // ── Conversation history (persisted between agent runs) ─────────────────
+  const [history, setHistory] = useState<AIMessage[]>([]);
+  const [previewChatId, setPreviewChatId] = useState<string | null>(null);
+
+  // ── Combined message list for display ───────────────────────────────────
+  const aiMessages = useMemo(() => {
+    const currentRun = engine.messages.map(mapEngineToAI);
+    return [...history, ...currentRun].filter(msg => {
+      // Remove empty thinking items (closed without visible content)
+      if (msg.type === 'thinking' && !msg.isThinking && !msg.content?.trim()) return false;
+      // Remove empty text items
+      if (msg.type === 'text' && !msg.content?.trim()) return false;
+      return true;
+    });
+  }, [history, engine.messages]);
+
+  // ── Inspect mode ────────────────────────────────────────────────────────
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{
     selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string;
   } | null>(null);
 
-  // FAB state
+  // ── FAB state ───────────────────────────────────────────────────────────
+  const [message, setMessage] = useState('');
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isMessagesCollapsed, setIsMessagesCollapsed] = useState(false);
   const [showPastChats, setShowPastChats] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Refs
+  // ── Refs ─────────────────────────────────────────────────────────────────
   const inputRef = useRef<TextInput>(null);
   const aiScrollViewRef = useRef<any>(null);
-  const lastProcessedEventIndexRef = useRef<number>(-1);
   const fabContentOpacity = useRef(new Animated.Value(0)).current;
 
-  // Track keyboard height
+  // ── Keyboard tracking ───────────────────────────────────────────────────
   useEffect(() => {
-    const keyboardWillShow = Keyboard.addListener(
+    const show = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => setKeyboardHeight(e.endCoordinates.height),
     );
-    const keyboardWillHide = Keyboard.addListener(
+    const hide = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => setKeyboardHeight(0),
     );
-    return () => {
-      keyboardWillShow.remove();
-      keyboardWillHide.remove();
-    };
+    return () => { show.remove(); hide.remove(); };
   }, []);
 
-  // Process agent events into aiMessages
-  useEffect(() => {
-    if (agentEvents.length === 0) return;
-    const startIndex = lastProcessedEventIndexRef.current + 1;
-    if (startIndex >= agentEvents.length) return;
-
-    for (let i = startIndex; i < agentEvents.length; i++) {
-      const event = agentEvents[i];
-      const toolId = (event as any).id || `tool-${Date.now()}-${i}`;
-
-      if (event.type === 'tool_start' && event.tool) {
-        const input = (event as any).input || {};
-        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
-        const pattern = input.pattern || input.command || input.query || '';
-        setActiveTools(prev => [...prev, event.tool!]);
-        setAiMessages(prev => [...prev, {
-          type: 'tool_start', content: event.tool!, tool: event.tool,
-          toolId, filePath, pattern,
-        }]);
-      }
-      else if (event.type === 'tool_input' && event.tool) {
-        const input = (event as any).input || {};
-        const filePath = input.filePath || input.dirPath || input.path || input.file_path || '';
-        const pattern = input.pattern || input.command || input.query || '';
-        setActiveTools(prev => prev.includes(event.tool!) ? prev : [...prev, event.tool!]);
-        setAiMessages(prev => {
-          const updated = [...prev];
-          const idx = updated.findIndex(
-            m => m.toolId === toolId || ((m.type === 'tool_start') && m.tool === event.tool && !m.success)
-          );
-          if (idx >= 0) {
-            updated[idx] = {
-              ...updated[idx], toolId,
-              filePath: filePath || updated[idx].filePath,
-              pattern: pattern || updated[idx].pattern,
-            };
-          } else {
-            updated.push({ type: 'tool_start', content: event.tool!, tool: event.tool, toolId, filePath, pattern });
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'tool_complete' && event.tool) {
-        setActiveTools(prev => prev.filter(t => t !== event.tool));
-        setAiMessages(prev => {
-          const updated = [...prev];
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].toolId === toolId ||
-              ((updated[j].type === 'tool_start' || updated[j].type === 'tool_result') &&
-                updated[j].tool === event.tool && !updated[j].success)) {
-              updated[j] = { ...updated[j], type: 'tool_result', success: !(event as any).error };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'tool_error' && event.tool) {
-        setActiveTools(prev => prev.filter(t => t !== event.tool));
-        setAiMessages(prev => {
-          const updated = [...prev];
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].toolId === toolId ||
-              ((updated[j].type === 'tool_start') && updated[j].tool === event.tool && !updated[j].success)) {
-              updated[j] = { ...updated[j], type: 'tool_result', success: false };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'thinking_start') {
-        setAiMessages(prev => [...prev, { type: 'thinking', content: '', isThinking: true }]);
-      }
-      else if (event.type === 'thinking') {
-        const thinkingText = (event as any).text;
-        if (thinkingText) {
-          setAiMessages(prev => {
-            const updated = [...prev];
-            for (let j = updated.length - 1; j >= 0; j--) {
-              if (updated[j].type === 'thinking' && updated[j].isThinking) {
-                updated[j] = { ...updated[j], content: (updated[j].content || '') + thinkingText };
-                break;
-              }
-            }
-            return updated;
-          });
-        }
-      }
-      else if (event.type === 'thinking_end') {
-        setAiMessages(prev => {
-          const updated = [...prev];
-          for (let j = updated.length - 1; j >= 0; j--) {
-            if (updated[j].type === 'thinking' && updated[j].isThinking) {
-              updated[j] = { ...updated[j], isThinking: false };
-              break;
-            }
-          }
-          return updated;
-        });
-      }
-      else if (event.type === 'iteration_start') {
-        // no-op
-      }
-      else if (event.type === 'budget_exceeded') {
-        setIsAiLoading(false);
-        setAiMessages(prev => [...prev, { type: 'budget_exceeded', content: 'Budget AI esaurito' }]);
-      }
-      else if (event.type === 'text_delta') {
-        const delta = (event as any).text;
-        if (delta) {
-          setAiMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.type === 'text') {
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...last, content: (last.content || '') + delta };
-              return updated;
-            }
-            return [...prev, { type: 'text', content: delta }];
-          });
-        }
-      }
-      else if (event.type === 'message' || event.type === 'response') {
-        const msg = (event as any).content || (event as any).message || (event as any).text || (event as any).output;
-        if (msg) {
-          setAiMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last && last.type === 'text' && last.content === msg) return prev;
-            return [...prev, { type: 'text', content: msg }];
-          });
-        }
-      }
-      else if (event.type === 'complete' || event.type === 'done') {
-        setIsAiLoading(false);
-        setActiveTools([]);
-        setAiMessages(prev => prev.map(msg =>
-          msg.type === 'thinking' && msg.isThinking ? { ...msg, isThinking: false } : msg
-        ));
-      }
-      else if (event.type === 'error' || event.type === 'fatal_error') {
-        setIsAiLoading(false);
-        setActiveTools([]);
-        const errorMsg = (event as any).error || (event as any).message || 'Error';
-        setAiMessages(prev => [...prev, { type: 'text', content: `❌ ${errorMsg}` }]);
-      }
-    }
-    lastProcessedEventIndexRef.current = agentEvents.length - 1;
-  }, [agentEvents]);
-
-  // Extract todos and questions from agent events
-  useEffect(() => {
-    if (!agentEvents || agentEvents.length === 0) return;
-    const todoEvents = agentEvents.filter((e: any) => e.type === 'todo_update');
-    if (todoEvents.length > 0) {
-      setCurrentTodos((todoEvents[todoEvents.length - 1] as any).todos || []);
-    }
-    const questionEvents = agentEvents.filter((e: any) => e.type === 'ask_user_question');
-    if (questionEvents.length > 0) {
-      setPendingQuestion((questionEvents[questionEvents.length - 1] as any).questions || null);
-    }
-  }, [agentEvents]);
-
-  // Clear todos when agent completes
-  useEffect(() => {
-    if (!agentStreaming && agentEvents.length > 0) {
-      if (agentEvents.some(e => e.type === 'complete' || e.type === 'done')) {
-        setCurrentTodos([]);
-      }
-    }
-  }, [agentStreaming, agentEvents]);
-
-  // Save chat messages when agent completes
+  // ── Save chat when agent completes ──────────────────────────────────────
   useEffect(() => {
     if (!agentStreaming && agentEvents.length > 0 && previewChatId && aiMessages.length > 0) {
       const messagesToSave = aiMessages.map((msg, index) => ({
@@ -258,7 +119,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     }
   }, [agentStreaming, agentEvents.length, previewChatId, aiMessages]);
 
-  // Clear selected element
+  // ── Inspect mode actions ────────────────────────────────────────────────
   const clearSelectedElement = () => {
     setSelectedElement(null);
     webViewRef.current?.injectJavaScript(`
@@ -267,7 +128,6 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     `);
   };
 
-  // Select parent element
   const selectParentElement = () => {
     webViewRef.current?.injectJavaScript(`
       if (window.__selectParentElement) { window.__selectParentElement(); }
@@ -275,7 +135,6 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     `);
   };
 
-  // Toggle inspect mode
   const toggleInspectMode = () => {
     const newMode = !isInspectMode;
     setIsInspectMode(newMode);
@@ -291,7 +150,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     }
   };
 
-  // Send message
+  // ── Send message ────────────────────────────────────────────────────────
   const handleSendMessage = async () => {
     if (!message.trim() && !selectedElement) return;
     if (!currentWorkstationId) return;
@@ -305,9 +164,6 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       setIsMessagesCollapsed(false);
     }
 
-    setAiResponse('');
-    setIsAiLoading(true);
-
     const userMessage = message.trim();
     let prompt = userMessage;
     if (selectedElement) {
@@ -319,10 +175,19 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       content: userMessage,
       selectedElement: selectedElement ? { selector: selectedElement.selector, tag: selectedElement.tag } : undefined,
     };
-    setAiMessages(prev => [...prev, newUserMsg]);
 
-    // Create or update chat in history
-    const isFirstMessage = aiMessages.filter(m => m.type === 'user').length === 0;
+    // Snapshot current engine messages into history, then add user message
+    const currentRunMapped = engine.messages.map(mapEngineToAI);
+    setHistory(prev => [...prev, ...currentRunMapped, newUserMsg]);
+
+    // Build conversation history for the API
+    const allMessages = [...history, ...currentRunMapped, newUserMsg];
+    const conversationHistory = allMessages
+      .filter(m => m.type === 'user' || m.type === 'text')
+      .map(m => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content || '' }));
+
+    // Create or update chat in history store
+    const isFirstMessage = history.filter(m => m.type === 'user').length === 0;
     let chatId = previewChatId;
 
     if (isFirstMessage || !chatId) {
@@ -345,20 +210,17 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       useChatStore.getState().updateChatLastUsed(chatId);
     }
 
-    const conversationHistory = aiMessages
-      .filter(m => m.type === 'user' || m.type === 'text')
-      .map(m => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content || '' }));
-
     setMessage('');
     clearSelectedElement();
     setIsInspectMode(false);
 
+    // Reset engine + agent for new run
+    engine.reset();
     resetAgent();
-    lastProcessedEventIndexRef.current = -1;
     startAgent(prompt, currentWorkstationId, 'gemini-3-flash', conversationHistory, [], 'minimal');
   };
 
-  // Load past chat
+  // ── Past chat actions ───────────────────────────────────────────────────
   const loadPastChat = (chat: any) => {
     const restored = (chat.messages || []).map((m: any) => ({
       type: m.type === 'user_message' ? 'user' as const : 'text' as const,
@@ -367,7 +229,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
       success: m.toolInfo?.status === 'completed',
       filePath: m.toolInfo?.input?.filePath,
     }));
-    setAiMessages(restored);
+    setHistory(restored);
+    engine.reset();
     setPreviewChatId(chat.id);
     setShowPastChats(false);
     if (isMessagesCollapsed) {
@@ -381,13 +244,13 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   };
 
   const startNewChat = () => {
-    setAiMessages([]);
+    setHistory([]);
+    engine.reset();
     setPreviewChatId(null);
-    setAiResponse('');
     setShowPastChats(false);
   };
 
-  // FAB expand/collapse
+  // ── FAB expand/collapse ─────────────────────────────────────────────────
   const expandFab = () => {
     LayoutAnimation.configureNext({
       duration: 300,
@@ -416,20 +279,22 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     });
   };
 
-  // Handle question answers
+  // ── Question answers ────────────────────────────────────────────────────
   const handleQuestionAnswer = (answers: Record<string, string>) => {
-    const questions = pendingQuestion || [];
+    const questions = engine.pendingQuestion || [];
     const responseLines = questions.map((q: any, idx: number) => {
       const answer = answers[`q${idx}`] || '';
       return `${q.question}: ${answer}`;
     }).join('\n');
     const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
-    setPendingQuestion(null);
 
     if (currentWorkstationId) {
-      lastProcessedEventIndexRef.current = -1;
+      // Snapshot + add user message
+      const currentRunMapped = engine.messages.map(mapEngineToAI);
+      setHistory(prev => [...prev, ...currentRunMapped, { type: 'user', content: responseMessage }]);
+
+      engine.reset();
       resetAgent();
-      setAiMessages(prev => [...prev, { type: 'user', content: responseMessage }]);
       startAgent(responseMessage, currentWorkstationId, 'gemini-3-flash', [], [], 'minimal');
     }
   };
@@ -438,14 +303,15 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     // Agent
     agentStreaming,
     stopAgent,
-    // Chat state
+    // Chat state (derived from engine)
     message, setMessage,
-    aiMessages, setAiMessages,
-    isAiLoading, setIsAiLoading,
-    activeTools,
+    aiMessages,
+    isAiLoading: engine.isLoading,
+    setIsAiLoading: (v: boolean) => {}, // no-op, engine manages this
+    activeTools: engine.activeTools,
     previewChatId,
-    currentTodos,
-    pendingQuestion,
+    currentTodos: engine.currentTodos,
+    pendingQuestion: engine.pendingQuestion,
     chatHistory,
     // Inspect
     isInspectMode,
@@ -471,7 +337,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
   };
 }
 
-// Inspect mode JavaScript injection (extracted for readability)
+// ── Inspect mode JavaScript injection ─────────────────────────────────────────
+
 const INSPECT_MODE_JS = `
 (function() {
   if (window.__inspectorEnabled) return;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Linking } from 'react-native';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 
@@ -17,7 +17,7 @@ interface BudgetStatus {
 }
 
 interface SubscriptionSectionProps {
-  currentPlan: 'free' | 'go' | 'pro' | 'max';
+  currentPlan: 'free' | 'go' | 'starter' | 'pro' | 'team';
   budgetStatus: BudgetStatus | null;
   loading: boolean;
   onPlanPress: () => void;
@@ -42,7 +42,7 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
             icon="card-outline"
             iconColor="#60A5FA"
             title={t('subscription.currentPlan')}
-            subtitle={currentPlan === 'free' ? 'Starter' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan.toUpperCase()}
+            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'starter' ? 'Starter' : currentPlan === 'pro' ? 'Pro' : currentPlan === 'team' ? 'Team' : currentPlan.toUpperCase()}
             onPress={onPlanPress}
           />
           <SettingItem
@@ -51,8 +51,18 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
             title={t('subscription.aiBudget')}
             subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% ${t('subscription.usage')}` : t('subscription.loading')}
             onPress={onBudgetPress}
-            isLast
+            isLast={currentPlan === 'free' || currentPlan === 'starter'}
           />
+          {currentPlan !== 'free' && currentPlan !== 'starter' && (
+            <SettingItem
+              icon="settings-outline"
+              iconColor="#A78BFA"
+              title="Gestisci Abbonamento"
+              subtitle="Modifica o cancella su Apple"
+              onPress={() => Linking.openURL('https://apps.apple.com/account/subscriptions')}
+              isLast
+            />
+          )}
         </View>
       </GlassCard>
     </View>

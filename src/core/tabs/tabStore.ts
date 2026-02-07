@@ -165,10 +165,20 @@ export const useTabStore = create<TabStore>((set) => ({
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       const currentItems = tab?.terminalItems || [];
+      // Deduplicate: if an item with the same id already exists, update it instead of appending
+      if (item.id && currentItems.some((existing: any) => existing.id === item.id)) {
+        return {
+          tabs: state.tabs.map(t =>
+            t.id === tabId
+              ? { ...t, terminalItems: currentItems.map((existing: any) => existing.id === item.id ? { ...existing, ...item } : existing) }
+              : t
+          ),
+        };
+      }
       return {
         tabs: state.tabs.map(t =>
           t.id === tabId
-            ? { ...t, terminalItems: [...(t.terminalItems || []), item] }
+            ? { ...t, terminalItems: [...currentItems, item] }
             : t
         ),
       };

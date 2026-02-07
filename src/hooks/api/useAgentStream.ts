@@ -152,23 +152,9 @@ export function useAgentStream(
     const event = parseEvent(eventType, data);
     if (!event) return;
 
-    // Update local state
-    setEvents((prev) => {
-      // If tool_input, try to merge with last tool_start of same tool
-      if (eventType === 'tool_input' && event.tool) {
-        const lastIndex = [...prev].reverse().findIndex(e => e.type === 'tool_start' && e.tool === event.tool);
-        if (lastIndex !== -1) {
-          const realIndex = prev.length - 1 - lastIndex;
-          const newEvents = [...prev];
-          newEvents[realIndex] = {
-            ...newEvents[realIndex],
-            input: event.input
-          };
-          return newEvents;
-        }
-      }
-      return [...prev, event];
-    });
+    // Update local state — always append (engine processes events by index,
+    // merging tool_input into tool_start prevented the engine from seeing input updates)
+    setEvents((prev) => [...prev, event]);
 
     // Update current tool
     if (event.type === 'tool_start' && event.tool) {

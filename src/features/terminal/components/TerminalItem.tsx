@@ -665,23 +665,33 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                       const directory = fullHeader.replace('List files in ', ''); // Extract directory
                       const stats = lines[1]; // "└─ 9 files"
 
-                      // Parse ls output - skip first 3 lines (header, stats, empty line) and "total XX"
-                      const lsLines = lines.slice(3).filter(l => l.trim() && !l.startsWith('total'));
+                      // Parse file list - skip first 3 lines (header, stats, empty line)
+                      const lsLines = lines.slice(3).filter(l => l.trim() && !l.startsWith('total') && !l.startsWith('Contents of'));
 
                       // Parse each line to extract file info
                       const files = lsLines.map(line => {
-                        // Format: drwxr-xr-x 8 coder coder 4096 Jan 11 14:43 .git
-                        const parts = line.trim().split(/\s+/);
-                        if (parts.length < 9) return null; // Invalid line
-
-                        const permissions = parts[0];
-                        const isDir = permissions.startsWith('d');
-                        const name = parts.slice(8).join(' '); // Filename can have spaces
-
-                        // Skip . and .. entries
-                        if (name === '.' || name === '..') return null;
-
-                        return { name, isDir };
+                        const trimmed = line.trim();
+                        // Format: [DIR] name or [FILE] name (from backend)
+                        if (trimmed.startsWith('[DIR]')) {
+                          return { name: trimmed.replace('[DIR]', '').trim(), isDir: true };
+                        }
+                        if (trimmed.startsWith('[FILE]')) {
+                          return { name: trimmed.replace('[FILE]', '').trim(), isDir: false };
+                        }
+                        // Fallback: ls -la format (drwxr-xr-x 8 coder coder 4096 Jan 11 14:43 .git)
+                        const parts = trimmed.split(/\s+/);
+                        if (parts.length >= 9) {
+                          const permissions = parts[0];
+                          const isDir = permissions.startsWith('d');
+                          const name = parts.slice(8).join(' ');
+                          if (name === '.' || name === '..') return null;
+                          return { name, isDir };
+                        }
+                        // Simple fallback: treat non-empty line as a file path
+                        if (trimmed && !trimmed.includes(':')) {
+                          return { name: trimmed, isDir: trimmed.endsWith('/') };
+                        }
+                        return null;
                       }).filter(Boolean);
 
                       return (
@@ -1224,7 +1234,15 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
         {item.type === ItemType.ERROR && (
           <View style={styles.messageBlock}>
             <Text style={styles.errorName}>Error</Text>
-            <Text style={styles.errorMessage}>{item.content || ''}</Text>
+            <Text style={styles.errorMessage}>{(() => {
+              const raw = item.content || '';
+              if (typeof raw === 'object') return (raw as any).message || (raw as any).error || JSON.stringify(raw);
+              const s = String(raw);
+              if (s.startsWith('{')) {
+                try { const p = JSON.parse(s); return p.message || p.error || p.detail || s; } catch {}
+              }
+              return s;
+            })()}</Text>
           </View>
         )}
 
