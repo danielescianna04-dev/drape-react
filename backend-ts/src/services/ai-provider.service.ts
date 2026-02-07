@@ -1136,35 +1136,30 @@ class AIProviderService {
         });
 
       case 'openai':
-        return nonSystemMessages.map((msg) => {
+        // Use flatMap because one Anthropic-style message with N tool_results
+        // must become N separate OpenAI tool messages
+        return nonSystemMessages.flatMap((msg): any[] => {
           if (Array.isArray(msg.content)) {
-            const parts: any[] = [];
-            for (const block of msg.content) {
-              if (block.type === 'text') {
-                parts.push({ type: 'text', text: block.text });
-              } else if (block.type === 'image' && block.source.type === 'base64' && block.source.data) {
-                parts.push({
-                  type: 'image_url',
-                  image_url: { url: `data:${block.source.media_type || 'image/jpeg'};base64,${block.source.data}` },
-                });
-              } else if (block.type === 'tool_use') {
-                // Tool calls are handled at the message level for OpenAI
-                // Skip here, they'll be in assistant messages with tool_calls
-              } else if (block.type === 'tool_result') {
-                return {
-                  role: 'tool' as const,
-                  tool_call_id: block.tool_use_id,
-                  content: block.content,
-                };
-              }
+            // Check if this is a user message with tool_result blocks (parallel tool responses)
+            const toolResultBlocks = msg.content.filter(b => b.type === 'tool_result');
+            if (toolResultBlocks.length > 0) {
+              // Each tool_result becomes a separate { role: 'tool' } message
+              return toolResultBlocks.map(b => ({
+                role: 'tool' as const,
+                tool_call_id: (b as any).tool_use_id,
+                content: (b as any).content || '',
+              }));
             }
 
             // Check if this assistant message has tool_use blocks
             const toolUseBlocks = msg.content.filter(b => b.type === 'tool_use');
             if (msg.role === 'assistant' && toolUseBlocks.length > 0) {
-              const textContent = parts.filter(p => p.type === 'text').map(p => p.text).join('');
-              return {
-                role: 'assistant',
+              const textContent = msg.content
+                .filter(b => b.type === 'text')
+                .map(b => (b as any).text)
+                .join('');
+              return [{
+                role: 'assistant' as const,
                 content: textContent || null,
                 tool_calls: toolUseBlocks.map(b => ({
                   id: (b as any).id,
@@ -1174,29 +1169,32 @@ class AIProviderService {
                     arguments: JSON.stringify((b as any).input),
                   },
                 })),
-              };
+              }];
             }
 
-            // Check if any part is a tool_result (return first one found)
-            const toolResult = msg.content.find(b => b.type === 'tool_result');
-            if (toolResult) {
-              return {
-                role: 'tool',
-                tool_call_id: (toolResult as any).tool_use_id,
-                content: (toolResult as any).content,
-              };
+            // Regular content (text, images)
+            const parts: any[] = [];
+            for (const block of msg.content) {
+              if (block.type === 'text') {
+                parts.push({ type: 'text', text: block.text });
+              } else if (block.type === 'image' && block.source.type === 'base64' && block.source.data) {
+                parts.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${block.source.media_type || 'image/jpeg'};base64,${block.source.data}` },
+                });
+              }
             }
 
-            return {
-              role: msg.role === 'assistant' ? 'assistant' : 'user',
+            return [{
+              role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
               content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts,
-            };
+            }];
           }
 
-          return {
-            role: msg.role === 'assistant' ? 'assistant' : 'user',
+          return [{
+            role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
             content: msg.content,
-          };
+          }];
         });
 
       default:
