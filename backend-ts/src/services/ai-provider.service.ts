@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { GoogleGenAI } from '@google/genai';
 import Groq from 'groq-sdk';
+import OpenAI from 'openai';
 import { config } from '../config';
 import { log } from '../utils/logger';
 
@@ -51,7 +52,7 @@ export type StreamChunk =
   | { type: 'done'; fullText: string; toolCalls: ToolCall[]; stopReason: string; usage: UsageInfo };
 
 export interface ModelConfig {
-  provider: 'anthropic' | 'gemini' | 'groq';
+  provider: 'anthropic' | 'gemini' | 'groq' | 'openai';
   modelId: string;
   maxTokens: number;
   supportsTools: boolean;
@@ -70,6 +71,7 @@ class AIProviderService {
   private geminiClient: GoogleGenerativeAI | null = null;
   private geminiGenAI: GoogleGenAI | null = null; // New SDK for Gemini 3 with thinking
   private groqClient: Groq | null = null;
+  private openaiClient: OpenAI | null = null;
 
   private readonly modelRegistry: Record<string, ModelConfig> = {
     'claude-sonnet-4': {
@@ -84,7 +86,7 @@ class AIProviderService {
     },
     'claude-4-5-sonnet': {
       provider: 'anthropic',
-      modelId: 'claude-sonnet-4-20250514',
+      modelId: 'claude-sonnet-4-5-20250929',
       maxTokens: 8192,
       supportsTools: true,
       supportsStreaming: true,
@@ -94,7 +96,7 @@ class AIProviderService {
     },
     'claude-4-5-opus': {
       provider: 'anthropic',
-      modelId: 'claude-opus-4-20250514',
+      modelId: 'claude-opus-4-6',
       maxTokens: 8192,
       supportsTools: true,
       supportsStreaming: true,
@@ -131,6 +133,16 @@ class AIProviderService {
       supportsImages: true,
       costPerMInputToken: 1.25,
       costPerMOutputToken: 10.0,
+    },
+    'gpt-5-3': {
+      provider: 'openai',
+      modelId: 'gpt-5.3',
+      maxTokens: 16384,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 2.0,
+      costPerMOutputToken: 8.0,
     },
     'llama-3.3-70b': {
       provider: 'groq',
@@ -177,6 +189,13 @@ class AIProviderService {
         });
         log.info('Groq client initialized');
       }
+
+      if (config.openaiApiKey) {
+        this.openaiClient = new OpenAI({
+          apiKey: config.openaiApiKey,
+        });
+        log.info('OpenAI client initialized');
+      }
     } catch (error) {
       log.error('Failed to initialize AI clients:', error);
     }
@@ -216,6 +235,9 @@ class AIProviderService {
         break;
       case 'groq':
         yield* this.groqStream(modelConfig, messages, tools, systemPrompt, options);
+        break;
+      case 'openai':
+        yield* this.openaiStream(modelConfig, messages, tools, systemPrompt, options);
         break;
       default:
         throw new Error(`Unsupported provider: ${modelConfig.provider}`);
@@ -856,11 +878,120 @@ class AIProviderService {
   }
 
   /**
+   * OpenAI streaming implementation (GPT-5.3)
+   */
+  private async *openaiStream(
+    modelConfig: ModelConfig,
+    messages: ChatMessage[],
+    tools?: ToolDefinition[],
+    systemPrompt?: string,
+    options?: { temperature?: number; maxTokens?: number }
+  ): AsyncGenerator<StreamChunk> {
+    if (!this.openaiClient) {
+      throw new Error('OpenAI client not initialized. Check API key configuration.');
+    }
+
+    try {
+      const formattedMessages = this.formatMessagesForProvider(messages, 'openai');
+
+      // Add system prompt
+      const systemMessage = this.extractSystemPrompt(messages, systemPrompt);
+      if (systemMessage) {
+        formattedMessages.unshift({
+          role: 'system',
+          content: systemMessage,
+        });
+      }
+
+      const requestParams: any = {
+        model: modelConfig.modelId,
+        messages: formattedMessages,
+        max_tokens: options?.maxTokens || modelConfig.maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+      };
+
+      if (tools && tools.length > 0) {
+        requestParams.tools = this.formatToolsForProvider(tools, 'openai');
+      }
+
+      if (options?.temperature !== undefined) {
+        requestParams.temperature = options.temperature;
+      }
+
+      const stream = await this.openaiClient.chat.completions.create(requestParams);
+
+      let fullText = '';
+      const toolCalls: ToolCall[] = [];
+      const pendingToolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
+      let usage: UsageInfo = { inputTokens: 0, outputTokens: 0 };
+
+      for await (const chunk of stream as any) {
+        const delta = chunk.choices?.[0]?.delta;
+
+        if (delta?.content) {
+          fullText += delta.content;
+          yield { type: 'text', text: delta.content };
+        }
+
+        // Handle tool calls (streamed incrementally)
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index;
+            if (!pendingToolCalls.has(idx)) {
+              pendingToolCalls.set(idx, {
+                id: tc.id || `tool_${Date.now()}_${idx}`,
+                name: tc.function?.name || '',
+                arguments: tc.function?.arguments || '',
+              });
+              if (tc.function?.name) {
+                yield { type: 'tool_start', id: pendingToolCalls.get(idx)!.id, name: tc.function.name };
+              }
+            } else {
+              const pending = pendingToolCalls.get(idx)!;
+              if (tc.function?.name) pending.name = tc.function.name;
+              if (tc.function?.arguments) pending.arguments += tc.function.arguments;
+            }
+          }
+        }
+
+        // Finalize tool calls on stop
+        const finishReason = chunk.choices?.[0]?.finish_reason;
+        if (finishReason === 'tool_calls' || finishReason === 'stop') {
+          for (const [, pending] of pendingToolCalls) {
+            if (pending.name && pending.arguments) {
+              try {
+                const parsedArgs = JSON.parse(pending.arguments);
+                toolCalls.push({ id: pending.id, name: pending.name, input: parsedArgs });
+                yield { type: 'tool_use', id: pending.id, name: pending.name, input: parsedArgs };
+              } catch (e) {
+                log.error('Failed to parse OpenAI tool arguments:', e);
+              }
+            }
+          }
+          pendingToolCalls.clear();
+        }
+
+        // Usage info
+        if (chunk.usage) {
+          usage.inputTokens = chunk.usage.prompt_tokens || 0;
+          usage.outputTokens = chunk.usage.completion_tokens || 0;
+        }
+      }
+
+      yield { type: 'done', fullText, toolCalls, stopReason: 'stop', usage };
+    } catch (error) {
+      log.error('OpenAI streaming error:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Format tools according to provider requirements
    */
   private formatToolsForProvider(
     tools: ToolDefinition[],
-    provider: 'anthropic' | 'gemini' | 'groq'
+    provider: 'anthropic' | 'gemini' | 'groq' | 'openai'
   ): any[] {
     switch (provider) {
       case 'anthropic':
@@ -876,6 +1007,7 @@ class AIProviderService {
         }));
 
       case 'groq':
+      case 'openai':
         // Convert to OpenAI-compatible format
         return tools.map((tool) => ({
           type: 'function',
@@ -896,7 +1028,7 @@ class AIProviderService {
    */
   private formatMessagesForProvider(
     messages: ChatMessage[],
-    provider: 'anthropic' | 'gemini' | 'groq'
+    provider: 'anthropic' | 'gemini' | 'groq' | 'openai'
   ): any[] {
     // Filter out system messages - they're handled separately
     const nonSystemMessages = messages.filter((msg) => msg.role !== 'system');
@@ -1000,6 +1132,70 @@ class AIProviderService {
           return {
             role: msg.role === 'assistant' ? 'assistant' : 'user',
             content,
+          };
+        });
+
+      case 'openai':
+        return nonSystemMessages.map((msg) => {
+          if (Array.isArray(msg.content)) {
+            const parts: any[] = [];
+            for (const block of msg.content) {
+              if (block.type === 'text') {
+                parts.push({ type: 'text', text: block.text });
+              } else if (block.type === 'image' && block.source.type === 'base64' && block.source.data) {
+                parts.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${block.source.media_type || 'image/jpeg'};base64,${block.source.data}` },
+                });
+              } else if (block.type === 'tool_use') {
+                // Tool calls are handled at the message level for OpenAI
+                // Skip here, they'll be in assistant messages with tool_calls
+              } else if (block.type === 'tool_result') {
+                return {
+                  role: 'tool' as const,
+                  tool_call_id: block.tool_use_id,
+                  content: block.content,
+                };
+              }
+            }
+
+            // Check if this assistant message has tool_use blocks
+            const toolUseBlocks = msg.content.filter(b => b.type === 'tool_use');
+            if (msg.role === 'assistant' && toolUseBlocks.length > 0) {
+              const textContent = parts.filter(p => p.type === 'text').map(p => p.text).join('');
+              return {
+                role: 'assistant',
+                content: textContent || null,
+                tool_calls: toolUseBlocks.map(b => ({
+                  id: (b as any).id,
+                  type: 'function',
+                  function: {
+                    name: (b as any).name,
+                    arguments: JSON.stringify((b as any).input),
+                  },
+                })),
+              };
+            }
+
+            // Check if any part is a tool_result (return first one found)
+            const toolResult = msg.content.find(b => b.type === 'tool_result');
+            if (toolResult) {
+              return {
+                role: 'tool',
+                tool_call_id: (toolResult as any).tool_use_id,
+                content: (toolResult as any).content,
+              };
+            }
+
+            return {
+              role: msg.role === 'assistant' ? 'assistant' : 'user',
+              content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts,
+            };
+          }
+
+          return {
+            role: msg.role === 'assistant' ? 'assistant' : 'user',
+            content: msg.content,
           };
         });
 

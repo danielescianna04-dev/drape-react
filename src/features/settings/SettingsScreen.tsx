@@ -1227,6 +1227,7 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   featuresList: {
+    flex: 1,
     gap: 12,
     marginBottom: 24,
   },
@@ -1247,7 +1248,7 @@ const styles = StyleSheet.create({
   },
   planActionBtn: {
     height: 48,
-    borderRadius: 14,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },

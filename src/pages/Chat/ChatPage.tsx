@@ -41,7 +41,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
 import { useContentOffset } from '../../hooks/ui/useContentOffset';
-import { AnthropicIcon, GoogleIcon } from '../../shared/components/icons';
+import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../shared/components/icons';
 import { useFileHistoryStore } from '../../core/history/fileHistoryStore';
 import { UndoRedoBar } from '../../features/terminal/components/UndoRedoBar';
 import { useAgentStream } from '../../hooks/api/useAgentStream';
@@ -79,8 +79,9 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 
 // Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-4-5-opus', name: 'Claude 4.5 Opus', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true },
   { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false },
   { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
@@ -694,6 +695,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const prev = prevEngineMessagesRef.current;
     const curr = engine.messages;
     const idMap = engineIdMapRef.current;
+    const currIds = new Set(curr.map(m => m.id));
+
+    // Remove items that the engine filtered out (e.g. empty thinking placeholders)
+    for (const prevMsg of prev) {
+      if (!currIds.has(prevMsg.id)) {
+        const terminalId = idMap.get(prevMsg.id);
+        if (terminalId) {
+          removeTerminalItemById(currentTab.id, terminalId);
+          idMap.delete(prevMsg.id);
+        }
+      }
+    }
 
     for (const msg of curr) {
       const prevMsg = prev.find(p => p.id === msg.id);

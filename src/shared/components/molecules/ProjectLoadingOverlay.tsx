@@ -260,12 +260,16 @@ export const ProjectLoadingOverlay = ({
 
                             {/* Rotating tips */}
                             {showTips && (
-                                <Animated.View style={[styles.tipContainer, { opacity: tipFadeAnim }]}>
-                                    <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
-                                    <Text style={styles.tipText} numberOfLines={2}>
-                                        {LOADING_TIPS[currentTip].text}
-                                    </Text>
-                                </Animated.View>
+                                <View style={styles.tipBlurWrapper}>
+                                    <BlurView intensity={40} tint="dark" style={styles.tipBlur}>
+                                        <Animated.View style={[styles.tipContainerFallback, { opacity: tipFadeAnim }]}>
+                                            <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
+                                            <Text style={styles.tipText} numberOfLines={2}>
+                                                {LOADING_TIPS[currentTip].text}
+                                            </Text>
+                                        </Animated.View>
+                                    </BlurView>
+                                </View>
                             )}
                         </View>
                     )}
@@ -366,36 +370,41 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     tipGlassWrapper: {
-        borderRadius: 12,
+        borderRadius: 16,
         overflow: 'hidden',
         width: '100%',
     },
     tipGlass: {
         width: '100%',
+        borderRadius: 16,
     },
     tipContainerRaw: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        backgroundColor: 'rgba(155, 138, 255, 0.08)',
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: 'rgba(155, 138, 255, 0.12)',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
     },
-    tipContainer: {
+    tipBlurWrapper: {
+        borderRadius: 16,
+        overflow: 'hidden',
+        width: '100%',
+    },
+    tipBlur: {
+        width: '100%',
+        borderRadius: 16,
+        overflow: 'hidden',
+    },
+    tipContainerFallback: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        backgroundColor: 'rgba(155, 138, 255, 0.06)',
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        marginBottom: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        backgroundColor: 'rgba(255, 255, 255, 0.04)',
         borderWidth: 1,
-        borderColor: 'rgba(155, 138, 255, 0.1)',
-        width: '100%',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: 16,
     },
     tipIcon: {
         fontSize: 18,
