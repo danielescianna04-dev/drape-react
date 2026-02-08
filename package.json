@@ -3,6 +3,7 @@
   "version": "1.3.0",
   "main": "index.ts",
   "scripts": {
+    "postinstall": "npx patch-package",
     "setup": "node setup.js",
     "setup:backend": "node scripts/setup-backend.js",
     "prestart": "node scripts/get-local-ip.js",

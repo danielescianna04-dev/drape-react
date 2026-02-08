@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { applyGlassEffect, removeGlassEffect } from '../../shared/components/NativeGlassView';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -167,6 +168,89 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Liquid Glass Shimmer Animation - flows across the button
   const shimmerX = useSharedValue(-150);
+  // Need activeTabId BEFORE the glass useEffect so the dependency array works
+  const activeTabId = useTabStore((state) => state.activeTabId);
+  const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
+  const isActiveTab = (tab?.id ?? activeTabId) === activeTabId;
+  const inputBarGlassId = useMemo(() => {
+    const rawId = tab?.id ?? activeTabId ?? 'main';
+    const safeId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `inputBarGlass-${safeId}`;
+  }, [tab?.id, activeTabId]);
+  const lastGlassIdRef = useRef<string | null>(null);
+  const removeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Apply native glass effect imperatively — lives in native, React can't touch it
+  const [glassApplied, setGlassApplied] = useState(false);
+
+  const applyInputGlass = useCallback(async (prevId?: string | null) => {
+    if (Platform.OS !== 'ios' || !isActiveTab || isSidebarOpen) return;
+    const ok = await applyGlassEffect(inputBarGlassId, 28);
+    if (ok) {
+      setGlassApplied(true);
+      if (prevId && prevId !== inputBarGlassId) {
+        if (removeTimerRef.current) {
+          clearTimeout(removeTimerRef.current);
+          removeTimerRef.current = null;
+        }
+        removeTimerRef.current = setTimeout(() => {
+          removeGlassEffect(prevId);
+        }, 32);
+      }
+    }
+  }, [inputBarGlassId, isActiveTab, isSidebarOpen]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !isActiveTab) return;
+    if (isSidebarOpen) {
+      if (removeTimerRef.current) {
+        clearTimeout(removeTimerRef.current);
+        removeTimerRef.current = null;
+      }
+      setGlassApplied(false);
+      removeGlassEffect(inputBarGlassId);
+      return;
+    }
+    let cancelled = false;
+    const prevId = lastGlassIdRef.current;
+    if (removeTimerRef.current) {
+      clearTimeout(removeTimerRef.current);
+      removeTimerRef.current = null;
+    }
+    setGlassApplied(false);
+    lastGlassIdRef.current = inputBarGlassId;
+    applyInputGlass(prevId);
+    const delays = [0, 80, 200];
+    const timers = delays.map(ms =>
+      setTimeout(async () => {
+        if (cancelled) return;
+        const ok = await applyGlassEffect(inputBarGlassId, 28);
+        if (ok && !cancelled) setGlassApplied(true);
+      }, ms)
+    );
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+      if (removeTimerRef.current) {
+        clearTimeout(removeTimerRef.current);
+        removeTimerRef.current = null;
+      }
+      const idToRemove = inputBarGlassId;
+      removeTimerRef.current = setTimeout(() => {
+        removeGlassEffect(idToRemove);
+      }, 180);
+    };
+  }, [activeTabId, inputBarGlassId, isActiveTab, applyInputGlass, isSidebarOpen]);
+
+  // Apply glass to model dropdown when it opens
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !showModelSelector) return;
+    const timer = setTimeout(() => applyGlassEffect('modelDropdownGlass', 16), 100);
+    return () => {
+      clearTimeout(timer);
+      removeGlassEffect('modelDropdownGlass');
+    };
+  }, [showModelSelector]);
+
   useEffect(() => {
     shimmerX.value = withRepeat(
       withTiming(150, { duration: 3000, easing: Easing.bezier(0.4, 0, 0.2, 1) }),
@@ -577,7 +661,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Usa selettori specifici per evitare re-render su ogni cambio di store
   const tabs = useTabStore((state) => state.tabs);
-  const activeTabId = useTabStore((state) => state.activeTabId);
+  // activeTabId is declared earlier (before glass useEffect)
   const updateTab = useTabStore((state) => state.updateTab);
   const addTerminalItemToStore = useTabStore((state) => state.addTerminalItem);
   const removeTerminalItemById = useTabStore((state) => state.removeTerminalItemById);
@@ -2610,37 +2694,28 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               )}
 
               <View
+                testID={inputBarGlassId}
+                nativeID={inputBarGlassId}
                 style={[
                   styles.inputGradient,
-                  { borderRadius: 24, overflow: 'hidden' },
+                  styles.inputGradientOverflow,
                   selectedInputImages.length > 0 && styles.inputGradientWithImages
                 ]}
                 onLayout={(e) => {
-                  const newHeight = e.nativeEvent.layout.height;
-                  widgetHeight.value = withTiming(newHeight, { duration: 100 });
+                  widgetHeight.value = withTiming(e.nativeEvent.layout.height, { duration: 100 });
+                  if (Platform.OS === 'ios' && isActiveTab && !isSidebarOpen && !glassApplied) {
+                    requestAnimationFrame(() => {
+                      applyInputGlass();
+                    });
+                  }
                 }}
               >
-                {/* Background Layer */}
-                {isLiquidGlassSupported ? (
-                  <>
-                    <BlurView
-                      intensity={80}
-                      tint="dark"
-                      style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
-                    />
-                    <LiquidGlassView
-                      style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
-                      interactive={true}
-                      effect="regular"
-                      colorScheme="dark"
-                    />
-                  </>
-                ) : (
-                  <LinearGradient
-                    colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
-                    style={StyleSheet.absoluteFill}
-                  />
-                )}
+                {/* Background — always rendered; the native glass overlays on top with passthrough touches */}
+                <LinearGradient
+                  colors={[`${AppColors.dark.surface}F9`, `${AppColors.dark.surface}EB`]}
+                  style={StyleSheet.absoluteFill}
+                />
+
                 {/* Top Controls */}
                 <View style={styles.topControls}>
                   <View style={styles.modeToggleContainer}>
@@ -2656,7 +2731,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           <Ionicons
                             name="flash"
                             size={14}
-                            color={agentMode === 'fast' ? AppColors.white.full : '#8A8A8A'}
+                            color={agentMode === 'fast' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
                           />
                         </Animated.View>
                       </TouchableOpacity>
@@ -2671,7 +2746,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           <Ionicons
                             name="clipboard"
                             size={14}
-                            color={agentMode === 'planning' ? AppColors.white.full : '#8A8A8A'}
+                            color={agentMode === 'planning' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
                           />
                         </Animated.View>
                       </TouchableOpacity>
@@ -2685,7 +2760,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <Ionicons
                       name={showModelSelector ? "chevron-up" : "chevron-down"}
                       size={12}
-                      color={AppColors.dark.bodyText}
+                      color="rgba(255,255,255,0.4)"
                     />
                   </TouchableOpacity>
                 </View>
@@ -2706,7 +2781,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     onPress={toggleToolsSheet}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="add" size={24} color="#8A8A8A" />
+                    <Ionicons name="add" size={24} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
 
                   <TextInput
@@ -2734,13 +2809,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   <TouchableOpacity
                     onPress={agentStreaming || isLoading ? handleStop : () => handleSend()}
                     disabled={!agentStreaming && !isLoading && !input.trim() && selectedInputImages.length === 0}
-                    style={styles.sendButton}
+                    style={[
+                      styles.sendButton,
+                      agentStreaming || isLoading
+                        ? { backgroundColor: 'rgba(255,80,80,0.15)' }
+                        : (input.trim() || selectedInputImages.length > 0)
+                          ? { backgroundColor: AppColors.primary }
+                          : { backgroundColor: 'transparent', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+                    ]}
                     activeOpacity={0.7}
                   >
                     <Ionicons
-                      name={agentStreaming || isLoading ? "stop-circle" : "arrow-up-circle"}
-                      size={32}
-                      color={agentStreaming || isLoading ? "#FF6B6B" : (input.trim() || selectedInputImages.length > 0) ? AppColors.primary : AppColors.dark.surfaceVariant}
+                      name={agentStreaming || isLoading ? "stop" : "arrow-up"}
+                      size={16}
+                      color={agentStreaming || isLoading ? "#FF5050" : (input.trim() || selectedInputImages.length > 0) ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
                     />
                   </TouchableOpacity>
                 </View>
@@ -2754,7 +2836,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     style={styles.dropdownOverlay}
                     onPress={closeDropdown}
                   />
-                  <Animated.View style={[styles.modelDropdown, dropdownAnimatedStyle]}>
+                  <Animated.View testID="modelDropdownGlass" style={[styles.modelDropdown, dropdownAnimatedStyle]}>
                     {AI_MODELS.map((model) => {
                       const IconComponent = model.IconComponent;
                       const isSelected = selectedModel === model.id;
@@ -3364,12 +3446,15 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   inputGradient: {
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: AppColors.primaryAlpha.a15,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     elevation: 8,
-    marginHorizontal: 16, // Margine orizzontale per restringere la card
+    marginHorizontal: 16,
     zIndex: 10,
+  },
+  inputGradientOverflow: {
+    overflow: 'hidden',
   },
   inputGradientWithImages: {
     borderTopLeftRadius: 0,
@@ -3377,11 +3462,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
   },
   topControls: {
-    height: 40,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 4,
     overflow: 'visible',
     zIndex: 100,
@@ -3395,10 +3480,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: 'transparent',
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
     padding: 3,
-    gap: 2,
+    gap: 4,
   },
   autoLabel: {
     fontSize: 9,
@@ -3414,7 +3497,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   modeButtonActive: {
-    backgroundColor: AppColors.primaryAlpha.a20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   modeButtonForced: {
     borderWidth: 1,
@@ -3430,14 +3513,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: AppColors.dark.surfaceAlt,
     gap: 4,
   },
   modelText: {
-    fontSize: 10,
-    color: AppColors.icon.default,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
     fontWeight: '500',
   },
   dropdownOverlay: {
@@ -3566,13 +3646,13 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingHorizontal: 12,
     paddingBottom: 4,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1.5,
-    borderLeftWidth: 1.5,
-    borderRightWidth: 1.5,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderBottomWidth: 0,
-    borderColor: AppColors.primaryAlpha.a15,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   compactImageBarContent: {
     flexDirection: 'row',
@@ -3604,32 +3684,35 @@ const styles = StyleSheet.create({
   mainInputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   toolsButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendButton: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   input: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 15,
     color: AppColors.dark.titleText,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    maxHeight: 300, // Altezza massima del campo di input
-    lineHeight: 20,
-    textAlignVertical: 'top', // Allinea il testo in alto nel campo
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    maxHeight: 300,
+    lineHeight: 22,
+    textAlignVertical: 'top',
   },
 });
 export default ChatPage;

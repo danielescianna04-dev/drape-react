@@ -8,11 +8,13 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		3624997F4E6C4955EDCE0AA2 /* GlassEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4E3A95EDE6C5909026BEC /* GlassEffectView.swift */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		5A31CE37DCC69E96C24FB41A /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2ED21B28A871B0F035473887 /* ExpoModulesProvider.swift */; };
 		81CE042EF35BD7D2BF901993 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 3E3D7DED2A6D9A615EDD2747 /* PrivacyInfo.xcprivacy */; };
 		A114C1B9897439998FC452E2 /* Pods_Drape.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 148935A9DD4A3A9C4DE62874 /* Pods_Drape.framework */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		E644478695526F9875A852A7 /* GlassEffectViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = CC5267EDF045F4457DB4F44F /* GlassEffectViewManager.m */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -20,6 +22,7 @@
 		13B07F961A680F5B00A75B9A /* Drape.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Drape.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Drape/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Drape/Info.plist; sourceTree = "<group>"; };
+		13C4E3A95EDE6C5909026BEC /* GlassEffectView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = GlassEffectView.swift; path = Drape/GlassEffectView.swift; sourceTree = "<group>"; };
 		148935A9DD4A3A9C4DE62874 /* Pods_Drape.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Drape.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		2ED21B28A871B0F035473887 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Drape/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		3E3D7DED2A6D9A615EDD2747 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Drape/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -27,6 +30,7 @@
 		9E322FC4AC22EF3B5B7E646D /* Pods-Drape.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Drape.debug.xcconfig"; path = "Target Support Files/Pods-Drape/Pods-Drape.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Drape/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		CC5267EDF045F4457DB4F44F /* GlassEffectViewManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = GlassEffectViewManager.m; path = Drape/GlassEffectViewManager.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Drape/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Drape-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Drape-Bridging-Header.h"; path = "Drape/Drape-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -54,6 +58,8 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				3E3D7DED2A6D9A615EDD2747 /* PrivacyInfo.xcprivacy */,
+				13C4E3A95EDE6C5909026BEC /* GlassEffectView.swift */,
+				CC5267EDF045F4457DB4F44F /* GlassEffectViewManager.m */,
 			);
 			name = Drape;
 			sourceTree = "<group>";
@@ -342,6 +348,8 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				5A31CE37DCC69E96C24FB41A /* ExpoModulesProvider.swift in Sources */,
+				3624997F4E6C4955EDCE0AA2 /* GlassEffectView.swift in Sources */,
+				E644478695526F9875A852A7 /* GlassEffectViewManager.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

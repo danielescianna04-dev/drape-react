@@ -1,0 +1,12 @@
+diff --git a/node_modules/@callstack/liquid-glass/ios/LiquidGlassView.swift b/node_modules/@callstack/liquid-glass/ios/LiquidGlassView.swift
+index 1be2f0b..34aedd4 100644
+--- a/node_modules/@callstack/liquid-glass/ios/LiquidGlassView.swift
++++ b/node_modules/@callstack/liquid-glass/ios/LiquidGlassView.swift
+@@ -31,7 +31,6 @@ import UIKit
+   @objc public var style: LiquidGlassEffect = .regular
+ 
+   public override func layoutSubviews() {
+-    if (self.effect != nil) { return }
+     setupView()
+ 
+     if isFirstMount {

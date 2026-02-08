@@ -44,6 +44,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
+  const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
   const apiUrl = ''; // apiUrl comes from NetworkConfig, not TabStore
 
   // Shared values - MUST be declared before useEffect that uses them
@@ -112,6 +113,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       opacity: slideOpacity,
     };
   });
+
+  useEffect(() => {
+    const isOverlayOpen = Boolean(renderedPanel)
+      || showPreviewPanel
+      || isVerticalPanelMounted
+      || activePanel === 'multitasking'
+      || activePanel === 'vertical'
+      || isGitSheetVisible;
+    setIsSidebarOpen(isOverlayOpen);
+  }, [renderedPanel, showPreviewPanel, isVerticalPanelMounted, activePanel, isGitSheetVisible, setIsSidebarOpen]);
 
   // Auto-close sidebar when opening a preview (either as tab or panel)
   // Only trigger when showPreviewPanel JUST became true (not when closing other panels)
