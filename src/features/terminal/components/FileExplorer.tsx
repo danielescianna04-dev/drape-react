@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   searchModeToggle: {
-    padding: 10,
+    padding: 6,
     marginLeft: 4,
   },
   centerContainer: {
@@ -752,7 +752,7 @@ const styles = StyleSheet.create({
   fileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 6,
     paddingHorizontal: 8,
   },
   fileIcon: {
@@ -760,13 +760,13 @@ const styles = StyleSheet.create({
   },
   fileName: {
     fontSize: 13,
-    color: AppColors.white.w80, // Slightly brighter
+    color: AppColors.white.w80,
     flex: 1,
   },
   folderItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: 6,
     paddingHorizontal: 8,
   },
   chevron: {

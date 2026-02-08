@@ -140,7 +140,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loadingProjectName, setLoadingProjectName] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStep, setLoadingStep] = useState('');
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'starter' | 'pro' | 'team'>(user?.plan || 'free');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>(user?.plan === 'starter' ? 'free' : (user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
   const [showUpgradeCta, setShowUpgradeCta] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);

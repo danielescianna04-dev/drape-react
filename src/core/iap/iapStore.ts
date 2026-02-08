@@ -97,7 +97,7 @@ export const useIAPStore = create<IAPState>((set, get) => ({
       const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
         const data = userDoc.data();
-        const plan = data?.plan || 'starter';
+        const plan = data?.plan || 'free';
         const productId = data?.subscription?.productId || null;
         useAuthStore.setState({ user: { ...user, plan } });
         set({ currentProductId: productId });

@@ -133,7 +133,7 @@ iapRouter.post('/apple-webhook', asyncHandler(async (req, res) => {
     switch (notification.notificationType) {
       case 'SUBSCRIBED':
       case 'DID_RENEW':
-        newPlan = PRODUCT_TO_PLAN[productId] || 'starter';
+        newPlan = PRODUCT_TO_PLAN[productId] || 'free';
         isActive = true;
         break;
 
@@ -147,7 +147,7 @@ iapRouter.post('/apple-webhook', asyncHandler(async (req, res) => {
           res.sendStatus(200);
           return;
         }
-        newPlan = PRODUCT_TO_PLAN[productId] || 'starter';
+        newPlan = PRODUCT_TO_PLAN[productId] || 'free';
         isActive = true;
         break;
 
@@ -155,17 +155,17 @@ iapRouter.post('/apple-webhook', asyncHandler(async (req, res) => {
       case 'GRACE_PERIOD_EXPIRED':
       case 'REFUND':
       case 'REVOKE':
-        newPlan = 'starter';
+        newPlan = 'free';
         isActive = false;
         break;
 
       case 'DID_FAIL_TO_RENEW':
         if (notification.subtype === 'GRACE_PERIOD') {
           log.info(`[IAP Webhook] User ${userId} in grace period`);
-          newPlan = PRODUCT_TO_PLAN[productId] || 'starter';
+          newPlan = PRODUCT_TO_PLAN[productId] || 'free';
           isActive = true;
         } else {
-          newPlan = 'starter';
+          newPlan = 'free';
           isActive = false;
         }
         break;

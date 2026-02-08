@@ -64,7 +64,6 @@ export class AgentLoop {
   private static readonly PLAN_BUDGETS: Record<string, number> = {
     free: 2.00,
     go: 7.50,
-    starter: 10.00,
     pro: 50.00,
     team: 200.00,
   };
@@ -131,6 +130,7 @@ export class AgentLoop {
 
       // 2. Check AI budget before doing anything expensive
       const budgetCheck = this.checkBudget();
+      log.info(`[AgentLoop] Budget check: userId=${this.userId}, plan=${this.userPlan}, exceeded=${budgetCheck.exceeded}, percentUsed=${budgetCheck.percentUsed}%`);
       if (budgetCheck.exceeded) {
         log.warn(`[AgentLoop] Budget exceeded for user ${this.userId} (plan: ${this.userPlan}, ${budgetCheck.percentUsed}% used)`);
         yield {

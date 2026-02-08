@@ -17,7 +17,7 @@ interface BudgetStatus {
 }
 
 interface SubscriptionSectionProps {
-  currentPlan: 'free' | 'go' | 'starter' | 'pro' | 'team';
+  currentPlan: 'free' | 'go' | 'pro' | 'team';
   budgetStatus: BudgetStatus | null;
   loading: boolean;
   onPlanPress: () => void;
@@ -42,18 +42,18 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
             icon="card-outline"
             iconColor="#60A5FA"
             title={t('subscription.currentPlan')}
-            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'starter' ? 'Starter' : currentPlan === 'pro' ? 'Pro' : currentPlan === 'team' ? 'Team' : currentPlan.toUpperCase()}
+            subtitle={currentPlan === 'free' ? 'Free' : currentPlan === 'go' ? 'Go' : currentPlan === 'pro' ? 'Pro' : currentPlan === 'team' ? 'Team' : currentPlan.toUpperCase()}
             onPress={onPlanPress}
           />
           <SettingItem
             icon="wallet-outline"
             iconColor="#34D399"
             title={t('subscription.aiBudget')}
-            subtitle={budgetStatus ? `${budgetStatus.usage.percentUsed}% ${t('subscription.usage')}` : t('subscription.loading')}
+            subtitle={budgetStatus ? `${Math.min(budgetStatus.usage.percentUsed, 100)}% ${t('subscription.usage')}` : t('subscription.loading')}
             onPress={onBudgetPress}
-            isLast={currentPlan === 'free' || currentPlan === 'starter'}
+            isLast={currentPlan === 'free'}
           />
-          {currentPlan !== 'free' && currentPlan !== 'starter' && (
+          {currentPlan !== 'free' && (
             <SettingItem
               icon="settings-outline"
               iconColor="#A78BFA"

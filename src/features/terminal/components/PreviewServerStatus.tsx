@@ -330,6 +330,7 @@ export const PreviewErrorScreen: React.FC<{
 export const PreviewLoadingScreen: React.FC<{
   previewError: { message: string; timestamp: Date } | null;
   previewLogs: PreviewLog[];
+  terminalOutput?: string[];
   displayedMessage: string;
   startingMessage: string;
   smoothProgress: number;
@@ -345,6 +346,7 @@ export const PreviewLoadingScreen: React.FC<{
 }> = ({
   previewError,
   previewLogs,
+  terminalOutput,
   displayedMessage,
   startingMessage,
   smoothProgress,
@@ -412,31 +414,30 @@ export const PreviewLoadingScreen: React.FC<{
               contentContainerStyle={styles.terminalContent}
               showsVerticalScrollIndicator={false}
               ref={(ref) => {
-                if (ref && previewLogs.length > 0) {
+                if (ref && (previewLogs.length > 0 || (terminalOutput && terminalOutput.length > 0))) {
                   setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
                 }
               }}
             >
-              {previewLogs.length > 0 ? (
-                <>
-                  {(previewLogs || []).map((log) => (
-                    <Text key={log.id} style={styles.terminalLogText}>
-                      {log.message}
-                    </Text>
-                  ))}
-                  {/* Blinking cursor */}
-                  <Animated.View style={[styles.terminalCursor, {
-                    opacity: pulseAnim.interpolate({
-                      inputRange: [0.6, 1],
-                      outputRange: [0, 1]
-                    })
-                  }]} />
-                </>
+              {/* Real container terminal output */}
+              {(terminalOutput && terminalOutput.length > 0) ? (
+                (terminalOutput).map((line, index) => (
+                  <Text key={`out-${index}`} style={[styles.terminalLogText, { color: line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') ? '#f87171' : '#e0e0e0' }]}>
+                    {line}
+                  </Text>
+                ))
               ) : (
                 <Text style={styles.terminalLogText}>
                   {displayedMessage || t('terminal:preview.initializingEnv')}
                 </Text>
               )}
+              {/* Blinking cursor */}
+              <Animated.View style={[styles.terminalCursor, {
+                opacity: pulseAnim.interpolate({
+                  inputRange: [0.6, 1],
+                  outputRange: [0, 1]
+                })
+              }]} />
             </ScrollView>
 
             {/* Progress bar at bottom */}

@@ -78,8 +78,8 @@
     "error": "Impossibile effettuare il logout"
   },
   "plans": {
-    "starter": {
-      "name": "Starter",
+    "free": {
+      "name": "Free",
       "description": "Per chi vuole esplorare le basi"
     },
     "go": {

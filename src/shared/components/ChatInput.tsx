@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#F0F0F0',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     paddingHorizontal: 16,
     paddingVertical: 14,
     maxHeight: 150, // Altezza massima del campo di input

@@ -10,7 +10,7 @@ interface ProfileSectionProps {
     displayName?: string | null;
     email?: string | null;
   } | null;
-  currentPlan: 'free' | 'go' | 'starter' | 'pro' | 'team';
+  currentPlan: 'free' | 'go' | 'pro' | 'team';
   onEditPress: () => void;
   loading?: boolean;
 }

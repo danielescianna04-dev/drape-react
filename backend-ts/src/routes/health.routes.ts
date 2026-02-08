@@ -51,13 +51,13 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
-      starter: { tokens: 50000, previews: 5, projects: 5, search: 50 },
+      free:    { tokens: 50000, previews: 5, projects: 5, search: 50 },
       go:      { tokens: 500000, previews: 20, projects: 15, search: 200 },
       pro:     { tokens: 2000000, previews: 10, projects: 75, search: 1000 },
       team:    { tokens: 10000000, previews: 50, projects: 300, search: 5000 },
     };
 
-    const limits = planLimits[planId] || planLimits.starter;
+    const limits = planLimits[planId] || planLimits.free;
 
     // Get real AI usage from metrics
     const monthStart = new Date();
@@ -131,13 +131,13 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
     const planId = (req.query.planId as string) || await getUserPlan(userId);
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
-      starter: { name: 'Starter', monthlyBudgetEur: 2.00 },
+      free:    { name: 'Free', monthlyBudgetEur: 2.00 },
       go:      { name: 'Go', monthlyBudgetEur: 7.50 },
       pro:     { name: 'Pro', monthlyBudgetEur: 50.00 },
       team:    { name: 'Team', monthlyBudgetEur: 200.00 },
     };
 
-    const plan = planBudgets[planId] || planBudgets.starter;
+    const plan = planBudgets[planId] || planBudgets.free;
 
     // Get this month's AI spending from metrics
     const monthStart = new Date();

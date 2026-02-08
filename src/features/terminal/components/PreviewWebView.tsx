@@ -433,6 +433,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
         <PreviewLoadingScreen
           previewError={previewError}
           previewLogs={previewLogs}
+          terminalOutput={terminalOutput}
           displayedMessage={displayedMessage}
           startingMessage={startingMessage}
           smoothProgress={smoothProgress}

@@ -484,12 +484,11 @@ flyRouter.post('/inspect', asyncHandler(async (req, res) => {
   res.json({ success: false, error: 'Not yet implemented in TS backend' });
 }));
 
-// GET /fly/logs/:projectId — SSE log stream from container
+// GET /fly/logs/:projectId — SSE log stream from container (proxy agent /logs)
 flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const uid = req.userId || 'anonymous';
 
-  // Verify project ownership
   const isOwner = await verifyProjectOwnership(uid, projectId);
   if (!isOwner) {
     log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (logs)`);
@@ -505,22 +504,52 @@ flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  // Proxy the agent's /logs SSE endpoint
+  log.info(`[Logs] Proxying agent /logs for ${projectId} → ${session.agentUrl}`);
+
+  const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\[[\d;]*m/g, '');
+
   const axios = (await import('axios')).default;
   try {
-    const response = await axios.get(`${session.agentUrl}/logs`, {
+    const response = await axios.get(`${session.agentUrl}/logs?since=0`, {
       responseType: 'stream',
       timeout: 0,
-      params: { since: req.query.since },
     });
 
-    response.data.pipe(res);
+    let buffer = '';
+    response.data.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      let lineEnd;
+      while ((lineEnd = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.substring(0, lineEnd);
+        buffer = buffer.substring(lineEnd + 1);
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.substring(6));
+            if (data.text) data.text = stripAnsi(data.text);
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+          } catch {
+            res.write(line + '\n');
+          }
+        } else if (line.trim() === '') {
+          // skip blank SSE separator lines (we add \n\n after each data line)
+        } else {
+          res.write(line + '\n');
+        }
+      }
+      if (typeof (res as any).flush === 'function') (res as any).flush();
+    });
+
+    response.data.on('end', () => { res.end(); });
+    response.data.on('error', (err: Error) => {
+      log.error(`[Logs] Stream error for ${projectId}: ${err.message}`);
+      res.end();
+    });
 
     req.on('close', () => {
       response.data.destroy();
     });
   } catch (e: any) {
-    log.error(`[Fly] Log stream error for ${req.params.projectId}:`, e);
+    log.error(`[Logs] Stream error for ${projectId}: ${e.message}`);
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to connect to log stream' })}\n\n`);
     res.end();
   }

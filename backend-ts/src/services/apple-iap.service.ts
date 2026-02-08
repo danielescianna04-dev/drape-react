@@ -76,7 +76,7 @@ class AppleIAPService {
     if (!latestTransaction) {
       return {
         isActive: false,
-        plan: 'starter',
+        plan: 'free',
         productId: '',
         expiresAt: null,
         originalTransactionId: transactionId,
@@ -86,13 +86,13 @@ class AppleIAPService {
 
     const transactionInfo = this.decodeJWSPayload(latestTransaction.signedTransactionInfo);
     const productId = transactionInfo.productId;
-    const plan = PRODUCT_TO_PLAN[productId] || 'starter';
+    const plan = PRODUCT_TO_PLAN[productId] || 'free';
     const expiresAt = transactionInfo.expiresDate ? new Date(transactionInfo.expiresDate) : null;
     const isActive = latestTransaction.status === 1 || latestTransaction.status === 3;
 
     return {
       isActive,
-      plan: isActive ? plan : 'starter',
+      plan: isActive ? plan : 'free',
       productId,
       expiresAt,
       originalTransactionId: transactionInfo.originalTransactionId || transactionId,

@@ -217,7 +217,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     // Reset engine + agent for new run
     engine.reset();
     resetAgent();
-    startAgent(prompt, currentWorkstationId, 'gemini-3-flash', conversationHistory, [], 'minimal');
+    startAgent(prompt, currentWorkstationId, 'claude-4-5-sonnet', conversationHistory, [], 'minimal');
   };
 
   // ── Past chat actions ───────────────────────────────────────────────────
@@ -255,7 +255,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     LayoutAnimation.configureNext({
       duration: 300,
       create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.7 },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
     });
     setIsInputExpanded(true);
     fabContentOpacity.setValue(0);
@@ -268,12 +268,13 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
   const collapseFab = () => {
     LayoutAnimation.configureNext({
-      duration: 250,
+      duration: 300,
       create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-      update: { type: LayoutAnimation.Types.spring, springDamping: 0.8 },
+      update: { type: LayoutAnimation.Types.easeInEaseOut },
+      delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
     });
     Animated.timing(fabContentOpacity, {
-      toValue: 0, duration: 100, useNativeDriver: false,
+      toValue: 0, duration: 150, useNativeDriver: false,
     }).start(() => {
       setIsInputExpanded(false);
     });
@@ -295,7 +296,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
       engine.reset();
       resetAgent();
-      startAgent(responseMessage, currentWorkstationId, 'gemini-3-flash', [], [], 'minimal');
+      startAgent(responseMessage, currentWorkstationId, 'claude-4-5-sonnet', [], [], 'minimal');
     }
   };
 
@@ -359,34 +360,27 @@ const INSPECT_MODE_JS = `
       z-index: 999999 !important;
       transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
       animation: inspectorPulse 2s ease-in-out infinite !important;
-      border-radius: 4px !important;
+      border-radius: 12px !important;
     }
     .__inspector-tooltip {
       position: absolute !important;
-      background: linear-gradient(135deg, #8B7CF6 0%, #7C5DFA 100%) !important;
-      color: white !important;
-      padding: 8px 12px !important;
-      font-size: 12px !important;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-      border-radius: 8px !important;
-      top: -42px !important;
+      background: rgba(30, 30, 40, 0.75) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      color: rgba(255, 255, 255, 0.9) !important;
+      padding: 5px 10px !important;
+      font-size: 11px !important;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif !important;
+      border-radius: 20px !important;
+      top: -32px !important;
       left: 50% !important;
       transform: translateX(-50%) !important;
       white-space: nowrap !important;
       pointer-events: none !important;
       z-index: 9999999 !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
-      font-weight: 600 !important;
-    }
-    .__inspector-tooltip::after {
-      content: '' !important;
-      position: absolute !important;
-      bottom: -6px !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      border-left: 6px solid transparent !important;
-      border-right: 6px solid transparent !important;
-      border-top: 6px solid #7C5DFA !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 0 0 0.5px rgba(255, 255, 255, 0.1) !important;
+      font-weight: 500 !important;
+      letter-spacing: -0.2px !important;
     }
   \`;
   document.head.appendChild(style);
@@ -439,12 +433,14 @@ const INSPECT_MODE_JS = `
     const id = lastElement.id || '';
     const text = lastElement.textContent?.substring(0, 50) || '';
 
-    overlay.style.borderColor = '#00D084';
-    overlay.style.background = 'rgba(0, 208, 132, 0.2)';
+    overlay.style.borderColor = '#8B7CF6';
+    overlay.style.background = 'rgba(139, 124, 246, 0.08)';
     overlay.style.animation = 'none';
-    overlay.style.boxShadow = '0 0 0 3px rgba(0, 208, 132, 0.3)';
-    tooltip.style.background = 'linear-gradient(135deg, #00D084 0%, #00B972 100%)';
-    tooltip.textContent = '✓ Selected';
+    overlay.style.boxShadow = '0 0 0 2px rgba(139, 124, 246, 0.25)';
+    tooltip.style.background = 'rgba(139, 124, 246, 0.85)';
+    tooltip.style.backdropFilter = 'blur(20px)';
+    tooltip.style.webkitBackdropFilter = 'blur(20px)';
+    tooltip.textContent = '✓ Selezionato';
 
     window.ReactNativeWebView?.postMessage(JSON.stringify({
       type: 'ELEMENT_SELECTED',

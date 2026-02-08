@@ -1,8 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, TextInput, ScrollView, Keyboard, ActivityIndicator, LayoutAnimation } from 'react-native';
-import Reanimated from 'react-native-reanimated';
+import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { LiquidGlassView } from '@callstack/liquid-glass';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
@@ -113,6 +114,47 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   onLoadPastChat,
   onStartNewChat,
 }) => {
+  const inspectScale = useSharedValue(1);
+  const messagesOpacity = useSharedValue(isMessagesCollapsed ? 0 : 1);
+  const messagesHeight = useSharedValue(isMessagesCollapsed ? 0 : 1);
+  const pastChatsProgress = useSharedValue(showPastChats ? 1 : 0);
+
+  React.useEffect(() => {
+    inspectScale.value = withSpring(isInspectMode ? 1.25 : 1, { damping: 20, stiffness: 120, overshootClamping: true });
+  }, [isInspectMode]);
+
+  React.useEffect(() => {
+    const timing = { duration: 250, easing: Easing.out(Easing.cubic) };
+    if (isMessagesCollapsed) {
+      messagesOpacity.value = withTiming(0, { duration: 150 });
+      messagesHeight.value = withTiming(0, timing);
+    } else {
+      messagesHeight.value = withTiming(1, timing);
+      messagesOpacity.value = withTiming(1, { duration: 200 });
+    }
+  }, [isMessagesCollapsed]);
+
+  React.useEffect(() => {
+    const timing = { duration: 200, easing: Easing.out(Easing.cubic) };
+    pastChatsProgress.value = withTiming(showPastChats ? 1 : 0, timing);
+  }, [showPastChats]);
+
+  const inspectAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: inspectScale.value }],
+  }));
+
+  const messagesAnimStyle = useAnimatedStyle(() => ({
+    opacity: messagesOpacity.value,
+    maxHeight: messagesHeight.value * 200,
+    overflow: 'hidden' as const,
+  }));
+
+  const pastChatsAnimStyle = useAnimatedStyle(() => ({
+    opacity: pastChatsProgress.value,
+    maxHeight: pastChatsProgress.value * 300,
+    overflow: 'hidden' as const,
+  }));
+
   return (
     <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : bottomInset + 8, left: isInputExpanded ? 12 : undefined }]}>
 
@@ -192,75 +234,78 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                     </TouchableOpacity>
                   </View>
                   {/* Past chats dropdown */}
-                  {showPastChats && (() => {
-                    const previewChats = chatHistory.filter(
-                      (c: any) => c.id?.startsWith('preview-') && c.repositoryId === currentWorkstationId
-                    );
-                    return (
-                      <View style={{
-                        marginHorizontal: 12,
-                        marginBottom: 6,
-                        backgroundColor: 'rgba(255,255,255,0.06)',
-                        borderRadius: 12,
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.08)',
-                        overflow: 'hidden',
-                      }}>
-                        <TouchableOpacity
-                          onPress={onStartNewChat}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            paddingHorizontal: 12,
-                            paddingVertical: 10,
-                            gap: 8,
-                            borderBottomWidth: previewChats.length > 0 ? 0.5 : 0,
-                            borderBottomColor: 'rgba(255,255,255,0.06)',
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="add-circle-outline" size={14} color={AppColors.primary} />
-                          <Text style={{ fontSize: 12, color: '#fff', fontWeight: '600' }}>Nuova chat</Text>
-                        </TouchableOpacity>
-                        {previewChats.slice(0, 5).map((chat: any) => (
+                  <Reanimated.View style={pastChatsAnimStyle}>
+                    {(() => {
+                      const previewChats = chatHistory.filter(
+                        (c: any) => c.id?.startsWith('preview-') && c.repositoryId === currentWorkstationId
+                      );
+                      if (previewChats.length === 0 && !previewChatId) return null;
+                      return (
+                        <View style={{
+                          marginHorizontal: 12,
+                          marginBottom: 6,
+                          backgroundColor: 'rgba(255,255,255,0.06)',
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255,255,255,0.08)',
+                          overflow: 'hidden',
+                        }}>
                           <TouchableOpacity
-                            key={chat.id}
-                            onPress={() => onLoadPastChat(chat)}
+                            onPress={onStartNewChat}
                             style={{
                               flexDirection: 'row',
                               alignItems: 'center',
                               paddingHorizontal: 12,
                               paddingVertical: 10,
                               gap: 8,
-                              backgroundColor: chat.id === previewChatId ? 'rgba(139, 124, 246, 0.1)' : 'transparent',
+                              borderBottomWidth: previewChats.length > 0 ? 0.5 : 0,
+                              borderBottomColor: 'rgba(255,255,255,0.06)',
                             }}
                             activeOpacity={0.7}
                           >
-                            <Ionicons
-                              name={chat.id === previewChatId ? "chatbubble" : "chatbubble-outline"}
-                              size={12}
-                              color={chat.id === previewChatId ? AppColors.primary : 'rgba(255,255,255,0.4)'}
-                            />
-                            <Text
-                              style={{
-                                flex: 1,
-                                fontSize: 12,
-                                color: chat.id === previewChatId ? '#fff' : 'rgba(255,255,255,0.5)',
-                                fontWeight: chat.id === previewChatId ? '600' : '400',
-                              }}
-                              numberOfLines={1}
-                            >
-                              {chat.title}
-                            </Text>
+                            <Ionicons name="add-circle-outline" size={14} color={AppColors.primary} />
+                            <Text style={{ fontSize: 12, color: '#fff', fontWeight: '600' }}>Nuova chat</Text>
                           </TouchableOpacity>
-                        ))}
-                      </View>
-                    );
-                  })()}
-                  {!isMessagesCollapsed && (
+                          {previewChats.slice(0, 5).map((chat: any) => (
+                            <TouchableOpacity
+                              key={chat.id}
+                              onPress={() => onLoadPastChat(chat)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                paddingHorizontal: 12,
+                                paddingVertical: 10,
+                                gap: 8,
+                                backgroundColor: chat.id === previewChatId ? 'rgba(139, 124, 246, 0.1)' : 'transparent',
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name={chat.id === previewChatId ? "chatbubble" : "chatbubble-outline"}
+                                size={12}
+                                color={chat.id === previewChatId ? AppColors.primary : 'rgba(255,255,255,0.4)'}
+                              />
+                              <Text
+                                style={{
+                                  flex: 1,
+                                  fontSize: 12,
+                                  color: chat.id === previewChatId ? '#fff' : 'rgba(255,255,255,0.5)',
+                                  fontWeight: chat.id === previewChatId ? '600' : '400',
+                                }}
+                                numberOfLines={1}
+                              >
+                                {chat.title}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      );
+                    })()}
+                  </Reanimated.View>
+                  <Reanimated.View style={messagesAnimStyle}>
                   <ScrollView
                     ref={aiScrollViewRef}
-                    style={{ maxHeight: 200, paddingHorizontal: 8 }}
+                    style={{ paddingHorizontal: 8 }}
                     showsVerticalScrollIndicator={false}
                     onContentSizeChange={() => aiScrollViewRef.current?.scrollToEnd({ animated: true })}
                   >
@@ -407,7 +452,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                       </View>
                     )}
                   </ScrollView>
-                  )}
+                  </Reanimated.View>
                   <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 8 }} />
 
                 </>
@@ -428,29 +473,48 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                       onPress={onSelectParentElement}
                       style={{
                         padding: 6,
-                        borderRadius: 6,
-                        backgroundColor: 'rgba(255,255,255,0.1)',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.15)',
+                        borderRadius: 12,
+                        backgroundColor: 'rgba(255,255,255,0.08)',
                       }}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.6)" />
+                      <Ionicons name="arrow-up" size={14} color="rgba(255,255,255,0.5)" />
                     </TouchableOpacity>
-                    {/* Element tag badge */}
+                    {/* Element tag badge — liquid glass */}
                     <View style={{
                       flex: 1,
                       flexShrink: 1,
-                      backgroundColor: 'rgba(139, 124, 246, 0.15)',
-                      borderWidth: 1,
-                      borderColor: 'rgba(139, 124, 246, 0.3)',
-                      paddingHorizontal: 10,
-                      paddingVertical: 5,
-                      borderRadius: 8,
+                      borderRadius: 14,
+                      overflow: 'hidden',
                     }}>
-                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }} numberOfLines={1}>
-                        {selectedElement.selector}
-                      </Text>
+                      <BlurView intensity={25} tint="dark" style={StyleSheet.absoluteFill} />
+                      <LiquidGlassView
+                        style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+                        interactive={true}
+                        effect="regular"
+                        colorScheme="dark"
+                      />
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                        gap: 6,
+                        borderRadius: 14,
+                        borderWidth: 0.5,
+                        borderColor: 'rgba(255,255,255,0.1)',
+                      }}>
+                        <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '500' }}>
+                          {(() => {
+                            const tag = selectedElement.tag?.toLowerCase() || '';
+                            const labels: Record<string, string> = { h1: 'Titolo', h2: 'Titolo', h3: 'Titolo', h4: 'Titolo', h5: 'Titolo', h6: 'Titolo', p: 'Testo', span: 'Testo', a: 'Link', button: 'Bottone', img: 'Immagine', video: 'Video', input: 'Input', textarea: 'Input', select: 'Menu', div: 'Sezione', section: 'Sezione', nav: 'Navigazione', header: 'Header', footer: 'Footer', ul: 'Lista', ol: 'Lista', li: 'Elemento', form: 'Form', label: 'Etichetta', svg: 'Icona' };
+                            return labels[tag] || tag.toUpperCase();
+                          })()}
+                        </Text>
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                          {selectedElement.text || selectedElement.selector}
+                        </Text>
+                      </View>
                     </View>
                     {/* Close button */}
                     <TouchableOpacity onPress={onClearSelectedElement} style={{ padding: 4, flexShrink: 0 }}>
@@ -477,20 +541,19 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                 </TouchableOpacity>
 
                 {/* Inspect Mode Button */}
-                <TouchableOpacity
-                  onPress={onToggleInspectMode}
-                  style={[
-                    styles.previewInputButton,
-                    isInspectMode && styles.previewInputButtonActive
-                  ]}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="scan-outline"
-                    size={18}
-                    color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
-                  />
-                </TouchableOpacity>
+                <Reanimated.View style={inspectAnimStyle}>
+                  <TouchableOpacity
+                    onPress={onToggleInspectMode}
+                    style={styles.previewInputButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={isInspectMode ? "scan" : "scan-outline"}
+                      size={isInspectMode ? 22 : 18}
+                      color={isInspectMode ? AppColors.primary : 'rgba(255, 255, 255, 0.5)'}
+                    />
+                  </TouchableOpacity>
+                </Reanimated.View>
 
                 {/* Text Input */}
                 <TextInput
@@ -595,7 +658,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   previewInputButtonActive: {
-    backgroundColor: 'rgba(139, 124, 246, 0.15)',
+    backgroundColor: 'transparent',
   },
   previewInput: {
     flex: 1,

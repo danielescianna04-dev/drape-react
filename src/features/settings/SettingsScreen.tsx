@@ -120,7 +120,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [showPlanSelection, setShowPlanSelection] = useState(initialShowPlans);
   const [showResourceUsage, setShowResourceUsage] = useState(false);
   const [tokenTimeframe, setTokenTimeframe] = useState<'24h' | '7d' | '30d'>('24h');
-  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'starter' | 'pro' | 'team'>(user?.plan || 'free');
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>(user?.plan === 'starter' ? 'free' : (user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
@@ -433,7 +433,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           onPress={() => !isCurrent && setCurrentPlan(planId)}
         >
           <Text style={[styles.planButtonText, isCurrent && { color: 'rgba(255,255,255,0.5)' }]}>
-            {isCurrent ? 'Piano Attuale' : `Attiva ${name}`}
+            {isCurrent ? 'Piano Attuale' : `Passa a ${name}`}
           </Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -584,7 +584,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             {plans.map((plan, idx) => {
               // "Piano Attuale" only if exact product matches (plan + billing cycle)
               const isExactCurrent = plan.id === 'free'
-                ? (currentPlan === 'free' || currentPlan === 'starter')
+                ? (currentPlan === 'free')
                 : currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle);
 
               return (
@@ -656,7 +656,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   }}
                 >
                   <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
-                    {isExactCurrent ? 'Piano Attuale' : plan.id === 'free' ? 'Piano Gratuito' : `Attiva ${plan.name}`}
+                    {isExactCurrent ? 'Piano Attuale' : plan.id === 'free' ? 'Piano Gratuito' : `Passa a ${plan.name}`}
                   </Text>
                 </TouchableOpacity>
               </TouchableOpacity>
@@ -777,7 +777,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   />
                 </View>
                 <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '500', minWidth: 65 }}>
-                  {percentUsed}% usato
+                  {Math.min(percentUsed, 100)}% usato
                 </Text>
               </View>
             </View>

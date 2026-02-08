@@ -173,7 +173,7 @@ class IAPService {
       const purchases = await iap.getAvailablePurchases();
 
       if (!purchases || purchases.length === 0) {
-        return { success: true, plan: 'starter' };
+        return { success: true, plan: 'free' };
       }
 
       const latest = purchases.sort(

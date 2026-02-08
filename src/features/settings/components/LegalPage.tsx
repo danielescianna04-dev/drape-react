@@ -8,7 +8,7 @@ interface LegalPageProps {
   onClose: () => void;
 }
 
-const PRIVACY_POLICY = `Ultimo aggiornamento: febbraio 2025
+const PRIVACY_POLICY = `Ultimo aggiornamento: febbraio 2026
 
 1. INTRODUZIONE
 
@@ -91,9 +91,9 @@ Ci riserviamo il diritto di aggiornare questa informativa. Le modifiche signific
 10. CONTATTI
 
 Per domande sulla privacy:
-Email: support@drape.app`;
+Email: leon.rivas@drape-dev.it`;
 
-const TERMS_OF_SERVICE = `Ultimo aggiornamento: febbraio 2025
+const TERMS_OF_SERVICE = `Ultimo aggiornamento: febbraio 2026
 
 1. ACCETTAZIONE DEI TERMINI
 
@@ -184,7 +184,7 @@ I presenti termini sono regolati dalla legge italiana. Per qualsiasi controversi
 13. CONTATTI
 
 Per domande sui termini di servizio:
-Email: support@drape.app`;
+Email: leon.rivas@drape-dev.it`;
 
 export const LegalPage: React.FC<LegalPageProps> = ({ type, onClose }) => {
   const insets = useSafeAreaInsets();

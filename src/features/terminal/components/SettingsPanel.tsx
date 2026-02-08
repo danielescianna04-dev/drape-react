@@ -9,6 +9,8 @@ import Constants from 'expo-constants';
 import { AppColors, withOpacity } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../../../features/terminal/context/SidebarContext';
 import { useUIStore } from '../../../core/terminal/uiStore';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { PanelHeader } from '../../../shared/components/organisms';
 
 interface Props {
@@ -33,6 +35,10 @@ export const SettingsPanel = ({ onClose }: Props) => {
     setIsToolsExpanded,
   } = useUIStore();
 
+  const { user } = useAuthStore();
+  const isPaidUser = ['go', 'pro', 'team'].includes(user?.plan || '');
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
+
   const animatedStyle = useAnimatedStyle(() => {
     // Quando la sidebar è a -50 (nascosta), noi vogliamo traslare di -44 per arrivare a 0
     const translateX = interpolate(sidebarTranslateX.value, [-50, 0], [-44, 0]);
@@ -51,10 +57,10 @@ export const SettingsPanel = ({ onClose }: Props) => {
   });
 
   const models = [
-    { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', description: 'Anthropic - Potenza creativa illimitata', icon: 'infinite' },
+    { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', description: 'Anthropic - Potenza creativa illimitata', icon: 'infinite', isPremium: true },
     { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', description: 'Anthropic - Equilibrio perfetto e codice d\'élite', icon: 'sparkles' },
-    { id: 'gpt-5-2', name: 'GPT 5.2', description: 'OpenAI - Intelligenza versatile di ultima generazione', icon: 'bulb' },
-    { id: 'gemini-3-0-pro', name: 'Gemini 3.0 Pro', description: 'Google - Ragionamento multimodale avanzato', icon: 'planet' },
+    { id: 'gpt-5-2', name: 'GPT 5.2', description: 'OpenAI - Intelligenza versatile di ultima generazione', icon: 'bulb', isPremium: true },
+    { id: 'gemini-3-0-pro', name: 'Gemini 3.0 Pro', description: 'Google - Ragionamento multimodale avanzato', icon: 'planet', isPremium: true },
     { id: 'gemini-3-0-flash', name: 'Gemini 3.0 Flash', description: 'Google - Risposte istantanee ad alta efficienza', icon: 'flash' },
   ];
 
@@ -89,12 +95,19 @@ export const SettingsPanel = ({ onClose }: Props) => {
 
           {models.map((model) => {
             const isSelected = selectedModel === model.id;
+            const isLocked = model.isPremium && !isPaidUser;
             return (
               <TouchableOpacity
                 key={model.id}
-                onPress={() => setSelectedModel(model.id)}
+                onPress={() => {
+                  if (isLocked) {
+                    navigateTo('plans');
+                    return;
+                  }
+                  setSelectedModel(model.id);
+                }}
                 activeOpacity={0.8}
-                style={styles.modelContainer}
+                style={[styles.modelContainer, isLocked && { opacity: 0.45 }]}
               >
                 <BlurView intensity={isSelected ? 30 : 15} tint="light" style={[styles.modelCard, isSelected && styles.modelCardSelected]}>
                   {isSelected && (
@@ -106,14 +119,23 @@ export const SettingsPanel = ({ onClose }: Props) => {
                     />
                   )}
 
-                  <View style={[styles.modelIconBox, { backgroundColor: isSelected ? AppColors.primary : 'rgba(255,255,255,0.05)' }]}>
-                    <Ionicons name={model.icon as any} size={18} color={isSelected ? '#fff' : 'rgba(255,255,255,0.4)'} />
+                  <View style={[styles.modelIconBox, { backgroundColor: isLocked ? 'rgba(255,255,255,0.05)' : isSelected ? AppColors.primary : 'rgba(255,255,255,0.05)' }]}>
+                    {isLocked ? (
+                      <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.35)" />
+                    ) : (
+                      <Ionicons name={model.icon as any} size={18} color={isSelected ? '#fff' : 'rgba(255,255,255,0.4)'} />
+                    )}
                   </View>
 
                   <View style={styles.modelInfo}>
                     <View style={styles.modelHeader}>
                       <Text style={[styles.modelName, isSelected && styles.modelNameSelected]}>{model.name}</Text>
-                      {isSelected && (
+                      {isLocked && (
+                        <View style={[styles.proBadge, { marginLeft: 8 }]}>
+                          <Text style={styles.proBadgeText}>GO</Text>
+                        </View>
+                      )}
+                      {!isLocked && isSelected && (
                         <View style={styles.pulseContainer}>
                           <View style={styles.pulseDot} />
                         </View>
@@ -122,7 +144,7 @@ export const SettingsPanel = ({ onClose }: Props) => {
                     <Text style={styles.modelDescription}>{model.description}</Text>
                   </View>
 
-                  {isSelected && (
+                  {!isLocked && isSelected && (
                     <View style={styles.selectedCheck}>
                       <Ionicons name="checkmark" size={12} color="#fff" />
                     </View>

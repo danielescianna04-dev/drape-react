@@ -78,8 +78,8 @@
     "error": "Unable to sign out"
   },
   "plans": {
-    "starter": {
-      "name": "Starter",
+    "free": {
+      "name": "Free",
       "description": "For those wanting to explore the basics"
     },
     "go": {

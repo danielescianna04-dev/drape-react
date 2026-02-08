@@ -91,12 +91,12 @@ export async function optionalAuth(
 export async function getUserPlan(userId: string): Promise<string> {
   try {
     const db = firebaseService.getFirestore();
-    if (!db) return 'starter';
+    if (!db) return 'free';
     const doc = await db.collection('users').doc(userId).get();
-    const plan = doc.data()?.plan || 'starter';
-    return plan === 'free' ? 'starter' : plan;
+    const plan = doc.data()?.plan || 'free';
+    return plan === 'starter' ? 'free' : plan;
   } catch {
-    return 'starter';
+    return 'free';
   }
 }
 
@@ -114,14 +114,14 @@ export interface PlanProjectLimits {
 }
 
 const PLAN_PROJECT_LIMITS: Record<string, PlanProjectLimits> = {
-  starter: { maxCreated: 3, maxCloned: 2, maxLocal: 1, maxStorageMb: 1024 },
+  free:    { maxCreated: 3, maxCloned: 2, maxLocal: 1, maxStorageMb: 1024 },
   go:      { maxCreated: 10, maxCloned: 5, maxLocal: 3, maxStorageMb: 5120 },
   pro:     { maxCreated: 50, maxCloned: 25, maxLocal: 10, maxStorageMb: 10240 },
   team:    { maxCreated: 200, maxCloned: 100, maxLocal: 20, maxStorageMb: 51200 },
 };
 
 export function getPlanProjectLimits(planId: string): PlanProjectLimits {
-  return PLAN_PROJECT_LIMITS[planId] || PLAN_PROJECT_LIMITS.starter;
+  return PLAN_PROJECT_LIMITS[planId] || PLAN_PROJECT_LIMITS.free;
 }
 
 /**

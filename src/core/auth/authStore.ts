@@ -109,7 +109,7 @@ export interface DrapeUser {
   displayName: string | null;
   photoURL: string | null;
   createdAt: Date;
-  plan?: 'free' | 'go' | 'starter' | 'pro' | 'team';
+  plan?: 'free' | 'go' | 'pro' | 'team';
 }
 
 interface AuthState {
@@ -146,8 +146,8 @@ const mapFirebaseUser = (firebaseUser: User): DrapeUser => ({
  * Load the user's plan from Firestore 'users/{uid}' document.
  * Returns the plan string or 'free' as default.
  */
-type PlanId = 'free' | 'go' | 'starter' | 'pro' | 'team';
-const VALID_PLANS: PlanId[] = ['free', 'go', 'starter', 'pro', 'team'];
+type PlanId = 'free' | 'go' | 'pro' | 'team';
+const VALID_PLANS: PlanId[] = ['free', 'go', 'pro', 'team'];
 
 const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
   try {

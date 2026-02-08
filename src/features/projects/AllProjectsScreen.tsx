@@ -297,7 +297,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
     const repoInfo = getRepoInfo(project.repositoryUrl || project.githubUrl);
 
     const cardContent = (
-      <View style={styles.cardInner}>
+      <View style={[styles.cardInner, isLiquidGlassSupported && { backgroundColor: 'transparent' }]}>
         <View style={styles.cardMain}>
           {selectionMode && (
             <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
@@ -398,11 +398,26 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           activeOpacity={0.7}
           onPress={selectionMode ? exitSelectionMode : onClose}
         >
-          <Ionicons
-            name={selectionMode ? "close" : "chevron-back"}
-            size={24}
-            color="#fff"
-          />
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            >
+              <Ionicons
+                name={selectionMode ? "close" : "chevron-back"}
+                size={22}
+                color="#fff"
+              />
+            </LiquidGlassView>
+          ) : (
+            <Ionicons
+              name={selectionMode ? "close" : "chevron-back"}
+              size={24}
+              color="#fff"
+            />
+          )}
         </TouchableOpacity>
 
         <Text style={styles.headerTitle}>

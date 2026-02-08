@@ -680,7 +680,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       };
 
       xhr.onerror = () => { if (isMounted) reconnectTimeout = setTimeout(connectToLogs, 3000); };
-      xhr.onload = () => { if (xhr.status === 503 && isMounted) reconnectTimeout = setTimeout(connectToLogs, 3000); };
+      xhr.onload = () => {
+        // Retry on any non-200 status (404 = no session yet, 503 = unavailable)
+        if (xhr.status !== 200 && isMounted) reconnectTimeout = setTimeout(connectToLogs, 2000);
+      };
       xhr.send();
     };
 

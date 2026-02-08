@@ -11,6 +11,7 @@ import {
   PanResponder,
   Alert,
   ActivityIndicator,
+  AppState,
 } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { SafeText } from '../../../shared/components/SafeText';
@@ -20,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../../shared/theme/colors';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
+import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { GitHubConnect } from './GitHubConnect';
 import { ProjectItem } from './ProjectItem';
@@ -83,6 +85,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   const { addTab, addTerminalItem: addTerminalItemToStore, removeTabsByWorkstation } = useTabStore();
   const { apiUrl } = useNetworkConfig();
+  const flyMachineId = useUIStore((s) => s.flyMachineId);
 
   const {
     isGitHubConnected,
@@ -130,36 +133,48 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }
   }, [currentWorkstation]);
 
-  // ============ HEARTBEAT: Keep VM alive while project is open ============
-  // 🔑 FIX 4b: Send heartbeat every 60 seconds to prevent VM timeout
+  // ============ HEARTBEAT: Keep VM alive while container is running ============
+  // Only starts when flyMachineId exists (container created via play/preview)
+  // Pauses when app goes to background, resumes on foreground
   useEffect(() => {
-    if (!currentWorkstation?.id || !apiUrl) {
-      return;
-    }
+    if (!currentWorkstation?.id || !apiUrl || !flyMachineId) return;
 
     const projectId = currentWorkstation.projectId || currentWorkstation.id;
+    let interval: ReturnType<typeof setInterval> | null = null;
 
-    // Send heartbeat immediately, then every 60 seconds
     const sendHeartbeat = () => {
       getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/heartbeat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ projectId }),
-      })).catch(() => {
-        // Silent fail - heartbeat is non-critical
-      });
+      })).catch(() => {});
     };
 
-    // Send initial heartbeat
-    sendHeartbeat();
+    const startHeartbeat = () => {
+      if (interval) return;
+      sendHeartbeat();
+      interval = setInterval(sendHeartbeat, 30000);
+    };
 
-    // Set up interval
-    const interval = setInterval(sendHeartbeat, 60000); // 60 seconds
+    const stopHeartbeat = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+
+    startHeartbeat();
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        stopHeartbeat();
+      } else if (state === 'active') {
+        startHeartbeat();
+      }
+    });
 
     return () => {
-      clearInterval(interval);
+      stopHeartbeat();
+      appStateSub.remove();
     };
-  }, [currentWorkstation?.id, currentWorkstation?.projectId, apiUrl]);
+  }, [currentWorkstation?.id, currentWorkstation?.projectId, apiUrl, flyMachineId]);
 
   const handleClose = () => {
     onClose();

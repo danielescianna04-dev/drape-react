@@ -79,10 +79,10 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 
 // Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
   { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-2', name: 'GPT 5.2', IconComponent: OpenAIIcon, hasThinking: false },
-  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'] },
+  { id: 'gpt-5-2', name: 'GPT 5.2', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
+  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'], isPremium: true },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
 
@@ -148,7 +148,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // User plan state for upgrade CTA
   const { user } = useAuthStore();
-  const isGoUser = user?.plan === 'go';
+  const isPaidUser = ['go', 'pro', 'team'].includes(user?.plan || '');
   const navigateTo = useNavigationStore((state) => state.navigateTo);
   const {
     start: startAgent,
@@ -178,6 +178,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const shimmerStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shimmerX.value }, { skewX: '-20deg' }],
   }));
+
+  const nextPlanLabel = user?.plan === 'go' ? 'Pro' : 'Go';
 
   // ── Engine: shared event processing ──────────────────────────────
   const engine = useChatEngine(agentEvents, agentStreaming);
@@ -2277,7 +2279,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       {/* Content wrapper with sidebar offset */}
       <Animated.View style={[{ flex: 1, backgroundColor: '#0d0d0f' }, animatedContentStyle]}>
         {/* Top Upgrade Pill - Custom Liquid Glass (Expo Safe) */}
-        {!isGoUser && !hasUserMessaged && currentTab?.type === 'terminal' && (
+        {!isPaidUser && !hasUserMessaged && currentTab?.type === 'terminal' && (
           <TouchableOpacity
             style={[
               styles.topUpgradePill,
@@ -2394,46 +2396,57 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     <View style={{
                       marginHorizontal: 16,
                       marginVertical: 12,
-                      backgroundColor: 'rgba(139, 124, 246, 0.08)',
-                      borderRadius: 16,
-                      borderWidth: 1,
-                      borderColor: 'rgba(139, 124, 246, 0.2)',
-                      padding: 20,
+                      borderRadius: 24,
+                      overflow: 'hidden',
                     }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                        <View style={{
-                          width: 36, height: 36, borderRadius: 10,
-                          backgroundColor: 'rgba(139, 124, 246, 0.15)',
-                          alignItems: 'center', justifyContent: 'center', marginRight: 12,
-                        }}>
-                          <Ionicons name="flash" size={18} color={AppColors.primary} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff' }}>
-                            Budget AI esaurito
+                      <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+                      <LiquidGlassView
+                        style={[StyleSheet.absoluteFill, { borderRadius: 24 }]}
+                        interactive={true}
+                        effect="regular"
+                        colorScheme="dark"
+                      />
+                      <View style={{
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        padding: 20,
+                      }}>
+                        {/* Title */}
+                        <View style={{ alignItems: 'center', marginBottom: 16 }}>
+                          <Text style={{ fontSize: 28, marginBottom: 10 }}>
+                            🚀
                           </Text>
-                          <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
-                            Hai utilizzato tutto il budget di questo mese
+                          <Text style={{ fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: -0.3 }}>
+                            Budget esaurito
+                          </Text>
+                          <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
+                            Hai usato tutto il budget AI di questo mese.{'\n'}Passa a {nextPlanLabel} per continuare.
                           </Text>
                         </View>
+
+                        {/* CTA button */}
+                        <TouchableOpacity
+                          onPress={() => navigateTo('plans')}
+                          activeOpacity={0.85}
+                          style={{ borderRadius: 16, overflow: 'hidden' }}
+                        >
+                          <LinearGradient
+                            colors={['#8B7CF6', '#7C6CF0']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{
+                              paddingVertical: 14,
+                              alignItems: 'center',
+                              borderRadius: 16,
+                            }}
+                          >
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff', letterSpacing: -0.2 }}>
+                              Passa a {nextPlanLabel}
+                            </Text>
+                          </LinearGradient>
+                        </TouchableOpacity>
                       </View>
-                      <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 20, marginBottom: 16 }}>
-                        Il tuo budget AI mensile è terminato. Passa al piano Go per continuare a usare l'assistente AI con un budget maggiore.
-                      </Text>
-                      <TouchableOpacity
-                        style={{
-                          backgroundColor: AppColors.primary,
-                          borderRadius: 12,
-                          paddingVertical: 12,
-                          alignItems: 'center',
-                        }}
-                        onPress={() => navigateTo('plans')}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#fff' }}>
-                          Passa a Go
-                        </Text>
-                      </TouchableOpacity>
                     </View>
                   );
                 }
@@ -2702,8 +2715,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     onChangeText={handleInputChange}
                     placeholder={
                       agentMode === 'fast'
-                        ? 'Fast agent - esecuzione diretta...'
-                        : 'Planning agent - crea un piano...'
+                        ? 'Chiedi qualcosa...'
+                        : 'Descrivi cosa vuoi creare...'
                     }
                     placeholderTextColor={AppColors.dark.bodyText}
                     multiline
@@ -2746,17 +2759,22 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       const IconComponent = model.IconComponent;
                       const isSelected = selectedModel === model.id;
                       const hasThinkingOptions = model.thinkingLevels && model.thinkingLevels.length > 0;
+                      const isLocked = model.isPremium && !isPaidUser;
 
                       return (
                         <TouchableOpacity
                           key={model.id}
                           style={[
                             styles.modelDropdownItem,
-                            isSelected && styles.modelDropdownItemActive
+                            isSelected && styles.modelDropdownItemActive,
+                            isLocked && { opacity: 0.45 },
                           ]}
                           onPress={() => {
+                            if (isLocked) {
+                              navigateTo('plans');
+                              return;
+                            }
                             setSelectedModel(model.id);
-                            // Set default thinking level when switching to a model with thinking
                             if (hasThinkingOptions) {
                               const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
                               setThinkingLevel(defaultLevel);
@@ -2770,9 +2788,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                           ]}>
                             {model.name}
                           </SafeText>
-                          {isSelected && (
+                          {isLocked ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View style={{ backgroundColor: AppColors.primary, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                <SafeText style={{ fontSize: 9, fontWeight: '900', color: '#fff' }}>GO</SafeText>
+                              </View>
+                              <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.35)" />
+                            </View>
+                          ) : isSelected ? (
                             <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
-                          )}
+                          ) : null}
                         </TouchableOpacity>
                       );
                     })}
@@ -3369,10 +3394,11 @@ const styles = StyleSheet.create({
   modeToggle: {
     flexDirection: 'row',
     backgroundColor: 'transparent',
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: AppColors.dark.surfaceAlt,
-    padding: 2,
+    borderColor: 'rgba(255,255,255,0.15)',
+    padding: 3,
+    gap: 2,
   },
   autoLabel: {
     fontSize: 9,
@@ -3381,11 +3407,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   modeButton: {
-    width: 28,
-    height: 26,
+    width: 30,
+    height: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: 14,
   },
   modeButtonActive: {
     backgroundColor: AppColors.primaryAlpha.a20,
