@@ -20,6 +20,7 @@ import { GitHubAuthModal } from './src/features/terminal/components/GitHubAuthMo
 import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
 import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
+import { OfflineOverlay } from './src/shared/components/OfflineOverlay';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
 import { gitAccountService } from './src/core/git/gitAccountService';
@@ -1467,6 +1468,7 @@ export default function App() {
           message={loadingMessage}
         />
         <GitAuthPopup />
+        <OfflineOverlay />
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>

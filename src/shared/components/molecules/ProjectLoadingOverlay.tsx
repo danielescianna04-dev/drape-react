@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Modal, Animated, Easing, Dimensions } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../theme/colors';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     visible: boolean;
@@ -15,25 +16,22 @@ interface Props {
     showTips?: boolean; // Show rotating tips
 }
 
-const LOADING_TIPS = [
-    { icon: '⚡', text: 'Il codice pulito è più facile da mantenere' },
-    { icon: '🚀', text: 'Committa spesso, pusha regolarmente' },
-    { icon: '💡', text: 'La documentazione è parte del codice' },
-    { icon: '🎯', text: 'Prima fallo funzionare, poi ottimizza' },
-    { icon: '🔥', text: 'Testa il tuo codice prima di committare' },
-    { icon: '⚙️', text: 'Le convenzioni di naming sono importanti' },
-    { icon: '📦', text: 'Dependency injection rende testabile il codice' },
-    { icon: '✨', text: 'Refactoring è sviluppo, non perdita di tempo' },
-];
+const TIP_ICONS = ['⚡', '🚀', '💡', '🎯', '🔥', '⚙️', '📦', '✨'];
 
 export const ProjectLoadingOverlay = ({
     visible,
     projectName,
-    message = 'Caricamento',
+    message,
     progress = 0,
     currentStep,
     showTips = true,
 }: Props) => {
+    const { t } = useTranslation('chat');
+    const resolvedMessage = message || t('loading');
+    const loadingTips = useMemo(() => TIP_ICONS.map((icon, i) => ({
+        icon,
+        text: t(`loadingTips.tip${i + 1}`),
+    })), [t]);
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const scaleAnim = useRef(new Animated.Value(0.8)).current;
     const translateYAnim = useRef(new Animated.Value(20)).current;
@@ -59,7 +57,7 @@ export const ProjectLoadingOverlay = ({
                 duration: 400,
                 useNativeDriver: true,
             }).start(() => {
-                setCurrentTip((prev) => (prev + 1) % LOADING_TIPS.length);
+                setCurrentTip((prev) => (prev + 1) % loadingTips.length);
                 // Fade in next
                 Animated.timing(tipFadeAnim, {
                     toValue: 1,
@@ -199,7 +197,7 @@ export const ProjectLoadingOverlay = ({
                                 )}
 
                                 {/* Loading message */}
-                                <Text style={styles.message}>{message}</Text>
+                                <Text style={styles.message}>{resolvedMessage}</Text>
 
                                 {/* Rotating tips */}
                                 {showTips && (
@@ -211,9 +209,9 @@ export const ProjectLoadingOverlay = ({
                                             colorScheme="dark"
                                         >
                                             <Animated.View style={[styles.tipContainerRaw, { opacity: tipFadeAnim }]}>
-                                                <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
+                                                <Text style={styles.tipIcon}>{loadingTips[currentTip].icon}</Text>
                                                 <Text style={styles.tipText} numberOfLines={2}>
-                                                    {LOADING_TIPS[currentTip].text}
+                                                    {loadingTips[currentTip].text}
                                                 </Text>
                                             </Animated.View>
                                         </LiquidGlassView>
@@ -256,16 +254,16 @@ export const ProjectLoadingOverlay = ({
                             )}
 
                             {/* Loading message */}
-                            <Text style={styles.message}>{message}</Text>
+                            <Text style={styles.message}>{resolvedMessage}</Text>
 
                             {/* Rotating tips */}
                             {showTips && (
                                 <View style={styles.tipBlurWrapper}>
                                     <BlurView intensity={40} tint="dark" style={styles.tipBlur}>
                                         <Animated.View style={[styles.tipContainerFallback, { opacity: tipFadeAnim }]}>
-                                            <Text style={styles.tipIcon}>{LOADING_TIPS[currentTip].icon}</Text>
+                                            <Text style={styles.tipIcon}>{loadingTips[currentTip].icon}</Text>
                                             <Text style={styles.tipText} numberOfLines={2}>
-                                                {LOADING_TIPS[currentTip].text}
+                                                {loadingTips[currentTip].text}
                                             </Text>
                                         </Animated.View>
                                     </BlurView>

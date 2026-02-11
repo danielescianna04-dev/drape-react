@@ -395,7 +395,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       // Upload files in bulk
       await apiClient.post(`${config.apiUrl}/fly/project/${project.id}/upload-files`, { files }, { timeout: 60000 });
 
-      await animateProgressTo(100, 'Apertura...', 400);
+      await animateProgressTo(100, t('actions.opening'), 400);
 
       // Brief pause at 100%
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -551,7 +551,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     if (hasCachedFiles && existingMachineId && isSameWorkstation) {
 
       // Animate from current progress (12% after grace period) to 100%
-      await animateProgressTo(100, 'Apertura...', 400);
+      await animateProgressTo(100, t('actions.opening'), 400);
 
       // End Live Activity with success
       if (liveActivityService.isActivityActive()) {
@@ -803,7 +803,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
 
     // Animate to completion and WAIT for it
-    await animateProgressTo(100, 'Apertura...', 800);
+    await animateProgressTo(100, t('actions.opening'), 800);
 
     // End Live Activity with success
     if (liveActivityService.isActivityActive()) {
@@ -951,8 +951,18 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   // Apri modal per rinominare
   const handleOpenRename = () => {
     if (!selectedProject) return;
-    setNewProjectName(selectedProject.name);
-    handleCloseMenu();
+    const project = selectedProject;
+    setNewProjectName(project.name);
+    // Close menu but keep selectedProject for the rename modal
+    Animated.timing(sheetAnim, {
+      toValue: SCREEN_HEIGHT,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      setMenuVisible(false);
+      // Re-set selectedProject since handleCloseMenu would clear it
+      setSelectedProject(project);
+    });
     setTimeout(() => setShowRenameModal(true), 300);
   };
 
@@ -1575,69 +1585,34 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style={styles.renameModalBackdrop}
           onPress={() => setShowRenameModal(false)}
         >
-          {isLiquidGlassSupported ? (
-            <LiquidGlassView
-              style={{ borderRadius: 24, overflow: 'hidden', width: '100%', maxWidth: 340 }}
-              interactive={true}
-              effect="clear"
-              colorScheme="dark"
-            >
-              <Pressable
-                style={{ padding: 24, backgroundColor: 'rgba(255,255,255,0.05)' }}
-                onPress={() => { }}
-              >
-                <Text style={styles.renameModalTitle}>{t('actions.renameProject')}</Text>
-                <Input
-                  value={newProjectName}
-                  onChangeText={setNewProjectName}
-                  placeholder={t('create.namePlaceholder')}
-                  autoFocus
-                  style={{ marginBottom: 20 }}
-                />
-                <View style={{ flexDirection: 'row', gap: 12 }}>
-                  <Button
-                    label={t('common:cancel')}
-                    onPress={() => setShowRenameModal(false)}
-                    variant="ghost"
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    label={t('common:confirm')}
-                    onPress={handleConfirmRename}
-                    variant="primary"
-                    disabled={!newProjectName.trim()}
-                    style={{ flex: 1 }}
-                  />
-                </View>
-              </Pressable>
-            </LiquidGlassView>
-          ) : (
-            <Pressable style={styles.renameModalContent} onPress={() => { }}>
-              <Text style={styles.renameModalTitle}>{t('actions.renameProject')}</Text>
-              <Input
-                value={newProjectName}
-                onChangeText={setNewProjectName}
-                placeholder={t('create.namePlaceholder')}
-                autoFocus
-                style={{ marginBottom: 20 }}
+          <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
+          <Pressable style={styles.renameModalContent} onPress={() => { }}>
+            <Text style={styles.renameModalTitle}>{t('actions.renameProject')}</Text>
+            <Input
+              value={newProjectName}
+              onChangeText={setNewProjectName}
+              placeholder={t('create.namePlaceholder')}
+              autoFocus
+              style={{ marginBottom: 20 }}
+            />
+            <View style={styles.renameModalActions}>
+              <Button
+                label={t('common:cancel')}
+                onPress={() => setShowRenameModal(false)}
+                variant="ghost"
+                noGlass
+                style={{ flex: 1 }}
               />
-              <View style={styles.renameModalActions}>
-                <Button
-                  label={t('common:cancel')}
-                  onPress={() => setShowRenameModal(false)}
-                  variant="ghost"
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  label={t('common:confirm')}
-                  onPress={handleConfirmRename}
-                  variant="primary"
-                  disabled={!newProjectName.trim()}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </Pressable>
-          )}
+              <Button
+                label={t('common:confirm')}
+                onPress={handleConfirmRename}
+                variant="primary"
+                noGlass
+                disabled={!newProjectName.trim()}
+                style={{ flex: 1, borderRadius: 22 }}
+              />
+            </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
@@ -2143,7 +2118,7 @@ const styles = StyleSheet.create({
   // Rename Modal
   renameModalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -2192,7 +2167,7 @@ const styles = StyleSheet.create({
   renameModalConfirm: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 22,
     backgroundColor: AppColors.primary,
     alignItems: 'center',
   },

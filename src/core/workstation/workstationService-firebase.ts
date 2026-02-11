@@ -1,4 +1,4 @@
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, getDoc, deleteDoc, doc, query, orderBy, where, updateDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../../config/firebase';
 import { WorkstationInfo } from '../../shared/types';
 import apiClient from '../api/apiClient';
@@ -412,17 +412,24 @@ export const workstationService = {
         }
       }
 
-      // 2. Poi elimina da Firebase (use clean ID for Firebase document)
-      try {
-        await deleteDoc(doc(db, COLLECTION, cleanProjectId));
-      } catch (fbError: any) {
-        console.error('❌ [DELETE] Firebase error:', fbError);
-        // Also try with original ID just in case
-        if (cleanProjectId !== projectId) {
-          await deleteDoc(doc(db, COLLECTION, projectId));
-        } else {
-          throw fbError;
+      // 2. Delete from Firebase — check existence first to avoid permission-denied
+      //    on non-existent docs (Firestore can't evaluate resource.data on missing docs)
+      let deleted = false;
+      for (const id of [cleanProjectId, projectId]) {
+        if (deleted) break;
+        try {
+          const docRef = doc(db, COLLECTION, id);
+          const snap = await getDoc(docRef);
+          if (snap.exists()) {
+            await deleteDoc(docRef);
+            deleted = true;
+          }
+        } catch (fbError: any) {
+          console.warn('⚠️ [DELETE] Firebase error for', id, ':', fbError?.message);
         }
+      }
+      if (!deleted) {
+        console.warn('⚠️ [DELETE] No Firebase document found, skipping');
       }
 
     } catch (error) {

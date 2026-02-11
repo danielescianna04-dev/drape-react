@@ -11,6 +11,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../shared/theme/colors';
+import { useIAPStore } from '../../core/iap/iapStore';
+import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -21,6 +23,9 @@ interface Props {
 }
 
 export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
+  const { products: iapProducts } = useIAPStore();
+  const goMonthlyPrice = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY)?.localizedPrice || '€22.99';
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const cardFade1 = useRef(new Animated.Value(0)).current;
@@ -103,7 +108,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Go</Text>
               <View style={styles.planPriceRow}>
-                <Text style={styles.planPrice}>€23.99</Text>
+                <Text style={styles.planPrice}>{goMonthlyPrice}</Text>
                 <Text style={styles.planPricePeriod}>/mese</Text>
               </View>
             </View>

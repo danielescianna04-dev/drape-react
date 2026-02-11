@@ -320,11 +320,11 @@ export class AgentLoop {
             if (match) userMessage = match[1];
           } catch {}
           if (userMessage.includes('overload')) {
-            userMessage = 'Il modello AI è temporaneamente sovraccarico. Riprova tra qualche secondo.';
+            userMessage = 'AI model is temporarily overloaded. Try again in a few seconds.';
           } else if (userMessage.includes('rate limit') || userMessage.includes('429')) {
-            userMessage = 'Troppi messaggi. Attendi qualche secondo e riprova.';
+            userMessage = 'Too many requests. Wait a few seconds and try again.';
           } else if (userMessage.includes('timeout') || userMessage.includes('ETIMEDOUT')) {
-            userMessage = 'Timeout nella risposta AI. Riprova.';
+            userMessage = 'AI response timeout. Try again.';
           }
           yield {
             type: 'error',
@@ -626,14 +626,14 @@ export class AgentLoop {
           if (!finalResult || finalResult.trim().length === 0) {
             const changes: string[] = [];
             if (this.filesCreated.length > 0) {
-              changes.push(`File creati: ${this.filesCreated.join(', ')}`);
+              changes.push(`Files created: ${this.filesCreated.join(', ')}`);
             }
             if (this.filesModified.length > 0) {
-              changes.push(`File modificati: ${this.filesModified.join(', ')}`);
+              changes.push(`Files modified: ${this.filesModified.join(', ')}`);
             }
             finalResult = changes.length > 0
-              ? `Task completato.\n\n${changes.join('\n')}`
-              : 'Task completato.';
+              ? `Task completed.\n\n${changes.join('\n')}`
+              : 'Task completed.';
           }
 
           yield {

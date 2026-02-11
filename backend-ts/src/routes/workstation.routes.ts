@@ -500,12 +500,12 @@ Requirements:
 
 Return ONLY the JSON, no markdown fences, no explanation.`;
 
-  update(30, 'Generazione componenti...', 'AI Generating');
+  update(8, 'Starting AI generation...', 'AI Generating');
 
-  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-flash'];
+  const models = ['claude-4-5-sonnet', 'claude-4-5-sonnet', 'claude-4-5-sonnet'];
   const systemPrompt = 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
   const chatMessages = [{ role: 'user' as const, content: prompt }];
-  const chatOptions = { temperature: 0.7, maxTokens: 32000 };
+  const chatOptions = { temperature: 0.4, maxTokens: 8000 };
 
   try {
     let fullText = '';
@@ -517,14 +517,18 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         const stream = aiProviderService.chatStream(models[attempt], chatMessages, undefined, systemPrompt, chatOptions);
 
         let chunkCount = 0;
+        const streamStart = Date.now();
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
             fullText += chunk.text;
             chunkCount++;
-            const genProgress = Math.min(85, 30 + chunkCount);
-            if (chunkCount % 5 === 0) {
-              const messages = ['Generazione componenti...', 'Creazione pagine...', 'Scrittura stili CSS...', 'Configurazione routing...', 'Ottimizzazione codice...'];
-              update(genProgress, messages[Math.floor(chunkCount / 5) % messages.length], 'AI Generating');
+            // Smooth progress: 10% → 80% based on elapsed time (expected ~20-40s)
+            const elapsed = (Date.now() - streamStart) / 1000;
+            const timeProgress = Math.min(0.95, elapsed / 35); // approaches 95% at 35s
+            const genProgress = Math.round(10 + timeProgress * 70); // 10 → 80
+            if (chunkCount % 3 === 0) {
+              const messages = ['Generating components...', 'Creating pages...', 'Writing styles...', 'Configuring routing...', 'Optimizing code...'];
+              update(Math.min(80, genProgress), messages[Math.floor(chunkCount / 3) % messages.length], 'AI Generating');
             }
           }
         }
@@ -532,12 +536,12 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       } catch (retryErr: any) {
         log.warn(`[CreateProject] Attempt ${attempt + 1} failed: ${retryErr.message}`);
         if (attempt === models.length - 1) throw retryErr;
-        update(30, `Riprovo generazione (tentativo ${attempt + 2})...`, 'AI Generating');
+        update(10, `Retrying generation (attempt ${attempt + 2})...`, 'AI Generating');
         await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
       }
     }
 
-    update(87, 'Analisi codice generato...', 'Processing');
+    update(82, 'Analyzing generated code...', 'Processing');
 
     // Parse the JSON response
     let cleanJson = fullText.trim();
@@ -563,7 +567,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       throw new Error('AI response missing files array');
     }
 
-    update(89, 'Preparazione file...', 'Processing');
+    update(85, 'Preparing files...', 'Processing');
 
     // Write files to NVMe
     const writtenFiles: string[] = [];
@@ -571,14 +575,14 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       const file = parsed.files[i];
       if (!file.path || file.content === undefined) continue;
 
-      const progress = 90 + Math.floor((i / parsed.files.length) * 8);
-      update(progress, `Creazione ${file.path}`, 'Scrittura file');
+      const progress = 87 + Math.floor((i / parsed.files.length) * 10); // 87 → 97
+      update(progress, `Writing ${file.path}`, 'Writing files');
 
       await fileService.writeFile(projectId, file.path, file.content);
       writtenFiles.push(file.path);
     }
 
-    update(99, 'Avvio workspace...', 'Finalizing');
+    update(98, 'Starting workspace...', 'Finalizing');
 
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 

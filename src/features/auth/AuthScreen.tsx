@@ -11,6 +11,7 @@ import {
   Alert,
   Dimensions,
   Animated as RNAnimated,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,7 +26,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-type AuthMode = 'initial' | 'login' | 'register' | 'forgot';
+type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
 
 // Animated glow orb component
 const AnimatedGlow = ({ style, durationY = 5000, durationX = 6000 }: { style: any; durationY?: number; durationX?: number }) => {
@@ -240,13 +241,16 @@ export const AuthScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [verificationPassword, setVerificationPassword] = useState('');
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
   const modalBottom = useRef(new RNAnimated.Value(90)).current;
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
   const keyboardHeight = useRef(0);
   const baseMarginBottom = useRef(90);
-  const { signIn, signUp, signInWithApple, resetPassword, isLoading, error, clearError } = useAuthStore();
+  const { signIn, signUp, signInWithApple, resetPassword, resendVerificationEmail, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
 
   // Check Apple Auth availability
@@ -287,6 +291,7 @@ export const AuthScreen = () => {
     if (mode === 'login') targetHeight = 500; // Added Apple button
     if (mode === 'register') targetHeight = 600; // Added Apple button
     if (mode === 'forgot') targetHeight = 300;
+    if (mode === 'verify') targetHeight = 340;
 
     const showBlur = mode !== 'initial';
     const targetMarginBottom = mode === 'initial' ? 90 : 30;
@@ -357,6 +362,12 @@ export const AuthScreen = () => {
         await signIn(email.trim(), password);
       } else if (mode === 'register') {
         await signUp(email.trim(), password, displayName.trim());
+        // Registration successful — switch to verify mode
+        setVerificationEmail(email.trim());
+        setVerificationPassword(password);
+        setMode('verify');
+        setResendSuccess(false);
+        return;
       } else if (mode === 'forgot') {
         await resetPassword(email.trim());
         Alert.alert(
@@ -432,8 +443,54 @@ export const AuthScreen = () => {
         </Animated.View>
       )}
 
+      {/* Email Verification State */}
+      {mode === 'verify' && (
+        <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
+          <View style={styles.verifyContainer}>
+            <View style={styles.verifyIconContainer}>
+              <Ionicons name="mail-outline" size={36} color={AppColors.primary} />
+            </View>
+            <Text style={styles.verifyTitle}>{t('auth:emailVerification.title')}</Text>
+            <Text style={styles.verifyMessage}>
+              {t('auth:emailVerification.message', { email: verificationEmail })}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.resendButton, resendSuccess && styles.resendButtonSuccess]}
+            onPress={async () => {
+              try {
+                setResendSuccess(false);
+                await resendVerificationEmail(verificationEmail, verificationPassword);
+                setResendSuccess(true);
+              } catch {
+                // Silently fail — user can retry
+              }
+            }}
+            disabled={isLoading}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={resendSuccess ? 'checkmark-circle' : 'refresh-outline'}
+              size={18}
+              color={resendSuccess ? '#10B981' : 'rgba(255,255,255,0.8)'}
+            />
+            <Text style={[styles.resendButtonText, resendSuccess && { color: '#10B981' }]}>
+              {resendSuccess ? t('auth:emailVerification.resent') : t('auth:emailVerification.resend')}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.switchMode}
+            onPress={() => switchMode('login')}
+          >
+            <Text style={[styles.switchModeText, { color: AppColors.primary }]}>
+              {t('auth:emailVerification.backToLogin')}
+            </Text>
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
       {/* Form State */}
-      {mode !== 'initial' && (
+      {mode !== 'initial' && mode !== 'verify' && (
         <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
           <View style={styles.formHeader}>
             <GlassBackButton onPress={() => switchMode('initial')} />
@@ -675,7 +732,10 @@ export const AuthScreen = () => {
       {mode === 'initial' && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
           <Text style={styles.footerText}>
-            {t('auth:termsFooter')} <Text style={styles.footerLink}>{t('auth:terms')}</Text> & <Text style={styles.footerLink}>{t('auth:privacy')}</Text>
+            {t('auth:termsFooter')}{' '}
+            <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/terms-of-service.html')}>{t('auth:terms')}</Text>
+            {' & '}
+            <Text style={styles.footerLink} onPress={() => Linking.openURL('https://www.drape-dev.it/privacy-policy.html')}>{t('auth:privacy')}</Text>
           </Text>
         </View>
       )}
@@ -1043,5 +1103,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#fff',
+  },
+  verifyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  verifyIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(124, 58, 237, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  verifyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  verifyMessage: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  resendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 8,
+  },
+  resendButtonSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderColor: 'rgba(16, 185, 129, 0.2)',
+  },
+  resendButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
   },
 });

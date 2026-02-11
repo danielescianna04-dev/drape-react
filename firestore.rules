@@ -20,8 +20,8 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create: if request.auth != null && request.auth.uid == userId;
       allow update: if request.auth != null && request.auth.uid == userId;
-      // Users should not delete their own document from the client
-      allow delete: if false;
+      // Allow users to delete their own document (required for account deletion)
+      allow delete: if request.auth != null && request.auth.uid == userId;
 
       // ----------------------------------------------------------
       // GIT ACCOUNTS — per-user subcollection for git provider accounts

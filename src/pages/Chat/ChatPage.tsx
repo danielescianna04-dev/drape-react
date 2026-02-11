@@ -6,7 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { applyGlassEffect, removeGlassEffect } from '../../shared/components/NativeGlassView';
+import { applyGlassEffect, removeGlassEffect, removeAllGlassEffects } from '../../shared/components/NativeGlassView';
+import { useTranslation } from 'react-i18next';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -103,6 +104,7 @@ interface ChatPageProps {
 }
 
 const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPageProps) => {
+  const { t } = useTranslation('chat');
   // Use custom hooks for state management and UI concerns
   const chatState = useChatState(isCardMode);
 
@@ -2502,10 +2504,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                             🚀
                           </Text>
                           <Text style={{ fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: -0.3 }}>
-                            Budget esaurito
+                            {t('settings:plans.budgetExhausted')}
                           </Text>
                           <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
-                            Hai usato tutto il budget AI di questo mese.{'\n'}Passa a {nextPlanLabel} per continuare.
+                            {t('settings:plans.budgetExhaustedDesc', { plan: nextPlanLabel })}
                           </Text>
                         </View>
 
@@ -2513,7 +2515,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         <TouchableOpacity
                           onPress={() => navigateTo('plans')}
                           activeOpacity={0.85}
-                          style={{ borderRadius: 16, overflow: 'hidden' }}
+                          style={{ borderRadius: 28, overflow: 'hidden' }}
                         >
                           <LinearGradient
                             colors={['#8B7CF6', '#7C6CF0']}
@@ -2522,11 +2524,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                             style={{
                               paddingVertical: 14,
                               alignItems: 'center',
-                              borderRadius: 16,
+                              borderRadius: 28,
                             }}
                           >
                             <Text style={{ fontSize: 15, fontWeight: '600', color: '#fff', letterSpacing: -0.2 }}>
-                              Passa a {nextPlanLabel}
+                              {t('settings:plans.upgradeTo', { plan: nextPlanLabel })}
                             </Text>
                           </LinearGradient>
                         </TouchableOpacity>
@@ -2549,16 +2551,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               ListEmptyComponent={terminalItems.length === 0 ? (
                 <Animated.View style={[styles.emptyState, welcomeAnimatedStyle]}>
                   <View style={styles.welcomeContainer}>
-                    <Text style={styles.welcomeTitle}>Come posso aiutarti?</Text>
+                    <Text style={styles.welcomeTitle}>{t('welcomeTitle')}</Text>
                     <Text style={styles.welcomeSubtitle}>
-                      Scrivi cosa vuoi fare o prova un suggerimento
+                      {t('welcomeSubtitle')}
                     </Text>
                     <View style={styles.suggestionsGrid}>
                       {[
-                        { icon: 'sparkles-outline', text: 'Aggiungi una nuova feature' },
-                        { icon: 'bug-outline', text: 'Trova e correggi i bug' },
-                        { icon: 'color-palette-outline', text: 'Migliora il design' },
-                        { icon: 'rocket-outline', text: 'Ottimizza le performance' },
+                        { icon: 'sparkles-outline', text: t('suggestionFeature') },
+                        { icon: 'bug-outline', text: t('suggestionBugs') },
+                        { icon: 'color-palette-outline', text: t('suggestionDesign') },
+                        { icon: 'rocket-outline', text: t('suggestionPerformance') },
                       ].map((suggestion, idx) => (
                         <TouchableOpacity
                           key={idx}
@@ -2790,8 +2792,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     onChangeText={handleInputChange}
                     placeholder={
                       agentMode === 'fast'
-                        ? 'Chiedi qualcosa...'
-                        : 'Descrivi cosa vuoi creare...'
+                        ? t('placeholderFast')
+                        : t('placeholderPlanning')
                     }
                     placeholderTextColor={AppColors.dark.bodyText}
                     multiline

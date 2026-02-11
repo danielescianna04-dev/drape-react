@@ -15,6 +15,7 @@ const it_projects = require('./locales/it/projects.json');
 const it_terminal = require('./locales/it/terminal.json');
 const it_errors = require('./locales/it/errors.json');
 const it_auth = require('./locales/it/auth.json');
+const it_chat = require('./locales/it/chat.json');
 
 // Import English translations
 const en_common = require('./locales/en/common.json');
@@ -23,6 +24,7 @@ const en_projects = require('./locales/en/projects.json');
 const en_terminal = require('./locales/en/terminal.json');
 const en_errors = require('./locales/en/errors.json');
 const en_auth = require('./locales/en/auth.json');
+const en_chat = require('./locales/en/chat.json');
 
 // Supported languages
 export const LANGUAGES = {
@@ -44,6 +46,7 @@ const resources = {
     terminal: it_terminal,
     errors: it_errors,
     auth: it_auth,
+    chat: it_chat,
   },
   en: {
     common: en_common,
@@ -52,6 +55,7 @@ const resources = {
     terminal: en_terminal,
     errors: en_errors,
     auth: en_auth,
+    chat: en_chat,
   },
 };
 
@@ -69,7 +73,7 @@ i18n.use(initReactI18next).init({
   lng: getDeviceLanguage(),
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'settings', 'projects', 'terminal', 'errors', 'auth'],
+  ns: ['common', 'settings', 'projects', 'terminal', 'errors', 'auth', 'chat'],
   interpolation: {
     escapeValue: false, // React already escapes
   },

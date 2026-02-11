@@ -1,0 +1,21 @@
+{
+  "welcomeTitle": "How can I help you?",
+  "welcomeSubtitle": "Write what you want to do or try a suggestion",
+  "suggestionFeature": "Add a new feature",
+  "suggestionBugs": "Find and fix bugs",
+  "suggestionDesign": "Improve the design",
+  "suggestionPerformance": "Optimize performance",
+  "placeholderFast": "Ask anything...",
+  "placeholderPlanning": "Describe what you want to create...",
+  "loadingTips": {
+    "tip1": "Clean code is easier to maintain",
+    "tip2": "Commit often, push regularly",
+    "tip3": "Documentation is part of the code",
+    "tip4": "Make it work first, then optimize",
+    "tip5": "Test your code before committing",
+    "tip6": "Naming conventions matter",
+    "tip7": "Dependency injection makes code testable",
+    "tip8": "Refactoring is development, not wasted time"
+  },
+  "loading": "Loading"
+}

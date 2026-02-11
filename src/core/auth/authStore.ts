@@ -5,13 +5,16 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  deleteUser,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   User,
   sendPasswordResetEmail,
   GoogleAuthProvider,
   OAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where, serverTimestamp } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { auth, db } from '../../config/firebase';
 import { useTerminalStore } from '../terminal/terminalStore';
@@ -24,6 +27,7 @@ import { pushNotificationService } from '../services/pushNotificationService';
 import { deviceService } from '../services/deviceService';
 import { Alert } from 'react-native';
 import i18n from '../../i18n';
+import { config } from '../../config/config';
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
@@ -127,6 +131,8 @@ interface AuthState {
   signInWithGoogle: (idToken: string) => Promise<void>;
   signInWithApple: () => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: (password?: string) => Promise<void>;
+  resendVerificationEmail: (email: string, password: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   clearError: () => void;
@@ -165,6 +171,9 @@ const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
   }
 };
 
+// Flag to prevent onAuthStateChanged from processing during signUp
+let isSigningUp = false;
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isLoading: false,
@@ -176,6 +185,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: () => {
 
     onAuthStateChanged(auth, async (firebaseUser) => {
+      // Skip processing during signUp flow to avoid race condition
+      if (isSigningUp) return;
 
       const newUserId = firebaseUser?.uid || null;
       const userChanged = previousUserId !== null && previousUserId !== newUserId;
@@ -199,6 +210,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       previousUserId = newUserId;
 
       if (firebaseUser) {
+        // Block unverified email/password users
+        const isEmailProvider = firebaseUser.providerData.some(p => p.providerId === 'password');
+        if (isEmailProvider && !firebaseUser.emailVerified) {
+          await signOut(auth);
+          set({ user: null, isInitialized: true, isLoading: false });
+          return;
+        }
+
         // Check if this device is the active device
         const isActive = await deviceService.isActiveDevice(firebaseUser.uid);
 
@@ -283,6 +302,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+      // Block login if email not verified (email/password users only)
+      if (!userCredential.user.emailVerified) {
+        await signOut(auth);
+        set({ error: i18n.t('auth:emailVerification.notVerified'), isLoading: false });
+        return;
+      }
+
       const drapeUser = mapFirebaseUser(userCredential.user);
 
       // Load actual plan from Firestore
@@ -330,6 +357,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signUp: async (email: string, password: string, displayName: string) => {
     set({ isLoading: true, error: null });
+    isSigningUp = true;
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -337,25 +365,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Update profile with display name
       await updateProfile(userCredential.user, { displayName });
 
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
+      // Create user document in Firestore (non-blocking — can be created later if it fails)
+      setDoc(doc(db, 'users', userCredential.user.uid), {
         email,
         displayName,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      }).catch(err => console.warn('[AuthStore] Firestore user doc creation deferred:', err.code));
 
-      const drapeUser = mapFirebaseUser(userCredential.user);
-      drapeUser.displayName = displayName; // Override since it wasn't updated in time
+      // Send verification email via backend (uses Resend for beautiful emails)
+      fetch(`${config.apiUrl}/auth/send-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, displayName }),
+      }).catch(err => console.warn('[AuthStore] Backend verification email failed, using fallback:', err));
 
-      set({ user: drapeUser, isLoading: false, isNewUser: true });
-      useTerminalStore.setState({ userId: userCredential.user.uid });
+      // Sign out — user must verify email before using the app
+      await signOut(auth);
 
-      // Update projectStore (new user has no projects yet)
-      useProjectStore.getState().setUserId(userCredential.user.uid);
-      useProjectStore.setState({ projects: [] });
+      isSigningUp = false;
+      set({ isLoading: false });
 
     } catch (error: any) {
+      isSigningUp = false;
       console.error('❌ [AuthStore] Sign up error:', error.code);
 
       let errorMessage = i18n.t('auth:errors.errorDuringRegistration');
@@ -425,6 +457,146 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       console.error('❌ [AuthStore] Logout error:', error);
       set({ error: i18n.t('auth:errors.errorDuringLogout'), isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteAccount: async (password?: string) => {
+    set({ isLoading: true, error: null });
+
+    try {
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) throw new Error('Not authenticated');
+
+      const uid = firebaseUser.uid;
+
+      // Determine provider for re-authentication
+      const isEmailProvider = firebaseUser.providerData.some(p => p.providerId === 'password');
+      const isAppleProvider = firebaseUser.providerData.some(p => p.providerId === 'apple.com');
+      const isGoogleProvider = firebaseUser.providerData.some(p => p.providerId === 'google.com');
+
+      // Re-authenticate before deleting
+      if (isEmailProvider) {
+        if (!password) {
+          set({ isLoading: false });
+          throw new Error('password-required');
+        }
+        const credential = EmailAuthProvider.credential(firebaseUser.email!, password);
+        await reauthenticateWithCredential(firebaseUser, credential);
+      } else if (isAppleProvider) {
+        const nonce = Math.random().toString(36).substring(2, 15);
+        const hashedNonce = await Crypto.digestStringAsync(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          nonce
+        );
+        const appleCredential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+          nonce: hashedNonce,
+        });
+        if (!appleCredential.identityToken) throw new Error('Apple re-auth failed');
+        const oauthCredential = new OAuthProvider('apple.com').credential({
+          idToken: appleCredential.identityToken,
+          rawNonce: nonce,
+        });
+        await reauthenticateWithCredential(firebaseUser, oauthCredential);
+      } else if (isGoogleProvider) {
+        // For Google, we throw a specific error so UI can trigger Google Sign-In flow
+        set({ isLoading: false });
+        throw new Error('google-reauth-required');
+      }
+
+      // 1. Delete all user data from Firestore
+      try {
+        const projectsQuery = query(collection(db, 'user_projects'), where('userId', '==', uid));
+        const projectsSnap = await getDocs(projectsQuery);
+        for (const d of projectsSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+      } catch (e) { console.warn('[DeleteAccount] Failed to delete user_projects:', e); }
+
+      try {
+        const gitAccountsSnap = await getDocs(collection(db, 'users', uid, 'git-accounts'));
+        for (const d of gitAccountsSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+      } catch (e) { console.warn('[DeleteAccount] Failed to delete git-accounts:', e); }
+
+      try { await deleteDoc(doc(db, 'user_configs', uid)); } catch (e) { /* ignore */ }
+      try { await deleteDoc(doc(db, 'presence', uid)); } catch (e) { /* ignore */ }
+
+      try {
+        const sharedQuery = query(collection(db, 'shared-git-accounts'), where('addedBy', '==', uid));
+        const sharedSnap = await getDocs(sharedQuery);
+        for (const d of sharedSnap.docs) {
+          await deleteDoc(d.ref);
+        }
+      } catch (e) { console.warn('[DeleteAccount] Failed to delete shared-git-accounts:', e); }
+
+      try { await deleteDoc(doc(db, 'users', uid)); } catch (e) { /* ignore */ }
+
+      // 2. Clean up local state (same as logout)
+      useTabStore.getState().resetTabs();
+      useTerminalStore.setState({
+        userId: null,
+        currentWorkstation: null,
+        workstations: [],
+        chatHistory: [],
+        globalTerminalLog: [],
+      });
+      useProjectStore.setState({
+        userId: 'default-user',
+        projects: [],
+        currentProject: null,
+        currentWorkstationId: null,
+      });
+
+      // 3. Unregister push token
+      await pushNotificationService.unregisterToken().catch(() => {});
+
+      // 4. Stop presence tracking
+      if (presenceCleanup) { presenceCleanup(); presenceCleanup = null; }
+
+      // 5. Delete Firebase Auth user
+      await deleteUser(firebaseUser);
+
+      set({ user: null, isLoading: false, deviceCheckFailed: false });
+
+    } catch (error: any) {
+      console.error('[AuthStore] Delete account error:', error);
+
+      if (error.message === 'password-required' || error.message === 'google-reauth-required') {
+        set({ isLoading: false });
+        throw error;
+      }
+
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        set({ isLoading: false });
+        throw new Error('wrong-password');
+      }
+
+      if (error.code === 'ERR_CANCELED') {
+        set({ isLoading: false });
+        throw new Error('cancelled');
+      }
+
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  resendVerificationEmail: async (email: string, _password: string) => {
+    try {
+      const res = await fetch(`${config.apiUrl}/auth/send-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error('Failed to resend verification email');
+    } catch (error: any) {
+      console.error('❌ [AuthStore] Resend verification error:', error.message);
       throw error;
     }
   },

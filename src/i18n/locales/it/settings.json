@@ -77,27 +77,55 @@
     "button": "Esci",
     "error": "Impossibile effettuare il logout"
   },
+  "deleteAccount": {
+    "title": "Elimina Account",
+    "confirm": "Sei sicuro di voler eliminare definitivamente il tuo account? Tutti i tuoi progetti, dati e abbonamento andranno persi. Questa azione non può essere annullata.",
+    "button": "Elimina definitivamente",
+    "success": "Account eliminato con successo",
+    "error": "Impossibile eliminare l'account",
+    "reauth": "Per sicurezza, esci e accedi di nuovo prima di eliminare il tuo account.",
+    "enterPassword": "Inserisci la tua password per confermare l'eliminazione dell'account.",
+    "wrongPassword": "Password errata. Riprova."
+  },
   "plans": {
     "free": {
-      "name": "Free",
-      "description": "Per chi vuole esplorare le basi"
+      "name": "Starter",
+      "description": "Per chi vuole esplorare le basi.",
+      "features": ["3 progetti + 2 clonati", "5 preview al mese", "Budget AI base", "1GB Storage Cloud"]
     },
     "go": {
       "name": "Go",
-      "description": "Per chi vuole creare sul serio"
+      "description": "Per chi vuole creare sul serio.",
+      "features": ["10 progetti + 5 clonati", "20 preview al mese", "Budget AI potenziato", "5GB Storage Cloud", "Supporto email"]
     },
     "pro": {
       "name": "Pro",
-      "description": "Potenza massima per sviluppatori"
+      "description": "Potenza massima per sviluppatori.",
+      "features": ["50 progetti + 25 clonati", "Preview illimitate", "Budget AI illimitato", "10GB Storage Cloud", "Supporto prioritario"]
     },
     "monthly": "Mensile",
     "yearly": "Annuale",
     "save20": "RISPARMIA 20%",
+    "upgradeTitle": "Upgrade Plan",
     "elevateTitle": "Eleva il tuo Sviluppo",
-    "elevateDesc": "Scatena la potenza dell'AI nei tuoi progetti",
+    "elevateDesc": "Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.",
     "secureTransactions": "Transazioni sicure via Stripe. Gestione abbonamento semplice e veloce dalle impostazioni.",
     "upgradeTo": "Passa a {{plan}}",
-    "upgradeFeatures": "5 progetti, 20 preview/mese e budget AI raddoppiato."
+    "upgradeFeatures": "5 progetti, 20 preview/mese e budget AI raddoppiato.",
+    "currentPlan": "Piano Attuale",
+    "freePlan": "Piano Gratuito",
+    "recommended": "CONSIGLIATO",
+    "active": "ATTIVO",
+    "perMonth": "/mese",
+    "perYear": "/anno",
+    "restoring": "Ripristino in corso...",
+    "restorePurchases": "Ripristina Acquisti",
+    "legalNotice": "Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga disattivato almeno 24 ore prima della scadenza del periodo corrente. Puoi gestire e cancellare i tuoi abbonamenti nelle Impostazioni del tuo account Apple ID.",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfService": "Termini di Servizio",
+    "confirmUpgrade": "Vuoi attivare il piano {{plan}} ({{cycle}})?",
+    "budgetExhausted": "Budget esaurito",
+    "budgetExhaustedDesc": "Hai usato tutto il budget AI di questo mese.\nPassa a {{plan}} per continuare."
   },
   "resources": {
     "title": "Risorse Sistema",

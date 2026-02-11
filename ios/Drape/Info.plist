@@ -21,7 +21,7 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.3.0</string>
+    <string>1.5.1</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleURLTypes</key>
@@ -51,10 +51,10 @@
     <key>NSAppTransportSecurity</key>
     <dict>
       <key>NSAllowsArbitraryLoads</key>
+      <false/>
+      <key>NSAllowsArbitraryLoadsInWebContent</key>
       <true/>
       <key>NSAllowsLocalNetworking</key>
-      <true/>
-      <key>NSAllowsArbitraryLoadsInWebContent</key>
       <true/>
       <key>NSExceptionDomains</key>
       <dict>
@@ -70,7 +70,7 @@
     <key>NSCameraUsageDescription</key>
     <string>L'app necessita di accedere alla fotocamera per scattare foto da inviare nella chat.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>L'app necessita di accedere al microfono per registrare audio.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>L'app necessita di salvare immagini nella tua galleria.</string>
     <key>NSPhotoLibraryUsageDescription</key>

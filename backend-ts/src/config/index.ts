@@ -66,6 +66,9 @@ export const config = {
   containerCpus: optionalInt('CONTAINER_CPUS', 4),
   containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 15 * 60 * 1000),
 
+  // Resend (email)
+  resendApiKey: optional('RESEND_API_KEY', ''),
+
   // Apple IAP
   appleIapKeyId: optional('APPLE_IAP_KEY_ID', ''),
   appleIapIssuerId: optional('APPLE_IAP_ISSUER_ID', ''),

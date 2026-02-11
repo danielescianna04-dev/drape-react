@@ -2,7 +2,7 @@
   "expo": {
     "name": "Drape",
     "slug": "drape-react",
-    "version": "1.3.0",
+    "version": "1.5.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,7 @@
       "backgroundColor": "#0A0A0C"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.drape.app",
       "infoPlist": {
         "UIUserInterfaceStyle": "Dark",
@@ -24,12 +24,12 @@
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["remote-notification"],
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoadsInWebContent": true,
           "NSExceptionDomains": {
-            "77.42.1.116": {
-              "NSExceptionAllowsInsecureHTTPLoads": true,
+            "drape.info": {
+              "NSExceptionAllowsInsecureHTTPLoads": false,
               "NSIncludesSubdomains": true
             }
           }

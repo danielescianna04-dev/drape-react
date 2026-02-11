@@ -1,0 +1,21 @@
+{
+  "welcomeTitle": "Come posso aiutarti?",
+  "welcomeSubtitle": "Scrivi cosa vuoi fare o prova un suggerimento",
+  "suggestionFeature": "Aggiungi una nuova feature",
+  "suggestionBugs": "Trova e correggi i bug",
+  "suggestionDesign": "Migliora il design",
+  "suggestionPerformance": "Ottimizza le performance",
+  "placeholderFast": "Chiedi qualcosa...",
+  "placeholderPlanning": "Descrivi cosa vuoi creare...",
+  "loadingTips": {
+    "tip1": "Il codice pulito è più facile da mantenere",
+    "tip2": "Committa spesso, pusha regolarmente",
+    "tip3": "La documentazione è parte del codice",
+    "tip4": "Prima fallo funzionare, poi ottimizza",
+    "tip5": "Testa il tuo codice prima di committare",
+    "tip6": "Le convenzioni di naming sono importanti",
+    "tip7": "Dependency injection rende testabile il codice",
+    "tip8": "Refactoring è sviluppo, non perdita di tempo"
+  },
+  "loading": "Caricamento"
+}

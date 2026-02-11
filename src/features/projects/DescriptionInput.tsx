@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity, Keyboard, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { useTranslation } from 'react-i18next';
 
 interface DescriptionInputProps {
   value: string;
@@ -14,6 +15,7 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
   onChangeText,
   placeholder = "Es. Una landing page per vendere scarpe..."
 }) => {
+  const { t } = useTranslation('projects');
   const inputRef = useRef<TextInput>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
@@ -117,7 +119,7 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
       )}
       <View style={styles.aiHintContainer}>
         <Ionicons name="sparkles" size={14} color="rgba(139, 92, 246, 0.8)" />
-        <Text style={styles.hintText}>L'AI genererà il codice in base a questa descrizione</Text>
+        <Text style={styles.hintText}>{t('create.aiHint')}</Text>
       </View>
     </View>
   );

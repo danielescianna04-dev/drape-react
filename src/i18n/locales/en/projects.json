@@ -63,7 +63,8 @@
     "connectionLost": "Connection lost during creation. Try again.",
     "mustBeLoggedIn": "You must be logged in to create a project",
     "unableToStartAgent": "Unable to start the agent. Try again.",
-    "unableToCreate": "Unable to create the project. Try again."
+    "unableToCreate": "Unable to create the project. Try again.",
+    "aiHint": "AI will generate the code based on this description"
   },
   "limit": {
     "reached": "Limit reached",

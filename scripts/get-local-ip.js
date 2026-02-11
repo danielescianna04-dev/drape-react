@@ -74,8 +74,8 @@ function updateEnvFile(ip) {
 }
 
 function updateBackendEnv(ip) {
-  const envPath = path.join(__dirname, '..', 'backend', '.env');
-  const envExamplePath = path.join(__dirname, '..', 'backend', '.env.example');
+  const envPath = path.join(__dirname, '..', 'backend-ts', '.env');
+  const envExamplePath = path.join(__dirname, '..', 'backend-ts', '.env.example');
 
   let envContent = '';
 

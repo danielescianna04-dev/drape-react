@@ -82,6 +82,11 @@ export function useChatEngine(
   const thinkingContentRef = useRef('');
   const currentMessageIdRef = useRef<string | null>(null);
   const sessionCostRef = useRef<SessionCost>({ costEur: 0, inputTokens: 0, outputTokens: 0 });
+  /** Tracks whether ANY text_delta was processed in the current agent run.
+   *  Used to suppress duplicate completion messages when text was already streamed. */
+  const hadStreamedTextRef = useRef(false);
+  /** The ID of the last text message created from text_delta, survives tool_start clearing currentMessageIdRef. */
+  const lastStreamedMsgIdRef = useRef<string | null>(null);
 
   // ─ Helpers ────────────────────────────────────────────────────────────────
 
@@ -125,6 +130,8 @@ export function useChatEngine(
     thinkingContentRef.current = '';
     currentMessageIdRef.current = null;
     sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
+    hadStreamedTextRef.current = false;
+    lastStreamedMsgIdRef.current = null;
     if (gapTimerRef.current) { clearTimeout(gapTimerRef.current); gapTimerRef.current = null; }
   }, []);
 
@@ -396,6 +403,8 @@ export function useChatEngine(
         const delta = (event as any).delta || (event as any).text;
         if (!delta) continue;
 
+        hadStreamedTextRef.current = true;
+
         // First delta after thinking → convert thinking item to text in-place
         const isFirstDelta = currentMessageIdRef.current?.startsWith('engine-thinking-') && streamingContentRef.current === '';
         if (isFirstDelta) {
@@ -406,6 +415,7 @@ export function useChatEngine(
             m.id === thinkingId ? { ...m, type: 'text', isThinking: false, content: cleanContent } : m,
           ));
           // Keep same ID for further deltas
+          lastStreamedMsgIdRef.current = thinkingId;
         } else if (currentMessageIdRef.current) {
           // Accumulate into existing text message
           streamingContentRef.current += delta;
@@ -414,11 +424,13 @@ export function useChatEngine(
           setMessages(prev => prev.map(m =>
             m.id === msgId ? { ...m, content: cleanContent } : m,
           ));
+          lastStreamedMsgIdRef.current = msgId;
         } else {
           // No current message → create new text message
           streamingContentRef.current = delta;
           const newId = `engine-text-${Date.now()}`;
           currentMessageIdRef.current = newId;
+          lastStreamedMsgIdRef.current = newId;
           setMessages(prev => [...prev, {
             id: newId,
             type: 'text',
@@ -473,7 +485,7 @@ export function useChatEngine(
           ...prev
             .filter(m => !(m.isThinking && !m.content?.trim() && !m.thinkingContent?.trim()))
             .map(m => m.isThinking ? { ...m, isThinking: false } : m),
-          { id: `budget-${Date.now()}`, type: 'budget_exceeded' as const, content: 'Budget AI esaurito', timestamp: new Date() },
+          { id: `budget-${Date.now()}`, type: 'budget_exceeded' as const, content: '__BUDGET_EXCEEDED__', timestamp: new Date() },
         ]);
         currentMessageIdRef.current = null;
         continue;
@@ -483,7 +495,7 @@ export function useChatEngine(
       if (event.type === 'error' || event.type === 'fatal_error') {
         setIsLoading(false);
         setActiveTools([]);
-        const rawError = (event as any).error || (event as any).message || 'Errore sconosciuto';
+        const rawError = (event as any).error || (event as any).message || 'Unknown error';
         // Extract a human-readable string from the error (could be object, JSON string, or plain string)
         let errorMsg: string;
         if (typeof rawError === 'object') {
@@ -535,11 +547,12 @@ export function useChatEngine(
         setIsLoading(false);
         setActiveTools([]);
 
-        // Append completion text if no streaming message exists
+        // Append completion text ONLY if no text was ever streamed in this agent run.
+        // When the AI streams text via text_delta and then calls signal_completion,
+        // the tool_start handler clears currentMessageIdRef, making the old check
+        // think there was no streaming. hadStreamedTextRef persists across tool calls.
         const completionResult = (event as any).result;
-        // Check if we already have streamed content (thinking→text conversion keeps engine-thinking- ID)
-        const hasStreaming = currentMessageIdRef.current != null && streamingContentRef.current !== '';
-        if (completionResult && typeof completionResult === 'string' && completionResult.trim() && !hasStreaming) {
+        if (completionResult && typeof completionResult === 'string' && completionResult.trim() && !hadStreamedTextRef.current) {
           setMessages(prev => [...prev, {
             id: `completion-${Date.now()}`,
             type: 'completion',
@@ -549,12 +562,13 @@ export function useChatEngine(
           }]);
         }
 
-        // Attach cost to the current streaming message
-        if (currentMessageIdRef.current && sessionCostRef.current.costEur > 0) {
-          const msgId = currentMessageIdRef.current;
+        // Attach cost to the streamed text message (use lastStreamedMsgIdRef as fallback
+        // since tool_start clears currentMessageIdRef)
+        const costMsgId = currentMessageIdRef.current || lastStreamedMsgIdRef.current;
+        if (costMsgId && sessionCostRef.current.costEur > 0) {
           const cost = { ...sessionCostRef.current };
           setMessages(prev => prev.map(m =>
-            m.id === msgId
+            m.id === costMsgId
               ? { ...m, costEur: cost.costEur, tokensUsed: { input: cost.inputTokens, output: cost.outputTokens } } as any
               : m,
           ));

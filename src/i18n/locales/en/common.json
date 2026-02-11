@@ -117,5 +117,10 @@
   "projectName": "Project name",
   "terminalMode": "Terminal Mode",
   "envVariables": "Environment Variables",
-  "galleryPermissionRequired": "Gallery access permission is required"
+  "galleryPermissionRequired": "Gallery access permission is required",
+  "offline": {
+    "title": "No Connection",
+    "message": "Drape requires an internet connection to work. Check your connection and try again.",
+    "retry": "Try Again"
+  }
 }

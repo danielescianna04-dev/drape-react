@@ -12,6 +12,7 @@ import { agentRouter } from './agent.routes';
 import { notificationRouter } from './notification.routes';
 import { aiRouter } from './ai.routes';
 import { iapRouter } from './iap.routes';
+import { authRouter } from './auth.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 import { config } from '../config';
 import { optionalAuth } from '../middleware/auth';
@@ -55,6 +56,9 @@ export function mountRoutes(app: Express): void {
   app.use('/github', githubRouter);
   app.use('/oauth/gitlab', gitlabRouter);
   app.use('/oauth/bitbucket', bitbucketRouter);
+
+  // Auth email routes — public (called during registration before user is authenticated)
+  app.use('/auth', authRouter);
 
   // --- Auth-protected routes ---
 

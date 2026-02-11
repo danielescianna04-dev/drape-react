@@ -143,7 +143,7 @@ class ProjectDetectorService {
     if (!startCommand.includes('-p ') && !startCommand.includes('--port')) {
       startCommand += ' -p 3000';
     }
-    if (useTurbopack && !startCommand.includes('--turbo')) {
+    if (useTurbopack && !startCommand.includes('--turbo') && !startCommand.includes('--webpack')) {
       startCommand += ' --turbopack';
     }
 

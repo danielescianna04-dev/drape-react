@@ -94,7 +94,7 @@ const SIDE_INSET = (SCREEN_WIDTH - CARD_WIDTH) / 2;
 
 export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanIndex = 0 }: Props) => {
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuthStore();
+  const { user, logout, deleteAccount } = useAuthStore();
   const { t } = useTranslation('settings');
   const { language, setLanguage: setAppLanguage } = useLanguageStore();
   const [darkMode, setDarkMode] = useState(true);
@@ -369,11 +369,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         onPress={() => {
           if (!isCurrent) {
             Alert.alert(
-              `Passa a ${name}`,
-              `Vuoi attivare il piano ${name} (${billingCycle})?`,
+              t('plans.upgradeTo', { plan: name }),
+              t('plans.confirmUpgrade', { plan: name, cycle: billingCycle === 'monthly' ? t('plans.monthly') : t('plans.yearly') }),
               [
-                { text: 'Annulla', style: 'cancel' },
-                { text: 'Conferma', onPress: () => setCurrentPlan(planId) }
+                { text: t('common:cancel'), style: 'cancel' },
+                { text: t('common:confirm'), onPress: () => setCurrentPlan(planId) }
               ]
             );
           }
@@ -386,7 +386,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             end={{ x: 1, y: 0 }}
             style={styles.popularBadge}
           >
-            <Text style={styles.popularBadgeText}>CONSIGLIATO</Text>
+            <Text style={styles.popularBadgeText}>{t('plans.recommended')}</Text>
           </LinearGradient>
         )}
 
@@ -398,17 +398,17 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           {isCurrent && (
             <BlurView intensity={30} tint="light" style={styles.currentBadge}>
               <Ionicons name="checkmark-circle" size={14} color={color} />
-              <Text style={[styles.currentBadgeText, { color }]}>ATTIVO</Text>
+              <Text style={[styles.currentBadgeText, { color }]}>{t('plans.active')}</Text>
             </BlurView>
           )}
         </View>
 
         <View style={styles.priceContainer}>
           <Text style={styles.planPrice}>{price}</Text>
-          <Text style={styles.priceSubtext}>{billingCycle === 'monthly' ? '/mese' : '/anno'}</Text>
+          <Text style={styles.priceSubtext}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
           {billingCycle === 'yearly' && planId !== 'free' && (
             <View style={styles.discountTag}>
-              <Text style={styles.discountText}>RISPARMIA 20%</Text>
+              <Text style={styles.discountText}>{t('plans.save20')}</Text>
             </View>
           )}
         </View>
@@ -433,7 +433,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           onPress={() => !isCurrent && setCurrentPlan(planId)}
         >
           <Text style={[styles.planButtonText, isCurrent && { color: 'rgba(255,255,255,0.5)' }]}>
-            {isCurrent ? 'Piano Attuale' : `Passa a ${name}`}
+            {isCurrent ? t('plans.currentPlan') : t('plans.upgradeTo', { plan: name })}
           </Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -450,31 +450,31 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     const plans = [
       {
         id: 'free',
-        name: 'Starter',
+        name: t('plans.free.name'),
         price: '€0',
-        description: 'Per chi vuole esplorare le basi.',
-        features: ['3 progetti + 2 clonati', '5 preview al mese', 'Budget AI base', '1GB Storage Cloud'],
+        description: t('plans.free.description'),
+        features: t('plans.free.features', { returnObjects: true }) as string[],
         color: '#94A3B8'
       },
       {
         id: 'go',
-        name: 'Go',
+        name: t('plans.go.name'),
         price: billingCycle === 'monthly'
           ? getPrice(IAP_PRODUCT_IDS.GO_MONTHLY, '€22.99')
-          : getPrice(IAP_PRODUCT_IDS.GO_YEARLY, '€19.17'),
-        description: 'Per chi vuole creare sul serio.',
-        features: ['10 progetti + 5 clonati', '20 preview al mese', 'Budget AI potenziato', '5GB Storage Cloud', 'Supporto email'],
+          : getPrice(IAP_PRODUCT_IDS.GO_YEARLY, '€229.99'),
+        description: t('plans.go.description'),
+        features: t('plans.go.features', { returnObjects: true }) as string[],
         color: AppColors.primary,
         isPopular: true
       },
       {
         id: 'pro',
-        name: 'Pro',
+        name: t('plans.pro.name'),
         price: billingCycle === 'monthly'
           ? getPrice(IAP_PRODUCT_IDS.PRO_MONTHLY, '€39.99')
-          : getPrice(IAP_PRODUCT_IDS.PRO_YEARLY, '€33.33'),
-        description: 'Potenza massima per sviluppatori.',
-        features: ['50 progetti + 25 clonati', 'Preview illimitate', 'Budget AI illimitato', '10GB Storage Cloud', 'Supporto prioritario'],
+          : getPrice(IAP_PRODUCT_IDS.PRO_YEARLY, '€449.99'),
+        description: t('plans.pro.description'),
+        features: t('plans.pro.features', { returnObjects: true }) as string[],
         color: '#F472B6'
       }
     ];
@@ -511,7 +511,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               </BlurView>
             )}
           </TouchableOpacity>
-          <Text style={styles.headerTitleSmall}>Upgrade Plan</Text>
+          <Text style={styles.headerTitleSmall}>{t('plans.upgradeTitle')}</Text>
           <View style={{ width: 44 }} />
         </View>
 
@@ -524,8 +524,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             opacity: planHeaderAnim,
             transform: [{ translateY: planHeaderAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
           }]}>
-            <Text style={styles.plansMainTitle}>Eleva il tuo Sviluppo</Text>
-            <Text style={styles.plansSubtitleSmall}>Scatena la potenza dell'AI nei tuoi progetti con i piani Drape.</Text>
+            <Text style={styles.plansMainTitle}>{t('plans.elevateTitle')}</Text>
+            <Text style={styles.plansSubtitleSmall}>{t('plans.elevateDesc')}</Text>
           </Animated.View>
 
           {/* Billing Switcher */}
@@ -537,13 +537,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
               onPress={() => setBillingCycle('monthly')}
             >
-              <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>Mensile</Text>
+              <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
               onPress={() => setBillingCycle('yearly')}
             >
-              <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>Annuale</Text>
+              <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
               <View style={styles.yearlySavings}>
                 <Text style={styles.yearlySavingsText}>-20%</Text>
               </View>
@@ -608,7 +608,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     end={{ x: 1, y: 0 }}
                     style={styles.featuredBadge}
                   >
-                    <Text style={styles.featuredBadgeText}>CONSIGLIATO</Text>
+                    <Text style={styles.featuredBadgeText}>{t('plans.recommended')}</Text>
                   </LinearGradient>
                 )}
 
@@ -626,7 +626,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
                 <View style={styles.priceRow}>
                   <Text style={styles.priceTextLarge}>{plan.price}</Text>
-                  <Text style={styles.pricePeriod}>/mese</Text>
+                  <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
                 </View>
 
                 <View style={styles.planDividerNew} />
@@ -656,7 +656,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   }}
                 >
                   <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
-                    {isExactCurrent ? 'Piano Attuale' : plan.id === 'free' ? 'Piano Gratuito' : `Passa a ${plan.name}`}
+                    {isExactCurrent ? t('plans.currentPlan') : plan.id === 'free' ? t('plans.freePlan') : t('plans.upgradeTo', { plan: plan.name })}
                   </Text>
                 </TouchableOpacity>
               </TouchableOpacity>
@@ -681,19 +681,19 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               style={{ paddingVertical: 12 }}
             >
               <Text style={{ color: AppColors.primary, fontSize: 13, fontWeight: '600' }}>
-                {isRestoring ? 'Ripristino in corso...' : 'Ripristina Acquisti'}
+                {isRestoring ? t('plans.restoring') : t('plans.restorePurchases')}
               </Text>
             </TouchableOpacity>
             <Text style={styles.legalNotice}>
-              Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga disattivato almeno 24 ore prima della scadenza del periodo corrente. Puoi gestire e cancellare i tuoi abbonamenti nelle Impostazioni del tuo account Apple ID.
+              {t('plans.legalNotice')}
             </Text>
             <View style={styles.legalLinks}>
               <TouchableOpacity onPress={() => setShowLegal('privacy')}>
-                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+                <Text style={styles.legalLinkText}>{t('plans.privacyPolicy')}</Text>
               </TouchableOpacity>
               <Text style={styles.legalLinkSeparator}>  ·  </Text>
               <TouchableOpacity onPress={() => setShowLegal('terms')}>
-                <Text style={styles.legalLinkText}>Termini di Servizio</Text>
+                <Text style={styles.legalLinkText}>{t('plans.termsOfService')}</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
@@ -762,8 +762,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         >
           {/* Budget Card - Claude style: clean bar + percentage */}
           <BlurView intensity={30} tint="dark" style={styles.mainMonitorCard}>
-            <Text style={styles.monitorTitle}>Budget AI</Text>
-            <Text style={[styles.monitorSub, { marginBottom: 20 }]}>Piano {planName} · si resetta tra {daysLeft}g</Text>
+            <Text style={styles.monitorTitle}>{t('subscription.aiBudget')}</Text>
+            <Text style={[styles.monitorSub, { marginBottom: 20 }]}>{t('subscription.currentPlan')} {planName} · {t('subscription.resetsIn')} {daysLeft}{t('subscription.days').charAt(0)}</Text>
 
             {/* Clean Progress Bar */}
             <View style={styles.budgetProgressContainer}>
@@ -829,8 +829,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 <Ionicons name="diamond" size={20} color={AppColors.primary} />
               </View>
               <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.premiumTitle}>Passa a Go</Text>
-                <Text style={styles.premiumSub}>5 progetti, 20 preview/mese e budget AI raddoppiato.</Text>
+                <Text style={styles.premiumTitle}>{t('plans.upgradeTo', { plan: 'Go' })}</Text>
+                <Text style={styles.premiumSub}>{t('plans.upgradeFeatures')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
             </LinearGradient>
@@ -965,6 +965,38 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 } catch (error) {
                   Alert.alert(t('common:error'), t('logout.error'));
                 }
+              }
+            },
+          ])}
+          onDeleteAccount={() => Alert.alert(t('deleteAccount.title'), t('deleteAccount.confirm'), [
+            { text: t('common:cancel'), style: 'cancel' },
+            {
+              text: t('deleteAccount.button'), style: 'destructive', onPress: async () => {
+                const doDelete = async (password?: string) => {
+                  try {
+                    await deleteAccount(password);
+                    onClose();
+                  } catch (error: any) {
+                    if (error.message === 'password-required') {
+                      Alert.prompt(
+                        t('deleteAccount.title'),
+                        t('deleteAccount.enterPassword'),
+                        [
+                          { text: t('common:cancel'), style: 'cancel' },
+                          { text: t('deleteAccount.button'), style: 'destructive', onPress: (pwd) => doDelete(pwd) },
+                        ],
+                        'secure-text'
+                      );
+                    } else if (error.message === 'wrong-password') {
+                      Alert.alert(t('common:error'), t('deleteAccount.wrongPassword'));
+                    } else if (error.message === 'cancelled') {
+                      // User cancelled Apple re-auth, do nothing
+                    } else {
+                      Alert.alert(t('common:error'), t('deleteAccount.error'));
+                    }
+                  }
+                };
+                await doDelete();
               }
             },
           ])}

@@ -63,7 +63,8 @@
     "connectionLost": "Connessione persa durante la creazione. Riprova.",
     "mustBeLoggedIn": "Devi essere loggato per creare un progetto",
     "unableToStartAgent": "Impossibile avviare l'agente. Riprova.",
-    "unableToCreate": "Impossibile creare il progetto. Riprova."
+    "unableToCreate": "Impossibile creare il progetto. Riprova.",
+    "aiHint": "L'AI genererà il codice in base a questa descrizione"
   },
   "limit": {
     "reached": "Limite raggiunto",

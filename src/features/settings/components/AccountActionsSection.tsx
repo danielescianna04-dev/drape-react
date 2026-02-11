@@ -7,6 +7,7 @@ interface AccountActionsSectionProps {
   userEmail?: string | null;
   loading: boolean;
   onLogout: () => void;
+  onDeleteAccount: () => void;
   t: (key: string) => string;
 }
 
@@ -14,6 +15,7 @@ export const AccountActionsSection: React.FC<AccountActionsSectionProps> = ({
   userEmail,
   loading,
   onLogout,
+  onDeleteAccount,
   t,
 }) => {
   return (
@@ -26,6 +28,13 @@ export const AccountActionsSection: React.FC<AccountActionsSectionProps> = ({
             title={t('logout.title')}
             subtitle={userEmail || undefined}
             onPress={onLogout}
+            showChevron={false}
+          />
+          <SettingItem
+            icon="trash-outline"
+            iconColor="#EF4444"
+            title={t('deleteAccount.title')}
+            onPress={onDeleteAccount}
             showChevron={false}
             isLast
           />
