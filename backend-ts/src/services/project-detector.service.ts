@@ -11,7 +11,7 @@ class ProjectDetectorService {
   async detect(projectId: string): Promise<ProjectInfo> {
     const projectDir = path.join(config.projectsRoot, projectId);
 
-    const [hasPackageJson, hasNextConfig, hasViteConfig, hasPnpmLock, hasYarnLock, packageJson] =
+    const [hasPackageJson, hasNextConfig, hasViteConfig, hasPnpmLock, hasYarnLock, packageJson, hasSvelteConfig, hasAstroConfig, hasAngularJson, hasGoMod, hasGemfile, hasRailsRoutes, hasNuxtConfig, hasPubspec, hasManagePy, hasComposerJson, hasArtisan] =
       await Promise.all([
         this.fileExists(projectDir, 'package.json'),
         this.hasAnyFile(projectDir, ['next.config.js', 'next.config.mjs', 'next.config.ts']),
@@ -19,6 +19,17 @@ class ProjectDetectorService {
         this.fileExists(projectDir, 'pnpm-lock.yaml'),
         this.fileExists(projectDir, 'yarn.lock'),
         this.readJsonSafe(projectDir, 'package.json'),
+        this.hasAnyFile(projectDir, ['svelte.config.js', 'svelte.config.ts']),
+        this.hasAnyFile(projectDir, ['astro.config.mjs', 'astro.config.ts']),
+        this.fileExists(projectDir, 'angular.json'),
+        this.fileExists(projectDir, 'go.mod'),
+        this.fileExists(projectDir, 'Gemfile'),
+        this.fileExists(projectDir, 'config/routes.rb'),
+        this.hasAnyFile(projectDir, ['nuxt.config.ts', 'nuxt.config.js']),
+        this.fileExists(projectDir, 'pubspec.yaml'),
+        this.fileExists(projectDir, 'manage.py'),
+        this.fileExists(projectDir, 'composer.json'),
+        this.fileExists(projectDir, 'artisan'),
       ]);
 
     const packageManager = this.detectPackageManager(hasPnpmLock, hasYarnLock);
@@ -26,6 +37,36 @@ class ProjectDetectorService {
     // Detect project type
     if (hasNextConfig || this.hasNextDep(packageJson)) {
       return this.nextjsProject(packageJson, packageManager);
+    }
+
+    // SvelteKit (before Vite — SvelteKit uses Vite under the hood)
+    if (hasSvelteConfig || this.hasDep(packageJson, 'svelte')) {
+      return this.svelteProject(packageJson, packageManager);
+    }
+
+    // Astro (before Vite — Astro uses Vite under the hood)
+    if (hasAstroConfig || this.hasDep(packageJson, 'astro')) {
+      return this.astroProject(packageJson, packageManager);
+    }
+
+    // Remix (before Vite — Remix uses Vite)
+    if (this.hasDep(packageJson, '@remix-run/dev')) {
+      return this.remixProject(packageJson, packageManager);
+    }
+
+    // Nuxt (before Vite — Nuxt uses Vite/Nitro under the hood)
+    if (hasNuxtConfig || this.hasDep(packageJson, 'nuxt')) {
+      return this.nuxtProject(packageJson, packageManager);
+    }
+
+    // Angular (before generic Node.js)
+    if (hasAngularJson || this.hasDep(packageJson, '@angular/core')) {
+      return this.angularProject(packageJson, packageManager);
+    }
+
+    // Solid.js (before generic Vite — Solid uses Vite)
+    if (this.hasDep(packageJson, 'solid-js')) {
+      return this.solidProject(packageJson, packageManager);
     }
 
     if (hasViteConfig || this.hasViteDep(packageJson)) {
@@ -110,13 +151,85 @@ class ProjectDetectorService {
       return this.nodejsProject(packageJson, packageManager);
     }
 
-    // Check for Python
+    // Flutter Web (pubspec.yaml with flutter dep)
+    if (hasPubspec) {
+      const pubspec = await this.readFileSafe(projectDir, 'pubspec.yaml');
+      if (pubspec && pubspec.includes('flutter:')) {
+        return {
+          type: 'flutter',
+          description: 'Flutter Web project',
+          startCommand: 'flutter run -d web-server --web-port 3000 --web-hostname 0.0.0.0',
+          port: 3000,
+          installCommand: 'flutter pub get',
+        };
+      }
+    }
+
+    // Laravel (artisan + composer.json)
+    if (hasArtisan && hasComposerJson) {
+      return {
+        type: 'laravel',
+        description: 'Laravel project',
+        startCommand: 'php artisan serve --host=0.0.0.0 --port=3000',
+        port: 3000,
+        installCommand: 'composer install',
+      };
+    }
+
+    // Django (manage.py + settings)
+    if (hasManagePy) {
+      return {
+        type: 'django',
+        description: 'Django project',
+        startCommand: 'python manage.py runserver 0.0.0.0:3000',
+        port: 3000,
+        installCommand: 'pip install -r requirements.txt',
+      };
+    }
+
+    // FastAPI (main.py with fastapi in requirements)
+    if (await this.hasAnyFile(projectDir, ['requirements.txt', 'pyproject.toml'])) {
+      const reqs = await this.readFileSafe(projectDir, 'requirements.txt');
+      const pyproject = await this.readFileSafe(projectDir, 'pyproject.toml');
+      if ((reqs && reqs.includes('fastapi')) || (pyproject && pyproject.includes('fastapi'))) {
+        return {
+          type: 'fastapi',
+          description: 'FastAPI project',
+          startCommand: 'uvicorn main:app --host 0.0.0.0 --port 3000 --reload',
+          port: 3000,
+          installCommand: 'pip install -r requirements.txt',
+        };
+      }
+    }
+
+    // Check for generic Python
     if (await this.hasAnyFile(projectDir, ['requirements.txt', 'pyproject.toml', 'setup.py'])) {
       return {
         type: 'python',
         description: 'Python project',
         startCommand: 'python -m http.server 3000',
         port: 3000,
+      };
+    }
+
+    // Go
+    if (hasGoMod) {
+      return {
+        type: 'go',
+        description: 'Go project',
+        startCommand: 'go run .',
+        port: 3000,
+      };
+    }
+
+    // Ruby / Rails
+    if (hasGemfile && hasRailsRoutes) {
+      return {
+        type: 'ruby',
+        description: 'Ruby on Rails project',
+        startCommand: 'bundle exec rails s -p 3000 -b 0.0.0.0',
+        port: 3000,
+        installCommand: 'bundle install',
       };
     }
 
@@ -232,6 +345,82 @@ class ProjectDetectorService {
     };
   }
 
+  private svelteProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'svelte',
+      description: 'SvelteKit project',
+      startCommand: 'npx vite --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private astroProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'astro',
+      description: 'Astro project',
+      startCommand: 'npx astro dev --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private remixProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'remix',
+      description: 'Remix project',
+      startCommand: 'npx remix vite:dev --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private angularProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'angular',
+      description: 'Angular project',
+      startCommand: 'npx ng serve --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private nuxtProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'nuxt',
+      description: 'Nuxt project',
+      startCommand: 'npx nuxi dev --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private solidProject(pkg: any, pm: PackageManager): ProjectInfo {
+    const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+    return {
+      type: 'solid',
+      description: 'Solid.js project',
+      startCommand: 'npx vite --host 0.0.0.0 --port 3000',
+      port: 3000,
+      installCommand: installCmd,
+      packageManager: pm,
+    };
+  }
+
+  private hasDep(pkg: any, dep: string): boolean {
+    return !!(pkg?.dependencies?.[dep] || pkg?.devDependencies?.[dep]);
+  }
+
   /**
    * List subdirectories inside parent dirs (e.g. apps/*, packages/*)
    */
@@ -266,6 +455,14 @@ class ProjectDetectorService {
       if (await this.fileExists(dir, name)) return true;
     }
     return false;
+  }
+
+  private async readFileSafe(dir: string, name: string): Promise<string | null> {
+    try {
+      return await fs.readFile(path.join(dir, name), 'utf-8');
+    } catch {
+      return null;
+    }
   }
 
   private async readJsonSafe(dir: string, name: string): Promise<any> {

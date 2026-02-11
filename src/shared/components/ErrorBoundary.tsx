@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigationStore } from '../../core/navigation/navigationStore';
 
 interface Props {
   children: React.ReactNode;
@@ -46,13 +46,8 @@ interface ErrorFallbackProps {
 }
 
 const ErrorFallback: React.FC<ErrorFallbackProps> = ({ error, onRetry }) => {
-  const navigation = useNavigation<any>();
-
   const handleGoHome = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'ProjectsHome' }],
-    });
+    useNavigationStore.getState().navigateTo('home');
   };
 
   return (

@@ -123,6 +123,7 @@ type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' 
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
+  const [createKey, setCreateKey] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [pendingRepoUrl, setPendingRepoUrl] = useState('');
@@ -1074,7 +1075,7 @@ export default function App() {
                 >
                   <NavigationContainer independent={true}>
                     <ProjectsHomeScreen
-                      onCreateProject={() => setCurrentScreen('create')}
+                      onCreateProject={() => { setCreateKey(k => k + 1); setCurrentScreen('create'); }}
                       onImportProject={() => setShowImportModal(true)}
                       onMyProjects={() => setCurrentScreen('allProjects')}
                       onSettings={() => setCurrentScreen('settings')}
@@ -1218,10 +1219,8 @@ export default function App() {
               )}
 
               {currentScreen === 'create' && (
-                <Animated.View
-                  key="create-screen"
-                  entering={SlideInRight.duration(300)}
-                  exiting={FadeOut.duration(200)}
+                <View
+                  key={`create-screen-${createKey}`}
                   style={{ flex: 1 }}
                 >
                   <CreateProjectScreen
@@ -1275,7 +1274,7 @@ export default function App() {
                       }, 100);
                     }}
                   />
-                </Animated.View>
+                </View>
               )}
 
               {(currentScreen === 'terminal' || ((currentScreen === 'settings' || currentScreen === 'plans') && useNavigationStore.getState().previousScreen === 'terminal')) && (

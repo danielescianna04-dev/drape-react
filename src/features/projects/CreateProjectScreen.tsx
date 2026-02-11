@@ -45,9 +45,20 @@ interface Props {
 
 const languages = [
   { id: 'react', name: 'React', icon: 'logo-react', color: '#61DAFB' },
-  { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
-  { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
   { id: 'nextjs', name: 'Next.js', icon: 'server-outline', color: '#FFFFFF' },
+  { id: 'vue', name: 'Vue', icon: 'logo-vue', color: '#4FC08D' },
+  { id: 'nuxt', name: 'Nuxt.js', icon: 'layers-outline', color: '#00DC82' },
+  { id: 'svelte', name: 'Svelte', icon: 'flame-outline', color: '#FF3E00' },
+  { id: 'angular', name: 'Angular', icon: 'navigate-outline', color: '#DD0031' },
+  { id: 'astro', name: 'Astro', icon: 'planet-outline', color: '#BC52EE' },
+  { id: 'remix', name: 'Remix', icon: 'repeat-outline', color: '#E8F2FF' },
+  { id: 'solid', name: 'Solid.js', icon: 'water-outline', color: '#2C4F7C' },
+  { id: 'html', name: 'HTML/CSS/JS', icon: 'logo-html5', color: '#E34F26' },
+  { id: 'flask', name: 'Flask', icon: 'logo-python', color: '#3776AB' },
+  { id: 'django', name: 'Django', icon: 'shield-outline', color: '#092E20' },
+  { id: 'fastapi', name: 'FastAPI', icon: 'flash-outline', color: '#009688' },
+  { id: 'flutter', name: 'Flutter', icon: 'apps-outline', color: '#02569B' },
+  { id: 'laravel', name: 'Laravel', icon: 'diamond-outline', color: '#FF2D20' },
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
@@ -92,19 +103,12 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const { workstations } = useTerminalStore();
 
   // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
-    // Animate in
+    // Animate in — no opacity animation so LiquidGlassView initializes immediately
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 400,
@@ -136,7 +140,6 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
     // Reset animations to final state when entering step 2 to prevent interference
     if (step === 2) {
-      fadeAnim.setValue(1);
       slideAnim.setValue(0);
     }
   }, [step]);
@@ -643,7 +646,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     <Animated.View
       style={[
         styles.stepContent,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+        { transform: [{ translateY: slideAnim }] }
       ]}
     >
       <View style={styles.stepHeader}>
@@ -657,14 +660,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             style={[
               styles.inputContainer,
               inputFocused && styles.inputContainerFocused,
-              { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 0 }
+              { backgroundColor: 'transparent', overflow: 'hidden' }
             ]}
             interactive={true}
             effect="clear"
             colorScheme="dark"
           >
             <Pressable
-              style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}
+              style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
               onPress={() => inputRef.current?.focus()}
             >
               <Ionicons
@@ -746,7 +749,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     <Animated.View
       style={[
         styles.stepContent,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+        { transform: [{ translateY: slideAnim }] }
       ]}
     >
       <View style={styles.stepHeader}>
@@ -757,35 +760,49 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       <View style={styles.languagesGrid}>
         {languages.map((lang) => {
           const isSelected = selectedLanguage === lang.id;
+          const cardContent = (
+            <View style={styles.langCardInner}>
+              <View style={styles.langIconBox}>
+                <Ionicons name={lang.icon as any} size={28} color={lang.color} />
+              </View>
+              <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
+                {lang.name}
+              </Text>
+            </View>
+          );
+
           return (
             <TouchableOpacity
               key={lang.id}
               style={[
                 styles.langCard,
-                isSelected && { borderColor: lang.color, backgroundColor: 'rgba(255,255,255,0.08)' }
+                isLiquidGlassSupported && styles.langCardGlass,
+                isSelected && { borderColor: lang.color, backgroundColor: isLiquidGlassSupported ? 'transparent' : 'rgba(255,255,255,0.08)' }
               ]}
               onPress={() => setSelectedLanguage(lang.id)}
               activeOpacity={0.7}
             >
-              <View style={styles.langCardInner}>
-                <View style={styles.langIconBox}>
-                  <Ionicons name={lang.icon as any} size={28} color={lang.color} />
-                </View>
-                <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
-                  {lang.name}
-                </Text>
-              </View>
+              {isLiquidGlassSupported ? (
+                <LiquidGlassView
+                  style={[
+                    styles.langCardLiquid,
+                    isSelected && { borderColor: lang.color, borderWidth: 1.5 }
+                  ]}
+                  interactive={true}
+                  effect="regular"
+                  colorScheme="dark"
+                >
+                  {cardContent}
+                </LiquidGlassView>
+              ) : (
+                cardContent
+              )}
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <View style={styles.comingSoonBanner}>
-        <Ionicons name="construct-outline" size={16} color="rgba(255,255,255,0.4)" />
-        <Text style={styles.comingSoonText}>
-          Altri linguaggi in arrivo
-        </Text>
-      </View>
+      {/* More templates coming soon */}
     </Animated.View>
   );
 
@@ -793,7 +810,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     <Animated.View
       style={[
         styles.stepContent,
-        { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }
+        { transform: [{ translateY: slideAnim }] }
       ]}
     >
       <View style={styles.stepHeader}>
@@ -801,50 +818,102 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         <Text style={styles.stepSubtitle}>{t('create.verifyDetails')}</Text>
       </View>
 
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryIconBox}>
-            <Ionicons name="folder-outline" size={24} color="#fff" />
+      {isLiquidGlassSupported ? (
+        <LiquidGlassView
+          style={[styles.summaryCard, { backgroundColor: 'transparent', overflow: 'hidden' }]}
+          interactive={true}
+          effect="clear"
+          colorScheme="dark"
+        >
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name="folder-outline" size={24} color="#fff" />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
+              <Text style={styles.summaryValue}>{projectName}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
           </View>
-          <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
-            <Text style={styles.summaryValue}>{projectName}</Text>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name="document-text-outline" size={24} color="#fff" />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.description')}</Text>
+              <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-          </TouchableOpacity>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
+              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
+          </View>
+        </LiquidGlassView>
+      ) : (
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name="folder-outline" size={24} color="#fff" />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.projectName')}</Text>
+              <Text style={styles.summaryValue}>{projectName}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name="document-text-outline" size={24} color="#fff" />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.description')}</Text>
+              <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.summaryDivider} />
+
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIconBox}>
+              <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
+            </View>
+            <View style={styles.summaryInfo}>
+              <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
+              <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
+            </View>
+            <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
+              <Ionicons name="create-outline" size={20} color={AppColors.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryIconBox}>
-            <Ionicons name="document-text-outline" size={24} color="#fff" />
-          </View>
-          <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>{t('create.description')}</Text>
-            <Text style={styles.summaryValue} numberOfLines={2}>{description}</Text>
-          </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(1)}>
-            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryIconBox}>
-            <Ionicons name={selectedLang?.icon as any} size={24} color={selectedLang?.color} />
-          </View>
-          <View style={styles.summaryInfo}>
-            <Text style={styles.summaryLabel}>{t('create.technology')}</Text>
-            <Text style={[styles.summaryValue, { color: selectedLang?.color }]}>{selectedLang?.name}</Text>
-          </View>
-          <TouchableOpacity style={styles.editBtn} onPress={() => setStep(2)}>
-            <Ionicons name="create-outline" size={20} color={AppColors.primary} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      )}
       <View style={styles.readyBanner}>
         <Text style={styles.readyText}>
           {t('create.allCorrect')} <Text style={styles.readyHighlight}>{t('create.createButton')}</Text> {t('create.toStart')}
@@ -867,8 +936,14 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backBtn} activeOpacity={0.7}>
-          <Ionicons name={step === 1 ? "close" : "chevron-back"} size={24} color="#fff" />
+        <TouchableOpacity onPress={handleBack} style={[styles.backBtn, isLiquidGlassSupported && styles.backBtnGlass]} activeOpacity={0.7}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView style={styles.backBtnLiquid} interactive={true} effect="regular" colorScheme="dark">
+              <Ionicons name={step === 1 ? "close" : "chevron-back"} size={24} color="#fff" />
+            </LiquidGlassView>
+          ) : (
+            <Ionicons name={step === 1 ? "close" : "chevron-back"} size={24} color="#fff" />
+          )}
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
@@ -1132,12 +1207,24 @@ const styles = StyleSheet.create({
     paddingBottom: 12, // Reduced from 20
   },
   backBtn: {
-    width: 40, // Slightly smaller
+    width: 40,
     height: 40,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  backBtnGlass: {
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
+  },
+  backBtnLiquid: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   headerCenter: {
     alignItems: 'center',
@@ -1349,6 +1436,19 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.08)',
+    padding: 18,
+  },
+  langCardGlass: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    padding: 0,
+    overflow: 'hidden',
+  },
+  langCardLiquid: {
+    flex: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
     padding: 18,
   },
   langCardSelected: {

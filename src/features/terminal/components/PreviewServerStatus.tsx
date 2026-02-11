@@ -8,6 +8,72 @@ import { AppColors } from '../../../shared/theme/colors';
 import { useTranslation } from 'react-i18next';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 
+const techIconMap: Record<string, string> = {
+  react: 'logo-react',
+  vue: 'logo-vue',
+  nextjs: 'server-outline',
+  nuxt: 'layers-outline',
+  svelte: 'flame-outline',
+  angular: 'navigate-outline',
+  astro: 'planet-outline',
+  remix: 'repeat-outline',
+  solid: 'water-outline',
+  flask: 'logo-python',
+  django: 'shield-outline',
+  fastapi: 'flash-outline',
+  flutter: 'apps-outline',
+  laravel: 'diamond-outline',
+  html: 'logo-html5',
+};
+
+const techColorMap: Record<string, string> = {
+  react: '#61DAFB',
+  vue: '#4FC08D',
+  nextjs: '#fff',
+  nuxt: '#00DC82',
+  svelte: '#FF3E00',
+  angular: '#DD0031',
+  astro: '#BC52EE',
+  remix: '#E8F2FF',
+  solid: '#2C4F7C',
+  flask: '#3776AB',
+  django: '#092E20',
+  fastapi: '#009688',
+  flutter: '#02569B',
+  laravel: '#FF2D20',
+  html: '#E34F26',
+};
+
+const techNameMap: Record<string, string> = {
+  react: 'React',
+  vue: 'Vue.js',
+  nextjs: 'Next.js',
+  nuxt: 'Nuxt.js',
+  svelte: 'SvelteKit',
+  angular: 'Angular',
+  astro: 'Astro',
+  remix: 'Remix',
+  solid: 'Solid.js',
+  flask: 'Flask',
+  django: 'Django',
+  fastapi: 'FastAPI',
+  flutter: 'Flutter',
+  laravel: 'Laravel',
+  html: 'HTML/CSS/JS',
+};
+
+function getTechIcon(tech?: string): string {
+  return (tech && techIconMap[tech]) || 'logo-html5';
+}
+
+function getTechColor(tech?: string): string {
+  return (tech && techColorMap[tech]) || '#E34F26';
+}
+
+function getTechDisplayName(tech?: string): string {
+  return (tech && techNameMap[tech]) || tech || 'Web';
+}
+
 export interface PreviewServerStatusProps {
   // Current status
   serverStatus: 'checking' | 'running' | 'stopped';
@@ -103,19 +169,9 @@ export const PreviewStartScreen: React.FC<{
           <View style={styles.devProjectHeader}>
             <View style={styles.devProjectIcon}>
               <Ionicons
-                name={
-                  currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? 'logo-react' :
-                  currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? 'logo-vue' :
-                  currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? 'server-outline' :
-                  'logo-html5'
-                }
+                name={getTechIcon(currentWorkstation?.technology || currentWorkstation?.language)}
                 size={24}
-                color={
-                  currentWorkstation?.technology === 'react' || currentWorkstation?.language === 'react' ? '#61DAFB' :
-                  currentWorkstation?.technology === 'vue' || currentWorkstation?.language === 'vue' ? '#4FC08D' :
-                  currentWorkstation?.technology === 'nextjs' || currentWorkstation?.language === 'nextjs' ? '#fff' :
-                  '#E34F26'
-                }
+                color={getTechColor(currentWorkstation?.technology || currentWorkstation?.language)}
               />
             </View>
             <Text style={styles.devProjectName} numberOfLines={1}>
@@ -140,11 +196,7 @@ export const PreviewStartScreen: React.FC<{
             <View style={styles.devInfoRow}>
               <Text style={styles.devInfoLabel}>{t('terminal:preview.technology')}</Text>
               <Text style={styles.devInfoValue}>
-                {currentWorkstation?.technology === 'react' ? 'React' :
-                 currentWorkstation?.technology === 'vue' ? 'Vue.js' :
-                 currentWorkstation?.technology === 'nextjs' ? 'Next.js' :
-                 currentWorkstation?.technology === 'html' ? 'HTML/CSS/JS' :
-                 currentWorkstation?.technology || 'Web'}
+                {getTechDisplayName(currentWorkstation?.technology)}
               </Text>
             </View>
             <View style={styles.devInfoDivider} />

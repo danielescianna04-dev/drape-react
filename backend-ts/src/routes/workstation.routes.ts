@@ -470,6 +470,17 @@ async function generateProject(
     react: 'React with Vite, TypeScript, and Tailwind CSS',
     html: 'HTML5, CSS3, and vanilla JavaScript',
     vue: 'Vue 3 with Vite, TypeScript, and Tailwind CSS',
+    nuxt: 'Nuxt 3 with Vue 3, TypeScript, and Tailwind CSS',
+    svelte: 'SvelteKit with Vite, TypeScript, and Tailwind CSS',
+    angular: 'Angular 18 with TypeScript and Tailwind CSS',
+    astro: 'Astro with TypeScript and Tailwind CSS',
+    remix: 'Remix with React, Vite, TypeScript, and Tailwind CSS',
+    solid: 'Solid.js with Vite, TypeScript, and Tailwind CSS',
+    flask: 'Python Flask with Jinja2 templates, HTML, CSS',
+    django: 'Python Django with templates, HTML, CSS, and Tailwind CSS',
+    fastapi: 'Python FastAPI with Jinja2 templates, HTML, CSS',
+    flutter: 'Flutter Web with Dart and Material Design',
+    laravel: 'Laravel with PHP, Blade templates, and Tailwind CSS',
     'HTML/CSS/JS': 'HTML5, CSS3, and vanilla JavaScript',
   };
   const techDesc = techMap[technology] || techMap['nextjs'];
@@ -488,14 +499,25 @@ IMPORTANT: Return ONLY a valid JSON object with this exact structure:
 
 Requirements:
 - For HTML projects: do NOT include package.json, only include index.html, style.css, script.js
-- For framework projects (Next.js, React, Vue): include package.json with project name "${projectName}" and all necessary dependencies
+- For framework projects (Next.js, React, Vue, Nuxt, Svelte, Angular, Astro, Remix, Solid.js): include package.json with project name "${projectName}" and all necessary dependencies
 - Include a working main page with a professional, modern UI
 - Use Italian language for user-facing text where appropriate
 - Include proper configuration files (tsconfig.json, tailwind.config if applicable)
 - For Next.js: use App Router (app/ directory), include layout.tsx and page.tsx
+- For Nuxt: use pages/ directory, include app.vue and nuxt.config.ts
+- For SvelteKit: use src/routes/ directory structure, include +page.svelte and +layout.svelte
+- For Angular: use standalone components, src/app/ directory
+- For Astro: use src/pages/ directory, include index.astro
+- For Remix: use app/routes/ directory, include root.tsx and _index.tsx
+- For Solid.js: use src/ directory, include App.tsx and index.tsx with vite.config.ts
+- For Flask: include app.py, requirements.txt, templates/ directory with base.html, static/ directory
+- For Django: include manage.py, requirements.txt, project settings directory, templates/ directory, a main app with views.py and urls.py
+- For FastAPI: include main.py, requirements.txt (with fastapi and uvicorn), templates/ directory with index.html, static/ directory
+- For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
+- For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure
 - For HTML: include index.html, style.css, script.js
 - Make it immediately runnable with the dev server
-- Do NOT include node_modules or lock files
+- Do NOT include node_modules, lock files, vendor/, or .dart_tool/
 - Keep it concise but functional
 
 Return ONLY the JSON, no markdown fences, no explanation.`;

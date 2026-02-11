@@ -727,6 +727,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.4)',
     fontWeight: '400',
+    flex: 1,
   },
   metaDot: {
     width: 3,
@@ -738,6 +739,7 @@ const styles = StyleSheet.create({
   projectTime: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.25)',
+    flexShrink: 0,
   },
   projectMenuBtn: {
     width: 32,
