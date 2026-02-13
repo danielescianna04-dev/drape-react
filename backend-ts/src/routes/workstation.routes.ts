@@ -479,6 +479,7 @@ async function generateProject(
     flask: 'Python Flask with Jinja2 templates, HTML, CSS',
     django: 'Python Django with templates, HTML, CSS, and Tailwind CSS',
     fastapi: 'Python FastAPI with Jinja2 templates, HTML, CSS',
+    expo: 'React Native with Expo, TypeScript, and React Navigation',
     flutter: 'Flutter Web with Dart and Material Design',
     laravel: 'Laravel with PHP, Blade templates, and Tailwind CSS',
     'HTML/CSS/JS': 'HTML5, CSS3, and vanilla JavaScript',
@@ -513,6 +514,7 @@ Requirements:
 - For Flask: include app.py, requirements.txt, templates/ directory with base.html, static/ directory
 - For Django: include manage.py, requirements.txt, project settings directory, templates/ directory, a main app with views.py and urls.py
 - For FastAPI: include main.py, requirements.txt (with fastapi and uvicorn), templates/ directory with index.html, static/ directory
+- For React Native (Expo): include package.json with expo, react-native, react-native-web, @expo/metro-runtime dependencies, app.json with expo config, App.tsx with a main screen, use expo-router or basic navigation. Must support web platform (expo start --web)
 - For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
 - For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure
 - For HTML: include index.html, style.css, script.js

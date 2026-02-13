@@ -672,7 +672,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     }
   }
 
-  // 3. Check if project has a build script
+  // 3. Detect project type and build strategy
   const pkgResult = await fileService.readFile(projectId, 'package.json');
   let hasBuildScript = false;
   if (pkgResult.success && pkgResult.data) {
@@ -681,10 +681,42 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       hasBuildScript = !!pkg.scripts?.build;
     } catch {}
   }
+  const hasPubspec = await fileService.exists(projectId, 'pubspec.yaml');
+  const isFlutter = hasPubspec;
+  const isServerSide = await fileService.exists(projectId, 'manage.py') // Django
+    || await fileService.exists(projectId, 'artisan')                   // Laravel
+    || false;
+
+  // Check for Python server frameworks (Flask/FastAPI) — these can't be published as static
+  if (!hasBuildScript && !isFlutter) {
+    const reqResult = await fileService.readFile(projectId, 'requirements.txt');
+    if (reqResult.success && reqResult.data) {
+      const reqs = reqResult.data.content.toLowerCase();
+      if (reqs.includes('flask') || reqs.includes('fastapi') || reqs.includes('django')) {
+        res.status(400).json({ error: 'Server-side frameworks (Flask, Django, FastAPI) cannot be published as static sites. Use the live preview instead.' });
+        return;
+      }
+    }
+  }
+  if (isServerSide) {
+    res.status(400).json({ error: 'Server-side frameworks (Django, Laravel) cannot be published as static sites. Use the live preview instead.' });
+    return;
+  }
 
   let srcDir: string;
 
-  if (hasBuildScript) {
+  if (isFlutter) {
+    // 4-flutter. Build Flutter Web
+    log.info(`[Publish] Building Flutter Web for ${projectId} slug "${cleanSlug}"...`);
+    const buildResult = await workspaceService.exec(projectId, userId, 'flutter build web --release', '/home/coder/project');
+    if (buildResult.exitCode !== 0) {
+      const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+      log.error(`[Publish] Flutter build failed for ${projectId}:`, errorOutput);
+      res.status(500).json({ error: 'Flutter build failed', stderr: errorOutput.substring(0, 500) });
+      return;
+    }
+    srcDir = path.join(config.projectsRoot, projectId, 'build/web');
+  } else if (hasBuildScript) {
     // 4a. Install deps if node_modules is missing
     const hasNodeModules = await fileService.exists(projectId, 'node_modules');
     if (!hasNodeModules) {
@@ -707,8 +739,16 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       return;
     }
 
-    // 4c. Detect build output directory
-    const outputDirs = ['dist', 'build', 'out', '.next/standalone'];
+    // 4c. Detect build output directory (order matters — more specific first)
+    const outputDirs = [
+      '.output/public',      // Nuxt
+      'build/web',           // Flutter Web
+      'dist/browser',        // Angular (new)
+      'dist',                // Vite, Astro, Solid.js
+      'build',               // React CRA, SvelteKit, Remix
+      'out',                 // Next.js static export
+      '.next/standalone',    // Next.js standalone
+    ];
     let outputDir: string | null = null;
     for (const dir of outputDirs) {
       if (await fileService.exists(projectId, dir)) {
@@ -717,7 +757,20 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       }
     }
     if (!outputDir) {
-      res.status(500).json({ error: 'No build output found (checked: dist, build, out, .next/standalone)' });
+      // Angular fallback: dist/{subdir}/browser
+      const distResult = await fileService.listFiles(projectId, 'dist');
+      if (distResult.success && distResult.data) {
+        for (const f of distResult.data) {
+          const name = f.path.split('/').pop() || f.path;
+          if (f.isDirectory && await fileService.exists(projectId, `dist/${name}/browser`)) {
+            outputDir = `dist/${name}/browser`;
+            break;
+          }
+        }
+      }
+    }
+    if (!outputDir) {
+      res.status(500).json({ error: 'No build output found (checked: dist, build, out, .output/public, build/web)' });
       return;
     }
     srcDir = path.join(config.projectsRoot, projectId, outputDir);

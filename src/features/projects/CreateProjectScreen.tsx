@@ -57,6 +57,7 @@ const languages = [
   { id: 'flask', name: 'Flask', icon: 'logo-python', color: '#3776AB' },
   { id: 'django', name: 'Django', icon: 'shield-outline', color: '#092E20' },
   { id: 'fastapi', name: 'FastAPI', icon: 'flash-outline', color: '#009688' },
+  { id: 'expo', name: 'React Native', icon: 'phone-portrait-outline', color: '#61DAFB' },
   { id: 'flutter', name: 'Flutter', icon: 'apps-outline', color: '#02569B' },
   { id: 'laravel', name: 'Laravel', icon: 'diamond-outline', color: '#FF2D20' },
 ];
@@ -144,14 +145,25 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     }
   }, [step]);
 
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
   useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setKeyboardVisible(true)
+      (e) => {
+        setKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 150);
+      }
     );
     const hideSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setKeyboardVisible(false)
+      () => {
+        setKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
     );
     return () => {
       showSub.remove();
@@ -1001,7 +1013,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          keyboardHeight > 0 && { paddingBottom: keyboardHeight }
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"

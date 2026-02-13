@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 
+const MAX_CHARS = 500;
+
 interface DescriptionInputProps {
   value: string;
   onChangeText: (text: string) => void;
@@ -72,22 +74,21 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
         placeholder={placeholder}
         placeholderTextColor="rgba(255,255,255,0.3)"
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={(text) => {
+          if (text.length <= MAX_CHARS) onChangeText(text);
+        }}
+        maxLength={MAX_CHARS}
         multiline
-        scrollEnabled={false}
+        scrollEnabled={true}
         textAlignVertical="top"
         numberOfLines={6}
         keyboardAppearance="dark"
       />
-
       <Animated.View
-        style={[
-          styles.dismissButtonContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }]
-          }
-        ]}
+        style={[styles.fattoRow, {
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }],
+        }]}
       >
         <TouchableOpacity
           style={styles.dismissButton}
@@ -117,9 +118,14 @@ export const DescriptionInput = React.memo<DescriptionInputProps>(({
           {renderContent()}
         </View>
       )}
-      <View style={styles.aiHintContainer}>
-        <Ionicons name="sparkles" size={14} color="rgba(139, 92, 246, 0.8)" />
-        <Text style={styles.hintText}>{t('create.aiHint')}</Text>
+      <View style={styles.footerRow}>
+        <View style={styles.aiHintContainer}>
+          <Ionicons name="sparkles" size={14} color="rgba(139, 92, 246, 0.8)" />
+          <Text style={styles.hintText}>{t('create.aiHint')}</Text>
+        </View>
+        <Text style={styles.charCount}>
+          {value.length}/{MAX_CHARS}
+        </Text>
       </View>
     </View>
   );
@@ -141,18 +147,26 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   textInput: {
-    flex: 1,
     fontSize: 16,
     color: '#fff',
     fontWeight: '500',
     lineHeight: 24,
-    minHeight: 120,
-    paddingBottom: 40, // Space for the button
+    minHeight: 100,
+    maxHeight: 120,
+    paddingBottom: 4,
   },
-  dismissButtonContainer: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
+  fattoRow: {
+    marginTop: 4,
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+  },
+  charCount: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.25)',
   },
   dismissButton: {
     flexDirection: 'row',
@@ -178,10 +192,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginLeft: 12,
+    flex: 1,
   },
   hintText: {
     fontSize: 13,
     color: 'rgba(255,255,255,0.5)',
+    flexShrink: 1,
   },
 });
