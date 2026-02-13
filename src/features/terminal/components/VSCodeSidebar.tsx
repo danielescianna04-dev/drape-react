@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager, Keyboard } from 'react-native';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, InteractionManager, Keyboard, AppState } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS, Easing, withSpring, FadeInDown, ZoomIn, FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,8 +21,11 @@ import { VerticalIconSwitcher } from './VerticalIconSwitcher';
 import { IntegrationsFAB } from './IntegrationsFAB';
 import { Tab, useTabStore } from '../../../core/tabs/tabStore';
 import { useUIStore } from '../../../core/terminal/uiStore';
+import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
+import { config } from '../../../config/config';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
 
@@ -46,7 +49,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
   const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
   const openPreviewRequested = useUIStore((state) => state.openPreviewRequested);
-  const apiUrl = ''; // apiUrl comes from NetworkConfig, not TabStore
+  const flyMachineId = useUIStore((state) => state.flyMachineId);
+  const currentWorkstation = useWorkstationStore((state) => state.currentWorkstation);
 
   // Shared values - MUST be declared before useEffect that uses them
   const trackpadTranslation = useSharedValue(0);
@@ -66,6 +70,48 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       setActivePanel(null);
     }
   }, [openPreviewRequested]);
+
+  // ============ HEARTBEAT: Keep container alive while user is in project ============
+  useEffect(() => {
+    if (!currentWorkstation?.id || !flyMachineId) return;
+
+    const projectId = currentWorkstation.projectId || currentWorkstation.id;
+    const apiUrl = config.apiUrl;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const sendHeartbeat = () => {
+      getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ projectId }),
+      })).catch(() => {});
+    };
+
+    const startHeartbeat = () => {
+      if (interval) return;
+      sendHeartbeat(); // Immediate first call
+      interval = setInterval(sendHeartbeat, 30000);
+    };
+
+    const stopHeartbeat = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+
+    startHeartbeat();
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        stopHeartbeat();
+      } else if (state === 'active') {
+        startHeartbeat();
+      }
+    });
+
+    return () => {
+      stopHeartbeat();
+      appStateSub.remove();
+    };
+  }, [currentWorkstation?.id, currentWorkstation?.projectId, flyMachineId]);
 
   // Panel slide animation
   const panelSlideX = useSharedValue(-280); // Start off-screen to the left
@@ -397,7 +443,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
               setShowPreviewPanel(false);
               if (activePanel === 'preview') setActivePanel(null);
             }}
-            previewUrl={previewServerUrl || apiUrl || ""}
+            previewUrl={previewServerUrl || config.apiUrl || ""}
             projectName="Project Preview"
           />
         )}

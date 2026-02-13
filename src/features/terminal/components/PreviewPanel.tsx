@@ -847,6 +847,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                 onClose={handleClose}
                 onRefresh={handleRefresh}
                 onPublish={publish.openPublishModal}
+                onUrlChange={setCurrentPreviewUrl}
                 existingPublish={publish.existingPublish}
                 topInset={insets.top}
               />

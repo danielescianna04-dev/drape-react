@@ -237,6 +237,42 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
   res.json({ success: true, path: filePath, message: 'File saved' });
 }));
 
+// POST /fly/project/:id/folder — Create folder
+flyRouter.post('/project/:id/folder', asyncHandler(async (req, res) => {
+  const projectId = req.params.id;
+  validateProjectId(projectId);
+  const uid = req.userId || 'anonymous';
+  const { path: folderPath } = req.body;
+  if (!folderPath) throw new ValidationError('path required');
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (create-folder)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  const result = await fileService.createFolder(projectId, folderPath);
+  res.json(result);
+}));
+
+// POST /fly/project/:id/move — Move/rename file or folder
+flyRouter.post('/project/:id/move', asyncHandler(async (req, res) => {
+  const projectId = req.params.id;
+  validateProjectId(projectId);
+  const uid = req.userId || 'anonymous';
+  const { from, to } = req.body;
+  if (!from || !to) throw new ValidationError('from and to paths required');
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (move-file)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  const result = await fileService.moveFile(projectId, from, to);
+  res.json(result);
+}));
+
 // POST /fly/project/:id/upload-files (bulk upload)
 flyRouter.post('/project/:id/upload-files', asyncHandler(async (req: Request, res: Response) => {
   const projectId = req.params.id;

@@ -382,6 +382,51 @@ export const workstationService = {
     }
   },
 
+  // Crea cartella
+  async createFolder(projectId: string, folderPath: string): Promise<void> {
+    try {
+      if (USE_HOLY_GRAIL) {
+        await apiClient.post(`${FLY_API_BASE}/project/${projectId}/folder`, {
+          path: folderPath
+        });
+        return;
+      }
+      await apiClient.post(`${API_BASE_URL}/workstation/create-folder`, {
+        projectId,
+        folderPath
+      });
+    } catch (error: any) {
+      console.error('Error creating folder:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to create folder');
+    }
+  },
+
+  // Sposta/rinomina file o cartella
+  async moveFile(projectId: string, fromPath: string, toPath: string): Promise<void> {
+    try {
+      await apiClient.post(`${FLY_API_BASE}/project/${projectId}/move`, {
+        from: fromPath,
+        to: toPath
+      });
+    } catch (error: any) {
+      console.error('Error moving file:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to move file');
+    }
+  },
+
+  // Elimina file
+  async deleteFile(projectId: string, filePath: string): Promise<void> {
+    try {
+      await apiClient.post(`${API_BASE_URL}/workstation/delete-file`, {
+        projectId,
+        filePath
+      });
+    } catch (error: any) {
+      console.error('Error deleting file:', error);
+      throw new Error(error.response?.data?.error || error.message || 'Failed to delete file');
+    }
+  },
+
   // Cerca nei contenuti dei file
   async searchInFiles(projectId: string, query: string, repositoryUrl?: string): Promise<{ file: string; line: number; content: string; match: string }[]> {
     try {

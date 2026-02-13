@@ -11,7 +11,6 @@ import {
   PanResponder,
   Alert,
   ActivityIndicator,
-  AppState,
 } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { SafeText } from '../../../shared/components/SafeText';
@@ -79,13 +78,13 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
 
   // Delete confirmation state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteWarning, setDeleteWarning] = useState<{ hasChanges: boolean; message: string } | null>(null);
   const [isCheckingGit, setIsCheckingGit] = useState(false);
 
   const { addTab, addTerminalItem: addTerminalItemToStore, removeTabsByWorkstation } = useTabStore();
   const { apiUrl } = useNetworkConfig();
-  const flyMachineId = useUIStore((s) => s.flyMachineId);
 
   const {
     isGitHubConnected,
@@ -133,48 +132,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
     }
   }, [currentWorkstation]);
 
-  // ============ HEARTBEAT: Keep VM alive while container is running ============
-  // Only starts when flyMachineId exists (container created via play/preview)
-  // Pauses when app goes to background, resumes on foreground
-  useEffect(() => {
-    if (!currentWorkstation?.id || !apiUrl || !flyMachineId) return;
-
-    const projectId = currentWorkstation.projectId || currentWorkstation.id;
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const sendHeartbeat = () => {
-      getAuthHeaders().then(authHeaders => fetch(`${apiUrl}/fly/heartbeat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ projectId }),
-      })).catch(() => {});
-    };
-
-    const startHeartbeat = () => {
-      if (interval) return;
-      sendHeartbeat();
-      interval = setInterval(sendHeartbeat, 30000);
-    };
-
-    const stopHeartbeat = () => {
-      if (interval) { clearInterval(interval); interval = null; }
-    };
-
-    startHeartbeat();
-
-    const appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
-        stopHeartbeat();
-      } else if (state === 'active') {
-        startHeartbeat();
-      }
-    });
-
-    return () => {
-      stopHeartbeat();
-      appStateSub.remove();
-    };
-  }, [currentWorkstation?.id, currentWorkstation?.projectId, apiUrl, flyMachineId]);
+  // HEARTBEAT moved to VSCodeSidebar.tsx (always mounted when user is in project)
 
   const handleClose = () => {
     onClose();
@@ -370,6 +328,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
         scrollEventThrottle={16}
         contentContainerStyle={{ flexGrow: 1 }}
         nestedScrollEnabled={true}
+        scrollEnabled={scrollEnabled}
       >
         {selectedProjectId ? (
           <View style={styles.fileExplorerContainer}>
@@ -393,6 +352,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                 setPendingRepoUrl(repoUrl);
                 setShowAuthModal(true);
               }}
+              onDragStateChange={(isDragging) => setScrollEnabled(!isDragging)}
             />
           </View>
         ) : (

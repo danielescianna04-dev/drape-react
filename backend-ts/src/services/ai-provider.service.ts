@@ -507,8 +507,9 @@ class AIProviderService {
 
       yield { type: 'done', fullText, toolCalls, stopReason: finishReason, usage };
     } catch (error: any) {
-      log.error('[Gemini Legacy] Streaming error:', error.message);
-      throw new Error(`Errore Gemini: ${error.message?.substring(0, 100)}`);
+      const errorMessage = this.extractGeminiError(error);
+      log.error('[Gemini Legacy] Streaming error:', errorMessage);
+      throw new Error(`Errore Gemini: ${errorMessage}`);
     }
   }
 
@@ -669,14 +670,14 @@ class AIProviderService {
 
       yield { type: 'done', fullText, toolCalls, stopReason: 'STOP', usage };
     } catch (error: any) {
-      const errorMessage = error.message || String(error);
+      const errorMessage = this.extractGeminiError(error);
       log.error('[Gemini 3] Streaming error:', errorMessage);
 
       if (errorMessage.includes('thinkingConfig') || errorMessage.includes('Unknown name')) {
         throw new Error('Errore configurazione thinking Gemini 3. Verifica la versione del SDK.');
       }
 
-      throw new Error(`Errore Gemini 3: ${errorMessage.substring(0, 100)}`);
+      throw new Error(`Errore Gemini 3: ${errorMessage}`);
     }
   }
 
@@ -1205,6 +1206,46 @@ class AIProviderService {
   /**
    * Extract system prompt from messages or use provided one
    */
+  /**
+   * Extract a clean, human-readable error message from Gemini SDK errors.
+   * The SDK sometimes throws objects where .message is undefined and String(error)
+   * dumps the raw HTTP JSON body — which is unreadable and breaks downstream regex parsing.
+   */
+  private extractGeminiError(error: any): string {
+    // 1. Direct .message (most common)
+    if (typeof error.message === 'string' && error.message.trim()) {
+      // If .message itself is a raw JSON body, try to pull "message" out of it
+      if (error.message.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(error.message);
+          const nested = parsed?.error?.message || parsed?.message;
+          if (nested) return String(nested).substring(0, 150);
+        } catch { /* not valid JSON, use as-is */ }
+      }
+      return error.message.substring(0, 150);
+    }
+
+    // 2. Structured error object from SDK (error.error.message, error.status, etc.)
+    if (error.error?.message) return String(error.error.message).substring(0, 150);
+    if (error.statusText) return `${error.status || ''} ${error.statusText}`.trim();
+    if (error.status) return `HTTP ${error.status}`;
+
+    // 3. error.toString() but ONLY if it doesn't look like a JSON dump
+    const str = String(error);
+    if (!str.startsWith('{') && !str.startsWith('[') && str !== '[object Object]') {
+      return str.substring(0, 150);
+    }
+
+    // 4. Last resort — try to parse the stringified object
+    try {
+      const parsed = JSON.parse(str);
+      const msg = parsed?.error?.message || parsed?.message || parsed?.error;
+      if (typeof msg === 'string') return msg.substring(0, 150);
+    } catch { /* ignore */ }
+
+    return 'Errore API Gemini (risposta non leggibile)';
+  }
+
   private extractSystemPrompt(messages: ChatMessage[], providedSystemPrompt?: string): string {
     const systemMessages = messages
       .filter((msg) => msg.role === 'system')

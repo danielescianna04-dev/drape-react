@@ -97,6 +97,21 @@ class FileService {
     }
   }
 
+  async moveFile(projectId: string, fromPath: string, toPath: string): Promise<Result> {
+    try {
+      const base = this.projectPath(projectId);
+      const fullFrom = sanitizePath(base, fromPath);
+      const fullTo = sanitizePath(base, toPath);
+      // Ensure destination directory exists
+      await fs.mkdir(path.dirname(fullTo), { recursive: true });
+      await fs.rename(fullFrom, fullTo);
+      try { await fs.chown(fullTo, 1000, 1000); } catch { /* non-fatal */ }
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }
+
   async createFolder(projectId: string, folderPath: string): Promise<Result> {
     try {
       const fullPath = sanitizePath(this.projectPath(projectId), folderPath);

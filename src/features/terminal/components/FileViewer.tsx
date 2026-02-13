@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -27,20 +27,6 @@ interface Props {
   onClose: () => void;
 }
 
-// Syntax colors
-const Colors = {
-  keyword: '#C586C0',
-  string: '#CE9178',
-  number: '#B5CEA8',
-  comment: '#6A9955',
-  function: '#DCDCAA',
-  variable: '#9CDCFE',
-  type: '#4EC9B0',
-  default: '#D4D4D4',
-};
-
-const keywords = ['const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while', 'switch', 'case', 'break', 'continue', 'try', 'catch', 'finally', 'throw', 'async', 'await', 'class', 'extends', 'new', 'this', 'import', 'export', 'default', 'from', 'true', 'false', 'null', 'undefined', 'interface', 'type', 'enum', 'def', 'None', 'True', 'False', 'self'];
-
 const getLanguage = (filePath: string): string => {
   const ext = filePath.split('.').pop()?.toLowerCase() || '';
   const name = filePath.split('/').pop()?.toLowerCase() || '';
@@ -64,56 +50,6 @@ const getFileIcon = (filename: string): { icon: string; color: string } => {
     json: { icon: 'code-working', color: '#FFB800' },
   };
   return icons[ext] || { icon: 'document', color: '#888' };
-};
-
-// Simple syntax highlighter
-const highlightLine = (line: string, lang: string): React.ReactNode[] => {
-  if (!line) return [<Text key="empty"> </Text>];
-
-  // ENV files
-  if (lang === 'env') {
-    if (line.trim().startsWith('#')) {
-      return [<Text key="0" style={{ color: Colors.comment }}>{line}</Text>];
-    }
-    const idx = line.indexOf('=');
-    if (idx > 0) {
-      return [
-        <Text key="0" style={{ color: Colors.variable }}>{line.slice(0, idx)}</Text>,
-        <Text key="1" style={{ color: Colors.default }}>=</Text>,
-        <Text key="2" style={{ color: Colors.string }}>{line.slice(idx + 1)}</Text>,
-      ];
-    }
-    return [<Text key="0" style={{ color: Colors.default }}>{line}</Text>];
-  }
-
-  // Simple tokenization
-  const result: React.ReactNode[] = [];
-  const regex = /(\/\/.*|\/\*[\s\S]*?\*\/|"[^"]*"|'[^']*'|`[^`]*`|\b\d+\.?\d*\b|\b[a-zA-Z_$][a-zA-Z0-9_$]*\b|[{}()[\];,.]|[+\-*/%=<>!&|^~?:]+|\s+)/g;
-  let match;
-  let key = 0;
-
-  while ((match = regex.exec(line)) !== null) {
-    const token = match[0];
-    let color = Colors.default;
-
-    if (token.startsWith('//') || token.startsWith('/*')) {
-      color = Colors.comment;
-    } else if (token.startsWith('"') || token.startsWith("'") || token.startsWith('`')) {
-      color = Colors.string;
-    } else if (/^\d/.test(token)) {
-      color = Colors.number;
-    } else if (keywords.includes(token)) {
-      color = Colors.keyword;
-    } else if (/^[A-Z]/.test(token)) {
-      color = Colors.type;
-    } else if (/^[a-z_$]/i.test(token) && line.slice(match.index + token.length).trim().startsWith('(')) {
-      color = Colors.function;
-    }
-
-    result.push(<Text key={key++} style={{ color }}>{token}</Text>);
-  }
-
-  return result.length > 0 ? result : [<Text key="0" style={{ color: Colors.default }}>{line}</Text>];
 };
 
 const SIDEBAR_WIDTH = 44;
@@ -256,43 +192,33 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
           style={styles.editor}
           horizontal={false}
           showsVerticalScrollIndicator={true}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
         >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.codeContainer}
-          >
-            <View>
-              {lines.map((line, idx) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.lineRow,
-                    searchResults.includes(idx) && styles.lineHighlight
-                  ]}
-                >
-                  <Text style={styles.lineNum}>{idx + 1}</Text>
-                  <Text style={styles.lineCode}>
-                    {highlightLine(line, language)}
-                  </Text>
-                </View>
+          <View style={styles.editorRow}>
+            {/* Line numbers */}
+            <View style={styles.lineNumbers}>
+              {lines.map((_, idx) => (
+                <Text key={idx} style={styles.lineNum}>{idx + 1}</Text>
               ))}
             </View>
-          </ScrollView>
 
-          {/* Invisible editable input */}
-          <TextInput
-            style={styles.hiddenInput}
-            value={content}
-            onChangeText={(text) => {
-              setContent(text);
-              setIsEdited(text !== originalContent);
-            }}
-            multiline
-            autoCorrect={false}
-            autoCapitalize="none"
-            spellCheck={false}
-          />
+            {/* Editable code area */}
+            <TextInput
+              style={styles.codeInput}
+              value={content}
+              onChangeText={(text) => {
+                setContent(text);
+                setIsEdited(text !== originalContent);
+              }}
+              multiline
+              autoCorrect={false}
+              autoCapitalize="none"
+              spellCheck={false}
+              scrollEnabled={false}
+              textAlignVertical="top"
+            />
+          </View>
         </ScrollView>
       )}
 
@@ -410,38 +336,37 @@ const styles = StyleSheet.create({
   editor: {
     flex: 1,
   },
-  codeContainer: {
-    paddingVertical: 8,
-    paddingRight: 20,
-  },
-  lineRow: {
+  editorRow: {
     flexDirection: 'row',
-    minHeight: 22,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    minHeight: '100%',
   },
-  lineHighlight: {
-    backgroundColor: 'rgba(255, 200, 0, 0.15)',
+  lineNumbers: {
+    paddingRight: 4,
+    paddingLeft: 8,
+    borderRightWidth: 1,
+    borderRightColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'flex-end',
   },
   lineNum: {
-    width: 22,
-    textAlign: 'right',
-    paddingRight: 6,
+    height: 20,
     fontSize: 12,
+    lineHeight: 20,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: '#555',
+    textAlign: 'right',
+    minWidth: 24,
   },
-  lineCode: {
+  codeInput: {
+    flex: 1,
     fontSize: 13,
+    lineHeight: 20,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: '#d4d4d4',
-  },
-  hiddenInput: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    opacity: 0,
+    paddingHorizontal: 10,
+    paddingTop: 0,
+    paddingBottom: 20,
+    textAlignVertical: 'top',
   },
   footer: {
     flexDirection: 'row',
