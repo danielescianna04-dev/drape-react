@@ -111,7 +111,7 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
     });
   } catch (e: any) {
     log.error('[Fly] Preview start error:', e);
-    send({ type: 'error', step: 'error', message: 'Failed to start preview' });
+    send({ type: 'error', step: 'error', message: e.message || 'Failed to start preview' });
   }
 
   res.end();

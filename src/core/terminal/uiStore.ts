@@ -38,6 +38,12 @@ export interface UIState {
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
 
+  // Pending message to send to main chat (e.g. from preview error)
+  pendingChatMessage: string | null;
+  // Auto-retry preview after AI fix
+  autoRetryPreview: boolean;
+  openPreviewRequested: boolean;
+
   // Autocomplete
   autocompleteOptions: AutocompleteOption[];
   showAutocomplete: boolean;
@@ -68,6 +74,9 @@ export interface UIState {
   setIsSidebarOpen: (value: boolean) => void;
   setAutocompleteOptions: (options: AutocompleteOption[]) => void;
   setShowAutocomplete: (show: boolean) => void;
+  setPendingChatMessage: (message: string | null) => void;
+  setAutoRetryPreview: (value: boolean) => void;
+  setOpenPreviewRequested: (value: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -91,6 +100,11 @@ export const useUIStore = create<UIState>((set) => ({
     previewStartupStates: {},
     isToolsExpanded: false,
     isSidebarOpen: false,
+
+    // Pending chat message
+    pendingChatMessage: null,
+    autoRetryPreview: false,
+    openPreviewRequested: false,
 
     // Initial state - Autocomplete
     autocompleteOptions: [],
@@ -182,4 +196,7 @@ export const useUIStore = create<UIState>((set) => ({
     setIsSidebarOpen: (value) => set({ isSidebarOpen: value }),
     setAutocompleteOptions: (options) => set({ autocompleteOptions: options }),
     setShowAutocomplete: (show) => set({ showAutocomplete: show }),
+    setPendingChatMessage: (message) => set({ pendingChatMessage: message }),
+    setAutoRetryPreview: (value) => set({ autoRetryPreview: value }),
+    setOpenPreviewRequested: (value) => set({ openPreviewRequested: value }),
 }));

@@ -209,6 +209,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       logError('No workstation selected', 'preview');
       return;
     }
+    // Clear old terminal output, error detection, and persisted error state
+    setTerminalOutput([]);
+    errorDetectedRef.current = false;
+    startup.setPreviewError(null);
+    // Grace period: skip old cached logs burst from container (arrives in first ~2-3s)
+    errorDetectionEnabledAtRef.current = Date.now() + 5000;
+    ignoreLogsUntilRef.current = Date.now() + 5000;
 
     // Quick health check if already have a machineId
     if (globalFlyMachineId && currentPreviewUrl) {
@@ -456,6 +463,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const handleRetryPreview = () => {
     startup.setPreviewError(null);
     startup.setReportSent(false);
+    setTerminalOutput([]);
+    errorDetectedRef.current = false;
+    // Grace period: skip old cached logs burst from container
+    errorDetectionEnabledAtRef.current = Date.now() + 5000;
+    ignoreLogsUntilRef.current = Date.now() + 5000;
     startup.setStartupSteps([
       { id: 'analyzing', label: t('terminal:preview.steps.analyzing'), status: 'pending' },
       { id: 'cloning', label: t('terminal:preview.steps.cloning'), status: 'pending' },
@@ -467,27 +479,31 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     handleStartServer();
   };
 
-  const sendErrorReport = async () => {
+  const sendErrorToChat = () => {
     if (!startup.previewError) return;
-    startup.setIsSendingReport(true);
-    try {
-      const authHeaders = await getAuthHeaders();
-      await fetch(`${apiUrl}/fly/error-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({
-          projectId: currentWorkstation?.id,
-          userId: useAuthStore.getState().user?.email,
-          errorMessage: startup.previewError.message,
-          deviceInfo: { platform: Platform.OS, version: Platform.Version },
-          logs: startup.recentLogsRef.current,
-          timestamp: startup.previewError.timestamp.toISOString(),
-        }),
-      });
-      startup.setReportSent(true);
-    } catch {} finally {
-      startup.setIsSendingReport(false);
-    }
+    // Build error message for the AI agent
+    const errorLines = terminalOutput
+      .filter(l => {
+        const lower = l.toLowerCase();
+        return lower.includes('error') || lower.includes('failed') || lower.includes('cannot') || lower.includes('×');
+      })
+      .slice(-10);
+    const logSnippet = errorLines.length > 0
+      ? errorLines.join('\n')
+      : startup.previewError.message;
+
+    const chatMessage = `Fix this preview error:\n\`\`\`\n${logSnippet}\n\`\`\``;
+    // Clear error state before closing so it won't be restored on reopen
+    startup.setPreviewError(null);
+    setTerminalOutput([]);
+    errorDetectedRef.current = false;
+    // Grace period for when preview reopens: skip old cached logs burst
+    errorDetectionEnabledAtRef.current = Date.now() + 5000;
+    ignoreLogsUntilRef.current = Date.now() + 5000;
+    const store = useUIStore.getState();
+    store.setPendingChatMessage(chatMessage);
+    store.setAutoRetryPreview(true);
+    handleClose();
   };
 
   const handleClose = () => {
@@ -668,6 +684,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               }
               if (data.text) {
                 if (serverStatus !== 'running') startup.setDisplayedMessage(data.text);
+                // Skip old cached logs during grace period after startup/retry
+                if (Date.now() < ignoreLogsUntilRef.current) continue;
                 setTerminalOutput(prev => {
                   const newOutput = [...prev, data.text];
                   return newOutput.length > 500 ? newOutput.slice(-500) : newOutput;
@@ -694,6 +712,43 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
     };
   }, [serverStatus, startup.isStarting, currentWorkstation?.id, apiUrl]);
+
+  // Grace period: skip old cached logs from container for N seconds after startup
+  const ignoreLogsUntilRef = useRef(0);
+
+  // Detect critical errors in terminal output and immediately show error screen
+  const errorDetectedRef = useRef(false);
+  // Grace period: skip error detection for first N seconds after startup to ignore old cached logs
+  const errorDetectionEnabledAtRef = useRef(0);
+  useEffect(() => {
+    // Only detect during startup, not when already running or already errored
+    if (serverStatus !== 'checking' || startup.previewError || errorDetectedRef.current) return;
+    // Skip if still within grace period (old cached logs from container)
+    if (Date.now() < errorDetectionEnabledAtRef.current) return;
+
+    const recentLines = terminalOutput.slice(-30);
+    const errorLines = recentLines.filter(line => {
+      const lower = line.toLowerCase();
+      return (lower.includes('error:') || lower.includes('× error') || lower.includes('failed to compile'))
+        && !lower.includes('[error]'); // skip our own log prefix
+    });
+
+    // If we see 2+ distinct error lines, immediately trigger error screen
+    if (errorLines.length >= 2) {
+      errorDetectedRef.current = true;
+      const errorSummary = errorLines.slice(0, 3).join('\n');
+      startup.setPreviewError({ message: errorSummary, timestamp: new Date() });
+      setServerStatus('stopped');
+      startup.setIsStarting(false);
+    }
+  }, [terminalOutput, serverStatus, startup.previewError]);
+
+  // Reset error detection on retry
+  useEffect(() => {
+    if (!startup.previewError) {
+      errorDetectedRef.current = false;
+    }
+  }, [startup.previewError]);
 
   // Reset/restore state when project changes
   useEffect(() => {
@@ -818,11 +873,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               ) : serverStatus === 'stopped' && startup.previewError ? (
                 <PreviewErrorScreen
                   previewError={startup.previewError}
+                  terminalOutput={terminalOutput}
                   onClose={handleClose}
                   onRetryPreview={handleRetryPreview}
-                  onSendErrorReport={sendErrorReport}
-                  isSendingReport={startup.isSendingReport}
-                  reportSent={startup.reportSent}
+                  onSendErrorReport={sendErrorToChat}
                   topInset={insets.top}
                   t={t}
                 />
@@ -867,9 +921,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   handleRefresh={handleRefresh}
                   onClose={handleClose}
                   onRetryPreview={handleRetryPreview}
-                  onSendErrorReport={sendErrorReport}
-                  isSendingReport={startup.isSendingReport}
-                  reportSent={startup.reportSent}
+                  onSendErrorReport={sendErrorToChat}
                   topInset={insets.top}
                   t={t}
                 />

@@ -45,6 +45,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
   const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
+  const openPreviewRequested = useUIStore((state) => state.openPreviewRequested);
   const apiUrl = ''; // apiUrl comes from NetworkConfig, not TabStore
 
   // Shared values - MUST be declared before useEffect that uses them
@@ -56,6 +57,15 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
   const prevShowPreviewPanel = React.useRef(showPreviewPanel);
+
+  // Auto-open preview when requested (e.g. after AI fix)
+  React.useEffect(() => {
+    if (openPreviewRequested) {
+      useUIStore.getState().setOpenPreviewRequested(false);
+      setShowPreviewPanel(true);
+      setActivePanel(null);
+    }
+  }, [openPreviewRequested]);
 
   // Panel slide animation
   const panelSlideX = useSharedValue(-280); // Start off-screen to the left

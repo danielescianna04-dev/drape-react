@@ -162,6 +162,7 @@
     "envVarsTitle": "Variabili d'Ambiente",
     "envVarsSubtitle": "Richieste per l'avvio del progetto",
     "tapToRestart": "Tocca per riavviare",
+    "fixWithAi": "Correggi con AI",
     "errorServerFailed": "Il dev server non è riuscito ad avviarsi.\n\nPotrebbe esserci un errore nel progetto (dipendenze mancanti, errori di build o variabili d'ambiente non configurate).",
     "errorTimeout": "Il dev server non ha risposto in tempo.\n\nIl progetto potrebbe richiedere più tempo per la compilazione, oppure c'è un errore durante il build.",
     "errorContainerUnreachable": "Container non raggiungibile.\n\nIl container potrebbe essere stato rilasciato. Prova a riavviare la preview.",
@@ -183,7 +184,8 @@
       "detecting": ["Identificazione framework...", "Configurazione ambiente...", "Preparazione runtime..."],
       "booting": ["Allocazione risorse cloud...", "Avvio container isolato...", "Inizializzazione servizi...", "Collegamento network...", "Attesa risposta server..."],
       "ready": ["Finalizzazione...", "Apertura connessione sicura...", "Ci siamo!"]
-    }
+    },
+    "sessionExpired": "Sessione terminata per inattività"
   },
   "chat": {
     "thinking": "Ragionando",
@@ -244,9 +246,6 @@
     "approve": "Approva",
     "planApproved": "Piano approvato",
     "planRejected": "Piano rifiutato"
-  },
-  "preview": {
-    "sessionExpired": "Sessione terminata per inattività"
   },
   "welcome": {
     "subtitle": "Mobile-first AI IDE\ncon supporto multi-model"

@@ -72,28 +72,40 @@ class DependencyService {
       return;
     }
 
-    // 4. Fresh install (LIVELLO 3)
+    // 4. Fresh install (LIVELLO 3) — with retry
     log.info(`[Deps] Fresh install with ${info.packageManager || 'npm'} in ${subdir || 'root'}...`);
     let installCmd = info.installCommand || 'npm install';
-    let result = await dockerService.exec(agentUrl, installCmd, '/home/coder/project', 300000);
+    const maxInstallAttempts = 3;
 
-    // Retry without --frozen-lockfile if lockfile is incompatible
-    if (result.exitCode !== 0 && installCmd.includes('--frozen-lockfile')) {
-      const errOutput = (result.stderr || result.stdout || '').trim();
-      if (errOutput.includes('LOCKFILE_BREAKING_CHANGE') || errOutput.includes('not compatible')) {
-        const retryCmd = installCmd.replace(/\s*--frozen-lockfile\s*/, ' ').trim();
-        log.warn(`[Deps] Lockfile incompatible, retrying without --frozen-lockfile: ${retryCmd}`);
-        result = await dockerService.exec(agentUrl, retryCmd, '/home/coder/project', 300000);
+    for (let attempt = 1; attempt <= maxInstallAttempts; attempt++) {
+      let result = await dockerService.exec(agentUrl, installCmd, '/home/coder/project', 300000);
+
+      // Retry without --frozen-lockfile if lockfile is incompatible
+      if (result.exitCode !== 0 && installCmd.includes('--frozen-lockfile')) {
+        const errOutput = (result.stderr || result.stdout || '').trim();
+        if (errOutput.includes('LOCKFILE_BREAKING_CHANGE') || errOutput.includes('not compatible')) {
+          const retryCmd = installCmd.replace(/\s*--frozen-lockfile\s*/, ' ').trim();
+          log.warn(`[Deps] Lockfile incompatible, retrying without --frozen-lockfile: ${retryCmd}`);
+          result = await dockerService.exec(agentUrl, retryCmd, '/home/coder/project', 300000);
+        }
       }
-    }
 
-    if (result.exitCode !== 0) {
-      // pnpm/npm may write errors to stdout or stderr — capture both
+      if (result.exitCode === 0) {
+        break; // Success
+      }
+
       const errOutput = (result.stderr || result.stdout || '').trim();
-      // Extract the most useful part: last few lines often contain the real error
       const lines = errOutput.split('\n').filter(l => l.trim());
       const lastLines = lines.slice(-10).join('\n');
-      log.error(`[Deps] Install failed (exit ${result.exitCode}): ${lastLines.substring(0, 500)}`);
+
+      if (attempt < maxInstallAttempts) {
+        log.warn(`[Deps] Install attempt ${attempt}/${maxInstallAttempts} failed (exit ${result.exitCode}), retrying in 3s...`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+
+      // Final attempt failed
+      log.error(`[Deps] Install failed after ${maxInstallAttempts} attempts (exit ${result.exitCode}): ${lastLines.substring(0, 500)}`);
       throw new Error(`Installazione dipendenze fallita:\n${lastLines.substring(0, 300)}`);
     }
 

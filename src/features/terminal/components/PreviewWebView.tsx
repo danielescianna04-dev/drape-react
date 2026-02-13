@@ -48,8 +48,6 @@ export interface PreviewWebViewProps {
   onClose: () => void;
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
-  isSendingReport: boolean;
-  reportSent: boolean;
   topInset: number;
 
   t: ReturnType<typeof useTranslation>['t'];
@@ -88,8 +86,6 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   onClose,
   onRetryPreview,
   onSendErrorReport,
-  isSendingReport,
-  reportSent,
   topInset,
   t,
 }) => {
@@ -442,8 +438,6 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
           onClose={onClose}
           onRetryPreview={onRetryPreview}
           onSendErrorReport={onSendErrorReport}
-          isSendingReport={isSendingReport}
-          reportSent={reportSent}
           topInset={topInset}
           t={t}
         />

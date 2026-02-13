@@ -162,6 +162,7 @@
     "envVarsTitle": "Environment Variables",
     "envVarsSubtitle": "Required to start the project",
     "tapToRestart": "Tap to restart",
+    "fixWithAi": "Fix with AI",
     "errorServerFailed": "The dev server failed to start.\n\nThere might be an error in the project (missing dependencies, build errors or unconfigured environment variables).",
     "errorTimeout": "The dev server did not respond in time.\n\nThe project might need more time to compile, or there's an error during build.",
     "errorContainerUnreachable": "Container unreachable.\n\nThe container might have been released. Try restarting the preview.",
@@ -183,7 +184,8 @@
       "detecting": ["Identifying framework...", "Configuring environment...", "Preparing runtime..."],
       "booting": ["Allocating cloud resources...", "Starting isolated container...", "Initializing services...", "Connecting network...", "Waiting for server response..."],
       "ready": ["Finalizing...", "Opening secure connection...", "Here we go!"]
-    }
+    },
+    "sessionExpired": "Session expired due to inactivity"
   },
   "chat": {
     "thinking": "Thinking",
@@ -244,9 +246,6 @@
     "approve": "Approve",
     "planApproved": "Plan approved",
     "planRejected": "Plan rejected"
-  },
-  "preview": {
-    "sessionExpired": "Session terminated due to inactivity"
   },
   "welcome": {
     "subtitle": "Mobile-first AI IDE\nwith multi-model support"

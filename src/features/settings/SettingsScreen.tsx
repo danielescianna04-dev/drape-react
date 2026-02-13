@@ -587,12 +587,76 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 ? (currentPlan === 'free')
                 : currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle);
 
+              const cardContent = (
+                <>
+                  {plan.isPopular && (
+                    <LinearGradient
+                      colors={[plan.color, '#F472B6']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.featuredBadge}
+                    >
+                      <Text style={styles.featuredBadgeText}>{t('plans.recommended')}</Text>
+                    </LinearGradient>
+                  )}
+
+                  <View style={styles.planHeaderNew}>
+                    <View>
+                      <Text style={styles.planNameSmall}>{plan.name}</Text>
+                      <Text style={styles.planDescriptionSmall}>{plan.description}</Text>
+                    </View>
+                    {isExactCurrent && (
+                      <View style={[styles.activeIndicator, { backgroundColor: `${plan.color}20` }]}>
+                        <Ionicons name="checkmark" size={12} color={plan.color} />
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.priceRow}>
+                    <Text style={styles.priceTextLarge}>{plan.price}</Text>
+                    <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                  </View>
+
+                  <View style={styles.planDividerNew} />
+
+                  <View style={styles.featuresList}>
+                    {plan.features.map((f, i) => (
+                      <View key={i} style={styles.featureItemNew}>
+                        <View style={[styles.featureMark, { backgroundColor: visiblePlanIndex === idx ? plan.color : 'rgba(255,255,255,0.2)' }]} />
+                        <Text style={styles.featureLabel}>{f}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.planActionBtn,
+                      isExactCurrent
+                        ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }
+                        : { backgroundColor: plan.color },
+                      isPurchasing && plan.id !== 'free' && !isExactCurrent && { opacity: 0.6 },
+                    ]}
+                    disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
+                    onPress={() => {
+                      if (plan.id !== 'free' && !isPurchasing) {
+                        iapPurchase(plan.id as 'go' | 'pro', billingCycle);
+                      }
+                    }}
+                  >
+                    <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
+                      {isExactCurrent ? t('plans.currentPlan') : plan.id === 'free' ? t('plans.freePlan') : t('plans.upgradeTo', { plan: plan.name })}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              );
+
               return (
               <TouchableOpacity
                 key={plan.id}
                 style={[
                   styles.planCardNew,
-                  visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
+                  isLiquidGlassSupported && styles.planCardNewGlass,
+                  !isLiquidGlassSupported && visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
                 ]}
                 activeOpacity={0.9}
                 onPress={() => {
@@ -601,64 +665,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   }
                 }}
               >
-                {plan.isPopular && (
-                  <LinearGradient
-                    colors={[plan.color, '#F472B6']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.featuredBadge}
+                {isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={[
+                      styles.planCardLiquid,
+                      visiblePlanIndex === idx && { borderColor: `${plan.color}40`, borderWidth: 1 }
+                    ]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
                   >
-                    <Text style={styles.featuredBadgeText}>{t('plans.recommended')}</Text>
-                  </LinearGradient>
+                    {cardContent}
+                  </LiquidGlassView>
+                ) : (
+                  cardContent
                 )}
-
-                <View style={styles.planHeaderNew}>
-                  <View>
-                    <Text style={styles.planNameSmall}>{plan.name}</Text>
-                    <Text style={styles.planDescriptionSmall}>{plan.description}</Text>
-                  </View>
-                  {isExactCurrent && (
-                    <View style={[styles.activeIndicator, { backgroundColor: `${plan.color}20` }]}>
-                      <Ionicons name="checkmark" size={12} color={plan.color} />
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceTextLarge}>{plan.price}</Text>
-                  <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
-                </View>
-
-                <View style={styles.planDividerNew} />
-
-                <View style={styles.featuresList}>
-                  {plan.features.map((f, i) => (
-                    <View key={i} style={styles.featureItemNew}>
-                      <View style={[styles.featureMark, { backgroundColor: visiblePlanIndex === idx ? plan.color : 'rgba(255,255,255,0.2)' }]} />
-                      <Text style={styles.featureLabel}>{f}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <TouchableOpacity
-                  style={[
-                    styles.planActionBtn,
-                    isExactCurrent
-                      ? { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }
-                      : { backgroundColor: plan.color },
-                    isPurchasing && plan.id !== 'free' && !isExactCurrent && { opacity: 0.6 },
-                  ]}
-                  disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
-                  onPress={() => {
-                    if (plan.id !== 'free' && !isPurchasing) {
-                      iapPurchase(plan.id as 'go' | 'pro', billingCycle);
-                    }
-                  }}
-                >
-                  <Text style={[styles.planActionText, isExactCurrent && { color: 'rgba(255,255,255,0.4)' }]}>
-                    {isExactCurrent ? t('plans.currentPlan') : plan.id === 'free' ? t('plans.freePlan') : t('plans.upgradeTo', { plan: plan.name })}
-                  </Text>
-                </TouchableOpacity>
               </TouchableOpacity>
               );
             })}
@@ -1195,6 +1216,18 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  planCardNewGlass: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
+    padding: 0,
+  },
+  planCardLiquid: {
+    flex: 1,
+    borderRadius: 28,
+    padding: 24,
     overflow: 'hidden',
   },
   featuredBadge: {

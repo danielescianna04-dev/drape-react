@@ -16,6 +16,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Modal,
+  AppState,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -75,6 +76,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const scrollViewRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const activeTaskIdRef = useRef<string | null>(null);
 
   // Agent system state
   const [showModeModal, setShowModeModal] = useState(false);
@@ -84,6 +86,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const [useAgentSystem, setUseAgentSystem] = useState(false); // Flag to enable/disable agent system
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [projectLimit, setProjectLimit] = useState(2);
+  const [aiRecommendedLang, setAiRecommendedLang] = useState<string | null>(null);
 
   // Agent stream hook
   const {
@@ -170,6 +173,91 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       hideSub.remove();
     };
   }, []);
+
+  // Pause polling in background, resume on foreground
+  const errorCountRef = useRef(0);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (nextState) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        // Entering background: pause polling to prevent error accumulation
+        if (pollIntervalRef.current && activeTaskIdRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+        return;
+      }
+
+      if (nextState === 'active' && activeTaskIdRef.current && isCreating) {
+        // App returned to foreground during creation - check status immediately
+        errorCountRef.current = 0;
+        try {
+          const apiUrl = config.apiUrl;
+          const authHeaders = await getAuthHeaders();
+          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${activeTaskIdRef.current}`, {
+            headers: authHeaders,
+          });
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            if (statusData.success && statusData.task) {
+              const task = statusData.task;
+              setCreationTask({
+                status: task.status,
+                progress: task.progress,
+                message: task.message,
+                step: task.step,
+              });
+
+              if (task.status === 'completed') {
+                activeTaskIdRef.current = null;
+
+                const workstation = {
+                  id: task.result.projectId,
+                  projectId: task.result.projectId,
+                  name: task.result.projectName,
+                  language: task.result.technology,
+                  technology: task.result.technology,
+                  templateDescription: task.result.templateDescription,
+                  status: 'ready' as const,
+                  createdAt: new Date(),
+                  files: task.result.files || [],
+                  folderId: null,
+                };
+
+                const pName = task.result.projectName || projectName.trim();
+                if (liveActivityService.isActivityActive()) {
+                  liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+                }
+
+                setTimeout(() => {
+                  setIsCreating(false);
+                  setCreationTask(null);
+                  onCreate(workstation);
+                }, 500);
+                return;
+              } else if (task.status === 'failed') {
+                activeTaskIdRef.current = null;
+                liveActivityService.endPreviewActivity().catch(() => {});
+                Alert.alert('Errore', task.error || 'Creazione fallita');
+                setIsCreating(false);
+                setCreationTask(null);
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          // Ignore, will restart polling below
+        }
+
+        // Task still running - restart polling
+        if (activeTaskIdRef.current && !pollIntervalRef.current) {
+          const taskId = activeTaskIdRef.current;
+          const apiUrl = config.apiUrl;
+          restartPolling(taskId, apiUrl);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [isCreating, projectName, onCreate]);
 
   // Agent completion callback
   async function handleAgentComplete(result: any) {
@@ -260,6 +348,115 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     resetStream();
   }
 
+  // Reusable polling function (used by startOldCreation and AppState resume)
+  const restartPolling = (taskId: string, apiUrl: string) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+    errorCountRef.current = 0;
+    const maxErrors = 10;
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const pollAuthHeaders = await getAuthHeaders();
+        const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`, {
+          headers: pollAuthHeaders,
+        });
+
+        if (statusRes.status === 404) {
+          console.warn('[CreateProject] Task not found (404), stopping poll');
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          setIsCreating(false);
+          setCreationTask(null);
+          return;
+        }
+
+        const statusData = await statusRes.json();
+        errorCountRef.current = 0;
+
+        if (statusData.success && statusData.task) {
+          const task = statusData.task;
+          setCreationTask({
+            status: task.status,
+            progress: task.progress,
+            message: task.message,
+            step: task.step,
+          });
+
+          if (task.status === 'running') {
+            liveActivityService.updatePreviewActivity({
+              remainingSeconds: Math.max(0, Math.round(120 * (1 - (task.progress || 0) / 100))),
+              currentStep: task.step || task.message || 'Creazione...',
+              progress: (task.progress || 0) / 100,
+            }).catch(() => {});
+          }
+
+          if (task.status === 'completed') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            activeTaskIdRef.current = null;
+
+            const workstation = {
+              id: task.result.projectId,
+              projectId: task.result.projectId,
+              name: task.result.projectName,
+              language: task.result.technology,
+              technology: task.result.technology,
+              templateDescription: task.result.templateDescription,
+              status: 'ready' as const,
+              createdAt: new Date(),
+              files: task.result.files || [],
+              folderId: null,
+            };
+
+            const pName = task.result.projectName || projectName.trim();
+            if (liveActivityService.isActivityActive()) {
+              liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+            }
+            liveActivityService.sendNotification(
+              'Progetto creato!',
+              `${pName} e' pronto`
+            ).catch(() => {});
+
+            setTimeout(() => {
+              setIsCreating(false);
+              setCreationTask(null);
+              onCreate(workstation);
+            }, 800);
+          } else if (task.status === 'failed') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            activeTaskIdRef.current = null;
+            liveActivityService.endPreviewActivity().catch(() => {});
+            Alert.alert('Errore', task.error || 'Creazione fallita');
+            setIsCreating(false);
+            setCreationTask(null);
+          }
+        }
+      } catch (pollError) {
+        errorCountRef.current++;
+        if (errorCountRef.current >= maxErrors) {
+          console.error('[CreateProject] Too many polling errors, stopping');
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          setIsCreating(false);
+          setCreationTask(null);
+          liveActivityService.endPreviewActivity().catch(() => {});
+          Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
+        }
+      }
+    }, 1500);
+  };
+
   const handleNext = () => {
     if (step === 1) {
       if (!projectName.trim()) {
@@ -347,7 +544,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         const match = languages.find(l => l.id === result.recommendation);
         if (match) {
           setSelectedLanguage(match.id);
-          // Optional: Show a toast or small indicator that AI selected this
+          setAiRecommendedLang(match.id);
         }
       }
     } catch (error) {
@@ -514,125 +711,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       }
 
       const taskId = result.taskId;
-      let errorCount = 0;
-      const maxErrors = 5;
+      activeTaskIdRef.current = taskId;
 
-      // Clear any existing polling interval
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-
-      // 2. Poll Status
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const pollAuthHeaders = await getAuthHeaders();
-          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${taskId}`, {
-            headers: pollAuthHeaders,
-          });
-
-          // Stop polling on 404 (task doesn't exist)
-          if (statusRes.status === 404) {
-            console.warn('⚠️ [CreateProject] Task not found (404), stopping poll');
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            setIsCreating(false);
-            setCreationTask(null);
-            return;
-          }
-
-          const statusData = await statusRes.json();
-
-          // Reset error count on successful response
-          errorCount = 0;
-
-          if (statusData.success && statusData.task) {
-            const task = statusData.task;
-
-            setCreationTask({
-              status: task.status,
-              progress: task.progress,
-              message: task.message,
-              step: task.step
-            });
-
-            // Update Live Activity (Dynamic Island)
-            if (task.status === 'running') {
-              liveActivityService.updatePreviewActivity({
-                remainingSeconds: Math.max(0, Math.round(120 * (1 - (task.progress || 0) / 100))),
-                currentStep: task.step || task.message || 'Creazione...',
-                progress: (task.progress || 0) / 100,
-              }).catch((err) => console.warn('[Project] Failed to update live activity:', err?.message || err));
-            }
-
-            if (task.status === 'completed') {
-              if (pollIntervalRef.current) {
-                clearInterval(pollIntervalRef.current);
-                pollIntervalRef.current = null;
-              }
-
-              // Log what we received from backend
-
-              // Success!
-              const workstation = {
-                id: task.result.projectId,
-                projectId: task.result.projectId,
-                name: task.result.projectName,
-                language: task.result.technology,
-                technology: task.result.technology,
-                templateDescription: task.result.templateDescription,
-                status: 'ready' as const,
-                createdAt: new Date(),
-                files: task.result.files || [],
-                folderId: null,
-              };
-
-              // End Live Activity with success + notification
-              const pName = task.result.projectName || projectName.trim();
-              if (liveActivityService.isActivityActive()) {
-                liveActivityService.endWithSuccess(pName, 'Creato!').catch((err) => console.warn('[Project] Failed to end live activity:', err?.message || err));
-              }
-              liveActivityService.sendNotification(
-                'Progetto creato!',
-                `${pName} e' pronto`
-              ).catch((err) => console.warn('[Project] Failed to send notification:', err?.message || err));
-
-              // Short delay to show 100%
-              setTimeout(() => {
-                setIsCreating(false);
-                setCreationTask(null);
-                onCreate(workstation);
-              }, 800);
-
-            } else if (task.status === 'failed') {
-              if (pollIntervalRef.current) {
-                clearInterval(pollIntervalRef.current);
-                pollIntervalRef.current = null;
-              }
-              // End Live Activity on failure
-              liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
-              throw new Error(task.error || 'Creation failed');
-            }
-          }
-        } catch (pollError) {
-          console.error('Polling error:', pollError);
-          errorCount++;
-
-          // Stop polling after too many consecutive errors
-          if (errorCount >= maxErrors) {
-            console.error('❌ [CreateProject] Too many polling errors, stopping');
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            setIsCreating(false);
-            setCreationTask(null);
-            liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
-            Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
-          }
-        }
-      }, 1000);
+      // 2. Start polling
+      restartPolling(taskId, apiUrl);
 
     } catch (error) {
       console.error('Error creating project:', error);
@@ -772,10 +854,19 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
       <View style={styles.languagesGrid}>
         {languages.map((lang) => {
           const isSelected = selectedLanguage === lang.id;
+          const isAiPick = aiRecommendedLang === lang.id;
           const cardContent = (
             <View style={styles.langCardInner}>
-              <View style={styles.langIconBox}>
-                <Ionicons name={lang.icon as any} size={28} color={lang.color} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <View style={styles.langIconBox}>
+                  <Ionicons name={lang.icon as any} size={28} color={lang.color} />
+                </View>
+                {isAiPick && (
+                  <View style={styles.aiPickBadge}>
+                    <Ionicons name="sparkles" size={10} color="#fff" />
+                    <Text style={styles.aiPickText}>AI</Text>
+                  </View>
+                )}
               </View>
               <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
                 {lang.name}
@@ -1479,6 +1570,23 @@ const styles = StyleSheet.create({
     height: 32,
     justifyContent: 'center',
     marginBottom: 8,
+  },
+  aiPickBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(139, 92, 246, 0.5)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.6)',
+  },
+  aiPickText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 0.5,
   },
   langName: {
     fontSize: 15,

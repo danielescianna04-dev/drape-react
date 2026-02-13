@@ -104,8 +104,6 @@ export interface PreviewServerStatusProps {
   // Error screen
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
-  isSendingReport: boolean;
-  reportSent: boolean;
 
   // Translation helper
   t: ReturnType<typeof useTranslation>['t'];
@@ -339,14 +337,13 @@ export const PreviewSessionExpiredScreen: React.FC<{
 // ============ ERROR SCREEN ============
 export const PreviewErrorScreen: React.FC<{
   previewError: { message: string; timestamp: Date };
+  terminalOutput?: string[];
   onClose: () => void;
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
-  isSendingReport: boolean;
-  reportSent: boolean;
   topInset: number;
   t: any;
-}> = ({ previewError, onClose, onRetryPreview, onSendErrorReport, isSendingReport, reportSent, topInset, t }) => {
+}> = ({ previewError, terminalOutput, onClose, onRetryPreview, onSendErrorReport, topInset, t }) => {
   return (
     <View style={styles.startScreen}>
       <LinearGradient
@@ -370,10 +367,9 @@ export const PreviewErrorScreen: React.FC<{
       <View style={styles.fullScreenContent}>
         <ErrorContent
           previewError={previewError}
+          terminalOutput={terminalOutput}
           onRetryPreview={onRetryPreview}
           onSendErrorReport={onSendErrorReport}
-          isSendingReport={isSendingReport}
-          reportSent={reportSent}
           t={t}
         />
       </View>
@@ -394,8 +390,6 @@ export const PreviewLoadingScreen: React.FC<{
   onClose: () => void;
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
-  isSendingReport: boolean;
-  reportSent: boolean;
   topInset: number;
   t: any;
 }> = ({
@@ -410,8 +404,6 @@ export const PreviewLoadingScreen: React.FC<{
   onClose,
   onRetryPreview,
   onSendErrorReport,
-  isSendingReport,
-  reportSent,
   topInset,
   t,
 }) => {
@@ -444,10 +436,9 @@ export const PreviewLoadingScreen: React.FC<{
           /* ERROR UI */
           <ErrorContent
             previewError={previewError}
+            terminalOutput={terminalOutput}
             onRetryPreview={onRetryPreview}
             onSendErrorReport={onSendErrorReport}
-            isSendingReport={isSendingReport}
-            reportSent={reportSent}
             t={t}
           />
         ) : (
@@ -527,21 +518,49 @@ export const PreviewLoadingScreen: React.FC<{
 // ============ SHARED: Error Content ============
 const ErrorContent: React.FC<{
   previewError: { message: string; timestamp: Date };
+  terminalOutput?: string[];
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
-  isSendingReport: boolean;
-  reportSent: boolean;
   t: any;
-}> = ({ previewError, onRetryPreview, onSendErrorReport, isSendingReport, reportSent, t }) => {
+}> = ({ previewError, terminalOutput, onRetryPreview, onSendErrorReport, t }) => {
+  // Show last terminal lines that contain errors
+  const errorLines = React.useMemo(() => {
+    if (!terminalOutput || terminalOutput.length === 0) return [];
+    const relevant = terminalOutput.filter(line => {
+      const lower = line.toLowerCase();
+      return lower.includes('error') || lower.includes('failed') || lower.includes('cannot') || lower.includes('warning') || lower.includes('×');
+    });
+    return relevant.length > 0 ? relevant.slice(-15) : terminalOutput.slice(-10);
+  }, [terminalOutput]);
+
   return (
     <View style={styles.errorContainer}>
       <View style={styles.errorIconContainer}>
         <Ionicons name="alert-circle" size={48} color="#FF6B6B" />
       </View>
       <Text style={styles.errorTitle}>{t('terminal:preview.startupFailed')}</Text>
-      <Text style={styles.errorMessage} numberOfLines={8}>
+      <Text style={styles.errorMessage} numberOfLines={3}>
         {previewError.message}
       </Text>
+
+      {/* Terminal error log */}
+      {errorLines.length > 0 && (
+        <View style={styles.errorLogContainer}>
+          <View style={styles.errorLogHeader}>
+            <Ionicons name="terminal" size={12} color="rgba(255,255,255,0.4)" />
+            <Text style={styles.errorLogHeaderText}>Log</Text>
+          </View>
+          <ScrollView style={styles.errorLogScroll} nestedScrollEnabled>
+            {errorLines.map((line, i) => (
+              <Text key={i} style={[styles.errorLogLine, {
+                color: line.toLowerCase().includes('error') || line.includes('×') ? '#f87171' : 'rgba(255,255,255,0.5)',
+              }]} numberOfLines={3}>
+                {line}
+              </Text>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <View style={styles.errorButtonsContainer}>
         <TouchableOpacity
@@ -554,32 +573,14 @@ const ErrorContent: React.FC<{
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.sendLogsButton, reportSent && styles.sendLogsButtonSent]}
+          style={styles.fixWithAiButton}
           onPress={onSendErrorReport}
-          disabled={isSendingReport || reportSent}
           activeOpacity={0.7}
         >
-          {isSendingReport ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : reportSent ? (
-            <>
-              <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-              <Text style={[styles.sendLogsButtonText, { color: '#4CAF50' }]}>Inviato!</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="send" size={18} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.sendLogsButtonText}>Invia log</Text>
-            </>
-          )}
+          <Ionicons name="sparkles" size={18} color="#fff" />
+          <Text style={styles.fixWithAiButtonText}>{t('terminal:preview.fixWithAi')}</Text>
         </TouchableOpacity>
       </View>
-
-      {reportSent && (
-        <Text style={styles.reportSentMessage}>
-          Grazie! Il nostro team analizzerà il problema.
-        </Text>
-      )}
     </View>
   );
 };
@@ -940,7 +941,7 @@ const styles = StyleSheet.create({
     backgroundColor: AppColors.primary,
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 22,
     gap: 8,
   },
   retryButtonText: {
@@ -948,32 +949,58 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  sendLogsButton: {
+  fixWithAiButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 16,
+    backgroundColor: 'rgba(139, 92, 246, 0.25)',
+    paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: 22,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(139, 92, 246, 0.4)',
   },
-  sendLogsButtonSent: {
-    borderColor: 'rgba(76, 175, 80, 0.4)',
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-  },
-  sendLogsButtonText: {
+  fixWithAiButtonText: {
     fontSize: 13,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.7)',
   },
-  reportSentMessage: {
-    marginTop: 16,
-    fontSize: 12,
-    color: 'rgba(76, 175, 80, 0.8)',
-    textAlign: 'center',
+  errorLogContainer: {
+    width: '100%',
+    maxHeight: 180,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  errorLogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  errorLogHeaderText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.4)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  errorLogScroll: {
+    padding: 10,
+  },
+  errorLogLine: {
+    fontSize: 10,
+    fontFamily: 'Courier New',
+    lineHeight: 15,
+    color: 'rgba(255, 255, 255, 0.5)',
   },
   // Mac Terminal Styles
   terminalContainer: {

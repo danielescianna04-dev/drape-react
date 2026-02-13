@@ -777,6 +777,42 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
 
+  // ── Handle pending chat message from preview error ──────────────
+  const pendingChatMessage = useUIStore((state) => state.pendingChatMessage);
+  const handleSendRef = useRef<((images?: any[]) => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (!pendingChatMessage || !handleSendRef.current) return;
+    // Set input and trigger send on next tick
+    setInput(pendingChatMessage);
+    useUIStore.getState().setPendingChatMessage(null);
+    // Wait for input state to settle, then send
+    setTimeout(() => {
+      handleSendRef.current?.();
+    }, 100);
+  }, [pendingChatMessage]);
+
+  // ── Auto-retry preview after AI fix completes ──────────────────
+  const prevAgentStreamingRef = useRef(agentStreaming);
+  useEffect(() => {
+    const wasStreaming = prevAgentStreamingRef.current;
+    prevAgentStreamingRef.current = agentStreaming;
+    // Agent just finished (was running, now stopped)
+    if (wasStreaming && !agentStreaming && currentTab?.id) {
+      const { autoRetryPreview } = useUIStore.getState();
+      if (autoRetryPreview) {
+        useUIStore.getState().setAutoRetryPreview(false);
+        // Add "Start preview" button to chat
+        addTerminalItem({
+          id: `preview-retry-${Date.now()}`,
+          content: '__PREVIEW_RETRY__',
+          type: TerminalItemType.SYSTEM,
+          timestamp: new Date(),
+        });
+      }
+    }
+  }, [agentStreaming, currentTab?.id]);
+
   // ── Bridge: sync engine.messages → tabStore terminal items ───────
   useEffect(() => {
     if (!currentTab?.id) return;
@@ -2300,6 +2336,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   };
 
+  // Keep ref updated for pending message effect
+  handleSendRef.current = handleSend;
+
   // Memoized filtered and processed terminal items for FlatList
   const processedTerminalItems = useMemo(() => {
     if (terminalItems.length === 0) return [];
@@ -2473,6 +2512,37 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         currentTool={isRunning ? agentCurrentTool : null}
                       />
                     </View>
+                  );
+                }
+
+                // Handle preview retry action card
+                if (item.content === '__PREVIEW_RETRY__') {
+                  return (
+                    <TouchableOpacity
+                      onPress={() => {
+                        useUIStore.getState().setOpenPreviewRequested(true);
+                      }}
+                      activeOpacity={0.85}
+                      style={{
+                        marginHorizontal: 16,
+                        marginVertical: 12,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        paddingVertical: 14,
+                        paddingHorizontal: 20,
+                        borderRadius: 22,
+                        backgroundColor: 'rgba(139, 92, 246, 0.2)',
+                        borderWidth: 1,
+                        borderColor: 'rgba(139, 92, 246, 0.35)',
+                      }}
+                    >
+                      <Ionicons name="play" size={18} color="#A78BFA" />
+                      <Text style={{ fontSize: 15, fontWeight: '600', color: '#A78BFA' }}>
+                        Avvia preview
+                      </Text>
+                    </TouchableOpacity>
                   );
                 }
 
