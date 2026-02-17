@@ -6,7 +6,7 @@ import { log } from '../utils/logger';
 export const aiRouter = Router();
 
 function normalizeModel(model: string | undefined): string {
-  if (!model) return 'claude-4-5-sonnet';
+  if (!model) return 'claude-4-6-sonnet';
   const aliases: Record<string, string> = {
     'gemini-3-0-pro': 'gemini-3-pro',
     'gemini-3-0-flash': 'gemini-3-flash',

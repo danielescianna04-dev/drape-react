@@ -305,12 +305,12 @@ class DependencyService {
       'export CI=1 TERM=dumb FORCE_COLOR=0 npm_config_color=false npm_config_progress=false npm_config_loglevel=info YARN_ENABLE_PROGRESS_BARS=0',
       `RUN_CMD=${escapedCommand}`,
       // Force line-buffered output so install logs are visible in near real-time via /fly/logs SSE.
-      'if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL -eL bash -lc "$RUN_CMD" 2>&1 | tee -a "$LOG_FILE"; EXIT_CODE=${PIPESTATUS[0]}; else bash -lc "$RUN_CMD" 2>&1 | tee -a "$LOG_FILE"; EXIT_CODE=${PIPESTATUS[0]}; fi',
+      'if command -v stdbuf >/dev/null 2>&1; then stdbuf -oL -eL bash -c "$RUN_CMD" 2>&1 | tee -a "$LOG_FILE"; EXIT_CODE=${PIPESTATUS[0]}; else bash -c "$RUN_CMD" 2>&1 | tee -a "$LOG_FILE"; EXIT_CODE=${PIPESTATUS[0]}; fi',
       // If fallback file was used, mirror recent lines back to primary log when writable.
       'if [ "$LOG_FILE" != "$PRIMARY_LOG" ] && [ -f "$LOG_FILE" ] && [ -w "$PRIMARY_LOG" ]; then tail -n 500 "$LOG_FILE" >> "$PRIMARY_LOG" 2>/dev/null || true; fi',
       'exit $EXIT_CODE',
     ].join('; ');
-    return `bash -lc ${shellEscape(wrapped)}`;
+    return `bash -c ${shellEscape(wrapped)}`;
   }
 
   private async runInstallWithRetry(
@@ -434,7 +434,7 @@ class DependencyService {
     try {
       const result = await dockerService.exec(
         agentUrl,
-        `bash -lc ${shellEscape(prepCommand)}`,
+        `bash -c ${shellEscape(prepCommand)}`,
         '/home/coder',
         10000,
         true,
@@ -458,7 +458,7 @@ class DependencyService {
       'if [ ! -f "$LOG_FILE" ]; then exit 0; fi',
       `awk 'NR>=${safeStart} { print }' "$LOG_FILE" 2>/dev/null`,
     ].join('; ');
-    return `bash -lc ${shellEscape(command)}`;
+    return `bash -c ${shellEscape(command)}`;
   }
 
   private async deleteCacheEntry(hash: string): Promise<void> {
@@ -502,8 +502,9 @@ class DependencyService {
         `node -e "
 const fs = require('fs');
 const path = require('path');
+if (!require('fs').existsSync('node_modules')) process.exit(0);
 const glob = require('child_process').execSync(
-  'find node_modules -name \"*.node\" -type f 2>/dev/null',
+  'find node_modules -name \"*.node\" -type f 2>/dev/null || true',
   { encoding: 'utf8', maxBuffer: 1024*1024 }
 ).trim().split('\\n').filter(Boolean);
 let ok = true;

@@ -35,6 +35,22 @@ class ProjectDetectorService {
     const packageManager = this.detectPackageManager(hasPnpmLock, hasYarnLock);
 
     // Detect project type
+
+    // Flutter Web (pubspec.yaml with flutter dep) — check FIRST because Flutter repos
+    // may also contain package.json for a backend, and we don't want Node.js detection to win.
+    if (hasPubspec) {
+      const pubspec = await this.readFileSafe(projectDir, 'pubspec.yaml');
+      if (pubspec && pubspec.includes('flutter:')) {
+        return {
+          type: 'flutter',
+          description: 'Flutter Web project',
+          startCommand: `flutter build web --release --no-tree-shake-icons && node -e "const h=require('http'),f=require('fs'),p=require('path'),m={'.html':'text/html','.js':'application/javascript','.json':'application/json','.wasm':'application/wasm','.otf':'font/otf','.ttf':'font/ttf','.woff2':'font/woff2','.png':'image/png','.ico':'image/x-icon','.css':'text/css','.svg':'image/svg+xml'};h.createServer((q,r)=>{let u=decodeURIComponent(q.url.split('?')[0]);if(u.endsWith('/'))u+='index.html';f.readFile(p.join('build/web',u),(e,d)=>{if(e){r.writeHead(404);r.end();return}r.writeHead(200,{'Content-Type':m[p.extname(u)]||'application/octet-stream'});r.end(d)})}).listen(3000,'0.0.0.0')"`,
+          port: 3000,
+          installCommand: 'mkdir -p /home/node/.pub-cache && flutter pub get',
+        };
+      }
+    }
+
     // Require package.json at root when matching by config file alone.
     // A next.config.js without package.json is likely a symlink from app/ (App Router pattern)
     // and should fall through to the monorepo/subdirectory detection below.
@@ -170,20 +186,6 @@ class ProjectDetectorService {
       };
     }
 
-    // Flutter Web (pubspec.yaml with flutter dep)
-    if (hasPubspec) {
-      const pubspec = await this.readFileSafe(projectDir, 'pubspec.yaml');
-      if (pubspec && pubspec.includes('flutter:')) {
-        return {
-          type: 'flutter',
-          description: 'Flutter Web project',
-          startCommand: 'flutter run -d web-server --web-port 3000 --web-hostname 0.0.0.0',
-          port: 3000,
-          installCommand: 'flutter pub get',
-        };
-      }
-    }
-
     // Laravel (artisan + composer.json)
     if (hasArtisan && hasComposerJson) {
       return {
@@ -200,9 +202,9 @@ class ProjectDetectorService {
       return {
         type: 'django',
         description: 'Django project',
-        startCommand: 'python manage.py runserver 0.0.0.0:3000',
+        startCommand: 'python3 manage.py runserver 0.0.0.0:3000',
         port: 3000,
-        installCommand: 'pip install -r requirements.txt',
+        installCommand: 'python3 -m pip install --user --break-system-packages -r requirements.txt',
       };
     }
 
@@ -214,18 +216,18 @@ class ProjectDetectorService {
         return {
           type: 'fastapi',
           description: 'FastAPI project',
-          startCommand: 'uvicorn main:app --host 0.0.0.0 --port 3000 --reload',
+          startCommand: 'python3 -m uvicorn main:app --host 0.0.0.0 --port 3000 --reload',
           port: 3000,
-          installCommand: 'pip install -r requirements.txt',
+          installCommand: 'python3 -m pip install --user --break-system-packages -r requirements.txt',
         };
       }
       if ((reqs && reqs.includes('flask')) || (pyproject && pyproject.includes('flask'))) {
         return {
           type: 'flask',
           description: 'Flask project',
-          startCommand: 'python app.py',
+          startCommand: 'python3 app.py',
           port: 3000,
-          installCommand: 'pip install -r requirements.txt',
+          installCommand: 'python3 -m pip install --user --break-system-packages -r requirements.txt',
         };
       }
     }
@@ -235,7 +237,7 @@ class ProjectDetectorService {
       return {
         type: 'python',
         description: 'Python project',
-        startCommand: 'python -m http.server 3000',
+        startCommand: 'python3 -m http.server 3000',
         port: 3000,
       };
     }

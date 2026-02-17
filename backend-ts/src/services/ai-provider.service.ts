@@ -84,9 +84,9 @@ class AIProviderService {
       costPerMInputToken: 3.0,
       costPerMOutputToken: 15.0,
     },
-    'claude-4-5-sonnet': {
+    'claude-4-6-sonnet': {
       provider: 'anthropic',
-      modelId: 'claude-sonnet-4-5-20250929',
+      modelId: 'claude-sonnet-4-6',
       maxTokens: 8192,
       supportsTools: true,
       supportsStreaming: true,
@@ -94,7 +94,7 @@ class AIProviderService {
       costPerMInputToken: 3.0,
       costPerMOutputToken: 15.0,
     },
-    'claude-4-5-opus': {
+    'claude-4-6-opus': {
       provider: 'anthropic',
       modelId: 'claude-opus-4-6',
       maxTokens: 8192,
@@ -134,9 +134,9 @@ class AIProviderService {
       costPerMInputToken: 1.25,
       costPerMOutputToken: 10.0,
     },
-    'gpt-5-2': {
+    'gpt-5-3': {
       provider: 'openai',
-      modelId: 'gpt-5.2',
+      modelId: 'gpt-5.3',
       maxTokens: 16384,
       supportsTools: true,
       supportsStreaming: true,

@@ -200,14 +200,22 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       return;
                     }
 
+                    // Flutter web uses canvas rendering — no DOM text.
+                    // Detect via flutter-view, flt-glass-pane, or canvas inside #flutter_target.
+                    var isFlutter = !!(document.querySelector('flutter-view') ||
+                                       document.querySelector('flt-glass-pane') ||
+                                       document.querySelector('canvas'));
+
                     // React/Next.js/Expo mounted
                     // If a known root element exists, wait for it to have children AND visible text.
                     // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
                     // Only use body.children fallback for non-SPA pages (no root element).
                     var hasText = root && root.innerText && root.innerText.trim().length > 0;
-                    var isReady = root
-                      ? rootChildren > 0 && hasText
-                      : document.body.children.length > 2;
+                    var isReady = isFlutter
+                      ? true
+                      : root
+                        ? rootChildren > 0 && hasText
+                        : document.body.children.length > 2;
                     if (isReady) {
                       clearInterval(checkInterval);
                       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
@@ -340,21 +348,28 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                                   document.querySelector('[data-reactroot]') ||
                                   document.querySelector('app-root') ||
                                   document.querySelector('[id^="app"]');
+                     // Flutter web uses canvas — no DOM text. Detect early.
+                     const isFlutter = !!(document.querySelector('flutter-view') ||
+                                          document.querySelector('flt-glass-pane') ||
+                                          document.querySelector('canvas'));
+
                      // If a known root element exists, wait for it to have children AND visible text.
                      // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
                      // Only use body.children fallback for non-SPA pages (no root).
                      const rootChildren = root ? root.children.length : 0;
                      const hasText = root && root.innerText && root.innerText.trim().length > 0;
-                     const hasContent = root
-                       ? rootChildren > 0 && hasText
-                       : document.body.children.length > 2;
+                     const hasContent = isFlutter
+                       ? true
+                       : root
+                         ? rootChildren > 0 && hasText
+                         : document.body.children.length > 2;
 
                      if (hasContent) {
                        window.ReactNativeWebView?.postMessage(JSON.stringify({
                          type: 'PAGE_INFO',
                          hasContent: hasContent,
-                         rootChildren: rootChildren,
-                         forceReady: false
+                         rootChildren: isFlutter ? 1 : rootChildren,
+                         forceReady: isFlutter
                        }));
                        return true;
                      }

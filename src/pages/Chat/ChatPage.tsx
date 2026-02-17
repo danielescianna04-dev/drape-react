@@ -81,9 +81,9 @@ const parseUndoData = (result: string): { cleanResult: string; undoData: any | n
 
 // Available AI models with custom icon components
 const AI_MODELS = [
-  { id: 'claude-4-5-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
-  { id: 'claude-4-5-sonnet', name: 'Claude 4.5 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
-  { id: 'gpt-5-2', name: 'GPT 5.2', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
+  { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
+  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
+  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
   { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'], isPremium: true },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
 ];
@@ -119,6 +119,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const contentHeightRef = useRef(0);
   const layoutHeightRef = useRef(0);
   const isNearBottomRef = useRef(true);        // true = user hasn't scrolled up
+  const scrollLockUntilRef = useRef(0);        // timestamp: ignore onScroll isNearBottom updates until
 
   // ── Scroll helper (declared early, used by multiple effects) ──────────
   const scrollToBottom = useCallback((animated = true) => {
@@ -1085,6 +1086,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         keyboardHeight.value = 0;
         // Reset scroll padding
         setScrollPaddingBottom(300);
+        // Scroll to bottom after padding shrinks to prevent view jumping up
+        // (the padding reduction shifts content and can set isNearBottom=false)
+        if (isNearBottomRef.current) {
+          isNearBottomRef.current = true; // keep pinned
+          setTimeout(() => scrollToBottom(false), 80);
+        }
       }
     );
 
@@ -1523,6 +1530,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
 
     // Always dismiss keyboard when sending
+    // Lock scroll tracking for 500ms so keyboard dismiss animation
+    // doesn't incorrectly set isNearBottom=false
+    scrollLockUntilRef.current = Date.now() + 500;
+    isNearBottomRef.current = true;
     Keyboard.dismiss();
 
     const userMessage = input.trim() || (imagesToSend && imagesToSend.length > 0 ? `[${imagesToSend.length} immagini allegate]` : '');
@@ -2539,6 +2550,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               onScroll={(e) => {
                 const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
                 const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+                // During keyboard dismiss animation, scroll events fire with stale positions
+                // that would incorrectly set isNearBottom=false. Skip those updates.
+                if (Date.now() < scrollLockUntilRef.current) return;
                 isNearBottomRef.current = distanceFromBottom < 220;
               }}
               scrollEventThrottle={16}

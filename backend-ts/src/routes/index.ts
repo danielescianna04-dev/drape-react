@@ -45,7 +45,7 @@ export function mountRoutes(app: Express): void {
   // Common
   app.all('/favicon.ico', createAssetProxy());
   // Static file extensions (CSS, JS, images, fonts) — catch root-relative refs
-  app.all(/^\/.+\.(css|js|mjs|jsx|tsx|ts|map|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|webp|json)$/i, createAssetProxy());
+  app.all(/^\/.+\.(css|js|mjs|jsx|tsx|ts|map|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|otf|eot|webp|json|wasm)$/i, createAssetProxy());
 
   // --- Public routes (no auth required) ---
 

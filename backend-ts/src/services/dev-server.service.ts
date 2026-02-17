@@ -53,8 +53,15 @@ class DevServerService {
       // /setup might not return immediately — that's fine
     }
 
+    // Flutter: build web takes 30-90s before the static server starts listening.
+    // crashDelay=45s is safe because detectCrash only triggers on "exited with code"
+    // — a still-running build won't produce that line, so no false positives.
+    const isFlutter = info.type === 'flutter';
+    const readyTimeout = isFlutter ? 180000 : 60000;
+    const crashDelay = isFlutter ? 45000 : 8000;
+
     // Wait for dev server to respond
-    let result = await this.waitForReady(agentUrl, 60000);
+    let result = await this.waitForReady(agentUrl, readyTimeout, crashDelay);
     if (!result.ready && await this.hasGracefulEarlyExit(agentUrl)) {
       log.warn(`[DevServer] /setup process exited early for ${session.projectId}; retrying detached start`);
       await this.startDetached(session, info.startCommand);
@@ -90,7 +97,7 @@ class DevServerService {
       'touch "$PRIMARY_LOG" 2>/dev/null || true',
       'if [ ! -w "$PRIMARY_LOG" ]; then LOG_FILE=/tmp/drape-server.log; touch "$LOG_FILE" 2>/dev/null || true; fi',
       `RUN_CMD=${escapedCommand}`,
-      'bash -lc "$RUN_CMD" >> "$LOG_FILE" 2>&1',
+      'bash -c "$RUN_CMD" >> "$LOG_FILE" 2>&1',
     ].join('; ');
 
     await dockerService.execDetached(

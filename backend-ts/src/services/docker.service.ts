@@ -153,6 +153,8 @@ class DockerService {
       `${config.pnpmStorePath}:/home/coder/volumes/pnpm-store:ro`,
       `${config.cacheRoot}:/data/cache:rw`,
       `${nextCacheDir}:/home/coder/project/.next:rw`,
+      // Flutter SDK mounted from host; rw needed for engine stamp files
+      '/opt/flutter:/opt/flutter:rw',
     ];
 
     // Remove existing container with same name (409 conflict)
@@ -179,6 +181,14 @@ class DockerService {
         `PROJECT_ID=${projectId}`,
         `DRAPE_AGENT_PORT=${AGENT_PORT}`,
         `INFRA_BACKEND=docker`,
+        // Flutter/Dart SDK on PATH; PUB_CACHE writable inside container
+        `PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+        `PUB_CACHE=/home/node/.pub-cache`,
+        `FLUTTER_ROOT=/opt/flutter`,
+        // Git safe.directory for Flutter SDK mounted with different ownership
+        `GIT_CONFIG_COUNT=1`,
+        `GIT_CONFIG_KEY_0=safe.directory`,
+        `GIT_CONFIG_VALUE_0=/opt/flutter`,
       ],
       ExposedPorts: {
         [`${AGENT_PORT}/tcp`]: {},
