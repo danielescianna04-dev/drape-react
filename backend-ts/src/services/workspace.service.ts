@@ -194,7 +194,7 @@ class WorkspaceService {
 
     // Install deps
     if (projectInfo.type !== 'static' && projectInfo.type !== 'unknown') {
-      onProgress?.('install', `Installing dependencies (${projectInfo.packageManager || 'npm'})...`);
+      onProgress?.('install', `Installing dependencies (${projectInfo.packageManager || 'bun'})...`);
       await dependencyService.install(projectId, session, projectInfo, (message) => {
         onProgress?.('install', message);
       }, onLog);

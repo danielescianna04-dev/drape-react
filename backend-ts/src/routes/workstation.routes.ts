@@ -867,7 +867,7 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   creationTasks.set(id, task);
 
   // Run generation in background
-  generateProject(id, projectName, technology || 'nextjs', description || '', task).catch(err => {
+  generateProject(id, projectName, technology || 'nextjs', description || '', task, userId).catch(err => {
     log.error(`[CreateProject] Failed: ${err.message}`);
     task.status = 'failed';
     task.error = err.message;
@@ -902,7 +902,7 @@ workstationRouter.get('/create-status/:taskId', asyncHandler(async (req, res) =>
  * Background AI project generation using Gemini Flash
  */
 async function generateProject(
-  projectId: string, projectName: string, technology: string, description: string, task: CreationTask
+  projectId: string, projectName: string, technology: string, description: string, task: CreationTask, userId: string
 ): Promise<void> {
   const update = (progress: number, message: string, step: string) => {
     const normalized = Math.max(0, Math.min(100, Math.round(progress)));
@@ -915,7 +915,7 @@ async function generateProject(
   update(10, 'Preparing AI Model...', 'Configuration');
 
   const techMap: Record<string, string> = {
-    nextjs: 'Next.js 14 with App Router, TypeScript, and Tailwind CSS',
+    nextjs: 'Next.js 15 with App Router, TypeScript, and Tailwind CSS',
     react: 'React with Vite, TypeScript, and Tailwind CSS',
     html: 'HTML5, CSS3, and vanilla JavaScript',
     vue: 'Vue 3 with Vite, TypeScript, and Tailwind CSS',
@@ -1152,6 +1152,12 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
     update(99, 'Starting workspace...', 'Finalizing');
 
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
+
+    // Pre-warm: create container + install deps + start dev server in background.
+    // When the frontend calls startPreview, the fast path finds the server already running.
+    workspaceService.warmProject(projectId, userId).catch(err => {
+      log.warn(`[CreateProject] Pre-warm failed for ${projectId}: ${err.message}`);
+    });
 
     // Complete
     update(100, 'Project Created Successfully!', 'Complete');
