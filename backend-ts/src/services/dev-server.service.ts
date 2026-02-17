@@ -53,12 +53,12 @@ class DevServerService {
       // /setup might not return immediately — that's fine
     }
 
-    // Flutter: build web takes 30-90s before the static server starts listening.
-    // crashDelay=45s is safe because detectCrash only triggers on "exited with code"
-    // — a still-running build won't produce that line, so no false positives.
+    // Flutter DDC dev server takes ~15-20s for first compile; use generous timeout.
+    // crashDelay=30s is safe because detectCrash only triggers on "exited with code"
+    // — a still-running compile won't produce that line, so no false positives.
     const isFlutter = info.type === 'flutter';
-    const readyTimeout = isFlutter ? 180000 : 60000;
-    const crashDelay = isFlutter ? 45000 : 8000;
+    const readyTimeout = isFlutter ? 90000 : 60000;
+    const crashDelay = isFlutter ? 30000 : 8000;
 
     // Wait for dev server to respond
     let result = await this.waitForReady(agentUrl, readyTimeout, crashDelay);
