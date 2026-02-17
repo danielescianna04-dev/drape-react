@@ -160,13 +160,13 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     if (technology === 'nextjs') {
       if (!pkg.scripts.build) pkg.scripts.build = 'next build';
       if (!pkg.scripts.start) pkg.scripts.start = 'next start';
-      ensureDep(pkg, 'dependencies', 'next', '^14.2.0');
-      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
-      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'next', '^15.0.0');
+      ensureDep(pkg, 'dependencies', 'react', '^19.0.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^19.0.0');
       ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
       ensureDep(pkg, 'devDependencies', '@types/node', '^20.0.0');
-      ensureDep(pkg, 'devDependencies', '@types/react', '^18.2.0');
-      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', '@types/react', '^19.0.0');
+      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^19.0.0');
       upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2017",\n    "lib": ["dom", "dom.iterable", "esnext"],\n    "allowJs": true,\n    "skipLibCheck": true,\n    "strict": false,\n    "noEmit": true,\n    "esModuleInterop": true,\n    "module": "esnext",\n    "moduleResolution": "bundler",\n    "resolveJsonModule": true,\n    "isolatedModules": true,\n    "jsx": "preserve",\n    "incremental": true,\n    "plugins": [{ "name": "next" }],\n    "paths": { "@/*": ["./*"] }\n  },\n  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],\n  "exclude": ["node_modules"]\n}\n`);
       ensureFile('app/layout.tsx', `export default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang="it">\n      <body>{children}</body>\n    </html>\n  );\n}\n`);
       ensureFile('app/page.tsx', `export default function HomePage() {\n  return (\n    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n      <p>Progetto Next.js pronto per la preview.</p>\n    </main>\n  );\n}\n`);
