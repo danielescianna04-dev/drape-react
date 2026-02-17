@@ -159,17 +159,7 @@ export default function App() {
     // Richiedi permesso notifiche push all'avvio (non-blocking)
     liveActivityService.requestNotificationPermission().catch(() => {});
 
-    // Handle notification tap → navigate to preview
-    const notifSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      if (data?.action === 'openPreview') {
-        // Navigate to terminal + open preview
-        setCurrentScreen('terminal');
-        useUIStore.getState().setOpenPreviewRequested(true);
-      }
-    });
-
-    return () => notifSub.remove();
+    // Notification tap handling is centralized in pushNotificationService.handleNotificationTap
   }, []);
 
   // Navigate to onboarding (free users) or home when user logs in
@@ -308,7 +298,7 @@ export default function App() {
       // End Live Activity with success + notification (if active from handleImportRepo)
       if (liveActivityService.isActivityActive()) {
         liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
-        liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+        liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
       }
     } catch (err: any) {
       updateTerminalItemsByType(tabId, 'loading', {
@@ -352,7 +342,7 @@ export default function App() {
           // End Live Activity with success + notification
           if (liveActivityService.isActivityActive()) {
             liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
-            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
           }
         } catch (authErr: any) {
           liveActivityService.endPreviewActivity().catch(() => {});
@@ -551,7 +541,7 @@ export default function App() {
                   if (liveActivityService.isActivityActive()) {
                     liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
                   }
-                  liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+                  liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
                 } catch (err: any) {
                   updateTerminalItemsByType(currentTab.id, 'loading', {
                     type: 'system',
@@ -594,7 +584,7 @@ export default function App() {
                       if (liveActivityService.isActivityActive()) {
                         liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
                       }
-                      liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+                      liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
                     } catch (authErr: any) {
                       liveActivityService.endPreviewActivity().catch(() => {});
                       if (authErr.message !== 'Authentication cancelled') {
@@ -864,7 +854,7 @@ export default function App() {
             if (liveActivityService.isActivityActive()) {
               liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
             }
-            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+            liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
           } catch (err: any) {
             updateTerminalItemsByType(currentTab.id, 'loading', {
               type: 'system',
@@ -925,7 +915,7 @@ export default function App() {
                 if (liveActivityService.isActivityActive()) {
                   liveActivityService.endWithSuccess(repoName, 'Clonato!').catch(() => {});
                 }
-                liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`).catch(() => {});
+                liveActivityService.sendNotification('Repository clonato!', `${repoName} e' pronto`, { type: 'clone_complete' }).catch(() => {});
               } catch (authErr: any) {
                 liveActivityService.endPreviewActivity().catch(() => {});
                 // Only show error if user didn't just cancel

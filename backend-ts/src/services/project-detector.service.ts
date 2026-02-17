@@ -45,7 +45,7 @@ class ProjectDetectorService {
         return {
           type: 'flutter',
           description: 'Flutter Web project',
-          startCommand: 'flutter run -d web-server --web-port=3000 --web-hostname=0.0.0.0',
+          startCommand: 'flutter build web --no-tree-shake-icons -O1 2>&1 && npx serve -s build/web -l 3000',
           port: 3000,
           installCommand: 'mkdir -p /home/node/.pub-cache && flutter pub get',
         };
@@ -294,9 +294,17 @@ class ProjectDetectorService {
     const flags: string[] = [];
     if (!hasPort) flags.push('--port 3000');
     if (!hasHost) flags.push('--hostname 0.0.0.0');
-    if (useTurbopack && !hasTurboOrWebpack) flags.push('--turbopack');
 
-    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
+    const baseCmd = `./node_modules/.bin/next dev ${flags.join(' ')}`;
+    // Check INSTALLED next version at runtime — package.json may declare ^15 but resolve to 14.
+    // --turbopack only exists in Next.js 15+.
+    let startCommand: string;
+    if (hasTurboOrWebpack) {
+      // User already specified turbo flag in scripts.dev — use as-is
+      startCommand = baseCmd;
+    } else {
+      startCommand = `NEXT_MAJOR=$(node -p "Number(require('next/package.json').version.split('.')[0])" 2>/dev/null || echo 0); if [ "$NEXT_MAJOR" -ge 15 ]; then ${baseCmd} --turbopack; else ${baseCmd}; fi`;
+    }
 
     return {
       type: 'nextjs',
@@ -378,7 +386,8 @@ class ProjectDetectorService {
     // Always force --port 3000 so isRunning/preview checks work correctly.
     // Don't use custom scripts (e.g. "npm run web") because they may not include --port.
     // Expo's --port flag controls the Metro bundler port which also serves the web bundle.
-    const startCommand = 'npx expo start --web --port 3000 --non-interactive';
+    // CI=1 replaces the deprecated --non-interactive flag
+    const startCommand = 'CI=1 npx expo start --web --port 3000';
 
     return {
       type: 'expo',

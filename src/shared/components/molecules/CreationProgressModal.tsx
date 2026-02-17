@@ -71,10 +71,11 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
                     const target = targetProgressRef.current;
                     if (prev < target) {
                         const remaining = target - prev;
-                        const pointsPerSecond = prev < 90 ? 16 : 24;
+                        // Fast catch-up when target jumps ahead (e.g. 55→100)
+                        const pointsPerSecond = target >= 90 ? 80 : prev < 90 ? 24 : 40;
                         const maxDelta = (pointsPerSecond * elapsedMs) / 1000;
-                        const easedDelta = Math.max(0.12, remaining * 0.18);
-                        const delta = Math.max(0.12, Math.min(remaining, Math.min(maxDelta, easedDelta)));
+                        const easedDelta = Math.max(0.2, remaining * 0.25);
+                        const delta = Math.max(0.2, Math.min(remaining, Math.min(maxDelta, easedDelta)));
                         return Math.min(target, prev + delta);
                     }
                     if (prev > target) return target;

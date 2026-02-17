@@ -279,7 +279,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     }
     liveActivityService.sendNotification(
       'Progetto creato!',
-      `${pName} e' pronto`
+      `${pName} e' pronto`,
+      { type: 'project_created', projectId: result.projectId || '' }
     ).catch((err) => console.warn('[Project] Failed to send notification:', err?.message || err));
 
     try {
@@ -430,14 +431,15 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
             }
             liveActivityService.sendNotification(
               'Progetto creato!',
-              `${pName} e' pronto`
+              `${pName} e' pronto`,
+              { type: 'project_created', projectId: task.result.projectId || '' }
             ).catch(() => {});
 
             setTimeout(() => {
               setIsCreating(false);
               setCreationTask(null);
               onCreate(workstation);
-            }, 800);
+            }, 1200);
           } else if (task.status === 'failed') {
             if (pollIntervalRef.current) {
               clearInterval(pollIntervalRef.current);

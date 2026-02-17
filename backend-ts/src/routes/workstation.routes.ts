@@ -239,7 +239,13 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     if (technology === 'astro') {
       ensureDep(pkg, 'dependencies', 'astro', '^4.10.0');
       ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`);
+      // Astro config — include @astrojs/tailwind integration when Tailwind is used
+      if (hasTailwindSignals) {
+        ensureDep(pkg, 'dependencies', '@astrojs/tailwind', '^5.1.0');
+        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\nimport tailwind from '@astrojs/tailwind';\n\nexport default defineConfig({\n  integrations: [tailwind()],\n});\n`);
+      } else {
+        upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`);
+      }
       upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "astro/tsconfigs/base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
       ensureFile('src/pages/index.astro', `---\n---\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body style=\"font-family: system-ui, sans-serif; padding: 24px;\">\n    <h1>Benvenuto su ${projectName}</h1>\n  </body>\n</html>\n`);
     }
@@ -274,13 +280,17 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
 
     if (technology === 'expo') {
       pkg.main = 'expo/AppEntry';
-      ensureDep(pkg, 'dependencies', 'expo', '^51.0.0');
-      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
-      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
-      ensureDep(pkg, 'dependencies', 'react-native', '^0.74.0');
-      ensureDep(pkg, 'dependencies', 'react-native-web', '^0.19.0');
-      ensureDep(pkg, 'dependencies', '@expo/metro-runtime', '~3.2.0');
-      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      // Force correct Expo SDK — AI often generates outdated versions
+      pkg.dependencies = pkg.dependencies || {};
+      pkg.devDependencies = pkg.devDependencies || {};
+      pkg.dependencies['expo'] = '^51.0.0';
+      pkg.dependencies['react'] = '18.2.0';
+      pkg.dependencies['react-dom'] = '18.2.0';
+      pkg.dependencies['react-native'] = '0.74.5';
+      pkg.dependencies['react-native-web'] = '~0.19.12';
+      pkg.dependencies['@expo/metro-runtime'] = '~3.2.3';
+      pkg.devDependencies['typescript'] = '^5.4.0';
+      pkg.devDependencies['@types/react'] = '~18.2.45';
       upsertFile(normalized, 'app.json', `{\n  "expo": {\n    "name": "${projectName}",\n    "slug": "${sanitizePackageName(projectName)}",\n    "platforms": ["ios", "android", "web"],\n    "web": { "bundler": "metro" }\n  }\n}\n`);
       upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "expo/tsconfig.base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
       ensureFile('App.tsx', `import { Text, View, StyleSheet } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.title}>Benvenuto su ${projectName}</Text>\n      <Text style={styles.subtitle}>Modifica App.tsx per iniziare</Text>\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },\n  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },\n  subtitle: { fontSize: 16, color: '#666' },\n});\n`);
@@ -1066,12 +1076,13 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         // Keep progress moving even when model pauses between chunks.
         generationTicker = setInterval(() => {
           const elapsed = (Date.now() - streamStart) / 1000;
-          // 24 -> 89 over ~60s, then stays near 89 until stream closes.
-          const timeRatio = Math.min(1, elapsed / 60);
-          const baseProgress = 24 + Math.round(timeRatio * 65);
+          // 24 -> 89 over ~25s (AI typically finishes in 10-20s).
+          // Uses sqrt curve so early seconds feel faster.
+          const timeRatio = Math.min(1, elapsed / 25);
+          const baseProgress = 24 + Math.round(Math.sqrt(timeRatio) * 65);
           const message = pickGenerationMessage(elapsed, chunkCount);
           update(Math.min(89, baseProgress), message, 'AI Generating');
-        }, 900);
+        }, 600);
 
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
@@ -1080,8 +1091,8 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
             // Chunk-driven boost on top of time-driven progress.
             if (chunkCount % 2 === 0) {
               const elapsed = (Date.now() - streamStart) / 1000;
-              const timeRatio = Math.min(1, elapsed / 60);
-              const baseProgress = 24 + Math.round(timeRatio * 65);
+              const timeRatio = Math.min(1, elapsed / 25);
+              const baseProgress = 24 + Math.round(Math.sqrt(timeRatio) * 65);
               const chunkBoost = Math.min(4, Math.floor(chunkCount / 20));
               const message = pickGenerationMessage(elapsed, chunkCount);
               update(Math.min(90, baseProgress + chunkBoost), message, 'AI Generating');

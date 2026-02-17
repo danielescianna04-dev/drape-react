@@ -217,10 +217,14 @@ export function usePreviewStartup({
     return () => animation?.stop();
   }, [serverStatus, webViewReady]);
 
-  // Mask fade-out when webViewReady
+  // Mask fade-out when webViewReady — small delay lets WebView compositor paint content
+  // before the loading screen disappears, preventing a black flash.
   useEffect(() => {
     if (webViewReady) {
-      Animated.timing(maskOpacityAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+      const timer = setTimeout(() => {
+        Animated.timing(maskOpacityAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+      }, 150);
+      return () => clearTimeout(timer);
     } else {
       maskOpacityAnim.setValue(1);
     }

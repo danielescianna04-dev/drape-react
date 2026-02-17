@@ -133,14 +133,20 @@ class LiveActivityService {
 
   /**
    * Invia una notifica push locale (es. "Preview pronta!")
+   * Usa expo-notifications per garantire che il tap venga catturato dal response listener.
    */
   async sendNotification(title: string, body: string, data?: Record<string, string>): Promise<boolean> {
-    if (Platform.OS !== 'ios' || !PreviewActivityModule) {
-      return false;
-    }
-
     try {
-      await PreviewActivityModule.sendLocalNotification(title, body);
+      const Notifications = await import('expo-notifications');
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: 'default',
+          data: data || {},
+        },
+        trigger: null, // fire immediately
+      });
       return true;
     } catch (error: any) {
       console.warn('⚠️ [Notification] Error:', error.message);

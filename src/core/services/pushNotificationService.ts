@@ -175,24 +175,33 @@ class PushNotificationService {
    * Handle notification tap - navigate to appropriate screen
    */
   private handleNotificationTap(data: Record<string, any>): void {
-    const { type, projectId, workstationId } = data;
+    const { type, action, projectId, workstationId } = data;
+
+    // "action: openPreview" — sent by usePreviewStartup when preview is ready
+    if (action === 'openPreview') {
+      const { useUIStore } = require('../terminal/uiStore');
+      useNavigationStore.getState().navigateTo('terminal');
+      useUIStore.getState().setOpenPreviewRequested(true);
+      return;
+    }
 
     switch (type) {
       case 'operation_complete':
       case 'clone_complete':
-      case 'project_created':
-        // Navigate to terminal with the project
+      case 'project_created': {
+        const terminalStore = useTerminalStore.getState();
+        // Try to find the specific project; fall back to current workstation
         if (projectId || workstationId) {
-          const terminalStore = useTerminalStore.getState();
           const workstation = terminalStore.workstations.find(
             w => w.projectId === projectId || w.id === workstationId
           );
           if (workstation) {
             terminalStore.setWorkstation(workstation);
-            useNavigationStore.getState().navigateTo('terminal');
           }
         }
+        useNavigationStore.getState().navigateTo('terminal');
         break;
+      }
 
       case 'github_activity':
         useNavigationStore.getState().navigateTo('home');
@@ -203,6 +212,7 @@ class PushNotificationService {
         break;
 
       default:
+        // If no known type, still navigate to terminal if we were in a project context
         useNavigationStore.getState().navigateTo('home');
         break;
     }

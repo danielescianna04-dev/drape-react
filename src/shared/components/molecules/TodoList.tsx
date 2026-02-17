@@ -68,8 +68,8 @@ export const TodoList: React.FC<Props> = ({
     };
 
     return (
-        <View style={[styles.container, isInputbar && styles.containerInputbar]}>
-            <View style={styles.headerRow}>
+        <View style={[styles.container, isInputbar && styles.containerInputbar, isInputbar && isCollapsed && styles.containerInputbarCollapsed]}>
+            <View style={[styles.headerRow, isCollapsed && styles.headerRowCollapsed]}>
                 <Text style={[styles.header, isInputbar && styles.headerInputbar]}>
                     Tasks ({todos.length})
                 </Text>
@@ -81,7 +81,7 @@ export const TodoList: React.FC<Props> = ({
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
                         <Ionicons
-                            name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                            name={isCollapsed ? 'chevron-up' : 'chevron-down'}
                             size={14}
                             color="rgba(255,255,255,0.65)"
                         />
@@ -130,6 +130,9 @@ const styles = StyleSheet.create({
         paddingVertical: 10,
         borderRadius: 14,
     },
+    containerInputbarCollapsed: {
+        paddingVertical: 6,
+    },
     header: {
         color: '#fff',
         fontWeight: '600',
@@ -146,6 +149,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 8,
+    },
+    headerRowCollapsed: {
+        marginBottom: 0,
     },
     collapseButton: {
         width: 22,

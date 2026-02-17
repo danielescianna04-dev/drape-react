@@ -110,7 +110,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
     };
   }, []);
   return (
-    <View style={{ flex: 1, backgroundColor: '#0a0a0c' }}>
+    <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
       {/* LIVE APP LAYER (Below) */}
       <View style={StyleSheet.absoluteFill}>
         {hasWebUI ? (
@@ -171,10 +171,10 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(meta); });
                 }
 
-                // Dark background
+                // White background (most generated apps use white)
                 if (document.head) {
                   var style = document.createElement('style');
-                  style.innerHTML = 'html, body { background-color: #0a0a0a !important; }';
+                  style.innerHTML = 'html, body { background-color: #ffffff !important; }';
                   document.head.appendChild(style);
                 }
 
@@ -532,7 +532,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               cacheEnabled={true}
             />
           ) : (
-            <View style={{ flex: 1, backgroundColor: '#0a0a0c' }} />
+            <View style={{ flex: 1, backgroundColor: '#ffffff' }} />
           )
         ) : (
           /* Terminal Output View for CLI projects */
@@ -602,7 +602,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
 const styles = StyleSheet.create({
   webView: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: '#ffffff',
   },
   // Terminal output styles for CLI projects
   terminalOutputContainer: {
