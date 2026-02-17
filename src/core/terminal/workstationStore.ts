@@ -139,18 +139,16 @@ export const useWorkstationStore = create<WorkstationState>((set) => ({
         previewServerUrl: null,
       });
 
-      // 3. Delete from backend and Firebase
-      try {
-        await workstationService.deleteProject(projectIdToDelete);
-      } catch (error) {
-        console.error('❌ [WorkstationStore] Error deleting project:', error);
-      }
-
-      // 4. Remove from local store
+      // 3. Remove from local store immediately (optimistic UI)
       set((state) => ({
         workstations: state.workstations.filter((w) => w.id !== workstationId),
         currentWorkstation: state.currentWorkstation?.id === workstationId ? null : state.currentWorkstation,
       }));
+
+      // 4. Delete from backend and Firebase in background
+      void workstationService.deleteProject(projectIdToDelete).catch((error) => {
+        console.error('❌ [WorkstationStore] Error deleting project:', error);
+      });
 
     },
     addProjectFolder: (folder) =>

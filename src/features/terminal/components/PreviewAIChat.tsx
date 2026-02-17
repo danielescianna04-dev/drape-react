@@ -307,7 +307,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                     ref={aiScrollViewRef}
                     style={{ paddingHorizontal: 8 }}
                     showsVerticalScrollIndicator={false}
-                    onContentSizeChange={() => aiScrollViewRef.current?.scrollToEnd({ animated: true })}
+                    onContentSizeChange={() => aiScrollViewRef.current?.scrollToEnd({ animated: false })}
                   >
                     {(aiMessages || []).length === 0 && !isAiLoading && (
                       <View style={{ paddingVertical: 14, paddingHorizontal: 4 }}>

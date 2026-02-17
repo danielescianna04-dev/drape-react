@@ -29,6 +29,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
     const [activityLog, setActivityLog] = useState<string[]>([]);
     const [displayProgress, setDisplayProgress] = useState(0);
     const targetProgressRef = useRef(0);
+    const lastTickRef = useRef<number>(Date.now());
     const scrollRef = useRef<ScrollView>(null);
 
     // Fade in animation
@@ -43,35 +44,44 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
             fadeAnim.setValue(0);
             setDisplayProgress(0);
             targetProgressRef.current = 0;
+            progressAnim.setValue(0);
         }
-    }, [visible]);
+    }, [visible, progressAnim]);
 
-    // Smooth 1-by-1 progress counting
+    // Keep target progress monotonic to avoid moving backwards.
     useEffect(() => {
-        let isMounted = true;
-
-        if (isMounted) {
-            targetProgressRef.current = Math.round(progress);
-        }
-
-        return () => { isMounted = false; };
+        const nextTarget = Math.max(0, Math.min(100, Math.round(progress)));
+        targetProgressRef.current = Math.max(targetProgressRef.current, nextTarget);
     }, [progress]);
 
+    // Smooth display progress with a steady time-based speed to avoid sudden jumps.
     useEffect(() => {
         let isMounted = true;
 
         if (!visible) return;
+        lastTickRef.current = Date.now();
 
         const interval = setInterval(() => {
             if (isMounted) {
+                const now = Date.now();
+                const elapsedMs = Math.max(16, Math.min(120, now - lastTickRef.current));
+                lastTickRef.current = now;
+
                 setDisplayProgress(prev => {
                     const target = targetProgressRef.current;
-                    if (prev < target) return prev + 1;
+                    if (prev < target) {
+                        const remaining = target - prev;
+                        const pointsPerSecond = prev < 90 ? 16 : 24;
+                        const maxDelta = (pointsPerSecond * elapsedMs) / 1000;
+                        const easedDelta = Math.max(0.12, remaining * 0.18);
+                        const delta = Math.max(0.12, Math.min(remaining, Math.min(maxDelta, easedDelta)));
+                        return Math.min(target, prev + delta);
+                    }
                     if (prev > target) return target;
                     return prev;
                 });
             }
-        }, 80);
+        }, 50);
 
         return () => {
             isMounted = false;
@@ -86,7 +96,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
         if (isMounted) {
             Animated.timing(progressAnim, {
                 toValue: displayProgress,
-                duration: 80,
+                duration: 60,
                 easing: Easing.linear,
                 useNativeDriver: false,
             }).start();
@@ -132,6 +142,8 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
 
     if (!visible) return null;
 
+    const roundedDisplayProgress = Math.round(displayProgress);
+
     const widthInterpolated = progressAnim.interpolate({
         inputRange: [0, 100],
         outputRange: ['0%', '100%'],
@@ -166,7 +178,7 @@ export const CreationProgressModal = ({ visible, progress, status, step }: Props
                     <Text style={styles.subtitle}>{step || 'Inizializzazione...'}</Text>
 
                     {/* Big percentage */}
-                    <Text style={styles.bigPercent}>{displayProgress}%</Text>
+                    <Text style={styles.bigPercent}>{roundedDisplayProgress}%</Text>
 
                     {/* Progress bar */}
                     <View style={styles.progressTrack}>

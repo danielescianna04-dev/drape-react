@@ -30,6 +30,8 @@ import { getAuthHeaders } from '../../../core/api/getAuthToken';
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const PILL_HEIGHT = 64;
+const PILL_VERTICAL_PADDING = 80;
 
 interface Props {
   onOpenAllProjects?: () => void;
@@ -46,7 +48,9 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const [isIntegrationsFABVisible, setIsIntegrationsFABVisible] = useState(false);
   const { tabs, setActiveTab, addTab, activeTabId } = useTabStore();
   const [showPreviewPanel, setShowPreviewPanel] = useState(false);
+  const [isPreviewPanelMounted, setIsPreviewPanelMounted] = useState(false);
   const previewServerUrl = useUIStore((state) => state.previewServerUrl);
+  const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
   const setIsSidebarOpen = useUIStore((state) => state.setIsSidebarOpen);
   const openPreviewRequested = useUIStore((state) => state.openPreviewRequested);
   const flyMachineId = useUIStore((state) => state.flyMachineId);
@@ -61,15 +65,25 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const skipZoomAnimation = useSharedValue(false);
   const pillTranslateY = useSharedValue(SCREEN_HEIGHT / 2 - 40); // Initial center position
   const prevShowPreviewPanel = React.useRef(showPreviewPanel);
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const isPreviewActive = showPreviewPanel || activeTab?.type === 'preview' || activeTab?.type === 'browser';
 
   // Auto-open preview when requested (e.g. after AI fix)
   React.useEffect(() => {
     if (openPreviewRequested) {
       useUIStore.getState().setOpenPreviewRequested(false);
       setShowPreviewPanel(true);
+      setIsPreviewPanelMounted(true);
       setActivePanel(null);
     }
   }, [openPreviewRequested]);
+
+  // Keep PreviewPanel mounted after first open, so switching chat <-> preview is instant.
+  useEffect(() => {
+    if (showPreviewPanel) {
+      setIsPreviewPanelMounted(true);
+    }
+  }, [showPreviewPanel]);
 
   // ============ HEARTBEAT: Keep container alive while user is in project ============
   useEffect(() => {
@@ -183,7 +197,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   // Auto-close sidebar when opening a preview (either as tab or panel)
   // Only trigger when showPreviewPanel JUST became true (not when closing other panels)
   useEffect(() => {
-    const activeTab = tabs.find(t => t.id === activeTabId);
     const isPreviewTabActive = activeTab?.type === 'preview' || activeTab?.type === 'browser';
 
     // Check if showPreviewPanel just became true (rising edge)
@@ -192,6 +205,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
     // Only auto-hide if preview JUST opened OR preview tab became active
     if ((previewJustOpened || isPreviewTabActive) && !isSidebarHidden) {
+      // Ensure the reopen pill is always visible while preview is active.
+      setForceHideToggle(false);
       // Delay animation until after interactions (preview mounting) complete
       const task = InteractionManager.runAfterInteractions(() => {
         sidebarTranslateX.value = withTiming(-50, { duration: 300, easing: Easing.out(Easing.cubic) });
@@ -200,6 +215,13 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       return () => task.cancel();
     }
   }, [activeTabId, showPreviewPanel]);
+
+  // Safety: if preview is active, never keep the sidebar reopen toggle force-hidden.
+  useEffect(() => {
+    if (isPreviewActive && forceHideToggle) {
+      setForceHideToggle(false);
+    }
+  }, [isPreviewActive, forceHideToggle]);
 
   const getTabIcon = useCallback((tabType: string) => {
     switch (tabType) {
@@ -314,7 +336,10 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const panGesture = Gesture.Pan()
     .onUpdate((event) => {
       'worklet';
-      pillTranslateY.value = event.absoluteY - 32;
+      const rawY = event.absoluteY - PILL_HEIGHT / 2;
+      const minY = PILL_VERTICAL_PADDING;
+      const maxY = SCREEN_HEIGHT - PILL_HEIGHT - PILL_VERTICAL_PADDING;
+      pillTranslateY.value = Math.min(Math.max(rawY, minY), maxY);
     })
     .onEnd((event) => {
       'worklet';
@@ -357,18 +382,18 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   return (
     <SidebarProvider value={{ sidebarTranslateX, isSidebarHidden, hideSidebar, showSidebar, forceHideToggle, setForceHideToggle }}>
-      {isSidebarHidden && !forceHideToggle && (
+      {isSidebarHidden && (!forceHideToggle || isPreviewActive) && (
         <View style={styles.edgeSwipeArea} pointerEvents="box-none">
           <GestureDetector gesture={edgeSwipeGesture}>
             <Animated.View style={[styles.slidePillContainer, pillAnimatedStyle]}>
               {isLiquidGlassSupported ? (
                 <LiquidGlassView style={styles.slidePillGlass}>
-                  <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.5)" />
+                  <Ionicons name="chevron-forward" size={12} color="#FFFFFF" />
                 </LiquidGlassView>
               ) : (
                 <>
                   <View style={[styles.slidePillBlur, { backgroundColor: AppColors.dark.backgroundAlt, opacity: 0.9 }]} />
-                  <Ionicons name="chevron-forward" size={10} color="rgba(255,255,255,0.3)" />
+                  <Ionicons name="chevron-forward" size={12} color="#FFFFFF" />
                 </>
               )}
             </Animated.View>
@@ -436,18 +461,6 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       </GestureDetector>
 
       <View style={{ flex: 1, backgroundColor: AppColors.dark.backgroundAlt }}>
-        {/* Preview Panel - Persistent "under" other panels */}
-        {showPreviewPanel && (
-          <PreviewPanel
-            onClose={() => {
-              setShowPreviewPanel(false);
-              if (activePanel === 'preview') setActivePanel(null);
-            }}
-            previewUrl={previewServerUrl || config.apiUrl || ""}
-            projectName="Project Preview"
-          />
-        )}
-
         {/* Backdrop overlay - tap to close panel with subtle blur */}
         {renderedPanel && renderedPanel !== 'multitasking' && renderedPanel !== 'vertical' && (
           <TouchableWithoutFeedback onPress={() => setActivePanel(null)}>
@@ -486,6 +499,28 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           <MultitaskingPanel onClose={() => togglePanel(null)}>
             {(tab, isCardMode, cardDimensions, animatedStyle) => children && children(tab, isCardMode, cardDimensions, animatedStyle)}
           </MultitaskingPanel>
+        )}
+
+        {/* Preview Panel - keep mounted, render as top workspace layer */}
+        {isPreviewPanelMounted && (
+          <View
+            pointerEvents={showPreviewPanel ? 'auto' : 'none'}
+            style={[
+              StyleSheet.absoluteFillObject,
+              styles.previewPanelLayer,
+              !showPreviewPanel && styles.hiddenPreviewPanel,
+            ]}
+          >
+            <PreviewPanel
+              onClose={() => {
+                setShowPreviewPanel(false);
+                if (activePanel === 'preview') setActivePanel(null);
+              }}
+              previewUrl={(currentWorkstation?.id ? projectPreviewUrls[currentWorkstation.id] : null) || (previewServerUrl && currentWorkstation?.id && previewServerUrl.includes(`/preview/${currentWorkstation.id}`) ? previewServerUrl : '') || config.apiUrl || ""}
+              projectName="Project Preview"
+              isVisible={showPreviewPanel}
+            />
+          </View>
         )}
       </View>
 
@@ -535,27 +570,27 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     bottom: 0,
-    width: 30, // Only cover the pill toggle area
+    width: 34, // Keep a comfortable hit area near screen edge
     zIndex: 1210,
   },
   slidePillContainer: {
     position: 'absolute',
-    left: 0,
-    width: 18,
+    left: -4, // Attach pill to the device edge
+    width: 22,
     height: 64,
-    backgroundColor: 'rgba(255, 255, 255, 0.01)',
+    backgroundColor: 'rgba(12, 12, 16, 0.78)',
     borderTopRightRadius: 30,
     borderBottomRightRadius: 30,
-    borderWidth: 0.8,
+    borderWidth: 1.1,
     borderLeftWidth: 0,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(160, 132, 255, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
-    shadowColor: '#fff',
+    shadowColor: '#A084FF',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
   },
   slidePillBlur: {
     ...StyleSheet.absoluteFillObject,
@@ -584,5 +619,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     left: 0,
     zIndex: 1100,
+  },
+  hiddenPreviewPanel: {
+    transform: [{ translateX: -10000 }],
+  },
+  previewPanelLayer: {
+    zIndex: 1150,
+    elevation: 1150,
   },
 });

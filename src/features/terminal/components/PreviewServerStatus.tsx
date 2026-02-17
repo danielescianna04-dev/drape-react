@@ -1,9 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator } from 'react-native';
 import Reanimated, { FadeIn } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { LiquidGlassView } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { useTranslation } from 'react-i18next';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
@@ -254,81 +253,73 @@ export const PreviewSessionExpiredScreen: React.FC<{
   onStartServer: () => void;
   t: any;
 }> = ({ sessionExpiredMessage, onStartServer, t }) => {
+  const message = sessionExpiredMessage || t('terminal:preview.sessionExpired');
+
   return (
     <Reanimated.View style={styles.startScreen} entering={FadeIn.duration(300)}>
       <LinearGradient
-        colors={['#050505', '#0a0a0b', '#0f0f12']}
+        colors={['#13052A', '#090518', '#06050F', '#080719', '#13052A']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
-      >
-        <View style={styles.ambientBlob1} />
-        <View style={styles.ambientBlob2} />
-      </LinearGradient>
+      />
+      <View style={styles.sessionBgOrbA} />
+      <View style={styles.sessionBgOrbB} />
+      <View style={styles.sessionBgOrbC} />
 
-      <View style={styles.iphoneMockup}>
-        <View style={styles.statusBarArea}>
-          <Text style={styles.fakeTime}>9:41</Text>
-          <View style={styles.dynamicIsland} />
-          <View style={styles.fakeStatusIcons}>
-            <Ionicons name="wifi" size={10} color="#fff" />
-            <Ionicons name="battery-full" size={10} color="#fff" />
+      <View style={styles.sessionCard}>
+        <View style={styles.sessionCardGlow} />
+
+        <View style={styles.sessionHeader}>
+          <View style={styles.sessionBadge}>
+            <Ionicons name="time-outline" size={14} color="#FDBA74" />
+            <Text style={styles.sessionBadgeText}>{t('terminal:preview.sessionBadge')}</Text>
           </View>
         </View>
 
-        <View style={styles.iphoneScreenCentered}>
-          {/* Session Expired Icon */}
-          <View style={[styles.cosmicOrbContainer, { opacity: 0.6 }]}>
-            <View style={[styles.cosmicGlowRing1, { backgroundColor: 'rgba(255, 171, 0, 0.15)' }]} />
-            <View style={[styles.cosmicGlowRing2, { backgroundColor: 'rgba(255, 171, 0, 0.08)' }]} />
-            <LinearGradient
-              colors={['#FFAB00', '#FF6D00']}
-              style={styles.cosmicOrb}
-            >
-              <Ionicons name="time-outline" size={32} color="#FFFFFF" />
-            </LinearGradient>
-          </View>
-
-          <View style={styles.cosmicTextContainer}>
-            <Text style={[styles.cosmicTitle, { fontSize: 16 }]}>
-              SESSIONE SCADUTA
-            </Text>
-            <View style={[styles.cosmicTitleUnderline, { backgroundColor: '#FFAB00' }]} />
-            <Text style={styles.cosmicSubtitle}>
-              {sessionExpiredMessage || 'Sessione terminata per inattività'}
-            </Text>
-          </View>
-
-          {/* Restart Button */}
-          <TouchableOpacity
-            style={[styles.cosmicOrbContainer, { marginTop: 24 }]}
-            onPress={onStartServer}
-            activeOpacity={0.9}
+        <View style={styles.sessionIconOuter}>
+          <View style={styles.sessionIconRing} />
+          <LinearGradient
+            colors={['#F59E0B', '#EA580C']}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={styles.sessionIconInner}
           >
-            <View style={styles.cosmicGlowRing1} />
-            <View style={styles.cosmicGlowRing2} />
-
-            <LiquidGlassView
-              style={[styles.cosmicOrbGlass, { width: 56, height: 56, borderRadius: 28 }]}
-              interactive={true}
-              effect="clear"
-              colorScheme="dark"
-            >
-              <LinearGradient
-                colors={[`${AppColors.primary}CC`, '#6C5CE7CC']}
-                style={[styles.cosmicOrbRaw, { borderRadius: 28 }]}
-              >
-                <Ionicons name="refresh" size={24} color="#FFFFFF" />
-              </LinearGradient>
-            </LiquidGlassView>
-          </TouchableOpacity>
-
-          <Text style={[styles.cosmicSubtitle, { marginTop: 8 }]}>
-            {t('terminal:preview.tapToRestart')}
-          </Text>
+            <Ionicons name="hourglass-outline" size={32} color="#FFFFFF" />
+          </LinearGradient>
         </View>
 
-        <View style={styles.iphoneSideButton} />
-        <View style={styles.iphoneVolumeUp} />
-        <View style={styles.iphoneVolumeDown} />
+        <Text style={styles.sessionTitle}>{t('terminal:preview.sessionExpiredTitle')}</Text>
+        <Text style={styles.sessionMessage}>{message}</Text>
+
+        <View style={styles.sessionInfoRow}>
+          <View style={styles.sessionInfoChip}>
+            <Ionicons name="save-outline" size={14} color={AppColors.primaryTint} />
+            <Text style={styles.sessionInfoText}>{t('terminal:preview.sessionStatePreserved')}</Text>
+          </View>
+          <View style={styles.sessionInfoChip}>
+            <Ionicons name="flash-outline" size={14} color={AppColors.primaryTint} />
+            <Text style={styles.sessionInfoText}>{t('terminal:preview.sessionFastRestart')}</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.sessionCta}
+          onPress={onStartServer}
+          activeOpacity={0.9}
+        >
+          <LinearGradient
+            colors={['#9B8AFF', '#7C3AED']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sessionCtaGradient}
+          >
+            <Ionicons name="refresh" size={18} color="#FFFFFF" />
+            <Text style={styles.sessionCtaText}>{t('terminal:preview.sessionRestartCta')}</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <Text style={styles.sessionHint}>{t('terminal:preview.tapToRestart')}</Text>
       </View>
     </Reanimated.View>
   );
@@ -407,6 +398,12 @@ export const PreviewLoadingScreen: React.FC<{
   topInset,
   t,
 }) => {
+  const terminalLines = React.useMemo(() => {
+    if (terminalOutput && terminalOutput.length > 0) return terminalOutput;
+    if (previewLogs.length > 0) return previewLogs.map((entry) => entry.message);
+    return [];
+  }, [terminalOutput, previewLogs]);
+
   return (
     <View style={styles.startScreen}>
       {/* macOS Desktop-style background */}
@@ -460,14 +457,14 @@ export const PreviewLoadingScreen: React.FC<{
               contentContainerStyle={styles.terminalContent}
               showsVerticalScrollIndicator={false}
               ref={(ref) => {
-                if (ref && (previewLogs.length > 0 || (terminalOutput && terminalOutput.length > 0))) {
+                if (ref && terminalLines.length > 0) {
                   setTimeout(() => ref.scrollToEnd({ animated: true }), 100);
                 }
               }}
             >
               {/* Real container terminal output */}
-              {(terminalOutput && terminalOutput.length > 0) ? (
-                (terminalOutput).map((line, index) => (
+              {terminalLines.length > 0 ? (
+                terminalLines.map((line, index) => (
                   <Text key={`out-${index}`} style={[styles.terminalLogText, { color: line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') ? '#f87171' : '#e0e0e0' }]}>
                     {line}
                   </Text>
@@ -1115,196 +1112,175 @@ const styles = StyleSheet.create({
     fontFamily: 'SF-Pro-Text-Semibold',
     textAlign: 'right',
   },
-  // Session expired / iPhone mockup
-  ambientBlob1: {
+  // Session expired screen
+  sessionBgOrbA: {
     position: 'absolute',
-    top: '10%',
-    left: '-20%',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: AppColors.primary,
-    opacity: 0.04,
-    filter: 'blur(80px)',
-  },
-  ambientBlob2: {
-    position: 'absolute',
-    bottom: '5%',
-    right: '-10%',
-    width: 400,
-    height: 400,
-    borderRadius: 200,
-    backgroundColor: '#6C5CE7',
-    opacity: 0.03,
-    filter: 'blur(100px)',
-  },
-  iphoneMockup: {
+    top: '12%',
+    left: '-16%',
     width: 280,
-    height: 570,
-    backgroundColor: '#1c1c1e',
-    borderRadius: 54,
-    borderWidth: 6,
-    borderColor: '#3a3a3c',
-    overflow: 'hidden',
-    position: 'relative',
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: 'rgba(139, 92, 246, 0.26)',
+  },
+  sessionBgOrbB: {
+    position: 'absolute',
+    top: '6%',
+    right: '-10%',
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+  },
+  sessionBgOrbC: {
+    position: 'absolute',
+    bottom: '10%',
+    left: '8%',
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: 'rgba(99, 102, 241, 0.16)',
+  },
+  sessionCard: {
+    width: '90%',
+    maxWidth: 390,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(12, 10, 24, 0.8)',
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.6,
-    shadowRadius: 32,
-    elevation: 20,
-  },
-  statusBarArea: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 6,
-    backgroundColor: '#0a0a0c',
-    marginHorizontal: 4,
-    marginTop: 4,
-    borderTopLeftRadius: 50,
-    borderTopRightRadius: 50,
-  },
-  dynamicIsland: {
-    width: 72,
-    height: 20,
-    backgroundColor: '#000',
-    borderRadius: 12,
-    marginHorizontal: 8,
-  },
-  fakeTime: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#fff',
-    width: 32,
-  },
-  fakeStatusIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    width: 32,
-    justifyContent: 'flex-end',
-  },
-  iphoneScreenCentered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    backgroundColor: '#0a0a0c',
-  },
-  iphoneSideButton: {
-    position: 'absolute',
-    right: -4,
-    top: 120,
-    width: 4,
-    height: 60,
-    backgroundColor: '#3a3a3c',
-    borderTopLeftRadius: 2,
-    borderBottomLeftRadius: 2,
-  },
-  iphoneVolumeUp: {
-    position: 'absolute',
-    left: -4,
-    top: 100,
-    width: 4,
-    height: 28,
-    backgroundColor: '#3a3a3c',
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
-  },
-  iphoneVolumeDown: {
-    position: 'absolute',
-    left: -4,
-    top: 140,
-    width: 4,
-    height: 28,
-    backgroundColor: '#3a3a3c',
-    borderTopRightRadius: 2,
-    borderBottomRightRadius: 2,
-  },
-  // Cosmic styles
-  cosmicOrbContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 200,
-    height: 200,
-    marginBottom: 40,
-  },
-  cosmicOrb: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: AppColors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
+    shadowOpacity: 0.5,
     shadowRadius: 30,
-    elevation: 20,
-    zIndex: 5,
-  },
-  cosmicOrbGlass: {
-    width: 130,
-    height: 130,
-    borderRadius: 65,
+    elevation: 22,
     overflow: 'hidden',
-    zIndex: 5,
   },
-  cosmicOrbRaw: {
+  sessionCardGlow: {
+    position: 'absolute',
+    top: -80,
+    right: -50,
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+  },
+  sessionHeader: {
     width: '100%',
-    height: '100%',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  sessionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.26)',
+  },
+  sessionBadgeText: {
+    color: '#FED7AA',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  sessionIconOuter: {
+    width: 148,
+    height: 148,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 65,
-    overflow: 'hidden',
+    marginBottom: 18,
   },
-  cosmicGlowRing1: {
+  sessionIconRing: {
     position: 'absolute',
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    backgroundColor: 'rgba(139, 124, 246, 0.1)',
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.2)',
+    borderColor: 'rgba(251, 191, 36, 0.22)',
+    backgroundColor: 'rgba(251, 191, 36, 0.06)',
   },
-  cosmicGlowRing2: {
-    position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(139, 124, 246, 0.03)',
-    borderWidth: 1,
-    borderColor: 'rgba(139, 124, 246, 0.05)',
+  sessionIconInner: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#EA580C',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  cosmicTextContainer: {
+  sessionTitle: {
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.6,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  sessionMessage: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: 'rgba(255,255,255,0.72)',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  sessionInfoRow: {
+    width: '100%',
+    gap: 8,
+    marginBottom: 20,
+  },
+  sessionInfoChip: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  cosmicTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: 2,
-    fontFamily: 'Inter-Black',
-    textAlign: 'center',
+  sessionInfoText: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sessionCta: {
     width: '100%',
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: AppColors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  cosmicTitleUnderline: {
-    width: 40,
-    height: 3,
-    backgroundColor: AppColors.primary,
-    borderRadius: 2,
-    marginBottom: 8,
+  sessionCtaGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 52,
   },
-  cosmicSubtitle: {
+  sessionCtaText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  sessionHint: {
+    color: 'rgba(255,255,255,0.48)',
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.3)',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    fontFamily: 'Inter-Medium',
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });

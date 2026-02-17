@@ -11,4 +11,6 @@ export interface Session {
   lastUsed: number;
   projectInfo?: ProjectInfo;
   preparedAt?: number;
+  repositoryUrl?: string;
+  accessToken?: string;
 }

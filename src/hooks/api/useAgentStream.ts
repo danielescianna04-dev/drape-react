@@ -21,6 +21,7 @@ export type AgentEventType =
   | 'tool_error'
   | 'iteration_start'
   | 'budget_exceeded'
+  | 'todo_update'
   | 'thinking_start'
   | 'thinking'
   | 'thinking_end'
@@ -122,7 +123,13 @@ export function useAgentStream(
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const isRunningRef = useRef(false);
   const maxReconnectAttempts = 5;
+
+  const setRunningState = useCallback((running: boolean) => {
+    isRunningRef.current = running;
+    setIsRunning(running);
+  }, []);
 
   // Zustand store actions - get them OUTSIDE of hook to prevent re-renders
   // Using getState() directly avoids subscribing to store changes
@@ -205,7 +212,7 @@ export function useAgentStream(
       const completeSummary = event.message || event.output?.summary || 'Task completed';
       setSummary(completeSummary);
       getAgentStore().setSummary(completeSummary);
-      setIsRunning(false);
+      setRunningState(false);
       getAgentStore().stopAgent();
       onComplete?.(completeSummary);
     }
@@ -215,14 +222,14 @@ export function useAgentStream(
       const errorMessage = event.error || event.message || 'Unknown error occurred';
       setError(errorMessage);
       getAgentStore().setError(errorMessage);
-      setIsRunning(false);
+      setRunningState(false);
       getAgentStore().stopAgent();
       onError?.(errorMessage);
     }
 
     // Handle done (stream end)
     if (event.type === 'done') {
-      setIsRunning(false);
+      setRunningState(false);
       getAgentStore().stopAgent();
     }
 
@@ -231,7 +238,7 @@ export function useAgentStream(
 
     // Callback
     onEvent?.(event);
-  }, [parseEvent, onEvent, onComplete, onError, getAgentStore]);
+  }, [parseEvent, onEvent, onComplete, onError, getAgentStore, setRunningState]);
 
   /**
    * Connect to SSE endpoint using EventSource POST - sends full conversation history
@@ -241,7 +248,7 @@ export function useAgentStream(
     if (!enabled) return;
 
     // Prevent multiple simultaneous connections
-    if (isRunning && eventSourceRef.current) {
+    if (isRunningRef.current && eventSourceRef.current) {
       return;
     }
 
@@ -285,7 +292,7 @@ export function useAgentStream(
       });
 
       eventSourceRef.current = es;
-      setIsRunning(true);
+      setRunningState(true);
       getAgentStore().startAgent();
 
       // Handle all event types
@@ -295,6 +302,7 @@ export function useAgentStream(
         'tool_complete',
         'tool_error',
         'iteration_start',
+        'todo_update',
         'thinking_start',
         'thinking',
         'thinking_end',
@@ -332,7 +340,7 @@ export function useAgentStream(
       es.addEventListener('error', (error: any) => {
         // If we're not running anymore (already got a 'done' or 'complete' event),
         // just ignore any trailing socket errors
-        if (!isRunning) {
+        if (!isRunningRef.current) {
           es.close();
           return;
         }
@@ -349,7 +357,7 @@ export function useAgentStream(
           // Only show error if we didn't just finish
           setError(errorMsg);
           getAgentStore().setError(errorMsg);
-          setIsRunning(false);
+          setRunningState(false);
           getAgentStore().stopAgent();
           onError?.(errorMsg);
           return;
@@ -367,7 +375,7 @@ export function useAgentStream(
           const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
           setError(errorMsg);
           getAgentStore().setError(errorMsg);
-          setIsRunning(false);
+          setRunningState(false);
           getAgentStore().stopAgent();
           onError?.(errorMsg);
         }
@@ -378,11 +386,11 @@ export function useAgentStream(
       console.error('[AgentStream]', errorMsg);
       setError(errorMsg);
       getAgentStore().setError(errorMsg);
-      setIsRunning(false);
+      setRunningState(false);
       getAgentStore().stopAgent();
       onError?.(errorMsg);
     }
-  }, [enabled, mode, handleEvent, onError, getAgentStore, isRunning]);
+  }, [enabled, mode, handleEvent, onError, getAgentStore, setRunningState]);
 
   /**
    * Disconnect from SSE endpoint
@@ -398,11 +406,11 @@ export function useAgentStream(
       eventSourceRef.current = null;
     }
 
-    setIsRunning(false);
+    setRunningState(false);
     setCurrentTool(null);
     getAgentStore().stopAgent();
     reconnectAttemptsRef.current = 0;
-  }, [getAgentStore]);
+  }, [getAgentStore, setRunningState]);
 
   /**
    * Start agent execution
@@ -474,7 +482,7 @@ export function useAgentStream(
     });
 
     eventSourceRef.current = es;
-    setIsRunning(true);
+    setRunningState(true);
     getAgentStore().startAgent();
 
     // Handle all event types (same as connect function)
@@ -484,6 +492,7 @@ export function useAgentStream(
       'tool_complete',
       'tool_error',
       'iteration_start',
+      'todo_update',
       'thinking_start',
       'thinking',
       'thinking_end',
@@ -518,13 +527,13 @@ export function useAgentStream(
       console.error('[AgentStream] Execute error:', error);
       es.close();
       eventSourceRef.current = null;
-      setIsRunning(false);
+      setRunningState(false);
       getAgentStore().stopAgent();
       const errorMsg = error.message || 'Execution failed';
       setError(errorMsg);
       onError?.(errorMsg);
     });
-  }, [currentPrompt, currentProjectId, currentModel, currentConversationHistory, currentThinkingLevel, plan, handleEvent, getAgentStore, onError]);
+  }, [currentPrompt, currentProjectId, currentModel, currentConversationHistory, currentThinkingLevel, plan, handleEvent, getAgentStore, onError, setRunningState]);
 
   /**
    * Stop agent execution
@@ -538,7 +547,7 @@ export function useAgentStream(
    */
   const reset = useCallback(() => {
     setEvents([]);
-    setIsRunning(false);
+    setRunningState(false);
     setCurrentTool(null);
     setError(null);
     setAgentPlan(null);
@@ -549,7 +558,7 @@ export function useAgentStream(
     setCurrentConversationHistory([]);
     setCurrentThinkingLevel(null);
     getAgentStore().reset();
-  }, [getAgentStore]);
+  }, [getAgentStore, setRunningState]);
 
   // Cleanup on unmount
   useEffect(() => {

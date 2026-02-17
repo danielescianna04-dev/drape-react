@@ -39,11 +39,12 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     conversationHistory,
     images,
     thinkingLevel,
+    plan,
   } = req.body;
 
   const userId = req.userId || 'anonymous';
 
-  if (!prompt) {
+  if (!prompt || !String(prompt).trim()) {
     throw new ValidationError('prompt is required');
   }
   if (!projectId) {
@@ -118,6 +119,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
       model: model || 'claude-3-5-sonnet-20241022',
       conversationHistory: conversationHistory || [],
       thinkingLevel,
+      executionPlan: mode === 'execute' ? plan : undefined,
       userId,
       userPlan,
     });
@@ -185,7 +187,8 @@ agentRouter.post('/execute-tool', asyncHandler(async (req, res) => {
 
   try {
     // Create a temporary agent loop to execute the tool
-    const agentLoop = new AgentLoop({ projectId });
+    const userPlan = await getUserPlan(userId);
+    const agentLoop = new AgentLoop({ projectId, userId, userPlan });
     const result = await agentLoop.executeTool(tool, input);
 
     res.json({

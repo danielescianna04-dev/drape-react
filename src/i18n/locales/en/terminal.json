@@ -185,7 +185,12 @@
       "booting": ["Allocating cloud resources...", "Starting isolated container...", "Initializing services...", "Connecting network...", "Waiting for server response..."],
       "ready": ["Finalizing...", "Opening secure connection...", "Here we go!"]
     },
-    "sessionExpired": "Session expired due to inactivity"
+    "sessionExpired": "Session expired due to inactivity",
+    "sessionBadge": "Preview Session",
+    "sessionExpiredTitle": "Session Expired",
+    "sessionStatePreserved": "Project state preserved",
+    "sessionFastRestart": "Fast restart available",
+    "sessionRestartCta": "Restart Preview"
   },
   "chat": {
     "thinking": "Thinking",

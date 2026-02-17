@@ -1,4 +1,4 @@
-export type ProjectType = 'nextjs' | 'vite' | 'expo' | 'nodejs' | 'static' | 'python' | 'go' | 'svelte' | 'angular' | 'astro' | 'remix' | 'ruby' | 'nuxt' | 'solid' | 'django' | 'fastapi' | 'flutter' | 'laravel' | 'unknown';
+export type ProjectType = 'nextjs' | 'vite' | 'expo' | 'nodejs' | 'static' | 'python' | 'go' | 'svelte' | 'angular' | 'astro' | 'remix' | 'ruby' | 'nuxt' | 'solid' | 'django' | 'fastapi' | 'flask' | 'flutter' | 'laravel' | 'unknown';
 export type PackageManager = 'npm' | 'pnpm' | 'yarn';
 
 export interface ProjectInfo {

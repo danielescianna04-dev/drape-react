@@ -33,40 +33,23 @@ class WorkspaceService {
         await containerLifecycleService.destroy(projectId, userId).catch(() => {});
       }
 
-      // CRITICAL FIX: Before creating a new container, check if ANY healthy container
-      // exists for this project (from another user). If so, adopt it instead of creating new.
-      // This prevents the agent from destroying the preview container.
-      const allSessions = await sessionService.getAll();
-      for (const otherSession of allSessions) {
-        if (otherSession.projectId === projectId && otherSession.userId !== userId) {
-          const healthy = await containerLifecycleService.isHealthy(otherSession.agentUrl);
-          if (healthy) {
-            log.info(`[Workspace] Adopting existing healthy container from ${otherSession.userId} for ${projectId}`);
-            // Create a new session for this user pointing to the same container
-            const adoptedSession: Session = {
-              ...otherSession,
-              userId,
-              lastUsed: Date.now(),
-            };
-            await sessionService.set(projectId, userId, adoptedSession);
-            return adoptedSession;
-          } else {
-            // Clean up unhealthy stale session
-            log.info(`[Workspace] Cleaning unhealthy stale session for ${otherSession.userId}:${projectId}`);
-            await sessionService.delete(projectId, otherSession.userId);
-          }
-        }
-      }
-
-      // Enforce 1-container-per-user: destroy any other containers for this user
+      // Keep multiple active project containers per user up to a bounded limit.
+      // Evict least recently used containers when the user exceeds the limit.
       const otherSessions = await sessionService.getByUserId(userId);
-      for (const other of otherSessions) {
-        if (other.projectId !== projectId) {
-          log.info(`[Workspace] Releasing other container for ${userId}: ${other.projectId}`);
-          fileWatcherService.stopWatching(other.projectId);
-          await devServerService.stop(other).catch(() => {});
-          await containerLifecycleService.destroy(other.projectId, userId).catch(e =>
-            log.warn(`[Workspace] Failed to release ${other.projectId}: ${e.message}`)
+      const existingOtherSessions = otherSessions.filter(s => s.projectId !== projectId);
+      const maxActive = Math.max(1, config.maxActiveContainersPerUser);
+      if (existingOtherSessions.length >= maxActive) {
+        const overflow = existingOtherSessions.length - maxActive + 1;
+        const toEvict = [...existingOtherSessions]
+          .sort((a, b) => (a.lastUsed || 0) - (b.lastUsed || 0))
+          .slice(0, overflow);
+
+        for (const evict of toEvict) {
+          log.info(`[Workspace] Evicting LRU container for ${userId}: ${evict.projectId}`);
+          fileWatcherService.stopWatching(evict.projectId);
+          await devServerService.stop(evict).catch(() => {});
+          await containerLifecycleService.destroy(evict.projectId, userId).catch(e =>
+            log.warn(`[Workspace] Failed to evict ${evict.projectId}: ${e.message}`)
           );
         }
       }
@@ -151,6 +134,7 @@ class WorkspaceService {
     onProgress?: ProgressCallback,
     repoUrl?: string,
     githubToken?: string,
+    onLog?: (line: string) => void,
   ): Promise<PreviewResult> {
     const startTime = Date.now();
 
@@ -183,6 +167,7 @@ class WorkspaceService {
             previewUrl: this.buildPreviewUrl(existingSession),
             agentUrl: existingSession.agentUrl,
             containerId: existingSession.containerId,
+            previewToken: existingSession.accessToken,
             projectInfo: existingSession.projectInfo || freshInfo,
           };
         }
@@ -210,11 +195,14 @@ class WorkspaceService {
     // Install deps
     if (projectInfo.type !== 'static' && projectInfo.type !== 'unknown') {
       onProgress?.('install', `Installing dependencies (${projectInfo.packageManager || 'npm'})...`);
-      await dependencyService.install(projectId, session, projectInfo);
+      await dependencyService.install(projectId, session, projectInfo, (message) => {
+        onProgress?.('install', message);
+      }, onLog);
     }
 
     // Start dev server — throws with specific error message if it crashes
     onProgress?.('server', `Starting ${projectInfo.type} dev server...`);
+    onLog?.(`$ ${projectInfo.startCommand}`);
     await devServerService.start(session, projectInfo);
 
     session.preparedAt = Date.now();
@@ -232,6 +220,7 @@ class WorkspaceService {
       previewUrl: this.buildPreviewUrl(session),
       agentUrl: session.agentUrl,
       containerId: session.containerId,
+      previewToken: session.accessToken,
       projectInfo,
     };
   }

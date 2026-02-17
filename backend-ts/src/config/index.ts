@@ -18,6 +18,12 @@ function optionalInt(key: string, fallback: number): number {
   return v ? parseInt(v, 10) : fallback;
 }
 
+function optionalBool(key: string, fallback: boolean): boolean {
+  const v = process.env[key];
+  if (v === undefined) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(v.toLowerCase());
+}
+
 const nodeEnv = optional('NODE_ENV', 'development');
 const isProduction = nodeEnv === 'production';
 
@@ -65,9 +71,17 @@ export const config = {
   containerMemoryMb: optionalInt('CONTAINER_MEMORY_MB', 4096),
   containerCpus: optionalInt('CONTAINER_CPUS', 4),
   containerIdleTimeoutMs: optionalInt('CONTAINER_IDLE_TIMEOUT_MS', 15 * 60 * 1000),
+  nodeModulesCacheMaxMb: optionalInt('NODE_MODULES_CACHE_MAX_MB', 10240),
+  strictNativeBinaryIntegrityCheck: optionalBool('STRICT_NATIVE_BINARY_INTEGRITY_CHECK', false),
+  maxActiveContainersPerUser: optionalInt('MAX_ACTIVE_CONTAINERS_PER_USER', 3),
+
+  // Security hardening
+  allowInsecureOwnershipBypass: optionalBool('ALLOW_INSECURE_OWNERSHIP_BYPASS', false),
 
   // Resend (email)
   resendApiKey: optional('RESEND_API_KEY', ''),
+  resendFromEmail: optional('RESEND_FROM_EMAIL', 'Drape <noreply@drape-dev.it>'),
+  resendReplyTo: optional('RESEND_REPLY_TO', ''),
 
   // Apple IAP
   appleIapKeyId: optional('APPLE_IAP_KEY_ID', ''),

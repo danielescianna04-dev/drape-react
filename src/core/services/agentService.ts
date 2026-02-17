@@ -253,7 +253,7 @@ export const aiContextService = {
         try {
             const authHeaders = await getAuthHeaders();
             const response = await fetch(
-                `${config.apiUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`,
+                `${config.apiUrl}/fly/preview/context/${workstationId}?userId=${userId}&username=${username}`,
                 { headers: authHeaders }
             );
 

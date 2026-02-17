@@ -41,6 +41,9 @@ import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
+import { useUIStore } from './src/core/terminal/uiStore';
+import { getAuthToken } from './src/core/api/getAuthToken';
+import * as Notifications from 'expo-notifications';
 
 // Helper to parse Git URL from any provider
 type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'unknown';
@@ -155,6 +158,18 @@ export default function App() {
 
     // Richiedi permesso notifiche push all'avvio (non-blocking)
     liveActivityService.requestNotificationPermission().catch(() => {});
+
+    // Handle notification tap → navigate to preview
+    const notifSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (data?.action === 'openPreview') {
+        // Navigate to terminal + open preview
+        setCurrentScreen('terminal');
+        useUIStore.getState().setOpenPreviewRequested(true);
+      }
+    });
+
+    return () => notifSub.remove();
   }, []);
 
   // Navigate to onboarding (free users) or home when user logs in
@@ -1131,6 +1146,11 @@ export default function App() {
                         setTimeout(async () => {
                           const { activeTabId, tabs } = useTabStore.getState();
                           const currentTab = tabs.find(t => t.id === activeTabId);
+                          const apiToken = await getAuthToken();
+                          const apiHeaders: Record<string, string> = {
+                            'Content-Type': 'application/json',
+                            ...(apiToken ? { 'Authorization': `Bearer ${apiToken}` } : {}),
+                          };
 
                           if (currentTab) {
                             if (githubUrl) {
@@ -1155,7 +1175,7 @@ export default function App() {
                               // Trigger clone to ensure files are in Coder workspace
                               fetch(`${config.apiUrl}/fly/clone`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: apiHeaders,
                                 body: JSON.stringify({
                                   workstationId: workstation.id,
                                   repositoryUrl: githubUrl,
@@ -1193,16 +1213,16 @@ export default function App() {
                                 );
                               }
                             } else {
-                              // No githubUrl - project might be already on VM or a local project
-                              // Ensure VM is ready by calling /preview/start
-                              fetch(`${config.apiUrl}/preview/start`, {
+                              // No githubUrl - project might be already on VM or a local project.
+                              // Warm the project/container using the current fly endpoint.
+                              fetch(`${config.apiUrl}/fly/clone`, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: apiHeaders,
                                 body: JSON.stringify({
                                   projectId: workstation.id,
                                 }),
                               }).then(r => r.json()).then(result => {
-                                if (result.success || result.previewUrl) {
+                                if (result.success || result.machineId) {
                                 } else {
                                   console.warn('⚠️ [VM] Start issue:', result.error || result.message);
                                 }

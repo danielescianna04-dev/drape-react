@@ -489,48 +489,11 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
       progress: 0.05,
     }, 'open').catch((err) => console.warn('[Project] Failed to start live activity:', err?.message || err));
 
-    // Release previous project's VM when switching (with grace period)
+    // Switching project: keep previous container alive for fast return.
+    // Backend LRU eviction + idle reaper handle resource pressure.
     const { currentWorkstation } = useTerminalStore.getState();
     if (currentWorkstation && currentWorkstation.id !== project.id) {
-
-      // Show "Freeing resources" step
-      await animateProgressTo(8, 'Liberando risorse...', 500);
-
-      // Release VM with retry (up to 3 attempts)
-      const releaseProjectId = currentWorkstation.id;
-      const releaseWithRetry = async (attempt = 1) => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
-          const releaseAuthHeaders = await getAuthHeaders();
-          const res = await fetch(`${config.apiUrl}/fly/release`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...releaseAuthHeaders },
-            body: JSON.stringify({ projectId: releaseProjectId }),
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-          if (res.ok) {
-          } else {
-            console.warn(`⚠️ [Home] Release returned ${res.status}, attempt ${attempt}`);
-            if (attempt < 3) {
-              await new Promise(r => setTimeout(r, 1000 * attempt));
-              return releaseWithRetry(attempt + 1);
-            }
-          }
-        } catch (err: any) {
-          console.warn(`⚠️ [Home] Release attempt ${attempt} failed:`, err.message);
-          if (attempt < 3) {
-            await new Promise(r => setTimeout(r, 1000 * attempt));
-            return releaseWithRetry(attempt + 1);
-          }
-          console.error('❌ [Home] Release failed after 3 attempts');
-        }
-      };
-      releaseWithRetry();
-
-      // Wait for the 2-second grace period (process kill + resource cleanup)
-      await animateProgressTo(12, 'Liberando risorse...', 2000);
+      await animateProgressTo(12, 'Cambio progetto...', 500);
     }
 
     const repoUrl = project.repositoryUrl || project.githubUrl;
@@ -881,12 +844,16 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
           style: 'destructive',
           onPress: async () => {
             try {
-              // Delete from backend AND Firebase
-              await workstationService.deleteProject(selectedProject.id);
-              // Remove from local store
-              await useTerminalStore.getState().removeWorkstation(selectedProject.id);
+              const deletedProjectId = selectedProject.id;
+              // Single deletion flow: removeWorkstation already performs remote + local cleanup.
+              await useTerminalStore.getState().removeWorkstation(deletedProjectId);
+              // Keep Home list in sync immediately (avoid re-adding from an early stale reload).
+              setRecentProjects(prev => prev.filter((p) => p.id !== deletedProjectId));
               handleCloseMenu();
-              loadRecentProjects();
+              // Background refresh after deletion has propagated.
+              setTimeout(() => {
+                loadRecentProjects(true).catch(() => {});
+              }, 1500);
             } catch (error) {
               console.error('❌ [Home] Error deleting project:', error);
               Alert.alert(t('common:error'), t('all.unableToLoad'));

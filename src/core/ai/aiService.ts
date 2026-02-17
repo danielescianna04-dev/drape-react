@@ -142,7 +142,7 @@ export class AIService {
     try {
       // Fetch project context from the agent
       const contextResponse = await apiClient.get(
-        `${this.baseUrl}/preview/context/${workstationId}?userId=${userId}&username=${username}`,
+        `${this.baseUrl}/fly/preview/context/${workstationId}?userId=${userId}&username=${username}`,
         { timeout: 10000 }
       );
 

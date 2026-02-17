@@ -1,3 +1,4 @@
+import axios from 'axios';
 import apiClient from '../api/apiClient';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
@@ -5,6 +6,9 @@ import { config } from '../../config/config';
 
 const GITHUB_CLIENT_ID = 'Ov23likDO7phRcPUBcrk';
 const GITHUB_API_BASE = 'https://api.github.com';
+
+// Plain axios for GitHub API calls — no Firebase auth interceptor
+const githubAxios = axios.create();
 const TOKEN_KEY = 'github_token';
 const USER_KEY = 'github_user';
 
@@ -160,7 +164,7 @@ class GitHubService {
     if (!token) return null;
 
     try {
-      const response = await apiClient.get(`${GITHUB_API_BASE}/user`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/user`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
@@ -178,7 +182,7 @@ class GitHubService {
     if (!token) return [];
 
     try {
-      const response = await apiClient.get(`${GITHUB_API_BASE}/user/repos`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/user/repos`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',
@@ -238,7 +242,7 @@ class GitHubService {
         headers.Authorization = `Bearer ${authToken}`;
       }
 
-      const response = await apiClient.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
         headers,
         params: {
           page,
@@ -292,7 +296,7 @@ class GitHubService {
         headers.Authorization = `Bearer ${authToken}`;
       }
 
-      const response = await apiClient.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits/${sha}`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits/${sha}`, {
         headers,
       });
 
@@ -331,7 +335,7 @@ class GitHubService {
         headers.Authorization = `Bearer ${authToken}`;
       }
 
-      const response = await apiClient.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/commits`, {
         headers,
         params: {
           page,
@@ -378,7 +382,7 @@ class GitHubService {
         headers.Authorization = `Bearer ${authToken}`;
       }
 
-      const response = await apiClient.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/branches`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/repos/${owner}/${repo}/branches`, {
         headers,
       });
 
@@ -435,7 +439,7 @@ class GitHubService {
   // Fetch user's repositories for selection
   async fetchUserRepositories(token: string): Promise<GitHubRepository[]> {
     try {
-      const response = await apiClient.get(`${GITHUB_API_BASE}/user/repos`, {
+      const response = await githubAxios.get(`${GITHUB_API_BASE}/user/repos`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github.v3+json',

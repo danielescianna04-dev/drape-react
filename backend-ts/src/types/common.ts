@@ -37,6 +37,7 @@ export interface PreviewResult {
   previewUrl?: string;
   agentUrl?: string;
   containerId?: string;
+  previewToken?: string;
   projectInfo?: import('./project').ProjectInfo;
   error?: string;
 }

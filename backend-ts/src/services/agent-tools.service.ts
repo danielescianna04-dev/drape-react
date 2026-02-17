@@ -1,6 +1,5 @@
 import { fileService } from './file.service';
 import { dockerService } from './docker.service';
-import { sessionService } from './session.service';
 import { globSearch } from '../tools/glob';
 import { grepSearch } from '../tools/grep';
 import { webSearch } from '../tools/web-search';
@@ -297,16 +296,12 @@ class AgentToolsService {
       return { success: false, error: blocked };
     }
 
-    // Get session if not provided
+    // Agent loop should always pass a user-scoped session to avoid cross-user container access.
     if (!session) {
-      const fetchedSession = await sessionService.getByProjectId(projectId);
-      if (!fetchedSession) {
-        return {
-          success: false,
-          error: 'No active session found. Container may not be running.',
-        };
-      }
-      session = fetchedSession;
+      return {
+        success: false,
+        error: 'No active session found. Container may not be running.',
+      };
     }
 
     try {

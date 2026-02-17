@@ -2,6 +2,12 @@ import { NativeModules, Platform } from 'react-native';
 
 const { PreviewActivityModule } = NativeModules;
 
+// Debug: log all available native modules to find the right name
+if (Platform.OS === 'ios') {
+  console.log('[LiveActivity] PreviewActivityModule found:', !!PreviewActivityModule);
+  console.log('[LiveActivity] Available NativeModules:', Object.keys(NativeModules).filter(k => k.toLowerCase().includes('preview') || k.toLowerCase().includes('activity')));
+}
+
 export interface PreviewActivityState {
   remainingSeconds: number;
   currentStep: string;
@@ -14,11 +20,11 @@ export interface PreviewActivityState {
  */
 class LiveActivityService {
   private activityId: string | null = null;
-  private isSupported: boolean = Platform.OS === 'ios' && Platform.Version >= '16.1';
+  private isSupported: boolean = Platform.OS === 'ios';
 
   constructor() {
-
     if (PreviewActivityModule) {
+      console.log('✅ [LiveActivity] Native module found, isSupported:', this.isSupported);
     } else {
       console.warn('⚠️ [LiveActivity] Native module NOT found - Dynamic Island will not work');
     }
@@ -128,7 +134,7 @@ class LiveActivityService {
   /**
    * Invia una notifica push locale (es. "Preview pronta!")
    */
-  async sendNotification(title: string, body: string): Promise<boolean> {
+  async sendNotification(title: string, body: string, data?: Record<string, string>): Promise<boolean> {
     if (Platform.OS !== 'ios' || !PreviewActivityModule) {
       return false;
     }
@@ -138,6 +144,32 @@ class LiveActivityService {
       return true;
     } catch (error: any) {
       console.warn('⚠️ [Notification] Error:', error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Richiedi tempo extra di esecuzione in background (~30s).
+   * Chiamare quando l'app va in background durante un'operazione attiva.
+   */
+  async beginBackgroundTask(): Promise<boolean> {
+    if (!this.isSupported || !PreviewActivityModule) return false;
+    try {
+      return await PreviewActivityModule.beginBackgroundTask();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Rilascia il background task. Chiamare quando l'app torna in foreground
+   * o l'operazione è completata.
+   */
+  async endBackgroundTask(): Promise<boolean> {
+    if (!this.isSupported || !PreviewActivityModule) return false;
+    try {
+      return await PreviewActivityModule.endBackgroundTask();
+    } catch {
       return false;
     }
   }

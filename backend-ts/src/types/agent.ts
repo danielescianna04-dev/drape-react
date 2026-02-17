@@ -15,6 +15,7 @@ export interface AgentOptions {
   conversationHistory?: ChatMessage[];
   images?: string[];
   thinkingLevel?: string; // Gemini 3 thinking level: minimal, low, medium, high
+  executionPlan?: any;
 }
 
 export interface ToolDefinition {
@@ -33,7 +34,9 @@ export interface ToolResult {
 export type AgentEventType =
   | 'start'
   | 'iteration_start'
+  | 'thinking_start'
   | 'thinking'
+  | 'thinking_end'
   | 'text_delta'
   | 'message'
   | 'tool_start'

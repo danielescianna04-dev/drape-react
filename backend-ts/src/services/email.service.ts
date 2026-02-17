@@ -1,8 +1,25 @@
 import { Resend } from 'resend';
 import { config } from '../config';
 import { firebaseService } from './firebase.service';
+import { log } from '../utils/logger';
 
 const resend = config.resendApiKey ? new Resend(config.resendApiKey) : null;
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function maskEmail(email: string): string {
+  const [name, domain] = email.split('@');
+  if (!name || !domain) return 'invalid-email';
+  if (name.length <= 2) return `${name[0] || '*'}*@${domain}`;
+  return `${name.slice(0, 2)}***@${domain}`;
+}
 
 const VERIFICATION_EMAIL_HTML = (displayName: string, link: string) => `
 <!DOCTYPE html>
@@ -176,18 +193,33 @@ const VERIFICATION_EMAIL_HTML = (displayName: string, link: string) => `
 </html>
 `;
 
-export async function sendVerificationEmail(email: string, displayName: string): Promise<void> {
+export async function sendVerificationEmail(email: string, displayName: string): Promise<{ messageId: string }> {
   if (!resend) {
     throw new Error('Resend API key not configured');
   }
 
   const auth = firebaseService.getAuth();
   const link = await auth.generateEmailVerificationLink(email);
+  const safeDisplayName = escapeHtml((displayName || 'there').trim() || 'there');
+  const safeLink = escapeHtml(link);
 
-  await resend.emails.send({
-    from: 'Drape <noreply@drape-dev.it>',
+  const result = await resend.emails.send({
+    from: config.resendFromEmail,
     to: email,
+    ...(config.resendReplyTo ? { replyTo: config.resendReplyTo } : {}),
     subject: 'Verify your email — Drape',
-    html: VERIFICATION_EMAIL_HTML(displayName || 'there', link),
+    html: VERIFICATION_EMAIL_HTML(safeDisplayName, safeLink),
   });
+
+  if (result.error) {
+    throw new Error(`Resend send failed (${result.error.statusCode ?? 'unknown'}): ${result.error.message}`);
+  }
+
+  const messageId = result.data?.id;
+  if (!messageId) {
+    throw new Error('Resend did not return message id');
+  }
+
+  log.info(`[Email] Verification email queued for ${maskEmail(email)} (messageId: ${messageId})`);
+  return { messageId };
 }

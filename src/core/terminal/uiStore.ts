@@ -34,6 +34,7 @@ export interface UIState {
   flyMachineId: string | null;
   projectMachineIds: Record<string, string>;
   projectPreviewUrls: Record<string, string>;
+  projectPreviewTokens: Record<string, string>;
   previewStartupStates: Record<string, PreviewStartupState>;
   isToolsExpanded: boolean;
   isSidebarOpen: boolean;
@@ -67,6 +68,8 @@ export interface UIState {
   setPreviewServerStatus: (status: 'checking' | 'running' | 'stopped') => void;
   setPreviewServerUrl: (url: string | null, projectId?: string) => void;
   setFlyMachineId: (id: string | null, projectId?: string) => void;
+  setPreviewAccessToken: (token: string | null, projectId?: string) => void;
+  clearProjectPreviewSession: (projectId: string) => void;
   setPreviewStartupState: (projectId: string, state: Partial<PreviewStartupState>) => void;
   getPreviewStartupState: (projectId: string) => PreviewStartupState | null;
   clearPreviewStartupState: (projectId: string) => void;
@@ -97,6 +100,7 @@ export const useUIStore = create<UIState>((set) => ({
     flyMachineId: null,
     projectMachineIds: {},
     projectPreviewUrls: {},
+    projectPreviewTokens: {},
     previewStartupStates: {},
     isToolsExpanded: false,
     isSidebarOpen: false,
@@ -163,6 +167,31 @@ export const useUIStore = create<UIState>((set) => ({
         };
       }
       return { flyMachineId: id };
+    }),
+    setPreviewAccessToken: (token, projectId) => set((state) => {
+      if (!projectId) return state;
+      const nextTokens = { ...state.projectPreviewTokens };
+      if (token) nextTokens[projectId] = token;
+      else delete nextTokens[projectId];
+      return { projectPreviewTokens: nextTokens };
+    }),
+    clearProjectPreviewSession: (projectId) => set((state) => {
+      const nextMachineIds = { ...state.projectMachineIds };
+      const nextPreviewUrls = { ...state.projectPreviewUrls };
+      const nextPreviewTokens = { ...state.projectPreviewTokens };
+      delete nextMachineIds[projectId];
+      delete nextPreviewUrls[projectId];
+      delete nextPreviewTokens[projectId];
+
+      const isCurrentMachineForProject = state.projectMachineIds[projectId]
+        && state.flyMachineId === state.projectMachineIds[projectId];
+
+      return {
+        projectMachineIds: nextMachineIds,
+        projectPreviewUrls: nextPreviewUrls,
+        projectPreviewTokens: nextPreviewTokens,
+        ...(isCurrentMachineForProject ? { flyMachineId: null } : {}),
+      };
     }),
     setPreviewStartupState: (projectId, stateUpdate) => set((state) => {
       const currentState = state.previewStartupStates[projectId] || {

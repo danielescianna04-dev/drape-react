@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
 import { fileService } from '../services/file.service';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
@@ -20,8 +20,408 @@ interface CreationTask {
   result?: any;
 }
 const creationTasks = new Map<string, CreationTask>();
+const deletionTasks = new Map<string, Promise<void>>();
+
+async function performProjectDeletion(projectId: string, userId: string): Promise<void> {
+  const startedAt = Date.now();
+
+  const [releaseState, fileState] = await Promise.allSettled([
+    workspaceService.release(projectId, userId),
+    fileService.deleteProject(projectId),
+  ] as const);
+
+  if (releaseState.status === 'rejected') {
+    log.warn(`[Delete] Release failed for ${userId}:${projectId}: ${String(releaseState.reason)}`);
+  }
+
+  if (fileState.status === 'fulfilled' && fileState.value?.success === false) {
+    log.warn(`[Delete] File cleanup failed for ${userId}:${projectId}: ${fileState.value.error || 'unknown error'}`);
+  }
+
+  if (fileState.status === 'rejected') {
+    log.warn(`[Delete] File cleanup threw for ${userId}:${projectId}: ${String(fileState.reason)}`);
+  }
+
+  const elapsed = Date.now() - startedAt;
+  log.info(`[Delete] Completed cleanup for ${userId}:${projectId} in ${elapsed}ms`);
+}
+
+function scheduleProjectDeletion(projectId: string, userId: string): { scheduled: boolean; message: string } {
+  const key = `${userId}:${projectId}`;
+  if (deletionTasks.has(key)) {
+    return { scheduled: false, message: 'Project deletion already in progress' };
+  }
+
+  const task = performProjectDeletion(projectId, userId)
+    .catch((err: any) => {
+      log.error(`[Delete] Async deletion failed for ${userId}:${projectId}: ${err?.message || err}`);
+    })
+    .finally(() => {
+      deletionTasks.delete(key);
+    });
+
+  deletionTasks.set(key, task);
+  return { scheduled: true, message: 'Project deletion scheduled' };
+}
 
 export const workstationRouter = Router();
+
+type GeneratedFile = { path: string; content: string };
+
+function sanitizePackageName(name: string): string {
+  return (name || 'drape-app')
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'drape-app';
+}
+
+function sanitizePythonModuleName(name: string): string {
+  return (name || 'drape_project')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^[^a-z_]+/, '')
+    .replace(/_+/g, '_')
+    .slice(0, 48) || 'drape_project';
+}
+
+function upsertFile(files: GeneratedFile[], path: string, content: string): void {
+  const idx = files.findIndex((f) => f.path === path);
+  if (idx >= 0) files[idx].content = content;
+  else files.push({ path, content });
+}
+
+function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, projectName: string): GeneratedFile[] {
+  const blockedPrefixes = ['node_modules/', 'vendor/', '.dart_tool/'];
+  const blockedExact = new Set(['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']);
+
+  const normalized = files
+    .filter((f) => f && typeof f.path === 'string' && typeof f.content === 'string')
+    .map((f) => ({ path: f.path.trim().replace(/^\/+/, ''), content: f.content }))
+    .filter((f) => f.path && !blockedExact.has(f.path) && !blockedPrefixes.some((prefix) => f.path.startsWith(prefix)));
+
+  const hasFile = (path: string) => normalized.some((f) => f.path === path);
+  const ensureFile = (path: string, content: string) => {
+    if (!hasFile(path)) upsertFile(normalized, path, content);
+  };
+  const ensureTextContains = (path: string, lines: string[]) => {
+    const existing = normalized.find((f) => f.path === path);
+    const base = existing?.content || '';
+    const current = new Set(base.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+    const missing = lines.filter((line) => !current.has(line));
+    if (missing.length === 0 && existing) return;
+    const next = [base.trim(), ...missing].filter(Boolean).join('\n') + '\n';
+    upsertFile(normalized, path, next);
+  };
+
+  const nodeTech = new Set(['nextjs', 'react', 'vue', 'nuxt', 'svelte', 'angular', 'astro', 'remix', 'solid', 'expo']);
+  if (nodeTech.has(technology)) {
+    const packageFile = normalized.find((f) => f.path === 'package.json');
+    const fallbackScripts: Record<string, string> = {
+      nextjs: 'next dev -p 3000 -H 0.0.0.0',
+      react: 'vite --host 0.0.0.0 --port 3000',
+      vue: 'vite --host 0.0.0.0 --port 3000',
+      nuxt: 'nuxt dev --host 0.0.0.0 --port 3000',
+      svelte: 'vite --host 0.0.0.0 --port 3000',
+      angular: 'ng serve --host 0.0.0.0 --port 3000',
+      astro: 'astro dev --host 0.0.0.0 --port 3000',
+      remix: 'remix vite:dev --host 0.0.0.0 --port 3000',
+      solid: 'vite --host 0.0.0.0 --port 3000',
+      expo: 'expo start --web --port 3000 --non-interactive',
+    };
+
+    const ensureDep = (pkg: any, scope: 'dependencies' | 'devDependencies', name: string, version: string) => {
+      if (!pkg[scope][name]) pkg[scope][name] = version;
+    };
+
+    let pkg: any = {};
+    try {
+      pkg = packageFile ? JSON.parse(packageFile.content) : {};
+    } catch {
+      pkg = {};
+    }
+
+    pkg.name = typeof pkg.name === 'string' && pkg.name.trim() ? pkg.name : sanitizePackageName(projectName);
+    pkg.private = true;
+    pkg.version = typeof pkg.version === 'string' && pkg.version.trim() ? pkg.version : '0.1.0';
+    pkg.scripts = typeof pkg.scripts === 'object' && pkg.scripts ? pkg.scripts : {};
+    pkg.dependencies = typeof pkg.dependencies === 'object' && pkg.dependencies ? pkg.dependencies : {};
+    pkg.devDependencies = typeof pkg.devDependencies === 'object' && pkg.devDependencies ? pkg.devDependencies : {};
+
+    if (!pkg.scripts.dev) pkg.scripts.dev = fallbackScripts[technology] || 'npm run start';
+
+    const hasTailwindSignals =
+      technology !== 'html' &&
+      (
+        normalized.some((f) => /tailwind\.config|postcss\.config/i.test(f.path)) ||
+        normalized.some((f) => /@tailwind|tailwindcss/i.test(f.content))
+      );
+
+    if (technology === 'nextjs') {
+      if (!pkg.scripts.build) pkg.scripts.build = 'next build';
+      if (!pkg.scripts.start) pkg.scripts.start = 'next start';
+      ensureDep(pkg, 'dependencies', 'next', '^14.2.0');
+      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      ensureDep(pkg, 'devDependencies', '@types/node', '^20.0.0');
+      ensureDep(pkg, 'devDependencies', '@types/react', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^18.2.0');
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2017",\n    "lib": ["dom", "dom.iterable", "esnext"],\n    "allowJs": true,\n    "skipLibCheck": true,\n    "strict": false,\n    "noEmit": true,\n    "esModuleInterop": true,\n    "module": "esnext",\n    "moduleResolution": "bundler",\n    "resolveJsonModule": true,\n    "isolatedModules": true,\n    "jsx": "preserve",\n    "incremental": true,\n    "plugins": [{ "name": "next" }],\n    "paths": { "@/*": ["./*"] }\n  },\n  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],\n  "exclude": ["node_modules"]\n}\n`);
+      ensureFile('app/layout.tsx', `export default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang="it">\n      <body>{children}</body>\n    </html>\n  );\n}\n`);
+      ensureFile('app/page.tsx', `export default function HomePage() {\n  return (\n    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n      <p>Progetto Next.js pronto per la preview.</p>\n    </main>\n  );\n}\n`);
+    }
+
+    if (technology === 'react') {
+      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', '@vitejs/plugin-react', '^4.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      ensureDep(pkg, 'devDependencies', '@types/react', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^18.2.0');
+      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport react from '@vitejs/plugin-react';\n\nexport default defineConfig({\n  plugins: [react()],\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "lib": ["ES2020", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "react-jsx"\n  },\n  "include": ["src"]\n}\n`);
+      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang="it">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id="root"></div>\n    <script type="module" src="/src/main.tsx"></script>\n  </body>\n</html>\n`);
+      ensureFile('src/main.tsx', `import React from 'react';\nimport ReactDOM from 'react-dom/client';\nimport App from './App';\n\nReactDOM.createRoot(document.getElementById('root')!).render(\n  <React.StrictMode>\n    <App />\n  </React.StrictMode>\n);\n`);
+      ensureFile('src/App.tsx', `export default function App() {\n  return (\n    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n    </main>\n  );\n}\n`);
+    }
+
+    if (technology === 'vue') {
+      ensureDep(pkg, 'dependencies', 'vue', '^3.4.0');
+      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', '@vitejs/plugin-vue', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport vue from '@vitejs/plugin-vue';\n\nexport default defineConfig({\n  plugins: [vue()],\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "module": "ESNext",\n    "moduleResolution": "bundler",\n    "strict": false,\n    "skipLibCheck": true,\n    "noEmit": true,\n    "jsx": "preserve",\n    "noUnusedLocals": false,\n    "noUnusedParameters": false\n  },\n  "include": ["src/**/*.ts", "src/**/*.vue"]\n}\n`);
+      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang="it">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`);
+      ensureFile('src/main.ts', `import { createApp } from 'vue';\nimport App from './App.vue';\n\ncreateApp(App).mount('#app');\n`);
+      ensureFile('src/App.vue', `<template>\n  <main style="padding: 24px; font-family: system-ui, sans-serif;">\n    <h1>Benvenuto su ${projectName}</h1>\n  </main>\n</template>\n`);
+    }
+
+    if (technology === 'nuxt') {
+      ensureDep(pkg, 'dependencies', 'nuxt', '^3.12.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false }\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "./.nuxt/tsconfig.json",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
+      ensureFile('app.vue', `<template>\n  <main style="padding: 24px; font-family: system-ui, sans-serif;">\n    <h1>Benvenuto su ${projectName}</h1>\n  </main>\n</template>\n`);
+    }
+
+    if (technology === 'svelte') {
+      ensureDep(pkg, 'dependencies', 'svelte', '^4.2.0');
+      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', '@sveltejs/vite-plugin-svelte', '^3.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport { svelte } from '@sveltejs/vite-plugin-svelte';\n\nexport default defineConfig({\n  plugins: [svelte()],\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false\n  },\n  "include": ["src"]\n}\n`);
+      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang="it">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`);
+      ensureFile('src/main.ts', `import App from './App.svelte';\n\nconst app = new App({\n  target: document.getElementById('app')!,\n});\n\nexport default app;\n`);
+      ensureFile('src/App.svelte', `<main style="padding: 24px; font-family: system-ui, sans-serif;">\n  <h1>Benvenuto su ${projectName}</h1>\n</main>\n`);
+    }
+
+    if (technology === 'angular') {
+      ensureDep(pkg, 'dependencies', '@angular/core', '^18.0.0');
+      ensureDep(pkg, 'dependencies', '@angular/common', '^18.0.0');
+      ensureDep(pkg, 'dependencies', '@angular/platform-browser', '^18.0.0');
+      ensureDep(pkg, 'dependencies', 'rxjs', '^7.8.0');
+      ensureDep(pkg, 'dependencies', 'zone.js', '^0.14.0');
+      ensureDep(pkg, 'devDependencies', '@angular/cli', '^18.0.0');
+      ensureDep(pkg, 'devDependencies', '@angular/compiler-cli', '^18.0.0');
+      ensureDep(pkg, 'devDependencies', '@angular-devkit/build-angular', '^18.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'angular.json', `{\n  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",\n  "version": 1,\n  "projects": {\n    "app": {\n      "projectType": "application",\n      "root": "",\n      "sourceRoot": "src",\n      "architect": {\n        "build": {\n          "builder": "@angular-devkit/build-angular:application",\n          "options": {\n            "browser": "src/main.ts",\n            "index": "src/index.html",\n            "polyfills": ["zone.js"],\n            "tsConfig": "tsconfig.app.json"\n          }\n        },\n        "serve": {\n          "builder": "@angular-devkit/build-angular:dev-server",\n          "options": { "buildTarget": "app:build" }\n        }\n      }\n    }\n  }\n}\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2022",\n    "module": "ES2022",\n    "moduleResolution": "bundler",\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
+      upsertFile(normalized, 'tsconfig.app.json', `{\n  "extends": "./tsconfig.json",\n  "compilerOptions": {\n    "types": []\n  },\n  "files": ["src/main.ts"]\n}\n`);
+      ensureFile('src/index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <app-root></app-root>\n  </body>\n</html>\n`);
+      ensureFile('src/main.ts', `import { bootstrapApplication } from '@angular/platform-browser';\nimport { Component } from '@angular/core';\n\n@Component({\n  selector: 'app-root',\n  standalone: true,\n  template: '<main style=\"padding:24px;font-family:system-ui,sans-serif\"><h1>Benvenuto su ${projectName}</h1></main>'\n})\nclass AppComponent {}\n\nbootstrapApplication(AppComponent).catch((err) => console.error(err));\n`);
+    }
+
+    if (technology === 'astro') {
+      ensureDep(pkg, 'dependencies', 'astro', '^4.10.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'astro.config.mjs', `import { defineConfig } from 'astro/config';\n\nexport default defineConfig({});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "astro/tsconfigs/base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
+      ensureFile('src/pages/index.astro', `---\n---\n<html lang=\"it\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n    <title>${projectName}</title>\n  </head>\n  <body style=\"font-family: system-ui, sans-serif; padding: 24px;\">\n    <h1>Benvenuto su ${projectName}</h1>\n  </body>\n</html>\n`);
+    }
+
+    if (technology === 'remix') {
+      ensureDep(pkg, 'dependencies', '@remix-run/react', '^2.0.0');
+      ensureDep(pkg, 'dependencies', '@remix-run/node', '^2.0.0');
+      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', '@remix-run/dev', '^2.0.0');
+      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      ensureDep(pkg, 'devDependencies', '@types/react', '^18.2.0');
+      ensureDep(pkg, 'devDependencies', '@types/react-dom', '^18.2.0');
+      upsertFile(normalized, 'vite.config.ts', `import { vitePlugin as remix } from '@remix-run/dev';\nimport { defineConfig } from 'vite';\n\nexport default defineConfig({\n  plugins: [remix()],\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "lib": ["ES2020", "DOM", "DOM.Iterable"],\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "react-jsx"\n  },\n  "include": ["app"]\n}\n`);
+      ensureFile('app/root.tsx', `import { Links, Meta, Outlet, Scripts } from '@remix-run/react';\n\nexport default function App() {\n  return (\n    <html lang=\"it\">\n      <head>\n        <Meta />\n        <Links />\n      </head>\n      <body>\n        <Outlet />\n        <Scripts />\n      </body>\n    </html>\n  );\n}\n`);
+      ensureFile('app/routes/_index.tsx', `export default function IndexRoute() {\n  return (\n    <main style={{ padding: 24, fontFamily: 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n    </main>\n  );\n}\n`);
+    }
+
+    if (technology === 'solid') {
+      ensureDep(pkg, 'dependencies', 'solid-js', '^1.8.0');
+      ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
+      ensureDep(pkg, 'devDependencies', 'vite-plugin-solid', '^2.9.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport solid from 'vite-plugin-solid';\n\nexport default defineConfig({\n  plugins: [solid()],\n});\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "preserve",\n    "jsxImportSource": "solid-js"\n  },\n  "include": ["src"]\n}\n`);
+      upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/index.tsx\"></script>\n  </body>\n</html>\n`);
+      ensureFile('src/index.tsx', `import { render } from 'solid-js/web';\nimport App from './App';\n\nrender(() => <App />, document.getElementById('root')!);\n`);
+      ensureFile('src/App.tsx', `export default function App() {\n  return (\n    <main style={{ padding: '24px', 'font-family': 'system-ui, sans-serif' }}>\n      <h1>Benvenuto su ${projectName}</h1>\n    </main>\n  );\n}\n`);
+    }
+
+    if (technology === 'expo') {
+      pkg.main = 'expo/AppEntry';
+      ensureDep(pkg, 'dependencies', 'expo', '^51.0.0');
+      ensureDep(pkg, 'dependencies', 'react', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'react-dom', '^18.2.0');
+      ensureDep(pkg, 'dependencies', 'react-native', '^0.74.0');
+      ensureDep(pkg, 'dependencies', 'react-native-web', '^0.19.0');
+      ensureDep(pkg, 'dependencies', '@expo/metro-runtime', '~3.2.0');
+      ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
+      upsertFile(normalized, 'app.json', `{\n  "expo": {\n    "name": "${projectName}",\n    "slug": "${sanitizePackageName(projectName)}",\n    "platforms": ["ios", "android", "web"],\n    "web": { "bundler": "metro" }\n  }\n}\n`);
+      upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "expo/tsconfig.base",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
+      ensureFile('App.tsx', `import { Text, View, StyleSheet } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.title}>Benvenuto su ${projectName}</Text>\n      <Text style={styles.subtitle}>Modifica App.tsx per iniziare</Text>\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },\n  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },\n  subtitle: { fontSize: 16, color: '#666' },\n});\n`);
+    }
+
+    if (hasTailwindSignals || technology === 'nextjs') {
+      ensureDep(pkg, 'devDependencies', 'tailwindcss', '^3.4.0');
+      ensureDep(pkg, 'devDependencies', 'postcss', '^8.4.0');
+      ensureDep(pkg, 'devDependencies', 'autoprefixer', '^10.4.0');
+      upsertFile(normalized, 'postcss.config.js', `module.exports = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n`);
+      upsertFile(normalized, 'tailwind.config.js', `/** @type {import('tailwindcss').Config} */\nmodule.exports = {\n  content: [\n    './src/**/*.{js,ts,jsx,tsx,vue,svelte,astro}',\n    './app/**/*.{js,ts,jsx,tsx}',\n    './pages/**/*.{js,ts,jsx,tsx}',\n    './components/**/*.{js,ts,jsx,tsx}',\n    './index.html',\n  ],\n  theme: { extend: {} },\n  plugins: [],\n};\n`);
+    }
+
+    upsertFile(normalized, 'package.json', JSON.stringify(pkg, null, 2));
+  }
+
+  if (technology === 'html' || technology === 'HTML/CSS/JS') {
+    ensureFile('index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>${projectName}</title>\n    <link rel=\"stylesheet\" href=\"style.css\" />\n  </head>\n  <body>\n    <main class=\"container\">\n      <h1>Benvenuto su ${projectName}</h1>\n      <p>Progetto statico pronto per la preview.</p>\n    </main>\n    <script src=\"script.js\"></script>\n  </body>\n</html>\n`);
+    ensureFile('style.css', `body { margin: 0; font-family: system-ui, sans-serif; }\n.container { max-width: 960px; margin: 0 auto; padding: 24px; }\n`);
+    ensureFile('script.js', `console.log('Project ${projectName} ready');\n`);
+  }
+
+  if (technology === 'flask') {
+    ensureTextContains('requirements.txt', ['flask>=3.0.0']);
+    ensureFile('app.py', `from flask import Flask, render_template\n\napp = Flask(__name__)\n\n@app.get('/')\ndef home():\n    return render_template('index.html')\n\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=3000, debug=True)\n`);
+    ensureFile('templates/index.html', `<!doctype html>\n<html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head>\n<body style=\"font-family: system-ui, sans-serif; padding: 24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
+  }
+
+  if (technology === 'fastapi') {
+    ensureTextContains('requirements.txt', ['fastapi>=0.111.0', 'uvicorn>=0.30.0']);
+    ensureFile('main.py', `from fastapi import FastAPI\nfrom fastapi.responses import HTMLResponse\n\napp = FastAPI()\n\n@app.get('/', response_class=HTMLResponse)\ndef home():\n    return \"\"\"<!doctype html><html lang='it'><body style='font-family:system-ui,sans-serif;padding:24px;'><h1>Benvenuto su ${projectName}</h1></body></html>\"\"\"\n`);
+  }
+
+  if (technology === 'django') {
+    const moduleName = sanitizePythonModuleName(projectName);
+    ensureTextContains('requirements.txt', ['Django>=5.0,<6.0']);
+    ensureFile('manage.py', `#!/usr/bin/env python\nimport os\nimport sys\n\nif __name__ == '__main__':\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\n    from django.core.management import execute_from_command_line\n    execute_from_command_line(sys.argv)\n`);
+    ensureFile(`${moduleName}/__init__.py`, ``);
+    ensureFile(`${moduleName}/settings.py`, `from pathlib import Path\n\nBASE_DIR = Path(__file__).resolve().parent.parent\nSECRET_KEY = 'dev-secret-key'\nDEBUG = True\nALLOWED_HOSTS = ['*']\nROOT_URLCONF = '${moduleName}.urls'\nMIDDLEWARE = []\nINSTALLED_APPS = []\nTEMPLATES = [{\n  'BACKEND': 'django.template.backends.django.DjangoTemplates',\n  'DIRS': [BASE_DIR / 'templates'],\n  'APP_DIRS': True,\n  'OPTIONS': {},\n}]\nWSGI_APPLICATION = '${moduleName}.wsgi.application'\nDATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}\nSTATIC_URL = '/static/'\n`);
+    ensureFile(`${moduleName}/urls.py`, `from django.urls import path\nfrom django.http import HttpResponse\n\ndef home(_request):\n    return HttpResponse('<!doctype html><html lang=\"it\"><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>')\n\nurlpatterns = [path('', home)]\n`);
+    ensureFile(`${moduleName}/wsgi.py`, `import os\nfrom django.core.wsgi import get_wsgi_application\n\nos.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\napplication = get_wsgi_application()\n`);
+  }
+
+  if (technology === 'flutter') {
+    ensureFile('pubspec.yaml', `name: ${sanitizePackageName(projectName).replace(/-/g, '_')}\ndescription: ${projectName}\npublish_to: 'none'\nversion: 1.0.0+1\nenvironment:\n  sdk: \">=3.3.0 <4.0.0\"\ndependencies:\n  flutter:\n    sdk: flutter\nflutter:\n  uses-material-design: true\n`);
+    ensureFile('lib/main.dart', `import 'package:flutter/material.dart';\n\nvoid main() {\n  runApp(const MyApp());\n}\n\nclass MyApp extends StatelessWidget {\n  const MyApp({super.key});\n\n  @override\n  Widget build(BuildContext context) {\n    return const MaterialApp(\n      home: Scaffold(\n        body: Center(\n          child: Text('Benvenuto su ${projectName}'),\n        ),\n      ),\n    );\n  }\n}\n`);
+    ensureFile('web/index.html', `<!doctype html>\n<html>\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <script src=\"main.dart.js\" defer></script>\n  </body>\n</html>\n`);
+  }
+
+  if (technology === 'laravel') {
+    ensureFile('composer.json', `{\n  \"name\": \"drape/${sanitizePackageName(projectName)}\",\n  \"type\": \"project\",\n  \"require\": {\n    \"php\": \">=8.1\"\n  }\n}\n`);
+    ensureFile('artisan', `<?php\n$argv = $_SERVER['argv'] ?? [];\n$cmd = $argv[1] ?? '';\nif ($cmd === 'serve') {\n  $host = '0.0.0.0';\n  $port = '3000';\n  for ($i = 2; $i < count($argv); $i++) {\n    if (str_starts_with($argv[$i], '--host=')) $host = substr($argv[$i], 7);\n    if (str_starts_with($argv[$i], '--port=')) $port = substr($argv[$i], 7);\n    if ($argv[$i] === '--host' && isset($argv[$i + 1])) $host = $argv[$i + 1];\n    if ($argv[$i] === '--port' && isset($argv[$i + 1])) $port = $argv[$i + 1];\n  }\n  passthru('php -S ' . $host . ':' . $port . ' -t public', $exitCode);\n  exit($exitCode);\n}\necho \"Laravel guardrail stub ready\\n\";\n`);
+    ensureFile('public/index.php', `<?php\n?><!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
+    ensureFile('routes/web.php', `<?php\n// Guard rail route placeholder\n`);
+    ensureFile('resources/views/welcome.blade.php', `<h1>Benvenuto su ${projectName}</h1>\n`);
+  }
+
+  // --- Post-normalization: remove duplicate config file variants ---
+  const viteTech = new Set(['react', 'vue', 'svelte', 'solid', 'remix']);
+  if (viteTech.has(technology)) {
+    const removeVariants = ['vite.config.js', 'vite.config.mjs', 'vite.config.cjs'];
+    for (const variant of removeVariants) {
+      const idx = normalized.findIndex((f) => f.path === variant);
+      if (idx >= 0) normalized.splice(idx, 1);
+    }
+  }
+  // Remove AI-generated tsconfig variants that conflict with our canonical tsconfig.json
+  const tsconfigVariants = ['tsconfig.ts', 'tsconfig.mjs'];
+  for (const variant of tsconfigVariants) {
+    const idx = normalized.findIndex((f) => f.path === variant);
+    if (idx >= 0) normalized.splice(idx, 1);
+  }
+  // Remove AI-generated tailwind/postcss variants if we already have canonical ones
+  if (normalized.some((f) => f.path === 'tailwind.config.js')) {
+    for (const variant of ['tailwind.config.ts', 'tailwind.config.mjs', 'tailwind.config.cjs']) {
+      const idx = normalized.findIndex((f) => f.path === variant);
+      if (idx >= 0) normalized.splice(idx, 1);
+    }
+  }
+  if (normalized.some((f) => f.path === 'postcss.config.js')) {
+    for (const variant of ['postcss.config.ts', 'postcss.config.mjs', 'postcss.config.cjs']) {
+      const idx = normalized.findIndex((f) => f.path === variant);
+      if (idx >= 0) normalized.splice(idx, 1);
+    }
+  }
+
+  // --- Auto-detect missing dependencies from imports ---
+  const nodeTechSet = new Set(['nextjs', 'react', 'vue', 'nuxt', 'svelte', 'angular', 'astro', 'remix', 'solid', 'expo']);
+  if (nodeTechSet.has(technology)) {
+    const pkgFile = normalized.find((f) => f.path === 'package.json');
+    if (pkgFile) {
+      try {
+        const pkg = JSON.parse(pkgFile.content);
+        const allDeps = new Set([
+          ...Object.keys(pkg.dependencies || {}),
+          ...Object.keys(pkg.devDependencies || {}),
+        ]);
+        const builtins = new Set([
+          'fs', 'path', 'http', 'https', 'url', 'os', 'crypto', 'stream', 'util',
+          'events', 'child_process', 'buffer', 'querystring', 'net', 'tls', 'assert',
+          'zlib', 'readline', 'worker_threads', 'perf_hooks', 'dns', 'cluster',
+          'node:fs', 'node:path', 'node:http', 'node:https', 'node:url', 'node:os',
+          'node:crypto', 'node:stream', 'node:util', 'node:events', 'node:child_process',
+          'node:buffer', 'node:querystring', 'node:net', 'node:tls', 'node:assert', 'node:zlib',
+        ]);
+        // Virtual / framework-specific modules that don't need to be in package.json
+        const virtualModules = new Set([
+          'virtual:remix/server-build', '~icons', 'virtual:', '$app', '$env',
+          '#app', '#imports', '#components', '#build',
+        ]);
+        const importRegex = /(?:import|from)\s+['"]([^./~#][^'"]*)['"]/g;
+        let changed = false;
+        for (const file of normalized) {
+          if (!/\.(tsx?|jsx?|mjs|vue|svelte)$/.test(file.path)) continue;
+          let match;
+          while ((match = importRegex.exec(file.content)) !== null) {
+            const raw = match[1];
+            if (builtins.has(raw)) continue;
+            if ([...virtualModules].some((v) => raw.startsWith(v))) continue;
+            const pkgName = raw.startsWith('@')
+              ? raw.split('/').slice(0, 2).join('/')
+              : raw.split('/')[0];
+            if (!allDeps.has(pkgName)) {
+              pkg.dependencies = pkg.dependencies || {};
+              pkg.dependencies[pkgName] = '*';
+              allDeps.add(pkgName);
+              changed = true;
+            }
+          }
+        }
+        if (changed) {
+          upsertFile(normalized, 'package.json', JSON.stringify(pkg, null, 2));
+        }
+      } catch {
+        // package.json parse failed, skip auto-detect
+      }
+    }
+  }
+
+  return normalized;
+}
 
 // GET /workstation/:projectId/files
 workstationRouter.get('/:projectId/files', asyncHandler(async (req, res) => {
@@ -81,7 +481,7 @@ workstationRouter.post('/write-file', asyncHandler(async (req, res) => {
   if (!result.success) return res.status(500).json(result);
 
   // Notify agent for hot reload
-  const session = await sessionService.getByProjectId(projectId);
+  const session = await sessionService.get(projectId, req.userId || 'anonymous');
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, file, content || '').catch(() => {});
   }
@@ -115,7 +515,7 @@ workstationRouter.post('/edit-file', asyncHandler(async (req, res) => {
   const newContent = content.replace(oldString, () => replacement);
   await fileService.writeFile(projectId, filePath, newContent);
 
-  const session = await sessionService.getByProjectId(projectId);
+  const session = await sessionService.get(projectId, req.userId || 'anonymous');
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, filePath, newContent).catch(() => {});
   }
@@ -224,6 +624,32 @@ workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
   });
 }));
 
+// GET /workstation/:projectId/search (legacy compatibility)
+workstationRouter.get('/:projectId/search', asyncHandler(async (req, res) => {
+  const { projectId } = req.params;
+  const query = typeof req.query.query === 'string' ? req.query.query : '';
+  const pattern = typeof req.query.pattern === 'string' && req.query.pattern.trim().length > 0
+    ? req.query.pattern
+    : query;
+
+  if (!projectId || !pattern) throw new ValidationError('projectId and query required');
+
+  // Verify project ownership
+  const isOwner = await verifyProjectOwnership(req.userId || 'anonymous', projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${req.userId} tried to access project ${projectId} without ownership (legacy-search)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  const result = await fileService.grep(projectId, pattern);
+  res.json({
+    success: true,
+    results: result.data || [],
+    totalCount: result.data?.length || 0,
+    truncated: false,
+  });
+}));
+
 // POST /workstation/execute-command
 workstationRouter.post('/execute-command', asyncHandler(async (req, res) => {
   const { projectId, command } = req.body;
@@ -309,6 +735,7 @@ workstationRouter.post('/edit-multiple-files', asyncHandler(async (req, res) => 
 workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
   const { projectId } = req.params;
   const userId = req.userId || 'anonymous';
+  const forceAsync = ['1', 'true', 'yes'].includes(String(req.query.force || '').toLowerCase());
 
   // Verify project ownership
   const isOwner = await verifyProjectOwnership(userId, projectId);
@@ -317,8 +744,17 @@ workstationRouter.delete('/:projectId', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  await workspaceService.release(projectId, userId);
-  await fileService.deleteProject(projectId);
+  if (forceAsync) {
+    const { scheduled, message } = scheduleProjectDeletion(projectId, userId);
+    return res.json({
+      success: true,
+      queued: true,
+      scheduled,
+      message,
+    });
+  }
+
+  await performProjectDeletion(projectId, userId);
   res.json({ success: true, message: 'Project deleted' });
 }));
 
@@ -327,27 +763,27 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
   const { projectId, repositoryUrl, githubToken, projectName } = req.body;
   if (!projectId) throw new ValidationError('projectId required');
 
-  // Enforce project limits (created vs cloned)
+  // Enforce project limits using monthly creation counter
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
     const planId = await getUserPlan(userId);
     const limits = getPlanProjectLimits(planId);
-    const counts = await countUserProjects(userId);
+    const lifetimeCounts = await getLifetimeCreationCounts(userId);
     const isClone = !!repositoryUrl;
 
-    if (isClone && counts.cloned >= limits.maxCloned) {
+    if (isClone && lifetimeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCloned, maxCloned: limits.maxCloned, current: counts.cloned },
+        limits: { maxProjects: limits.maxCloned, maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} progetti clonati per il piano ${planId}`,
       });
     }
-    if (!isClone && counts.created >= limits.maxCreated) {
+    if (!isClone && lifetimeCounts.created >= limits.maxCreated) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: counts.created },
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: lifetimeCounts.created },
         message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
       });
     }
@@ -360,6 +796,9 @@ workstationRouter.post('/create', asyncHandler(async (req, res) => {
         message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
       });
     }
+
+    // Increment monthly counter
+    await incrementCreationCounter(userId, isClone ? 'cloned' : 'created');
   }
 
   await fileService.ensureProjectDir(projectId);
@@ -384,20 +823,23 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
   const { projectName, technology, description, projectId } = req.body;
   if (!projectName) throw new ValidationError('projectName required');
 
-  // Enforce project creation + storage limits
+  // Enforce project creation + storage limits using monthly creation counter
   const userId = req.userId || 'anonymous';
   if (userId !== 'anonymous') {
     const planId = await getUserPlan(userId);
     const limits = getPlanProjectLimits(planId);
-    const counts = await countUserProjects(userId);
-    if (counts.created >= limits.maxCreated) {
+
+    // Use monthly creation counter (not active project count) to prevent delete+recreate bypass
+    const lifetimeCounts = await getLifetimeCreationCounts(userId);
+    if (lifetimeCounts.created >= limits.maxCreated) {
       return res.status(403).json({
         success: false,
         error: 'PROJECT_LIMIT_EXCEEDED',
-        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: counts.created },
+        limits: { maxProjects: limits.maxCreated, maxCloned: limits.maxCloned, current: lifetimeCounts.created },
         message: `Hai raggiunto il limite di ${limits.maxCreated} progetti creati per il piano ${planId}`,
       });
     }
+
     const storageMb = await getUserStorageMb(userId);
     if (storageMb >= limits.maxStorageMb) {
       return res.status(403).json({
@@ -411,6 +853,11 @@ workstationRouter.post('/create-with-template', asyncHandler(async (req, res) =>
 
   const id = projectId || `project-${Date.now()}`;
   await fileService.ensureProjectDir(id);
+
+  // Increment monthly creation counter BEFORE starting generation
+  if (userId !== 'anonymous') {
+    await incrementCreationCounter(userId, 'created');
+  }
 
   // Create task entry
   const task: CreationTask = {
@@ -458,7 +905,9 @@ async function generateProject(
   projectId: string, projectName: string, technology: string, description: string, task: CreationTask
 ): Promise<void> {
   const update = (progress: number, message: string, step: string) => {
-    task.progress = progress;
+    const normalized = Math.max(0, Math.min(100, Math.round(progress)));
+    // Keep progress monotonic to avoid visual jumps backwards.
+    task.progress = Math.max(task.progress || 0, normalized);
     task.message = message;
     task.step = step;
   };
@@ -486,7 +935,25 @@ async function generateProject(
   };
   const techDesc = techMap[technology] || techMap['nextjs'];
 
-  update(20, 'Progettazione struttura...', 'AI Generating');
+  update(22, 'Progettazione struttura...', 'AI Generating');
+
+  // Build the list of config files the AI should NOT generate (they are auto-created by the template system)
+  const excludedConfigFiles: Record<string, string[]> = {
+    react: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'postcss.config.mjs', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
+    vue: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
+    svelte: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
+    solid: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts', 'index.html'],
+    remix: ['vite.config.ts', 'vite.config.js', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
+    angular: ['angular.json', 'tsconfig.json', 'tsconfig.app.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
+    astro: ['astro.config.mjs', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
+    nuxt: ['nuxt.config.ts', 'tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
+    nextjs: ['tsconfig.json', 'postcss.config.js', 'tailwind.config.js', 'tailwind.config.ts'],
+    expo: ['tsconfig.json', 'app.json'],
+  };
+  const excluded = excludedConfigFiles[technology] || [];
+  const excludedNote = excluded.length > 0
+    ? `\n- Do NOT include these files (they are auto-generated): ${excluded.join(', ')}`
+    : '';
 
   const prompt = `Generate a complete ${techDesc} project called "${projectName}".
 ${description ? `Description: ${description}` : ''}
@@ -503,30 +970,45 @@ Requirements:
 - For framework projects (Next.js, React, Vue, Nuxt, Svelte, Angular, Astro, Remix, Solid.js): include package.json with project name "${projectName}" and all necessary dependencies
 - Include a working main page with a professional, modern UI
 - Use Italian language for user-facing text where appropriate
-- Include proper configuration files (tsconfig.json, tailwind.config if applicable)
 - For Next.js: use App Router (app/ directory), include layout.tsx and page.tsx
-- For Nuxt: use pages/ directory, include app.vue and nuxt.config.ts
-- For SvelteKit: use src/routes/ directory structure, include +page.svelte and +layout.svelte
-- For Angular: use standalone components, src/app/ directory
+- For Nuxt: use pages/ directory, include app.vue
+- For SvelteKit: use src/ directory, include App.svelte and main.ts
+- For Angular: use standalone components, src/ directory
 - For Astro: use src/pages/ directory, include index.astro
 - For Remix: use app/routes/ directory, include root.tsx and _index.tsx
-- For Solid.js: use src/ directory, include App.tsx and index.tsx with vite.config.ts
+- For Solid.js: use src/ directory, include App.tsx and index.tsx
 - For Flask: include app.py, requirements.txt, templates/ directory with base.html, static/ directory
 - For Django: include manage.py, requirements.txt, project settings directory, templates/ directory, a main app with views.py and urls.py
 - For FastAPI: include main.py, requirements.txt (with fastapi and uvicorn), templates/ directory with index.html, static/ directory
-- For React Native (Expo): include package.json with expo, react-native, react-native-web, @expo/metro-runtime dependencies, app.json with expo config, App.tsx with a main screen, use expo-router or basic navigation. Must support web platform (expo start --web)
+- For React Native (Expo): include package.json with "main": "expo/AppEntry" and dependencies: expo, react, react-dom, react-native, react-native-web, @expo/metro-runtime. Include App.tsx with a main screen using StyleSheet, backgroundColor '#fff'. Must support web platform (expo start --web)
 - For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
 - For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure
 - For HTML: include index.html, style.css, script.js
 - Make it immediately runnable with the dev server
 - Do NOT include node_modules, lock files, vendor/, or .dart_tool/
-- Keep it concise but functional
+- Keep it concise but functional${excludedNote}
+
+CRITICAL RULES to avoid build errors:
+- Do NOT use require() — use ES module import/export syntax only
+- Do NOT import packages that are not in your package.json dependencies
+- Do NOT use complex TypeScript generics, "as" type casts, or advanced type annotations — keep types simple
+- Do NOT add "type": "module" to package.json
+- Every import must reference a file you generated or a package listed in dependencies
+- Do NOT generate empty files
+- Use "export default function" for components
+- For React/Next.js/Remix/Solid: always use JSX syntax in .tsx files
+- For Vue: use <script setup lang="ts"> syntax
+- For Svelte: use <script lang="ts"> with standard Svelte 4 syntax
+- For Angular: use standalone components with inline templates
+- Use relative imports (./Component) not alias imports (@/components/Component) unless Next.js
 
 Return ONLY the JSON, no markdown fences, no explanation.`;
 
-  update(8, 'Starting AI generation...', 'AI Generating');
+  update(24, 'Starting AI generation...', 'AI Generating');
 
-  const models = ['claude-4-5-sonnet', 'claude-4-5-sonnet', 'claude-4-5-sonnet'];
+  // Fast-first fallback chain on Gemini as requested.
+  // Keep two flash attempts before escalating to pro.
+  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-pro'];
   const systemPrompt = 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
   const chatMessages = [{ role: 'user' as const, content: prompt }];
   const chatOptions = { temperature: 0.4, maxTokens: 8000 };
@@ -536,36 +1018,95 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     // Try models with retry
     for (let attempt = 0; attempt < models.length; attempt++) {
+      let generationTicker: ReturnType<typeof setInterval> | null = null;
       try {
         fullText = '';
         const stream = aiProviderService.chatStream(models[attempt], chatMessages, undefined, systemPrompt, chatOptions);
 
+        const generationMessages = [
+          'Analyzing project intent...',
+          'Designing architecture...',
+          'Preparing folder structure...',
+          'Planning shared components...',
+          'Generating base layout...',
+          'Generating pages...',
+          'Generating reusable UI blocks...',
+          'Wiring navigation...',
+          'Configuring routes...',
+          'Configuring metadata...',
+          'Adding responsive rules...',
+          'Refining visual hierarchy...',
+          'Writing styles...',
+          'Adding accessibility attributes...',
+          'Applying semantic HTML...',
+          'Linking interactions...',
+          'Aligning dependencies...',
+          'Preparing configuration files...',
+          'Validating entry points...',
+          'Optimizing generated code...',
+          'Running consistency checks...',
+          'Harmonizing naming conventions...',
+          'Final pass on structure...',
+          'Preparing output payload...',
+          'Completing generation...',
+        ];
+
+        const pickGenerationMessage = (elapsedSec: number, chunkCount: number): string => {
+          const timeRatio = Math.min(1, elapsedSec / 60);
+          const phaseIndex = Math.floor(timeRatio * (generationMessages.length - 1));
+          // Slight forward bias while chunks arrive so text feels alive without short loops.
+          const chunkBias = Math.min(2, Math.floor(chunkCount / 12));
+          const idx = Math.min(generationMessages.length - 1, phaseIndex + chunkBias);
+          return generationMessages[idx];
+        };
+
         let chunkCount = 0;
         const streamStart = Date.now();
+
+        // Keep progress moving even when model pauses between chunks.
+        generationTicker = setInterval(() => {
+          const elapsed = (Date.now() - streamStart) / 1000;
+          // 24 -> 89 over ~60s, then stays near 89 until stream closes.
+          const timeRatio = Math.min(1, elapsed / 60);
+          const baseProgress = 24 + Math.round(timeRatio * 65);
+          const message = pickGenerationMessage(elapsed, chunkCount);
+          update(Math.min(89, baseProgress), message, 'AI Generating');
+        }, 900);
+
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
             fullText += chunk.text;
             chunkCount++;
-            // Smooth progress: 10% → 80% based on elapsed time (expected ~20-40s)
-            const elapsed = (Date.now() - streamStart) / 1000;
-            const timeProgress = Math.min(0.95, elapsed / 35); // approaches 95% at 35s
-            const genProgress = Math.round(10 + timeProgress * 70); // 10 → 80
-            if (chunkCount % 3 === 0) {
-              const messages = ['Generating components...', 'Creating pages...', 'Writing styles...', 'Configuring routing...', 'Optimizing code...'];
-              update(Math.min(80, genProgress), messages[Math.floor(chunkCount / 3) % messages.length], 'AI Generating');
+            // Chunk-driven boost on top of time-driven progress.
+            if (chunkCount % 2 === 0) {
+              const elapsed = (Date.now() - streamStart) / 1000;
+              const timeRatio = Math.min(1, elapsed / 60);
+              const baseProgress = 24 + Math.round(timeRatio * 65);
+              const chunkBoost = Math.min(4, Math.floor(chunkCount / 20));
+              const message = pickGenerationMessage(elapsed, chunkCount);
+              update(Math.min(90, baseProgress + chunkBoost), message, 'AI Generating');
             }
           }
         }
+        if (generationTicker) {
+          clearInterval(generationTicker);
+          generationTicker = null;
+        }
+        update(90, 'Finalizing AI response...', 'Processing');
         break; // Success — exit retry loop
       } catch (retryErr: any) {
+        if (generationTicker) {
+          clearInterval(generationTicker);
+          generationTicker = null;
+        }
         log.warn(`[CreateProject] Attempt ${attempt + 1} failed: ${retryErr.message}`);
         if (attempt === models.length - 1) throw retryErr;
-        update(10, `Retrying generation (attempt ${attempt + 2})...`, 'AI Generating');
+        update(26, `Retrying generation (attempt ${attempt + 2})...`, 'AI Generating');
         await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
       }
     }
 
-    update(82, 'Analyzing generated code...', 'Processing');
+    update(92, 'Analyzing generated code...', 'Processing');
 
     // Parse the JSON response
     let cleanJson = fullText.trim();
@@ -591,7 +1132,9 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       throw new Error('AI response missing files array');
     }
 
-    update(85, 'Preparing files...', 'Processing');
+    parsed.files = normalizeGeneratedFiles(parsed.files, technology, projectName);
+
+    update(94, 'Preparing files...', 'Processing');
 
     // Write files to NVMe
     const writtenFiles: string[] = [];
@@ -599,14 +1142,14 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       const file = parsed.files[i];
       if (!file.path || file.content === undefined) continue;
 
-      const progress = 87 + Math.floor((i / parsed.files.length) * 10); // 87 → 97
+      const progress = 95 + Math.floor((i / parsed.files.length) * 4); // 95 → 99
       update(progress, `Writing ${file.path}`, 'Writing files');
 
       await fileService.writeFile(projectId, file.path, file.content);
       writtenFiles.push(file.path);
     }
 
-    update(98, 'Starting workspace...', 'Finalizing');
+    update(99, 'Starting workspace...', 'Finalizing');
 
     log.info(`[CreateProject] Generated ${writtenFiles.length} files for ${projectName}`);
 

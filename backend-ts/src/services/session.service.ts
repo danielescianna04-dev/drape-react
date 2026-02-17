@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { Session } from '../types';
 import { log } from '../utils/logger';
 import { debounce } from '../utils/helpers';
@@ -21,7 +22,12 @@ class SessionService {
   }
 
   async get(projectId: string, userId: string): Promise<Session | null> {
-    return this.sessions.get(sessionKey(userId, projectId)) || null;
+    const session = this.sessions.get(sessionKey(userId, projectId)) || null;
+    if (session && !session.accessToken) {
+      session.accessToken = this.generateAccessToken();
+      this.saveToDiskDebounced();
+    }
+    return session;
   }
 
   /**
@@ -33,6 +39,10 @@ class SessionService {
     let best: Session | null = null;
     for (const session of this.sessions.values()) {
       if (session.projectId === projectId) {
+        if (!session.accessToken) {
+          session.accessToken = this.generateAccessToken();
+          this.saveToDiskDebounced();
+        }
         if (!best || (session.lastUsed || 0) > (best.lastUsed || 0)) {
           best = session;
         }
@@ -41,8 +51,21 @@ class SessionService {
     return best;
   }
 
+  async getByProjectIdAndAccessToken(projectId: string, accessToken: string): Promise<Session | null> {
+    if (!accessToken) return null;
+    for (const session of this.sessions.values()) {
+      if (session.projectId === projectId && session.accessToken === accessToken) {
+        return session;
+      }
+    }
+    return null;
+  }
+
   async set(projectId: string, userId: string, session: Session): Promise<void> {
     session.lastUsed = Date.now();
+    if (!session.accessToken) {
+      session.accessToken = this.generateAccessToken();
+    }
     this.sessions.set(sessionKey(userId, projectId), session);
     this.saveToDiskDebounced();
   }
@@ -53,7 +76,16 @@ class SessionService {
   }
 
   async getAll(): Promise<Session[]> {
-    return Array.from(this.sessions.values());
+    const all = Array.from(this.sessions.values());
+    let changed = false;
+    for (const s of all) {
+      if (!s.accessToken) {
+        s.accessToken = this.generateAccessToken();
+        changed = true;
+      }
+    }
+    if (changed) this.saveToDiskDebounced();
+    return all;
   }
 
   /**
@@ -63,16 +95,41 @@ class SessionService {
   async getByUserId(userId: string): Promise<Session[]> {
     const results: Session[] = [];
     for (const session of this.sessions.values()) {
-      if (session.userId === userId) results.push(session);
+      if (session.userId === userId) {
+        if (!session.accessToken) {
+          session.accessToken = this.generateAccessToken();
+          this.saveToDiskDebounced();
+        }
+        results.push(session);
+      }
     }
     return results;
   }
 
   async getByContainerId(containerId: string): Promise<Session | null> {
     for (const session of this.sessions.values()) {
-      if (session.containerId === containerId) return session;
+      if (session.containerId === containerId) {
+        if (!session.accessToken) {
+          session.accessToken = this.generateAccessToken();
+          this.saveToDiskDebounced();
+        }
+        return session;
+      }
     }
     return null;
+  }
+
+  async deleteByContainerId(containerId: string): Promise<void> {
+    let changed = false;
+    for (const [key, session] of this.sessions.entries()) {
+      if (session.containerId === containerId) {
+        this.sessions.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.saveToDiskDebounced();
+    }
   }
 
   /**
@@ -101,14 +158,20 @@ class SessionService {
       if (fs.existsSync(PERSIST_PATH)) {
         const data = JSON.parse(fs.readFileSync(PERSIST_PATH, 'utf-8'));
         if (Array.isArray(data)) {
+          let changed = false;
           for (const entry of data) {
             if (entry.projectId) {
               // Backward compat: old sessions without userId get 'legacy'
               const uid = entry.userId || 'legacy';
               entry.userId = uid;
+              if (!entry.accessToken) {
+                entry.accessToken = this.generateAccessToken();
+                changed = true;
+              }
               this.sessions.set(sessionKey(uid, entry.projectId), entry);
             }
           }
+          if (changed) this.saveToDiskDebounced();
           log.info(`[Sessions] Loaded ${this.sessions.size} sessions from disk`);
         }
       }
@@ -124,6 +187,10 @@ class SessionService {
     } catch (e: any) {
       log.warn(`[Sessions] Failed to save to disk: ${e.message}`);
     }
+  }
+
+  private generateAccessToken(): string {
+    return crypto.randomBytes(24).toString('hex');
   }
 }
 

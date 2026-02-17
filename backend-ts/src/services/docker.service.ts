@@ -201,8 +201,10 @@ class DockerService {
         CapAdd: ['CHOWN', 'SETUID', 'SETGID', 'NET_BIND_SERVICE'],
         // Block cloud metadata endpoints (AWS/GCP instance metadata)
         ExtraHosts: ['metadata.google.internal:127.0.0.1', '169.254.169.254:127.0.0.1'],
-        // Tmpfs mount for /tmp with noexec,nosuid
-        Tmpfs: { '/tmp': 'rw,noexec,nosuid,size=512m' },
+        // Tmpfs mount for /tmp — explicitly exec (Docker defaults to noexec).
+        // noexec causes SIGBUS in forked Node.js child processes (e.g. Next.js
+        // start-server.js) because V8/SWC need to mmap executable pages from /tmp.
+        Tmpfs: { '/tmp': 'rw,exec,nosuid,size=512m' },
         // Prevent fork bombs
         PidsLimit: 512,
       },
@@ -343,7 +345,7 @@ class DockerService {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const response = await axios.post(`${agentUrl}/exec`, { command, cwd }, {
+        const response = await axios.post(`${agentUrl}/exec`, { command, cwd, timeout }, {
           timeout,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -370,6 +372,41 @@ class DockerService {
       }
     }
     throw lastError || new Error('Exec failed');
+  }
+
+  /**
+   * Execute a command in true detached mode directly via Docker exec.
+   * This avoids agent-side process lifecycle coupling for long-running commands.
+   */
+  async execDetached(
+    containerId: string,
+    command: string,
+    cwd = '/home/coder/project',
+    silent = false,
+  ): Promise<void> {
+    try {
+      const { client } = await this.findContainer(containerId);
+      const container = client.getContainer(containerId);
+      const exec = await container.exec({
+        AttachStdout: false,
+        AttachStderr: false,
+        AttachStdin: false,
+        Tty: false,
+        WorkingDir: cwd,
+        Cmd: ['bash', '-lc', command],
+        User: '1000:1000',
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        exec.start({ Detach: true, Tty: false }, (err: any) => {
+          if (err) return reject(err);
+          resolve();
+        });
+      });
+    } catch (err: any) {
+      if (!silent) log.error(`[Docker] Detached exec failed: ${err.message}`);
+      throw err;
+    }
   }
 
   async healthCheck(): Promise<{ healthy: boolean; error?: string }> {

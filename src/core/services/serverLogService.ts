@@ -30,7 +30,7 @@ class ServerLogService {
 
     const authToken = await getAuthToken();
     const xhr = new XMLHttpRequest();
-    xhr.open('GET', `${apiUrl}/preview/logs/${workstationId}`);
+    xhr.open('GET', `${apiUrl}/fly/logs/${workstationId}`);
     if (authToken) {
       xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
     }
@@ -48,12 +48,13 @@ class ServerLogService {
         if (line.startsWith('data: ')) {
           try {
             const log = JSON.parse(line.substring(6));
-            if (log.message && log.message.trim()) {
+            const text = log.text || log.message;
+            if (text && String(text).trim()) {
               // Log to terminal based on type
               if (log.type === 'stderr' || log.type === 'error') {
-                logError(`[Server] ${log.message}`, 'preview');
+                logError(`[Server] ${text}`, 'preview');
               } else {
-                logOutput(`[Server] ${log.message}`, 'preview', 0);
+                logOutput(`[Server] ${text}`, 'preview', 0);
               }
             }
           } catch (e) {

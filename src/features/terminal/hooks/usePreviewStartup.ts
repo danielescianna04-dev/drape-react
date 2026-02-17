@@ -7,6 +7,7 @@ import { liveActivityService } from '../../../core/services/liveActivityService'
 
 interface UsePreviewStartupParams {
   projectId: string | undefined;
+  previewAccessToken?: string | null;
   serverStatus: 'checking' | 'running' | 'stopped';
   webViewReady: boolean;
   currentWorkstationName: string | undefined;
@@ -14,6 +15,7 @@ interface UsePreviewStartupParams {
 
 export function usePreviewStartup({
   projectId,
+  previewAccessToken,
   serverStatus,
   webViewReady,
   currentWorkstationName,
@@ -73,7 +75,9 @@ export function usePreviewStartup({
   // Preview logs
   const { logs: previewLogs, clearLogs } = usePreviewLogs({
     enabled: serverStatus === 'checking',
-    maxLogs: 12,
+    maxLogs: 80,
+    projectId,
+    previewToken: previewAccessToken,
   });
 
   // Sync timer ref for throttling
@@ -216,7 +220,7 @@ export function usePreviewStartup({
   // Mask fade-out when webViewReady
   useEffect(() => {
     if (webViewReady) {
-      Animated.timing(maskOpacityAnim, { toValue: 0, duration: 800, useNativeDriver: true }).start();
+      Animated.timing(maskOpacityAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start();
     } else {
       maskOpacityAnim.setValue(1);
     }
@@ -240,7 +244,8 @@ export function usePreviewStartup({
       }
       liveActivityService.sendNotification(
         t('terminal:preview.ready'),
-        t('terminal:preview.projectReadyForPreview', { name })
+        t('terminal:preview.projectReadyForPreview', { name }),
+        { action: 'openPreview', projectId: projectId || '' }
       ).catch((err) => console.warn('[Preview] Failed to send notification:', err?.message || err));
     }
   }, [serverStatus, webViewReady, projectId]);

@@ -15,15 +15,30 @@ class ContainerLifecycleService {
     // Ensure project directory and .next cache dir exist on NVMe
     await fileService.ensureProjectDir(projectId);
     const { default: fs } = await import('fs/promises');
-    await fs.mkdir(`${config.cacheRoot}/next-build/${projectId}`, { recursive: true });
+    const projectPath = `${config.projectsRoot}/${projectId}`;
+    const nextCachePath = `${config.cacheRoot}/next-build/${projectId}`;
+    const ownershipMarker = `${config.cacheRoot}/ownership/${projectId}.ok`;
+    await fs.mkdir(`${config.cacheRoot}/ownership`, { recursive: true });
+    await fs.mkdir(nextCachePath, { recursive: true });
 
     // Fix ownership so container user (1000:1000) can write node_modules etc.
-    const { execSync } = await import('child_process');
+    // Run recursively only once per project to avoid repeated heavy chown on large repos.
+    let needsOwnershipFix = false;
     try {
-      execSync(`chown -R 1000:1000 "${config.projectsRoot}/${projectId}"`, { timeout: 10000 });
-      execSync(`chown -R 1000:1000 "${config.cacheRoot}/next-build/${projectId}"`, { timeout: 10000 });
-    } catch (e: any) {
-      log.warn(`[Lifecycle] chown failed (non-fatal): ${e.message}`);
+      await fs.access(ownershipMarker);
+    } catch {
+      needsOwnershipFix = true;
+    }
+
+    if (needsOwnershipFix) {
+      const { execSync } = await import('child_process');
+      try {
+        execSync(`chown -R 1000:1000 "${projectPath}"`, { timeout: 10000 });
+        execSync(`chown -R 1000:1000 "${nextCachePath}"`, { timeout: 10000 });
+        await fs.writeFile(ownershipMarker, `${Date.now()}\n`).catch(() => {});
+      } catch (e: any) {
+        log.warn(`[Lifecycle] chown failed (non-fatal): ${e.message}`);
+      }
     }
 
     const container = await dockerService.createContainer({ projectId });
@@ -44,7 +59,7 @@ class ContainerLifecycleService {
     const session = await sessionService.get(projectId, userId);
     if (session) {
       await dockerService.destroyContainer(session.containerId, session.serverId);
-      await sessionService.delete(projectId, userId);
+      await sessionService.deleteByContainerId(session.containerId);
       log.info(`[Lifecycle] Destroyed container for ${userId}:${projectId}`);
     }
   }

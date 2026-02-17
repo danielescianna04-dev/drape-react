@@ -35,7 +35,10 @@ class ProjectDetectorService {
     const packageManager = this.detectPackageManager(hasPnpmLock, hasYarnLock);
 
     // Detect project type
-    if (hasNextConfig || this.hasNextDep(packageJson)) {
+    // Require package.json at root when matching by config file alone.
+    // A next.config.js without package.json is likely a symlink from app/ (App Router pattern)
+    // and should fall through to the monorepo/subdirectory detection below.
+    if ((hasNextConfig && hasPackageJson) || this.hasNextDep(packageJson)) {
       return this.nextjsProject(packageJson, packageManager);
     }
 
@@ -78,19 +81,6 @@ class ProjectDetectorService {
       return this.expoProject(packageJson, packageManager);
     }
 
-    // Static HTML: has index.html but no Next/Vite framework deps
-    if (await this.hasAnyFile(projectDir, ['index.html'])) {
-      const hasFrameworkDep = this.hasNextDep(packageJson) || this.hasViteDep(packageJson);
-      if (!hasFrameworkDep) {
-        return {
-          type: 'static',
-          description: 'Static HTML project',
-          startCommand: 'npx serve -s . -l 3000',
-          port: 3000,
-        };
-      }
-    }
-
     // Monorepo: check common subdirectories + scan apps/* and packages/*
     // IMPORTANT: must run BEFORE the generic nodejs fallback
     const staticDirs = ['client', 'frontend', 'web', 'app'];
@@ -116,6 +106,25 @@ class ProjectDetectorService {
           : null;
 
         if (subHasNext) {
+          // If subdir is 'app' and there's no root package.json, the project root IS
+          // the Next.js project and 'app/' is the App Router directory — don't cd into it.
+          // Next.js run from project root will find app/ as the router directory.
+          if (subdir === 'app' && !hasPackageJson) {
+            const info = this.nextjsProject(subPkg, subPm);
+            info.description = `Next.js project (app/ router)`;
+            // app/ is BOTH the App Router directory AND the project root (has package.json, configs).
+            // Strategy: run Next.js from project root so it finds app/ as the router dir.
+            // 1. Symlink config files to root (postcss, tailwind, next.config)
+            // 2. Copy package.json to root and install deps there
+            // 3. Remove app/node_modules to avoid Tailwind scanning it (./app/**/*.ts pattern)
+            const setup = [
+              'for f in app/postcss.config.* app/tailwind.config.* app/next.config.*; do [ -f "$f" ] && ln -sf "$f" . 2>/dev/null; done',
+            ].join('; ');
+            const installCmd = info.installCommand || 'npm install';
+            info.startCommand = `${setup}; ${info.startCommand}`;
+            info.installCommand = `cp app/package.json . 2>/dev/null; [ -f app/package-lock.json ] && cp app/package-lock.json . 2>/dev/null; ${installCmd}; rm -rf app/node_modules 2>/dev/null`;
+            return info;
+          }
           const info = this.nextjsProject(subPkg, subPm);
           info.description = `Next.js monorepo (${subdir}/)`;
           info.startCommand = `cd ${subdir} && ${info.startCommand}`;
@@ -149,6 +158,16 @@ class ProjectDetectorService {
     // Generic Node.js (no framework detected, no monorepo subdirs found)
     if (hasPackageJson) {
       return this.nodejsProject(packageJson, packageManager);
+    }
+
+    // Static HTML: has index.html but no package manager metadata/framework deps
+    if (await this.hasAnyFile(projectDir, ['index.html'])) {
+      return {
+        type: 'static',
+        description: 'Static HTML project',
+        startCommand: 'npx serve -s . -l 3000',
+        port: 3000,
+      };
     }
 
     // Flutter Web (pubspec.yaml with flutter dep)
@@ -187,7 +206,7 @@ class ProjectDetectorService {
       };
     }
 
-    // FastAPI (main.py with fastapi in requirements)
+    // FastAPI / Flask (check requirements.txt / pyproject.toml)
     if (await this.hasAnyFile(projectDir, ['requirements.txt', 'pyproject.toml'])) {
       const reqs = await this.readFileSafe(projectDir, 'requirements.txt');
       const pyproject = await this.readFileSafe(projectDir, 'pyproject.toml');
@@ -196,6 +215,15 @@ class ProjectDetectorService {
           type: 'fastapi',
           description: 'FastAPI project',
           startCommand: 'uvicorn main:app --host 0.0.0.0 --port 3000 --reload',
+          port: 3000,
+          installCommand: 'pip install -r requirements.txt',
+        };
+      }
+      if ((reqs && reqs.includes('flask')) || (pyproject && pyproject.includes('flask'))) {
+        return {
+          type: 'flask',
+          description: 'Flask project',
+          startCommand: 'python app.py',
           port: 3000,
           installCommand: 'pip install -r requirements.txt',
         };
@@ -251,19 +279,25 @@ class ProjectDetectorService {
       pm === 'yarn' ? 'yarn install --frozen-lockfile' :
         'npm install';
 
-    // Detect custom dev script
-    let startCommand = scripts.dev || `next dev -p 3000`;
-    if (!startCommand.includes('-p ') && !startCommand.includes('--port')) {
-      startCommand += ' -p 3000';
-    }
-    if (useTurbopack && !startCommand.includes('--turbo') && !startCommand.includes('--webpack')) {
-      startCommand += ' --turbopack';
-    }
+    // Always use the next binary directly instead of `npm run dev`.
+    // npm's exit-handler calls process.exit(0) after stdout flush in non-TTY
+    // environments (containers), killing the dev server immediately.
+    const devScript = (scripts.dev || '').trim();
+    const hasPort = devScript.includes('-p ') || devScript.includes('--port');
+    const hasHost = devScript.includes('-H ') || devScript.includes('--hostname');
+    const hasTurboOrWebpack = devScript.includes('--turbo') || devScript.includes('--turbopack') || devScript.includes('--webpack');
+
+    const flags: string[] = [];
+    if (!hasPort) flags.push('--port 3000');
+    if (!hasHost) flags.push('--hostname 0.0.0.0');
+    if (useTurbopack && !hasTurboOrWebpack) flags.push('--turbopack');
+
+    const startCommand = `./node_modules/.bin/next dev ${flags.join(' ')}`;
 
     return {
       type: 'nextjs',
       description: `Next.js ${nextVersion || ''} project`,
-      startCommand: `npx ${startCommand}`,
+      startCommand,
       port: 3000,
       installCommand: installCmd,
       packageManager: pm,
@@ -291,10 +325,16 @@ class ProjectDetectorService {
     const installCmd = pm === 'pnpm' ? 'pnpm install' :
       pm === 'yarn' ? 'yarn install' :
         'npm install';
+    const runDevCmd = pm === 'pnpm' ? 'pnpm run dev' :
+      pm === 'yarn' ? 'yarn dev' :
+        'npm run dev';
+    const runStartCmd = pm === 'pnpm' ? 'pnpm run start' :
+      pm === 'yarn' ? 'yarn start' :
+        'npm start';
 
     let startCommand = 'npx serve -s . -l 3000';
-    if (scripts.dev) startCommand = `npm run dev`;
-    else if (scripts.start) startCommand = `npm start`;
+    if (scripts.dev) startCommand = runDevCmd;
+    else if (scripts.start) startCommand = runStartCmd;
 
     return {
       type: 'nodejs',
@@ -395,10 +435,14 @@ class ProjectDetectorService {
 
   private nuxtProject(pkg: any, pm: PackageManager): ProjectInfo {
     const installCmd = pm === 'pnpm' ? 'pnpm install' : pm === 'yarn' ? 'yarn install' : 'npm install';
+
+    // Use nuxi binary directly — npm run dev exits prematurely in non-TTY containers.
+    const startCommand = './node_modules/.bin/nuxi dev --host 0.0.0.0 --port 3000';
+
     return {
       type: 'nuxt',
       description: 'Nuxt project',
-      startCommand: 'npx nuxi dev --host 0.0.0.0 --port 3000',
+      startCommand,
       port: 3000,
       installCommand: installCmd,
       packageManager: pm,

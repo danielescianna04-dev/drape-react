@@ -53,12 +53,14 @@ export class AgentLoop {
   private conversationHistory: ChatMessage[];
   private userId: string | null;
   private userPlan: string;
+  private executionPlan: any | null;
   private filesCreated: string[] = [];
   private filesModified: string[] = [];
   private session: Session | null = null;
   private totalTokensUsed: { input: number; output: number } = { input: 0, output: 0 };
   private totalCostEur: number = 0;
   private iterationCount: number = 0;
+  private latestTodos: Array<{ status?: string }> = [];
 
   // Budget limits per plan (monthly EUR)
   private static readonly PLAN_BUDGETS: Record<string, number> = {
@@ -76,7 +78,66 @@ export class AgentLoop {
     this.thinkingLevel = options.thinkingLevel || (this.mode === 'fast' ? 'minimal' : null);
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
-    this.conversationHistory = options.conversationHistory || [];
+    this.executionPlan = options.executionPlan || null;
+    this.conversationHistory = this.sanitizeConversationHistory(options.conversationHistory || []);
+  }
+
+  /**
+   * Remove invalid/empty history entries before sending them to the model.
+   * This prevents provider validation errors like "text content blocks must be non-empty".
+   */
+  private sanitizeConversationHistory(history: ChatMessage[]): ChatMessage[] {
+    if (!Array.isArray(history)) return [];
+
+    const sanitized: ChatMessage[] = [];
+
+    for (const msg of history) {
+      if (!msg || (msg.role !== 'user' && msg.role !== 'assistant' && msg.role !== 'system')) {
+        continue;
+      }
+
+      if (Array.isArray(msg.content)) {
+        const blocks: ContentBlock[] = [];
+
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            if (typeof block.text === 'string' && block.text.trim().length > 0) {
+              blocks.push({ type: 'text', text: block.text });
+            }
+          } else if (block.type === 'image') {
+            if (block.source.type === 'base64' && block.source.data) {
+              blocks.push(block);
+            } else if (block.source.type === 'url' && block.source.url) {
+              blocks.push(block);
+            }
+          } else if (block.type === 'tool_use') {
+            if (block.id && block.name) {
+              blocks.push(block);
+            }
+          } else if (block.type === 'tool_result') {
+            if (block.tool_use_id) {
+              blocks.push({
+                ...block,
+                content: (typeof block.content === 'string' && block.content.trim().length > 0)
+                  ? block.content
+                  : '(no output)',
+              });
+            }
+          }
+        }
+
+        if (blocks.length > 0) {
+          sanitized.push({ role: msg.role, content: blocks });
+        }
+      } else {
+        const text = String(msg.content ?? '');
+        if (text.trim().length > 0) {
+          sanitized.push({ role: msg.role, content: text });
+        }
+      }
+    }
+
+    return sanitized;
   }
 
   /**
@@ -157,6 +218,8 @@ export class AgentLoop {
       let shouldContinue = true;
       let consecutiveSameToolCount = 0;
       let lastToolSignature = ''; // Track tool name + key input to detect actual loops
+
+      let noToolWhileTodosPendingCount = 0;
 
       while (shouldContinue && this.iterationCount < MAX_ITERATIONS) {
         this.iterationCount++;
@@ -319,11 +382,21 @@ export class AgentLoop {
             const match = userMessage.match(/"message"\s*:\s*"([^"]+)"/);
             if (match) userMessage = match[1];
           } catch {}
-          if (userMessage.includes('overload')) {
+          const normalized = userMessage.toLowerCase();
+
+          if (
+            normalized.includes('internal error encountered') ||
+            normalized.includes('status":"internal"') ||
+            normalized.includes('got status: internal') ||
+            normalized.includes('code":500') ||
+            normalized.includes('http 500')
+          ) {
+            userMessage = 'Gemini ha avuto un errore interno temporaneo. Riprova tra pochi secondi.';
+          } else if (normalized.includes('overload')) {
             userMessage = 'AI model is temporarily overloaded. Try again in a few seconds.';
-          } else if (userMessage.includes('rate limit') || userMessage.includes('429')) {
+          } else if (normalized.includes('rate limit') || normalized.includes('429')) {
             userMessage = 'Too many requests. Wait a few seconds and try again.';
-          } else if (userMessage.includes('timeout') || userMessage.includes('ETIMEDOUT')) {
+          } else if (normalized.includes('timeout') || normalized.includes('etimedout')) {
             userMessage = 'AI response timeout. Try again.';
           }
           yield {
@@ -542,6 +615,7 @@ export class AgentLoop {
 
               // Handle todo updates
               if (toolCall.name === 'todo_write' && (result as any).todos) {
+                this.latestTodos = Array.isArray((result as any).todos) ? (result as any).todos : [];
                 yield {
                   type: 'todo_update',
                   todos: (result as any).todos,
@@ -618,6 +692,22 @@ export class AgentLoop {
           // Continue loop to get next agent response
           shouldContinue = true;
         } else {
+          // No tool calls. If there are still pending todos, nudge the model to continue executing.
+          const hasPendingTodos = this.latestTodos.some((t: any) => t?.status !== 'completed');
+          if (hasPendingTodos && noToolWhileTodosPendingCount < 2) {
+            noToolWhileTodosPendingCount++;
+            log.warn('[AgentLoop] Model returned no tools while todos are still pending. Nudging continuation.');
+            this.conversationHistory.push({
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: 'Continue now by executing the next pending todo with tools. Do not summarize yet.',
+              }],
+            });
+            shouldContinue = true;
+            continue;
+          }
+
           // No tool calls - agent is done
           shouldContinue = false;
 
@@ -717,7 +807,7 @@ export class AgentLoop {
       }
     }
 
-    return basePrompt + languageDirective + projectContext + sessionInfo;
+    return basePrompt + languageDirective + projectContext + sessionInfo + this.buildExecutionPlanContext();
   }
 
   /**
@@ -784,6 +874,29 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
     }
 
     return prompt;
+  }
+
+  private buildExecutionPlanContext(): string {
+    if (this.mode !== 'execute' || !this.executionPlan) {
+      return '';
+    }
+
+    if (typeof this.executionPlan === 'string') {
+      return `\n\n## Approved Execution Plan\n\n${this.executionPlan}`;
+    }
+
+    if (Array.isArray(this.executionPlan.steps) && this.executionPlan.steps.length > 0) {
+      const steps = this.executionPlan.steps
+        .map((step: any, index: number) => `${index + 1}. ${step?.description || step?.title || `Step ${index + 1}`}`)
+        .join('\n');
+      return `\n\n## Approved Execution Plan\n\nFollow these approved steps in order:\n${steps}`;
+    }
+
+    try {
+      return `\n\n## Approved Execution Plan\n\n${JSON.stringify(this.executionPlan, null, 2)}`;
+    } catch {
+      return '';
+    }
   }
 
   /**
@@ -867,16 +980,19 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
     prompt: string,
     images?: Array<{ base64: string; type: string }>
   ): ChatMessage {
+    const normalizedPrompt = String(prompt ?? '').trim();
+    const safePrompt = normalizedPrompt.length > 0 ? normalizedPrompt : '[Image attached]';
+
     if (!images || images.length === 0) {
       return {
         role: 'user',
-        content: prompt,
+        content: safePrompt,
       };
     }
 
     // Multimodal message with images
     const content: ContentBlock[] = [
-      { type: 'text', text: prompt },
+      { type: 'text', text: safePrompt },
     ];
 
     for (const img of images) {

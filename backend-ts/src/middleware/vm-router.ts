@@ -4,8 +4,68 @@ import { log } from '../utils/logger';
 import * as http from 'http';
 import { Session } from '../types';
 
-// Track the last active project for asset proxying
-let lastActiveProjectId: string | null = null;
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  if (!cookieHeader) return {};
+  const out: Record<string, string> = {};
+  const pairs = cookieHeader.split(';');
+  for (const pair of pairs) {
+    const [k, ...rest] = pair.trim().split('=');
+    if (!k) continue;
+    const value = rest.join('=').trim();
+    out[k] = value ? decodeURIComponent(value) : '';
+  }
+  return out;
+}
+
+function parseProjectIdFromReferer(referer?: string): string | null {
+  if (!referer) return null;
+  try {
+    const url = new URL(referer);
+    const match = url.pathname.match(/^\/preview\/([^/]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function parsePreviewTokenFromReferer(referer?: string): string | null {
+  if (!referer) return null;
+  try {
+    const url = new URL(referer);
+    const token = url.searchParams.get('pt') || url.searchParams.get('previewToken');
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseProjectIdFromCookies(cookieHeader?: string): string | null {
+  const cookies = parseCookies(cookieHeader);
+  return cookies.drape_project_id || null;
+}
+
+function parsePreviewTokenFromCookies(cookieHeader?: string): string | null {
+  const cookies = parseCookies(cookieHeader);
+  return cookies.drape_preview_token || null;
+}
+
+function resolvePreviewToken(req: Request): string | null {
+  const qToken = typeof req.query.pt === 'string'
+    ? req.query.pt
+    : (typeof req.query.previewToken === 'string' ? req.query.previewToken : null);
+  return qToken
+    || (typeof req.headers['x-drape-preview-token'] === 'string' ? req.headers['x-drape-preview-token'] : null)
+    || parsePreviewTokenFromReferer(typeof req.headers.referer === 'string' ? req.headers.referer : undefined)
+    || parsePreviewTokenFromReferer(typeof req.headers.referrer === 'string' ? req.headers.referrer : undefined)
+    || parsePreviewTokenFromCookies(typeof req.headers.cookie === 'string' ? req.headers.cookie : undefined);
+}
+
+function cookieOptions(req: Request): string {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const secure = req.secure || proto === 'https';
+  return `Path=/; SameSite=Lax${secure ? '; Secure' : ''}`;
+}
 
 /**
  * Preview proxy middleware
@@ -29,15 +89,22 @@ export function createPreviewProxy() {
         return;
       }
 
-      const session = await sessionService.getByProjectId(projectId);
+      const previewToken = resolvePreviewToken(req);
+      if (!previewToken) {
+        res.status(401).json({ error: 'Preview access token required' });
+        return;
+      }
+
+      const session = await sessionService.getByProjectIdAndAccessToken(projectId, previewToken);
 
       if (!session) {
         res.status(404).json({ error: 'No active session for project', projectId });
         return;
       }
 
-      // Track last active project for asset proxying
-      lastActiveProjectId = projectId;
+      // Persist project context for root-relative asset requests (/_next/*, /@vite/*, etc.)
+      res.append('Set-Cookie', `drape_project_id=${encodeURIComponent(projectId)}; ${cookieOptions(req)}`);
+      res.append('Set-Cookie', `drape_preview_token=${encodeURIComponent(previewToken)}; ${cookieOptions(req)}; HttpOnly`);
 
       // Calculate the path to proxy (remove the /preview/:projectId prefix)
       const pathPrefix = `/preview/${projectId}`;
@@ -46,6 +113,13 @@ export function createPreviewProxy() {
       if (!proxyPath.startsWith('/')) {
         proxyPath = '/' + proxyPath;
       }
+      // Strip proxy auth params before forwarding to the app.
+      try {
+        const parsedProxyPath = new URL(proxyPath, 'http://local');
+        parsedProxyPath.searchParams.delete('pt');
+        parsedProxyPath.searchParams.delete('previewToken');
+        proxyPath = parsedProxyPath.pathname + (parsedProxyPath.search || '');
+      } catch { /* ignore */ }
 
       // Use container IP directly via Docker network (agentUrl contains the container IP)
       // Format: http://172.18.0.X:13338 -> extract IP and use internal port 3000
@@ -71,13 +145,24 @@ export function createPreviewProxy() {
 export function createAssetProxy() {
   return async (req: Request, res: Response): Promise<void> => {
     try {
-      const projectId = lastActiveProjectId;
+      const projectId =
+        req.query.projectId as string
+        || (typeof req.headers['x-drape-project-id'] === 'string' ? req.headers['x-drape-project-id'] : null)
+        || parseProjectIdFromReferer(typeof req.headers.referer === 'string' ? req.headers.referer : undefined)
+        || parseProjectIdFromReferer(typeof req.headers.referrer === 'string' ? req.headers.referrer : undefined)
+        || parseProjectIdFromCookies(typeof req.headers.cookie === 'string' ? req.headers.cookie : undefined);
+      const previewToken = resolvePreviewToken(req);
+
       if (!projectId) {
-        res.status(404).json({ error: 'No active preview session' });
+        res.status(404).json({ error: 'No active preview session', detail: 'projectId not inferable for asset request' });
+        return;
+      }
+      if (!previewToken) {
+        res.status(401).json({ error: 'Preview access token required' });
         return;
       }
 
-      const session = await sessionService.getByProjectId(projectId);
+      const session = await sessionService.getByProjectIdAndAccessToken(projectId, previewToken);
       if (!session) {
         res.status(404).json({ error: 'No active session' });
         return;
@@ -89,7 +174,15 @@ export function createAssetProxy() {
       const containerHost = containerIp || 'localhost';
       log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${containerHost}:${previewPort}`);
 
-      await proxyRequest(req, res, previewPort, req.url, projectId, containerHost);
+      let assetPath = req.url;
+      try {
+        const parsedAssetPath = new URL(req.url, 'http://local');
+        parsedAssetPath.searchParams.delete('pt');
+        parsedAssetPath.searchParams.delete('previewToken');
+        assetPath = parsedAssetPath.pathname + (parsedAssetPath.search || '');
+      } catch { /* ignore */ }
+
+      await proxyRequest(req, res, previewPort, assetPath, projectId, containerHost);
     } catch (error: any) {
       log.error('[Asset Proxy] Error:', error.message);
       if (!res.headersSent) {

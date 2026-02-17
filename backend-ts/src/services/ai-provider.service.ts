@@ -527,40 +527,41 @@ class AIProviderService {
       throw new Error('Gemini GenAI client not initialized.');
     }
 
-    try {
-      const isFlash = modelConfig.modelId.includes('flash');
+    const isFlash = modelConfig.modelId.includes('flash');
 
-      // Determine thinking level - default to 'minimal' for speed
-      let thinkingLevel = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
-      const validFlashLevels = ['minimal', 'low', 'medium', 'high'];
-      const validProLevels = ['low', 'high'];
-      const validLevels = isFlash ? validFlashLevels : validProLevels;
+    // Determine thinking level - default to 'minimal' for speed
+    let thinkingLevel = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
+    const validFlashLevels = ['minimal', 'low', 'medium', 'high'];
+    const validProLevels = ['low', 'high'];
+    const validLevels = isFlash ? validFlashLevels : validProLevels;
 
-      if (!validLevels.includes(thinkingLevel)) {
-        thinkingLevel = isFlash ? 'minimal' : 'low';
-      }
+    if (!validLevels.includes(thinkingLevel)) {
+      thinkingLevel = isFlash ? 'minimal' : 'low';
+    }
 
-      log.info(`[Gemini 3] Using new SDK with thinking (level: ${thinkingLevel}, includeThoughts: true)`);
+    // Format contents once
+    const contents = this.formatContentsForGenAI(messages, systemPrompt);
+    const maxAttempts = 3;
 
-      // Format contents for the new SDK
-      const contents = this.formatContentsForGenAI(messages, systemPrompt);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const includeThoughts = attempt === 1;
+      log.info(`[Gemini 3] Attempt ${attempt}/${maxAttempts} (level: ${thinkingLevel}, includeThoughts: ${includeThoughts})`);
 
-      // Build config with thinking
-      const config: any = {
+      // Build config
+      const requestConfig: any = {
         thinkingConfig: {
           thinkingLevel,
-          includeThoughts: true,
+          includeThoughts,
         },
         maxOutputTokens: options?.maxTokens || 65536,
       };
 
       if (options?.temperature !== undefined) {
-        config.temperature = options.temperature;
+        requestConfig.temperature = options.temperature;
       }
 
-      // Add tools if provided
       if (tools && tools.length > 0) {
-        config.tools = [{
+        requestConfig.tools = [{
           functionDeclarations: tools.map(t => ({
             name: t.name,
             description: t.description,
@@ -569,115 +570,135 @@ class AIProviderService {
         }];
       }
 
-      // Use the new SDK's streaming method
-      const response = await this.geminiGenAI.models.generateContentStream({
-        model: modelConfig.modelId,
-        contents,
-        config,
-      });
-
       let fullText = '';
       const toolCalls: ToolCall[] = [];
       let thinkingStarted = false;
       let usage: UsageInfo = { inputTokens: 0, outputTokens: 0 };
 
-      let chunkIndex = 0;
-      for await (const chunk of response) {
-        chunkIndex++;
-        // Debug: Log raw chunk structure for first few chunks
-        if (chunkIndex <= 3) {
-          log.info(`[Gemini 3] Chunk ${chunkIndex} keys: ${Object.keys(chunk).join(', ')}`);
-          const candidates = (chunk as any).candidates;
-          if (candidates?.[0]) {
-            const c = candidates[0];
-            log.info(`[Gemini 3] Candidate keys: ${Object.keys(c).join(', ')}`);
-            if (c.content) {
-              log.info(`[Gemini 3] Content keys: ${Object.keys(c.content).join(', ')}`);
-            }
-            if (c.content?.parts) {
-              const parts = c.content.parts;
-              log.info(`[Gemini 3] Parts count: ${parts.length}`);
-              for (let i = 0; i < parts.length; i++) {
-                const p = parts[i];
-                log.info(`[Gemini 3] Part ${i}: ${JSON.stringify(p).substring(0, 200)}`);
+      try {
+        const response = await this.geminiGenAI.models.generateContentStream({
+          model: modelConfig.modelId,
+          contents,
+          config: requestConfig,
+        });
+
+        let chunkIndex = 0;
+        for await (const chunk of response) {
+          chunkIndex++;
+          // Debug: Log raw chunk structure for first few chunks
+          if (chunkIndex <= 3) {
+            log.info(`[Gemini 3] Chunk ${chunkIndex} keys: ${Object.keys(chunk).join(', ')}`);
+            const candidates = (chunk as any).candidates;
+            if (candidates?.[0]) {
+              const c = candidates[0];
+              log.info(`[Gemini 3] Candidate keys: ${Object.keys(c).join(', ')}`);
+              if (c.content) {
+                log.info(`[Gemini 3] Content keys: ${Object.keys(c.content).join(', ')}`);
+              }
+              if (c.content?.parts) {
+                const parts = c.content.parts;
+                log.info(`[Gemini 3] Parts count: ${parts.length}`);
+                for (let i = 0; i < parts.length; i++) {
+                  const p = parts[i];
+                  log.info(`[Gemini 3] Part ${i}: ${JSON.stringify(p).substring(0, 200)}`);
+                }
               }
             }
           }
-        }
 
-        // Handle candidates from the new SDK response format
-        const candidates = (chunk as any).candidates;
-        if (!candidates || candidates.length === 0) continue;
+          // Handle candidates from the new SDK response format
+          const candidates = (chunk as any).candidates;
+          if (!candidates || candidates.length === 0) continue;
 
-        const candidate = candidates[0];
-        const content = candidate.content;
-        if (!content?.parts) continue;
+          const candidate = candidates[0];
+          const content = candidate.content;
+          if (!content?.parts) continue;
 
-        for (const part of content.parts) {
-          // Check for thinking part (thought: true indicates thinking content)
-          if (part.thought === true && part.text) {
-            if (!thinkingStarted) {
-              thinkingStarted = true;
-              yield { type: 'thinking_start' };
-            }
-            yield { type: 'thinking', text: part.text };
-            log.info(`[Gemini 3] Thinking: ${part.text.substring(0, 80)}...`);
-            continue;
-          }
-
-          // Handle regular text (not thinking)
-          if (part.text !== undefined && part.text !== null && part.text !== '') {
-            // End thinking phase when regular text starts
-            if (thinkingStarted) {
-              yield { type: 'thinking_end' };
-              thinkingStarted = false;
-            }
-            fullText += part.text;
-            yield { type: 'text', text: part.text };
-          }
-
-          // Handle function calls
-          if (part.functionCall) {
-            if (thinkingStarted) {
-              yield { type: 'thinking_end' };
-              thinkingStarted = false;
+          for (const part of content.parts) {
+            // Check for thinking part (thought: true indicates thinking content)
+            if (part.thought === true && part.text) {
+              if (!thinkingStarted) {
+                thinkingStarted = true;
+                yield { type: 'thinking_start' };
+              }
+              yield { type: 'thinking', text: part.text };
+              log.info(`[Gemini 3] Thinking: ${part.text.substring(0, 80)}...`);
+              continue;
             }
 
-            const toolId = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const toolName = part.functionCall.name;
-            const toolInput = part.functionCall.args;
-            const thoughtSignature = part.thoughtSignature;
+            // Handle regular text (not thinking)
+            if (part.text !== undefined && part.text !== null && part.text !== '') {
+              // End thinking phase when regular text starts
+              if (thinkingStarted) {
+                yield { type: 'thinking_end' };
+                thinkingStarted = false;
+              }
+              fullText += part.text;
+              yield { type: 'text', text: part.text };
+            }
 
-            yield { type: 'tool_start', id: toolId, name: toolName };
-            yield { type: 'tool_use', id: toolId, name: toolName, input: toolInput, thoughtSignature };
+            // Handle function calls
+            if (part.functionCall) {
+              if (thinkingStarted) {
+                yield { type: 'thinking_end' };
+                thinkingStarted = false;
+              }
 
-            toolCalls.push({ id: toolId, name: toolName, input: toolInput, thoughtSignature });
+              const toolId = `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              const toolName = part.functionCall.name;
+              const toolInput = part.functionCall.args;
+              const thoughtSignature = part.thoughtSignature;
+
+              yield { type: 'tool_start', id: toolId, name: toolName };
+              yield { type: 'tool_use', id: toolId, name: toolName, input: toolInput, thoughtSignature };
+
+              toolCalls.push({ id: toolId, name: toolName, input: toolInput, thoughtSignature });
+            }
+          }
+
+          // Extract usage from chunk
+          const usageMetadata = (chunk as any).usageMetadata;
+          if (usageMetadata) {
+            usage.inputTokens = usageMetadata.promptTokenCount || 0;
+            usage.outputTokens = usageMetadata.candidatesTokenCount || 0;
           }
         }
 
-        // Extract usage from chunk
-        const usageMetadata = (chunk as any).usageMetadata;
-        if (usageMetadata) {
-          usage.inputTokens = usageMetadata.promptTokenCount || 0;
-          usage.outputTokens = usageMetadata.candidatesTokenCount || 0;
+        // Ensure thinking is ended
+        if (thinkingStarted) {
+          yield { type: 'thinking_end' };
         }
+
+        yield { type: 'done', fullText, toolCalls, stopReason: 'STOP', usage };
+        return;
+      } catch (error: any) {
+        const errorMessage = this.extractGeminiError(error);
+        const retriable = this.isGeminiRetriableError(errorMessage);
+        const hasPartialSafeOutput = fullText.trim().length > 0 && toolCalls.length === 0;
+
+        // Never silently "complete" a turn after a transport/provider interruption.
+        // Partial text may have been streamed, but treating it as final can incorrectly end agent execution.
+        if (hasPartialSafeOutput) {
+          log.warn(`[Gemini 3] Streaming interrupted after partial output: ${errorMessage}`);
+          if (thinkingStarted) {
+            yield { type: 'thinking_end' };
+          }
+          throw new Error(`Gemini stream interrupted after partial output: ${errorMessage}`);
+        }
+
+        if (retriable && attempt < maxAttempts) {
+          const delayMs = attempt * 1200;
+          log.warn(`[Gemini 3] Transient error on attempt ${attempt}/${maxAttempts}: ${errorMessage}. Retrying in ${delayMs}ms`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+
+        log.error('[Gemini 3] Streaming error:', errorMessage);
+        if (errorMessage.includes('thinkingConfig') || errorMessage.includes('Unknown name')) {
+          throw new Error('Errore configurazione thinking Gemini 3. Verifica la versione del SDK.');
+        }
+        throw new Error(`Errore Gemini 3: ${errorMessage}`);
       }
-
-      // Ensure thinking is ended
-      if (thinkingStarted) {
-        yield { type: 'thinking_end' };
-      }
-
-      yield { type: 'done', fullText, toolCalls, stopReason: 'STOP', usage };
-    } catch (error: any) {
-      const errorMessage = this.extractGeminiError(error);
-      log.error('[Gemini 3] Streaming error:', errorMessage);
-
-      if (errorMessage.includes('thinkingConfig') || errorMessage.includes('Unknown name')) {
-        throw new Error('Errore configurazione thinking Gemini 3. Verifica la versione del SDK.');
-      }
-
-      throw new Error(`Errore Gemini 3: ${errorMessage}`);
     }
   }
 
@@ -1036,10 +1057,53 @@ class AIProviderService {
 
     switch (provider) {
       case 'anthropic':
-        return nonSystemMessages.map((msg) => ({
-          role: msg.role === 'assistant' ? 'assistant' : 'user',
-          content: Array.isArray(msg.content) ? msg.content : [{ type: 'text', text: msg.content }],
-        }));
+        return nonSystemMessages
+          .map((msg) => {
+            const contentBlocks: ContentBlock[] = [];
+
+            if (Array.isArray(msg.content)) {
+              for (const block of msg.content) {
+                if (block.type === 'text') {
+                  if (typeof block.text === 'string' && block.text.trim().length > 0) {
+                    contentBlocks.push({ type: 'text', text: block.text });
+                  }
+                } else if (block.type === 'image') {
+                  if (block.source.type === 'base64' && block.source.data) {
+                    contentBlocks.push(block);
+                  } else if (block.source.type === 'url' && block.source.url) {
+                    contentBlocks.push(block);
+                  }
+                } else if (block.type === 'tool_use') {
+                  if (block.id && block.name) {
+                    contentBlocks.push(block);
+                  }
+                } else if (block.type === 'tool_result') {
+                  if (block.tool_use_id) {
+                    const normalizedContent = typeof block.content === 'string' && block.content.trim().length > 0
+                      ? block.content
+                      : '(no output)';
+                    contentBlocks.push({
+                      ...block,
+                      content: normalizedContent,
+                    });
+                  }
+                }
+              }
+            } else {
+              const textContent = String(msg.content ?? '');
+              if (textContent.trim().length > 0) {
+                contentBlocks.push({ type: 'text', text: textContent });
+              }
+            }
+
+            if (contentBlocks.length === 0) return null;
+
+            return {
+              role: msg.role === 'assistant' ? 'assistant' as const : 'user' as const,
+              content: contentBlocks,
+            };
+          })
+          .filter((msg): msg is { role: 'assistant' | 'user'; content: ContentBlock[] } => msg !== null);
 
       case 'gemini':
         // Build maps of tool_use_id -> function_name and tool_use_id -> thoughtSignature
@@ -1244,6 +1308,24 @@ class AIProviderService {
     } catch { /* ignore */ }
 
     return 'Errore API Gemini (risposta non leggibile)';
+  }
+
+  private isGeminiRetriableError(message: string): boolean {
+    const msg = (message || '').toLowerCase();
+    return (
+      msg.includes('internal error encountered') ||
+      msg.includes('status":"internal"') ||
+      msg.includes('got status: internal') ||
+      msg.includes('service unavailable') ||
+      msg.includes('unavailable') ||
+      msg.includes('overload') ||
+      msg.includes('temporarily') ||
+      msg.includes('timeout') ||
+      msg.includes('etimedout') ||
+      msg.includes('429') ||
+      msg.includes('500') ||
+      msg.includes('503')
+    );
   }
 
   private extractSystemPrompt(messages: ChatMessage[], providedSystemPrompt?: string): string {

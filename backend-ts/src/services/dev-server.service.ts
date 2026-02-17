@@ -2,7 +2,7 @@ import axios from 'axios';
 import { Session, ProjectInfo } from '../types';
 import { log } from '../utils/logger';
 import { dockerService } from './docker.service';
-import { sleep } from '../utils/helpers';
+import { shellEscape, sleep } from '../utils/helpers';
 import { DEV_SERVER_PORT } from '../utils/constants';
 
 class DevServerService {
@@ -54,7 +54,16 @@ class DevServerService {
     }
 
     // Wait for dev server to respond
-    const result = await this.waitForReady(agentUrl, 60000);
+    let result = await this.waitForReady(agentUrl, 60000);
+    if (!result.ready && await this.hasGracefulEarlyExit(agentUrl)) {
+      log.warn(`[DevServer] /setup process exited early for ${session.projectId}; retrying detached start`);
+      await this.startDetached(session, info.startCommand);
+      // Skip crash detection during retry — the agent log buffer still has stale
+      // "Process exited (code: 0)" from the /setup attempt which would false-positive.
+      // The detached process writes to server.log but getRecentLogs prefers the agent
+      // buffer, so detectCrash never sees the new process output.
+      result = await this.waitForReady(agentUrl, 45000, 45000);
+    }
     const elapsed = Date.now() - startTime;
 
     if (result.ready) {
@@ -70,6 +79,32 @@ class DevServerService {
 
     log.warn(`[DevServer] Not ready after ${elapsed}ms for ${session.projectId}`);
     throw new Error(result.error || 'Il dev server non è riuscito ad avviarsi.');
+  }
+
+  private async startDetached(session: Session, command: string): Promise<void> {
+    const escapedCommand = shellEscape(command);
+    const wrapped = [
+      'PRIMARY_LOG=/home/coder/server.log',
+      'LOG_FILE="$PRIMARY_LOG"',
+      'if [ -e "$PRIMARY_LOG" ] && [ ! -w "$PRIMARY_LOG" ]; then rm -f "$PRIMARY_LOG" 2>/dev/null || true; fi',
+      'touch "$PRIMARY_LOG" 2>/dev/null || true',
+      'if [ ! -w "$PRIMARY_LOG" ]; then LOG_FILE=/tmp/drape-server.log; touch "$LOG_FILE" 2>/dev/null || true; fi',
+      `RUN_CMD=${escapedCommand}`,
+      'bash -lc "$RUN_CMD" >> "$LOG_FILE" 2>&1',
+    ].join('; ');
+
+    await dockerService.execDetached(
+      session.containerId,
+      wrapped,
+      '/home/coder/project',
+      true,
+    );
+  }
+
+  private async hasGracefulEarlyExit(agentUrl: string): Promise<boolean> {
+    const lines = await this.getRecentLogs(agentUrl, 80);
+    if (lines.length === 0) return false;
+    return lines.some((line) => /Process exited \(code:\s*0/i.test(this.stripAnsi(line)));
   }
 
   /**
@@ -189,18 +224,101 @@ class DevServerService {
   }
 
   /**
-   * Read the last N lines of the agent's server.log
+   * Read recent runtime logs.
+   * Prefer agent SSE log buffer (real-time and independent from file permissions),
+   * fallback to file tail when streaming is unavailable.
    */
   private async getRecentLogs(agentUrl: string, lines = 50): Promise<string[]> {
+    const bufferedLogs = await this.getRecentLogsFromAgentBuffer(agentUrl, lines);
+    if (bufferedLogs.length > 0) return bufferedLogs.slice(-lines);
+
     try {
       const result = await dockerService.exec(
         agentUrl,
-        `tail -${lines} /home/coder/server.log 2>/dev/null || echo ""`,
+        `tail -${lines} /home/coder/server.log /tmp/drape-server.log 2>/dev/null || echo ""`,
         '/home/coder',
         3000,
         true,
       );
-      return (result.stdout || '').split('\n').filter(l => l.trim());
+      return (result.stdout || '')
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('==>'));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Read initial buffered lines from agent /logs SSE endpoint.
+   * The agent keeps a circular in-memory buffer with the latest runtime output.
+   */
+  private async getRecentLogsFromAgentBuffer(agentUrl: string, lines = 80): Promise<string[]> {
+    try {
+      const response = await axios.get(`${agentUrl}/logs?since=0`, {
+        responseType: 'stream',
+        timeout: 3500,
+      });
+
+      const stream = response.data;
+      let rawBuffer = '';
+      const out: string[] = [];
+      let finalized = false;
+      let connectedSeen = false;
+
+      return await new Promise<string[]>((resolve) => {
+        const hardTimeout = setTimeout(() => finalize(), 2200);
+        let softTimeout: ReturnType<typeof setTimeout> | null = null;
+
+        const finalize = () => {
+          if (finalized) return;
+          finalized = true;
+          clearTimeout(hardTimeout);
+          if (softTimeout) clearTimeout(softTimeout);
+          try { stream.destroy(); } catch { /* ignore */ }
+          resolve(out.slice(-lines));
+        };
+
+        const scheduleSoftClose = () => {
+          if (softTimeout) clearTimeout(softTimeout);
+          softTimeout = setTimeout(() => finalize(), 180);
+        };
+
+        const parseDataLine = (payload: string) => {
+          if (!payload) return;
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed?.type === 'connected') {
+              connectedSeen = true;
+              scheduleSoftClose();
+              return;
+            }
+            const text = typeof parsed?.text === 'string'
+              ? parsed.text
+              : (typeof parsed?.message === 'string' ? parsed.message : '');
+            if (text) out.push(text);
+          } catch {
+            out.push(payload);
+          }
+        };
+
+        stream.on('data', (chunk: Buffer) => {
+          rawBuffer += chunk.toString().replace(/\r/g, '\n');
+          let lineEnd = rawBuffer.indexOf('\n');
+          while (lineEnd !== -1) {
+            const line = rawBuffer.slice(0, lineEnd).trim();
+            rawBuffer = rawBuffer.slice(lineEnd + 1);
+            if (line.startsWith('data:')) {
+              parseDataLine(line.slice(5).trim());
+            }
+            lineEnd = rawBuffer.indexOf('\n');
+          }
+          if (connectedSeen) scheduleSoftClose();
+        });
+
+        stream.on('end', () => finalize());
+        stream.on('error', () => finalize());
+      });
     } catch {
       return [];
     }
@@ -222,17 +340,23 @@ class DevServerService {
       return clean.trim();
     }).filter(l => l);
 
-    // Count how many times "exited with code" appears (non-zero) — indicates crash loops
-    const exitLines = lines.filter(l => /exited with code [1-9]/.test(l) || /Process exited \(code: [1-9]/.test(l));
-    if (exitLines.length < 2) return null; // Need at least 2 crashes to confirm it's not a one-time hiccup
+    // Detect process exits (both non-zero and unexpected zero exits).
+    const exitRegex = /exited with code [0-9]+|Process exited \(code:\s*[0-9]+/;
+    const exitLines = lines.filter(l => exitRegex.test(l));
+    if (exitLines.length === 0) return null;
 
-    // Check if there's a "Starting:" line AFTER the last exit — means it's being restarted
-    const lastExitIdx = lines.length - 1 - [...lines].reverse().findIndex(l =>
-      /exited with code [1-9]/.test(l) || /Process exited \(code: [1-9]/.test(l)
-    );
-    const hasRestartAfterExit = lines.slice(lastExitIdx + 1).some(l => l.includes('Starting:'));
+    // Check if there is a restart marker after the last exit
+    const lastExitIdx = lines.length - 1 - [...lines].reverse().findIndex(l => exitRegex.test(l));
+    const hasRestartAfterExit = lastExitIdx >= 0
+      ? lines.slice(lastExitIdx + 1).some(l => l.includes('Starting:'))
+      : false;
 
-    // If process keeps crash-looping (2+ exits), parse the reason regardless
+    // Fail fast even on a single crash if there is no restart underway.
+    if (!hasRestartAfterExit) {
+      return this.parseCrashReason(rawLines);
+    }
+
+    // If it's repeatedly crashing, fail immediately regardless of restart markers.
     if (exitLines.length >= 2) {
       return this.parseCrashReason(rawLines);
     }
@@ -283,6 +407,15 @@ class DevServerService {
       return `Modulo non trovato: ${moduleName}\n\nProva a reinstallare le dipendenze.`;
     }
 
+    // Next.js workspace root / missing next package inference error
+    if (
+      /couldn't find the next\.js package/i.test(fullLog) ||
+      /next\/package\.json/i.test(fullLog) ||
+      /inferred your workspace root/i.test(fullLog)
+    ) {
+      return 'Dipendenze Next.js non trovate nel workspace attivo. Verifica package.json e lockfile nella root usata dalla preview, poi riprova.';
+    }
+
     // Check for syntax/build errors
     if (fullLog.includes('SyntaxError:')) {
       const syntaxMatch = fullLog.match(/SyntaxError:\s*(.+)/);
@@ -316,15 +449,15 @@ class DevServerService {
    * Wait for dev server to become responsive.
    * Detects crash loops by reading server.log and fails fast with specific error.
    */
-  async waitForReady(agentUrl: string, timeoutMs = 60000): Promise<{ ready: boolean; error?: string }> {
+  async waitForReady(agentUrl: string, timeoutMs = 60000, crashDetectionDelayMs = 8000): Promise<{ ready: boolean; error?: string }> {
     const start = Date.now();
 
     while (Date.now() - start < timeoutMs) {
       if (await this.isRunning(agentUrl)) return { ready: true };
 
-      // After 8s, start checking server.log for crash loops
+      // After crashDetectionDelayMs, start checking server.log for crash loops
       // (gives enough time for process to start, crash, restart, crash again)
-      if (Date.now() - start > 8000) {
+      if (Date.now() - start > crashDetectionDelayMs) {
         const crashReason = await this.detectCrash(agentUrl);
         if (crashReason) {
           const elapsed = Date.now() - start;

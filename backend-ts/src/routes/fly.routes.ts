@@ -3,13 +3,12 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { fileService } from '../services/file.service';
 import { dockerService } from '../services/docker.service';
 import { devServerService } from '../services/dev-server.service';
-import { previewService } from '../services/preview.service';
 import { projectDetectorService } from '../services/project-detector.service';
 import { firebaseService } from '../services/firebase.service';
 import { log } from '../utils/logger';
@@ -32,16 +31,16 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Enforce clone + storage limits for new clones
+  // Enforce clone + storage limits using monthly creation counter
   if (uid !== 'anonymous' && repositoryUrl) {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const counts = await countUserProjects(uid);
-    if (counts.cloned >= limits.maxCloned) {
+    const lifetimeCounts = await getLifetimeCreationCounts(uid);
+    if (lifetimeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'CLONE_LIMIT_EXCEEDED',
-        limits: { maxCloned: limits.maxCloned, current: counts.cloned },
+        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
@@ -54,6 +53,9 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
         message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
       });
     }
+
+    // Increment monthly counter for clones
+    await incrementCreationCounter(uid, 'cloned');
   }
 
   const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken);
@@ -62,6 +64,7 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
   res.json({
     success: true,
     machineId: session?.containerId,
+    previewToken: session?.accessToken,
     projectInfo: session?.projectInfo,
   });
 }));
@@ -88,6 +91,9 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
 
   const send = (data: Record<string, unknown>) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (typeof (res as any).flush === 'function') {
+      (res as any).flush();
+    }
   };
 
   try {
@@ -97,6 +103,7 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
       (step, message) => send({ type: 'step', step, message }),
       repositoryUrl as string,
       githubToken as string,
+      (line) => send({ type: 'log', text: line }),
     );
 
     // Send 'ready' with previewUrl (iOS app expects type:'step' + step:'ready')
@@ -107,6 +114,7 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
       previewUrl: result.previewUrl,
       agentUrl: result.agentUrl,
       machineId: result.containerId,
+      previewToken: result.previewToken,
       projectInfo: result.projectInfo,
     });
   } catch (e: any) {
@@ -140,17 +148,28 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
-  // Enforce local file limits
-  if (uid !== 'anonymous' && source === 'local') {
+  // Enforce local file limits using monthly creation counter
+  if (uid !== 'anonymous') {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const counts = await countUserProjects(uid);
-    if (counts.local >= limits.maxLocal) {
+    const lifetimeCounts = await getLifetimeCreationCounts(uid);
+    const isLocal = source === 'local';
+    const isClone = !!repositoryUrl;
+
+    if (isLocal && lifetimeCounts.local >= limits.maxLocal) {
       return res.status(403).json({
         success: false,
         error: 'LOCAL_LIMIT_EXCEEDED',
-        limits: { maxLocal: limits.maxLocal, current: counts.local },
+        limits: { maxLocal: limits.maxLocal, current: lifetimeCounts.local },
         message: `Hai raggiunto il limite di ${limits.maxLocal} progetti locali per il piano ${planId}`,
+      });
+    }
+    if (isClone && lifetimeCounts.cloned >= limits.maxCloned) {
+      return res.status(403).json({
+        success: false,
+        error: 'CLONE_LIMIT_EXCEEDED',
+        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
+        message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
     const storageMb = await getUserStorageMb(uid);
@@ -162,6 +181,10 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
         message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
       });
     }
+
+    // Increment monthly counter
+    const type = isClone ? 'cloned' : isLocal ? 'local' : 'created';
+    await incrementCreationCounter(uid, type);
   }
 
   await fileService.ensureProjectDir(projectId);
@@ -189,6 +212,50 @@ flyRouter.get('/project/:id/files', asyncHandler(async (req, res) => {
 
   const files = await workspaceService.listFiles(projectId);
   res.json({ success: true, files, count: files.length, timestamp: new Date().toISOString() });
+}));
+
+// GET /fly/preview/context/:projectId — lightweight project context for AI helper flows
+flyRouter.get('/preview/context/:projectId', asyncHandler(async (req, res) => {
+  const projectId = req.params.projectId;
+  validateProjectId(projectId);
+  const uid = req.userId || 'anonymous';
+
+  const isOwner = await verifyProjectOwnership(uid, projectId);
+  if (!isOwner) {
+    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (preview/context)`);
+    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  }
+
+  const filesResult = await fileService.listAllFiles(projectId);
+  const files = (filesResult.data || []).map(f => f.path).slice(0, 500);
+
+  const keyFiles = [
+    'package.json',
+    'next.config.js',
+    'next.config.mjs',
+    'vite.config.ts',
+    'vite.config.js',
+    'tsconfig.json',
+    '.env.example',
+    'README.md',
+  ];
+
+  const interestingSourceFiles = files.filter(f =>
+    /\.(tsx?|jsx?|py|go|rb|php|vue|svelte|mdx?)$/i.test(f)
+    && !f.includes('node_modules/')
+  ).slice(0, 12);
+
+  const toRead = [...new Set([...keyFiles, ...interestingSourceFiles])];
+  const contents: Record<string, string> = {};
+
+  for (const filePath of toRead) {
+    const read = await fileService.readFile(projectId, filePath);
+    if (read.success && read.data && !read.data.isBinary) {
+      contents[filePath] = read.data.content.slice(0, 12000);
+    }
+  }
+
+  res.json({ success: true, projectContext: { files, contents } });
 }));
 
 // GET /fly/project/:id/file
@@ -229,7 +296,7 @@ flyRouter.post('/project/:id/file', asyncHandler(async (req, res) => {
   await fileService.writeFile(projectId, filePath, content || '');
 
   // Notify agent if container running
-  const session = await sessionService.getByProjectId(projectId);
+  const session = await sessionService.get(projectId, uid);
   if (session?.agentUrl) {
     fileService.notifyAgent(session.agentUrl, filePath, content || '').catch(() => {});
   }
@@ -451,7 +518,7 @@ flyRouter.post('/reload', asyncHandler(async (req, res) => {
   }
 
   // With NVMe bind mounts, files are already synced — just notify agent
-  const session = await sessionService.getByProjectId(projectId);
+  const session = await sessionService.get(projectId, uid);
   if (session) {
     // Touch project to trigger file watcher
     res.json({ success: true, message: 'Files already synced via NVMe' });
@@ -531,7 +598,12 @@ flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  const session = await sessionService.getByProjectId(projectId);
+  const previewToken = typeof req.query.previewToken === 'string'
+    ? req.query.previewToken
+    : (typeof req.query.pt === 'string' ? req.query.pt : '');
+  const session = previewToken
+    ? await sessionService.getByProjectIdAndAccessToken(projectId, previewToken)
+    : await sessionService.get(projectId, uid);
   if (!session) return res.status(404).json({ error: 'No active session' });
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -539,73 +611,162 @@ flyRouter.get('/logs/:projectId', asyncHandler(async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
+  const keepAlive = setInterval(() => {
+    try { res.write(':keepalive\n\n'); } catch { /* ignore */ }
+  }, 15000);
 
   log.info(`[Logs] Proxying agent /logs for ${projectId} → ${session.agentUrl}`);
 
   const stripAnsi = (s: string) => s.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').replace(/\[[\d;]*m/g, '');
+  const sendSse = (payload: Record<string, any>) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+  const emitLogText = (text: string, ts?: number, logId?: number) => {
+    const clean = stripAnsi(String(text || ''))
+      .replace(/\r/g, '')
+      .replace(/\u0000/g, '')
+      .trim();
+    if (!clean || clean === ':keepalive') return;
+    const timestamp = Number.isFinite(ts as number)
+      ? Math.floor(ts as number)
+      : Math.floor(Date.now() / 1000);
+    const payload: Record<string, any> = { type: 'log', text: clean, timestamp };
+    const normalizedLogId = Number(logId || 0);
+    if (Number.isFinite(normalizedLogId) && normalizedLogId > 0) {
+      payload.id = Math.floor(normalizedLogId);
+    }
+    sendSse(payload);
+  };
 
   const axios = (await import('axios')).default;
+  const querySince = typeof req.query.since === 'string' ? req.query.since.trim() : '';
+  const parsedSince = Number.parseInt(querySince, 10);
+  // Agent /logs expects an incremental log-id cursor, not a unix timestamp.
+  // If client sends a timestamp (legacy behavior), fallback to 0 to avoid skipping buffered logs.
+  const sinceId = Number.isFinite(parsedSince) && parsedSince >= 0 && parsedSince < 1_000_000_000
+    ? parsedSince
+    : 0;
+  const since = String(sinceId);
   try {
-    const response = await axios.get(`${session.agentUrl}/logs?since=0`, {
+    const response = await axios.get(`${session.agentUrl}/logs?since=${encodeURIComponent(since)}`, {
       responseType: 'stream',
       timeout: 0,
     });
 
     let buffer = '';
     response.data.on('data', (chunk: Buffer) => {
-      buffer += chunk.toString();
+      // npm/yarn/pnpm often emit carriage-return progress updates without '\n'.
+      // Convert them to line breaks so the UI can stream updates in real-time.
+      buffer += chunk.toString().replace(/\r/g, '\n');
       let lineEnd;
       while ((lineEnd = buffer.indexOf('\n')) !== -1) {
         const line = buffer.substring(0, lineEnd);
         buffer = buffer.substring(lineEnd + 1);
-        if (line.startsWith('data: ')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (trimmed.startsWith('data: ')) {
           try {
-            const data = JSON.parse(line.substring(6));
-            if (data.text) data.text = stripAnsi(data.text);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
+            const data = JSON.parse(trimmed.substring(6));
+            const timestamp = Number(data.timestamp || data.ts || Math.floor(Date.now() / 1000));
+            const logId = Number(data.id || 0);
+            if (typeof data.text === 'string') {
+              emitLogText(data.text, timestamp, logId);
+            } else if (typeof data.message === 'string') {
+              emitLogText(data.message, timestamp, logId);
+            } else {
+              sendSse(data);
+            }
           } catch {
-            res.write(line + '\n');
+            emitLogText(trimmed.substring(6));
           }
-        } else if (line.trim() === '') {
-          // skip blank SSE separator lines (we add \n\n after each data line)
-        } else {
-          res.write(line + '\n');
+          continue;
         }
+        if (
+          trimmed.startsWith(':') ||
+          trimmed.startsWith('event:') ||
+          trimmed.startsWith('id:') ||
+          trimmed.startsWith('retry:')
+        ) {
+          continue;
+        }
+        emitLogText(trimmed);
       }
       if (typeof (res as any).flush === 'function') (res as any).flush();
     });
 
-    response.data.on('end', () => { res.end(); });
+    response.data.on('end', () => {
+      if (buffer.trim()) emitLogText(buffer.trim());
+      clearInterval(keepAlive);
+      res.end();
+    });
     response.data.on('error', (err: Error) => {
       log.error(`[Logs] Stream error for ${projectId}: ${err.message}`);
+      clearInterval(keepAlive);
       res.end();
     });
 
     req.on('close', () => {
+      clearInterval(keepAlive);
       response.data.destroy();
     });
   } catch (e: any) {
     log.error(`[Logs] Stream error for ${projectId}: ${e.message}`);
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to connect to log stream' })}\n\n`);
+    clearInterval(keepAlive);
     res.end();
   }
 }));
 
 // POST /fly/session
 flyRouter.post('/session', asyncHandler(async (req, res) => {
-  const { projectId } = req.body;
+  const { projectId, machineId } = req.body || {};
   const uid = req.userId || 'anonymous';
-  if (!projectId) throw new ValidationError('projectId required');
+  if (!projectId && !machineId) throw new ValidationError('projectId or machineId required');
 
-  // Verify project ownership
-  const isOwner = await verifyProjectOwnership(uid, projectId);
-  if (!isOwner) {
-    log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (session)`);
-    return res.status(403).json({ error: 'Access denied: you do not own this project' });
+  let session = null as Awaited<ReturnType<typeof sessionService.get>> | null;
+
+  if (projectId) {
+    const isOwner = await verifyProjectOwnership(uid, projectId);
+    if (!isOwner) {
+      log.warn(`[AUTH] User ${uid} tried to access project ${projectId} without ownership (session)`);
+      return res.status(403).json({ error: 'Access denied: you do not own this project' });
+    }
+    session = await sessionService.get(projectId, uid);
   }
 
-  const session = await sessionService.get(projectId, uid);
-  res.json({ success: true, machineId: session?.containerId, message: session ? 'Session active' : 'No session' });
+  // Backward-compatible path: some clients still send machineId.
+  if (!session && machineId) {
+    const byContainer = await sessionService.getByContainerId(machineId);
+    if (byContainer) {
+      const isOwner = await verifyProjectOwnership(uid, byContainer.projectId);
+      if (!isOwner) {
+        log.warn(`[AUTH] User ${uid} tried to access machine ${machineId} for project ${byContainer.projectId} without ownership (session)`);
+        return res.status(403).json({ error: 'Access denied: you do not own this project' });
+      }
+      if (byContainer.userId === 'legacy') {
+        const adopted = { ...byContainer, userId: uid, lastUsed: Date.now() };
+        await sessionService.set(byContainer.projectId, uid, adopted);
+        session = adopted;
+      } else if (byContainer.userId !== uid) {
+        return res.status(403).json({ error: 'Session belongs to another user' });
+      } else {
+        session = byContainer;
+      }
+    }
+  }
+
+  if (session) {
+    session.lastUsed = Date.now();
+    await sessionService.set(session.projectId, session.userId, session);
+  }
+
+  res.json({
+    success: true,
+    machineId: session?.containerId,
+    projectId: session?.projectId,
+    previewToken: session?.accessToken,
+    message: session ? 'Session active' : 'No session',
+  });
 }));
 
 // POST /fly/pool/recycle

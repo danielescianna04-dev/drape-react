@@ -96,6 +96,9 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
   high: 'Alto',
 };
 
+const MAX_AGENT_HISTORY_MESSAGES = 40;
+const MAX_AGENT_MESSAGE_CHARS = 6000;
+
 interface ChatPageProps {
   tab?: Tab;
   isCardMode: boolean;
@@ -116,6 +119,18 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const contentHeightRef = useRef(0);
   const layoutHeightRef = useRef(0);
   const isNearBottomRef = useRef(true);        // true = user hasn't scrolled up
+
+  // ── Scroll helper (declared early, used by multiple effects) ──────────
+  const scrollToBottom = useCallback((animated = true) => {
+    requestAnimationFrame(() => {
+      scrollViewRef.current?.scrollToEnd?.({ animated });
+
+      const offset = contentHeightRef.current - layoutHeightRef.current;
+      if (offset > 0) {
+        scrollViewRef.current?.scrollToOffset({ offset, animated });
+      }
+    });
+  }, []);
 
   // Destructure chat state for easier access
   const {
@@ -148,6 +163,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Agent state - 2-mode system (Fast or Planning only)
   const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
+  const [isInputbarTodoCollapsed, setIsInputbarTodoCollapsed] = useState(false);
 
   // User plan state for upgrade CTA
   const { user } = useAuthStore();
@@ -1437,6 +1453,51 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   }, [stopAgent, currentTab?.id]);
 
+  const buildAgentConversationHistory = useCallback(() => {
+    return (currentTab?.terminalItems || [])
+      .filter(item =>
+        (() => {
+          const content = String(item.content ?? '');
+          const trimmed = content.trim();
+          const hasValidImages = Array.isArray(item.images) && item.images.some(img => Boolean(img?.base64));
+
+          if (item.type === TerminalItemType.USER_MESSAGE) {
+            return trimmed.length > 0 || hasValidImages;
+          }
+
+          if (item.type === TerminalItemType.OUTPUT) {
+            if (trimmed.length === 0) return false;
+            return !content.startsWith('Read ') &&
+              !content.startsWith('Write ') && !content.startsWith('Edit ') &&
+              !content.startsWith('Execute:') && !content.startsWith('Glob ') &&
+              !content.startsWith('Web Search') && !content.startsWith('Agent:') &&
+              !content.startsWith('Todo List') && !content.startsWith('User Question') &&
+              !content.startsWith('List files') && content !== '__BUDGET_EXCEEDED__';
+          }
+
+          return false;
+        })()
+      )
+      .slice(-MAX_AGENT_HISTORY_MESSAGES)
+      .map(item => {
+        const hasValidImages = Array.isArray(item.images) && item.images.some(img => Boolean(img?.base64));
+        const content = String(item.content ?? '').trim() || (hasValidImages ? '[Image attached]' : '');
+        const historyItem: any = {
+          role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
+          content: content.length > MAX_AGENT_MESSAGE_CHARS
+            ? content.slice(0, MAX_AGENT_MESSAGE_CHARS) + '\n...(truncated)'
+            : content,
+        };
+        if (item.images && item.images.length > 0) {
+          historyItem.images = item.images.map(img => ({
+            base64: String(img.base64 || ''),
+            type: String(img.type || 'image/jpeg'),
+          }));
+        }
+        return historyItem;
+      });
+  }, [currentTab?.terminalItems]);
+
   const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
     // Use passed images or fall back to selectedInputImages
     const imagesToSend = (images && images.length > 0) ? images : (selectedInputImages.length > 0 ? selectedInputImages : undefined);
@@ -1598,36 +1659,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // Build conversation history from terminal items (ALL messages, no limits - Claude Code style)
       // Filter only actual conversation (user messages and assistant responses, not tool outputs)
       // Include images in history for multimodal context
-      const MAX_HISTORY_MESSAGES = 40;
-      const MAX_MESSAGE_CHARS = 6000;
-      const conversationHistory = (currentTab?.terminalItems || [])
-        .filter(item =>
-          item.type === TerminalItemType.USER_MESSAGE ||
-          (item.type === TerminalItemType.OUTPUT && !item.content?.startsWith('Read ') &&
-            !item.content?.startsWith('Write ') && !item.content?.startsWith('Edit ') &&
-            !item.content?.startsWith('Execute:') && !item.content?.startsWith('Glob ') &&
-            !item.content?.startsWith('Web Search') && !item.content?.startsWith('Agent:') &&
-            !item.content?.startsWith('Todo List') && !item.content?.startsWith('User Question') &&
-            !item.content?.startsWith('List files') && item.content !== '__BUDGET_EXCEEDED__')
-        )
-        .slice(-MAX_HISTORY_MESSAGES)
-        .map(item => {
-          const content = item.content || '';
-          const historyItem: any = {
-            role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
-            content: content.length > MAX_MESSAGE_CHARS
-              ? content.slice(0, MAX_MESSAGE_CHARS) + '\n...(truncated)'
-              : content,
-          };
-          // Include images if present (for multimodal context)
-          if (item.images && item.images.length > 0) {
-            historyItem.images = item.images.map(img => ({
-              base64: String(img.base64 || ''),
-              type: String(img.type || 'image/jpeg'),
-            }));
-          }
-          return historyItem;
-        });
+      const conversationHistory = buildAgentConversationHistory();
 
 
       // Start agent stream with selected model, conversation history, and current images
@@ -2386,13 +2418,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }).filter(processed => !processed.isOutputAfterTerminalCommand);
   }, [terminalItems, isLoading]);
 
-  // ── Scroll helpers ────────────────────────────────────────────────
-  const scrollToBottom = useCallback((animated = true) => {
-    const offset = contentHeightRef.current - layoutHeightRef.current;
-    if (offset > 0) {
-      scrollViewRef.current?.scrollToOffset({ offset, animated });
-    }
-  }, []);
+  const inputbarTodoRenderKey = useMemo(() => {
+    if (!engine.currentTodos?.length) return 'no-todos';
+    return engine.currentTodos
+      .map((t: any) => `${t.id || ''}:${t.status || ''}:${(t.activeForm || t.content || '').length}`)
+      .join('|');
+  }, [engine.currentTodos]);
+
+  // Track updates on the last rendered item (also during streaming deltas)
+  const lastItemAutoScrollKey = useMemo(() => {
+    const last = processedTerminalItems[processedTerminalItems.length - 1]?.item;
+    if (!last) return 'empty';
+    const contentLen = (last.content || '').length;
+    const thinkingLen = (last.thinkingContent || '').length;
+    return `${processedTerminalItems.length}:${last.id || ''}:${last.type || ''}:${contentLen}:${thinkingLen}:${last.isThinking ? 1 : 0}`;
+  }, [processedTerminalItems]);
+
+  // Keep following the bottom while streaming, unless the user scrolled up.
+  useEffect(() => {
+    if (!isNearBottomRef.current || processedTerminalItems.length === 0) return;
+    scrollToBottom(!(isLoading || agentStreaming));
+  }, [lastItemAutoScrollKey, processedTerminalItems.length, isLoading, agentStreaming, scrollToBottom]);
 
   return (
     <Animated.View style={[
@@ -2485,19 +2531,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               onContentSizeChange={(_w, h) => {
                 contentHeightRef.current = h;
                 if (isNearBottomRef.current) {
-                  const offset = h - layoutHeightRef.current;
-                  if (offset > 0) {
-                    scrollViewRef.current?.scrollToOffset({ offset, animated: true });
-                  }
+                  // During streaming use non-animated follow to avoid lag behind new chunks
+                  scrollToBottom(!(isLoading || agentStreaming));
                 }
               }}
               onLayout={(e) => { layoutHeightRef.current = e.nativeEvent.layout.height; }}
               onScroll={(e) => {
                 const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
                 const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
-                isNearBottomRef.current = distanceFromBottom < 150;
+                isNearBottomRef.current = distanceFromBottom < 220;
               }}
-              scrollEventThrottle={100}
+              scrollEventThrottle={16}
               renderItem={({ item: processed }) => {
                 const { item, isNextItemAI, outputItem, shouldShowLoading } = processed;
 
@@ -2672,11 +2716,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     </View>
                   )}
 
-                  {/* Show TodoList if agent has active todos */}
-                  {engine.currentTodos.length > 0 && (
-                    <TodoList todos={engine.currentTodos} />
-                  )}
-
                   {/* Show SubAgentStatus if a sub-agent is running */}
                   {currentSubAgent && (
                     <SubAgentStatus subAgent={currentSubAgent} />
@@ -2706,6 +2745,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   prevEngineMessagesRef.current = [];
                   engineIdMapRef.current.clear();
 
+                  // Build history BEFORE adding current response (it is sent as prompt)
+                  const resumeHistory = buildAgentConversationHistory();
+
                   // Add user response to terminal
                   addTerminalItem({
                     id: Date.now().toString(),
@@ -2726,7 +2768,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     thinkingContent: '',
                   });
 
-                  startAgent(responseMessage, currentWorkstation.id, selectedModel, conversationHistory, undefined, thinkingLevel);
+                  startAgent(responseMessage, currentWorkstation.id, selectedModel, resumeHistory, undefined, thinkingLevel);
                 }
               }}
               onCancel={() => {
@@ -2844,6 +2886,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     onUndoComplete={() => {}}
                     onRedoComplete={() => {}}
                   />
+                )}
+
+                {/* Integrate active tasks directly inside input bar */}
+                {engine.currentTodos.length > 0 && (
+                  <View style={styles.inputbarTodoContainer}>
+                    <TodoList
+                      key={inputbarTodoRenderKey}
+                      todos={engine.currentTodos}
+                      variant="inputbar"
+                      maxVisibleItems={4}
+                      collapsible
+                      collapsed={isInputbarTodoCollapsed}
+                      onToggleCollapse={() => setIsInputbarTodoCollapsed(prev => !prev)}
+                    />
+                  </View>
                 )}
 
                 {/* Main Input Row */}
@@ -3532,6 +3589,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     borderTopWidth: 0,
+  },
+  inputbarTodoContainer: {
+    paddingHorizontal: 10,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   topControls: {
     height: 36,

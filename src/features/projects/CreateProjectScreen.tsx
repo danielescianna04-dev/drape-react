@@ -174,85 +174,95 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
     };
   }, []);
 
-  // Pause polling in background, resume on foreground
+  // Keep polling alive in background with beginBackgroundTask (~30s)
   const errorCountRef = useRef(0);
+  const bgTaskActiveRef = useRef(false);
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (nextState) => {
       if (nextState === 'background' || nextState === 'inactive') {
-        // Entering background: pause polling to prevent error accumulation
-        if (pollIntervalRef.current && activeTaskIdRef.current) {
-          clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
+        if (activeTaskIdRef.current && isCreating) {
+          // Request ~30s of background execution so polling continues
+          const granted = await liveActivityService.beginBackgroundTask();
+          bgTaskActiveRef.current = granted;
+          // Keep polling running — iOS will give us ~30s
         }
         return;
       }
 
-      if (nextState === 'active' && activeTaskIdRef.current && isCreating) {
-        // App returned to foreground during creation - check status immediately
-        errorCountRef.current = 0;
-        try {
-          const apiUrl = config.apiUrl;
-          const authHeaders = await getAuthHeaders();
-          const statusRes = await fetch(`${apiUrl}/workstation/create-status/${activeTaskIdRef.current}`, {
-            headers: authHeaders,
-          });
-          if (statusRes.ok) {
-            const statusData = await statusRes.json();
-            if (statusData.success && statusData.task) {
-              const task = statusData.task;
-              setCreationTask({
-                status: task.status,
-                progress: task.progress,
-                message: task.message,
-                step: task.step,
-              });
-
-              if (task.status === 'completed') {
-                activeTaskIdRef.current = null;
-
-                const workstation = {
-                  id: task.result.projectId,
-                  projectId: task.result.projectId,
-                  name: task.result.projectName,
-                  language: task.result.technology,
-                  technology: task.result.technology,
-                  templateDescription: task.result.templateDescription,
-                  status: 'ready' as const,
-                  createdAt: new Date(),
-                  files: task.result.files || [],
-                  folderId: null,
-                };
-
-                const pName = task.result.projectName || projectName.trim();
-                if (liveActivityService.isActivityActive()) {
-                  liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
-                }
-
-                setTimeout(() => {
-                  setIsCreating(false);
-                  setCreationTask(null);
-                  onCreate(workstation);
-                }, 500);
-                return;
-              } else if (task.status === 'failed') {
-                activeTaskIdRef.current = null;
-                liveActivityService.endPreviewActivity().catch(() => {});
-                Alert.alert('Errore', task.error || 'Creazione fallita');
-                setIsCreating(false);
-                setCreationTask(null);
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          // Ignore, will restart polling below
+      if (nextState === 'active') {
+        // End background task if we had one
+        if (bgTaskActiveRef.current) {
+          liveActivityService.endBackgroundTask().catch(() => {});
+          bgTaskActiveRef.current = false;
         }
 
-        // Task still running - restart polling
-        if (activeTaskIdRef.current && !pollIntervalRef.current) {
-          const taskId = activeTaskIdRef.current;
-          const apiUrl = config.apiUrl;
-          restartPolling(taskId, apiUrl);
+        if (activeTaskIdRef.current && isCreating) {
+          // App returned to foreground during creation - check status immediately
+          errorCountRef.current = 0;
+          try {
+            const apiUrl = config.apiUrl;
+            const authHeaders = await getAuthHeaders();
+            const statusRes = await fetch(`${apiUrl}/workstation/create-status/${activeTaskIdRef.current}`, {
+              headers: authHeaders,
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.success && statusData.task) {
+                const task = statusData.task;
+                setCreationTask({
+                  status: task.status,
+                  progress: task.progress,
+                  message: task.message,
+                  step: task.step,
+                });
+
+                if (task.status === 'completed') {
+                  activeTaskIdRef.current = null;
+
+                  const workstation = {
+                    id: task.result.projectId,
+                    projectId: task.result.projectId,
+                    name: task.result.projectName,
+                    language: task.result.technology,
+                    technology: task.result.technology,
+                    templateDescription: task.result.templateDescription,
+                    status: 'ready' as const,
+                    createdAt: new Date(),
+                    files: task.result.files || [],
+                    folderId: null,
+                  };
+
+                  const pName = task.result.projectName || projectName.trim();
+                  if (liveActivityService.isActivityActive()) {
+                    liveActivityService.endWithSuccess(pName, 'Creato!').catch(() => {});
+                  }
+
+                  setTimeout(() => {
+                    setIsCreating(false);
+                    setCreationTask(null);
+                    onCreate(workstation);
+                  }, 500);
+                  return;
+                } else if (task.status === 'failed') {
+                  activeTaskIdRef.current = null;
+                  liveActivityService.endPreviewActivity().catch(() => {});
+                  Alert.alert('Errore', task.error || 'Creazione fallita');
+                  setIsCreating(false);
+                  setCreationTask(null);
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore, will restart polling below
+          }
+
+          // Task still running - restart polling if it stopped
+          if (activeTaskIdRef.current && !pollIntervalRef.current) {
+            const taskId = activeTaskIdRef.current;
+            const apiUrl = config.apiUrl;
+            restartPolling(taskId, apiUrl);
+          }
         }
       }
     });
@@ -454,7 +464,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           Alert.alert('Errore', 'Connessione persa durante la creazione. Riprova.');
         }
       }
-    }, 1500);
+    }, 900);
   };
 
   const handleNext = () => {

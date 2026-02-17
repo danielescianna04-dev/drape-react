@@ -185,7 +185,12 @@
       "booting": ["Allocazione risorse cloud...", "Avvio container isolato...", "Inizializzazione servizi...", "Collegamento network...", "Attesa risposta server..."],
       "ready": ["Finalizzazione...", "Apertura connessione sicura...", "Ci siamo!"]
     },
-    "sessionExpired": "Sessione terminata per inattività"
+    "sessionExpired": "Sessione terminata per inattività",
+    "sessionBadge": "Sessione Preview",
+    "sessionExpiredTitle": "Sessione scaduta",
+    "sessionStatePreserved": "Stato progetto preservato",
+    "sessionFastRestart": "Ripartenza immediata",
+    "sessionRestartCta": "Riavvia Preview"
   },
   "chat": {
     "thinking": "Ragionando",

@@ -119,6 +119,28 @@ export function useChatEngine(
 
   const gapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const normalizeTodos = useCallback((rawTodos: any): any[] => {
+    let parsed: any = rawTodos;
+    if (typeof parsed === 'string') {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        parsed = [];
+      }
+    }
+
+    const list = Array.isArray(parsed) ? parsed : [];
+    // Clone every item so React always gets a new identity even if backend mutates in place
+    return list.map((todo: any, index: number) => ({
+      id: todo?.id || `todo-${index}`,
+      content: String(todo?.content ?? ''),
+      activeForm: String(todo?.activeForm ?? todo?.content ?? ''),
+      status: (todo?.status === 'completed' || todo?.status === 'in_progress' || todo?.status === 'pending')
+        ? todo.status
+        : 'pending',
+    }));
+  }, []);
+
   const reset = useCallback(() => {
     setMessages([]);
     setActiveTools([]);
@@ -183,7 +205,10 @@ export function useChatEngine(
       }
 
       // ── THINKING_START ──────────────────────────────────────────────────
-      if (event.type === 'thinking_start') {
+      // Backend can send either:
+      // - explicit event type: thinking_start
+      // - type: thinking with { start: true }
+      if (event.type === 'thinking_start' || (event.type === 'thinking' && (event as any).start)) {
         if (!currentMessageIdRef.current?.startsWith('engine-thinking-')) {
           const newId = `engine-thinking-${Date.now()}`;
           currentMessageIdRef.current = newId;
@@ -199,6 +224,14 @@ export function useChatEngine(
             timestamp: new Date(),
           }]);
         }
+        continue;
+      }
+
+      // ── THINKING_END ────────────────────────────────────────────────────
+      // Backend can send either:
+      // - explicit event type: thinking_end
+      // - type: thinking with { end: true }
+      if (event.type === 'thinking_end' || (event.type === 'thinking' && (event as any).end)) {
         continue;
       }
 
@@ -230,13 +263,6 @@ export function useChatEngine(
             m.id === thinkingId ? { ...m, thinkingContent: thinkingContentRef.current } : m,
           ));
         }
-        continue;
-      }
-
-      // ── THINKING_END ────────────────────────────────────────────────────
-      // No-op: keep isThinking=true until text_delta/message/complete arrives.
-      // Setting isThinking=false here causes the item to be filtered out (empty content + !isThinking).
-      if (event.type === 'thinking_end') {
         continue;
       }
 
@@ -532,7 +558,7 @@ export function useChatEngine(
 
       // ── TODO_UPDATE ─────────────────────────────────────────────────────
       if ((event as any).type === 'todo_update') {
-        setCurrentTodos((event as any).todos || []);
+        setCurrentTodos(normalizeTodos((event as any).todos));
         continue;
       }
 
@@ -618,7 +644,7 @@ export function useChatEngine(
         });
       }, 250);
     }
-  }, [agentEvents, agentStreaming]);
+  }, [agentEvents, agentStreaming, normalizeTodos]);
 
   // Keep isLoading in sync with agentStreaming
   useEffect(() => {
@@ -629,8 +655,10 @@ export function useChatEngine(
       clearTimeout(gapTimerRef.current);
       gapTimerRef.current = null;
     }
-    // Don't set false here — that's handled by complete/done/error events
-  }, [agentStreaming]);
+    if (!agentStreaming && isLoading) {
+      setIsLoading(false);
+    }
+  }, [agentStreaming, isLoading]);
 
   return {
     messages,

@@ -227,11 +227,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
       // 1. Remove all tabs associated with this project (including chats)
       removeTabsByWorkstation(deleteTarget.id);
 
-      // 2. Delete from backend AND Firebase using workstationService
-      // This handles both: cloned files on backend + document in Firebase
-      await workstationService.deleteProject(deleteTarget.id);
-
-      // 3. Remove from local store
+      // 2. Single deletion flow: removeWorkstation already performs remote + local cleanup.
       await removeWorkstation(deleteTarget.id);
 
     } catch (error) {

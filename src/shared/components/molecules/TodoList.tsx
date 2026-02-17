@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../theme/colors';
 
@@ -15,12 +15,31 @@ interface Todo {
 
 interface Props {
     todos: Todo[];
+    variant?: 'default' | 'inputbar';
+    maxVisibleItems?: number;
+    collapsible?: boolean;
+    collapsed?: boolean;
+    onToggleCollapse?: () => void;
 }
 
-export const TodoList: React.FC<Props> = ({ todos }) => {
+export const TodoList: React.FC<Props> = ({
+    todos,
+    variant = 'default',
+    maxVisibleItems,
+    collapsible = false,
+    collapsed = false,
+    onToggleCollapse,
+}) => {
     if (!todos || todos.length === 0) {
         return null;
     }
+
+    const visibleTodos = typeof maxVisibleItems === 'number' && maxVisibleItems > 0
+        ? todos.slice(0, maxVisibleItems)
+        : todos;
+    const hiddenCount = Math.max(0, todos.length - visibleTodos.length);
+    const isInputbar = variant === 'inputbar';
+    const isCollapsed = collapsible ? collapsed : false;
 
     const getStatusIcon = (status: string) => {
         switch (status) {
@@ -49,23 +68,46 @@ export const TodoList: React.FC<Props> = ({ todos }) => {
     };
 
     return (
-        <View style={styles.container}>
-            <Text style={styles.header}>Tasks</Text>
-            {todos.map((todo, index) => (
-                <View key={index} style={styles.todoItem}>
+        <View style={[styles.container, isInputbar && styles.containerInputbar]}>
+            <View style={styles.headerRow}>
+                <Text style={[styles.header, isInputbar && styles.headerInputbar]}>
+                    Tasks ({todos.length})
+                </Text>
+                {collapsible && (
+                    <TouchableOpacity
+                        onPress={onToggleCollapse}
+                        style={styles.collapseButton}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                        <Ionicons
+                            name={isCollapsed ? 'chevron-down' : 'chevron-up'}
+                            size={14}
+                            color="rgba(255,255,255,0.65)"
+                        />
+                    </TouchableOpacity>
+                )}
+            </View>
+            {!isCollapsed && visibleTodos.map((todo, index) => (
+                <View key={index} style={[styles.todoItem, isInputbar && styles.todoItemInputbar]}>
                     <Ionicons
                         name={getStatusIcon(todo.status)}
-                        size={20}
+                        size={isInputbar ? 16 : 20}
                         color={getStatusColor(todo.status)}
                         style={styles.icon}
                     />
                     <View style={styles.todoContent}>
-                        <Text style={styles.todoText}>
+                        <Text style={[styles.todoText, isInputbar && styles.todoTextInputbar]}>
                             {todo.status === 'in_progress' ? todo.activeForm : todo.content}
                         </Text>
                     </View>
                 </View>
             ))}
+            {!isCollapsed && hiddenCount > 0 && (
+                <Text style={[styles.moreText, isInputbar && styles.moreTextInputbar]}>
+                    +{hiddenCount} altre attivita
+                </Text>
+            )}
         </View>
     );
 };
@@ -79,16 +121,49 @@ const styles = StyleSheet.create({
         padding: 16,
         marginVertical: 8,
     },
+    containerInputbar: {
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderColor: 'rgba(255,255,255,0.08)',
+        marginVertical: 0,
+        marginBottom: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: 14,
+    },
     header: {
         color: '#fff',
         fontWeight: '600',
         fontSize: 14,
         marginBottom: 12,
     },
+    headerInputbar: {
+        fontSize: 12,
+        marginBottom: 0,
+        color: 'rgba(255,255,255,0.78)',
+    },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    collapseButton: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
     todoItem: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 8,
+    },
+    todoItemInputbar: {
+        paddingVertical: 5,
     },
     icon: {
         marginRight: 12,
@@ -99,6 +174,21 @@ const styles = StyleSheet.create({
     todoText: {
         color: '#fff',
         fontSize: 14,
+    },
+    todoTextInputbar: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: 'rgba(255,255,255,0.92)',
+    },
+    moreText: {
+        marginTop: 8,
+        color: 'rgba(255,255,255,0.65)',
+        fontSize: 12,
+    },
+    moreTextInputbar: {
+        marginTop: 6,
+        fontSize: 11,
+        color: 'rgba(255,255,255,0.55)',
     },
 });
 

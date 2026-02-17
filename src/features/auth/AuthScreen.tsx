@@ -459,11 +459,12 @@ export const AuthScreen = () => {
             style={[styles.resendButton, resendSuccess && styles.resendButtonSuccess]}
             onPress={async () => {
               try {
+                setLocalError(null);
                 setResendSuccess(false);
                 await resendVerificationEmail(verificationEmail, verificationPassword);
                 setResendSuccess(true);
-              } catch {
-                // Silently fail — user can retry
+              } catch (err: any) {
+                setLocalError(err?.message || t('auth:errors.errorSendingVerificationEmail'));
               }
             }}
             disabled={isLoading}

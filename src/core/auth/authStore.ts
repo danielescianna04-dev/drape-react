@@ -10,6 +10,7 @@ import {
   EmailAuthProvider,
   User,
   sendPasswordResetEmail,
+  sendEmailVerification,
   GoogleAuthProvider,
   OAuthProvider,
   signInWithCredential,
@@ -28,6 +29,39 @@ import { deviceService } from '../services/deviceService';
 import { Alert } from 'react-native';
 import i18n from '../../i18n';
 import { config } from '../../config/config';
+
+async function parseApiError(response: Response): Promise<string> {
+  try {
+    const payload = await response.json();
+    if (payload?.error && typeof payload.error === 'string') return payload.error;
+  } catch {
+    // Ignore JSON parsing issues and use HTTP status fallback.
+  }
+  return `HTTP ${response.status}`;
+}
+
+async function sendBackendVerificationEmail(email: string, displayName?: string): Promise<void> {
+  const response = await fetch(`${config.apiUrl}/auth/send-verification`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, ...(displayName ? { displayName } : {}) }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+async function sendVerificationEmailWithFallback(user: User, email: string, displayName: string): Promise<'backend' | 'firebase'> {
+  try {
+    await sendBackendVerificationEmail(email, displayName);
+    return 'backend';
+  } catch (backendError: any) {
+    console.warn('[AuthStore] Backend verification email failed, fallback to Firebase:', backendError?.message || backendError);
+    await sendEmailVerification(user);
+    return 'firebase';
+  }
+}
 
 // Track previous user ID to detect user changes
 let previousUserId: string | null = null;
@@ -373,12 +407,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         updatedAt: serverTimestamp(),
       }).catch(err => console.warn('[AuthStore] Firestore user doc creation deferred:', err.code));
 
-      // Send verification email via backend (uses Resend for beautiful emails)
-      fetch(`${config.apiUrl}/auth/send-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, displayName }),
-      }).catch(err => console.warn('[AuthStore] Backend verification email failed, using fallback:', err));
+      try {
+        const provider = await sendVerificationEmailWithFallback(userCredential.user, email, displayName);
+        console.log(`[AuthStore] Verification email sent via ${provider}`);
+      } catch (verificationError: any) {
+        console.error('❌ [AuthStore] Verification email failed on both backend and Firebase:', verificationError?.message || verificationError);
+        throw { code: 'auth/verification-email-send-failed' };
+      }
 
       // Sign out — user must verify email before using the app
       await signOut(auth);
@@ -389,6 +424,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (error: any) {
       isSigningUp = false;
       console.error('❌ [AuthStore] Sign up error:', error.code);
+      await signOut(auth).catch(() => {});
 
       let errorMessage = i18n.t('auth:errors.errorDuringRegistration');
       switch (error.code) {
@@ -403,6 +439,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           break;
         case 'auth/weak-password':
           errorMessage = i18n.t('auth:errors.weakPassword');
+          break;
+        case 'auth/verification-email-send-failed':
+          errorMessage = i18n.t('auth:errors.errorSendingVerificationEmail');
           break;
       }
 
@@ -587,17 +626,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  resendVerificationEmail: async (email: string, _password: string) => {
+  resendVerificationEmail: async (email: string, password: string) => {
+    set({ isLoading: true, error: null });
     try {
-      const res = await fetch(`${config.apiUrl}/auth/send-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      if (!res.ok) throw new Error('Failed to resend verification email');
-    } catch (error: any) {
-      console.error('❌ [AuthStore] Resend verification error:', error.message);
-      throw error;
+      await sendBackendVerificationEmail(email);
+      set({ isLoading: false });
+      return;
+    } catch (backendError: any) {
+      console.warn('[AuthStore] Resend via backend failed, trying Firebase fallback:', backendError?.message || backendError);
+    }
+
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      await sendEmailVerification(userCredential.user);
+      await signOut(auth);
+      set({ isLoading: false });
+    } catch (fallbackError: any) {
+      console.error('❌ [AuthStore] Resend verification fallback failed:', fallbackError?.message || fallbackError);
+      await signOut(auth).catch(() => {});
+      const errorMessage = i18n.t('auth:errors.errorSendingVerificationEmail');
+      set({ isLoading: false, error: errorMessage });
+      throw new Error(errorMessage);
     }
   },
 

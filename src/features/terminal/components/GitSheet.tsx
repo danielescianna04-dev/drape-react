@@ -237,8 +237,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             // Fetch from GitHub API (FAST!)
             const apiStart = Date.now();
             const [commitsData, branchesData] = await Promise.all([
-              githubService.getCommits(owner, repo, token || undefined),
-              githubService.getBranches(owner, repo, token || undefined)
+              githubService.getCommits(owner, repo, token),
+              githubService.getBranches(owner, repo, token)
             ]);
 
             if (commitsData && commitsData.length > 0) {

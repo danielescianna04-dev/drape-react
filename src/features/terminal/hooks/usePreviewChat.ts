@@ -38,6 +38,28 @@ interface UsePreviewChatParams {
   webViewRef: React.RefObject<WebView>;
 }
 
+const MAX_API_HISTORY_MESSAGES = 40;
+const MAX_API_MESSAGE_CHARS = 6000;
+const MAX_LOCAL_HISTORY_MESSAGES = 200;
+
+function buildConversationHistory(messages: AIMessage[]): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return messages
+    .filter((m) => {
+      if (m.type !== 'user' && m.type !== 'text') return false;
+      return String(m.content ?? '').trim().length > 0;
+    })
+    .slice(-MAX_API_HISTORY_MESSAGES)
+    .map((m) => {
+      const content = String(m.content ?? '').trim();
+      return {
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: content.length > MAX_API_MESSAGE_CHARS
+          ? `${content.slice(0, MAX_API_MESSAGE_CHARS)}\n...(truncated)`
+          : content,
+      };
+    });
+}
+
 export function usePreviewChat({ currentWorkstationId, currentWorkstationName, webViewRef }: UsePreviewChatParams) {
   const chatHistory = useChatStore((state) => state.chatHistory);
   const selectedModel = useUIStore((state) => state.selectedModel);
@@ -178,13 +200,11 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
     // Snapshot current engine messages into history, then add user message
     const currentRunMapped = engine.messages.map(mapEngineToAI);
-    setHistory(prev => [...prev, ...currentRunMapped, newUserMsg]);
+    const historyBeforeUserMessage = [...history, ...currentRunMapped];
+    setHistory(prev => [...prev, ...currentRunMapped, newUserMsg].slice(-MAX_LOCAL_HISTORY_MESSAGES));
 
-    // Build conversation history for the API
-    const allMessages = [...history, ...currentRunMapped, newUserMsg];
-    const conversationHistory = allMessages
-      .filter(m => m.type === 'user' || m.type === 'text')
-      .map(m => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content || '' }));
+    // Build conversation history for the API (exclude current prompt; sent separately)
+    const conversationHistory = buildConversationHistory(historyBeforeUserMessage);
 
     // Create or update chat in history store
     const isFirstMessage = history.filter(m => m.type === 'user').length === 0;
@@ -217,7 +237,7 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     // Reset engine + agent for new run
     engine.reset();
     resetAgent();
-    startAgent(prompt, currentWorkstationId, 'claude-4-5-sonnet', conversationHistory, [], 'minimal');
+    startAgent(prompt, currentWorkstationId, selectedModel, conversationHistory, [], 'minimal');
   };
 
   // ── Past chat actions ───────────────────────────────────────────────────
@@ -292,11 +312,13 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     if (currentWorkstationId) {
       // Snapshot + add user message
       const currentRunMapped = engine.messages.map(mapEngineToAI);
-      setHistory(prev => [...prev, ...currentRunMapped, { type: 'user', content: responseMessage }]);
+      const historyBeforeResponse = [...history, ...currentRunMapped];
+      const conversationHistory = buildConversationHistory(historyBeforeResponse);
+      setHistory(prev => [...prev, ...currentRunMapped, { type: 'user', content: responseMessage }].slice(-MAX_LOCAL_HISTORY_MESSAGES));
 
       engine.reset();
       resetAgent();
-      startAgent(responseMessage, currentWorkstationId, 'claude-4-5-sonnet', [], [], 'minimal');
+      startAgent(responseMessage, currentWorkstationId, selectedModel, conversationHistory, [], 'minimal');
     }
   };
 
@@ -308,7 +330,6 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     message, setMessage,
     aiMessages,
     isAiLoading: engine.isLoading,
-    setIsAiLoading: (v: boolean) => {}, // no-op, engine manages this
     activeTools: engine.activeTools,
     previewChatId,
     currentTodos: engine.currentTodos,

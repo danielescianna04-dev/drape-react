@@ -15,7 +15,7 @@ import { iapRouter } from './iap.routes';
 import { authRouter } from './auth.routes';
 import { createPreviewProxy, createAssetProxy } from '../middleware/vm-router';
 import { config } from '../config';
-import { optionalAuth } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
 
 export function mountRoutes(app: Express): void {
   // Health & logs (root level) — public
@@ -62,17 +62,16 @@ export function mountRoutes(app: Express): void {
 
   // --- Auth-protected routes ---
 
-  // Agent routes — optionalAuth (supports old app versions without auth token)
-  app.use('/agent', optionalAuth, agentRouter);
+  // Agent routes
+  app.use('/agent', requireAuth, agentRouter);
 
-  // Notifications — optionalAuth (supports old app versions without auth token)
-  app.use('/notifications', optionalAuth, notificationRouter);
+  // Notifications
+  app.use('/notifications', requireAuth, notificationRouter);
 
-  // Workstation — optionalAuth (supports old app versions that may not send token yet)
-  // verifyProjectOwnership already returns true during migration period
-  app.use('/workstation', optionalAuth, workstationRouter);
+  // Workstation
+  app.use('/workstation', requireAuth, workstationRouter);
 
-  // Fly — optionalAuth (supports old app versions without auth token)
+  // Fly
   app.get('/fly/health', (req, res) => {
     res.json({ status: 'ok', backend: 'docker-ts', timestamp: new Date().toISOString() });
   });
@@ -81,13 +80,13 @@ export function mountRoutes(app: Express): void {
     req.url = '/status';
     flyRouter(req, res, next);
   });
-  app.use('/fly', optionalAuth, flyRouter);
+  app.use('/fly', requireAuth, flyRouter);
 
-  // Git — optionalAuth (supports old app versions without auth token)
-  app.use('/git', optionalAuth, gitRouter);
+  // Git
+  app.use('/git', requireAuth, gitRouter);
 
-  // AI — optionalAuth (supports old app versions without auth token)
-  app.use('/ai', optionalAuth, aiRouter);
+  // AI
+  app.use('/ai', requireAuth, aiRouter);
 
   // Root info — public
   app.get('/', (req, res) => {

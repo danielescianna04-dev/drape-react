@@ -428,14 +428,29 @@ export const workstationService = {
   },
 
   // Cerca nei contenuti dei file
-  async searchInFiles(projectId: string, query: string, repositoryUrl?: string): Promise<{ file: string; line: number; content: string; match: string }[]> {
+  async searchInFiles(
+    projectId: string,
+    query: string,
+    repositoryUrl?: string
+  ): Promise<{ file: string; line: number; content: string; match?: string }[]> {
     try {
-      const url = repositoryUrl
-        ? `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}&repositoryUrl=${encodeURIComponent(repositoryUrl)}`
-        : `${API_BASE_URL}/workstation/${projectId}/search?query=${encodeURIComponent(query)}`;
+      const pattern = String(query ?? '').trim();
+      if (!pattern) return [];
 
-      const response = await apiClient.get(url);
-      return response.data.results || [];
+      // Current backend route is POST /workstation/search-files
+      const response = await apiClient.post(`${API_BASE_URL}/workstation/search-files`, {
+        projectId,
+        pattern,
+        repositoryUrl,
+      });
+
+      const results = Array.isArray(response?.data?.results) ? response.data.results : [];
+      return results.map((r: any) => ({
+        file: String(r?.file || ''),
+        line: Number(r?.line || 0),
+        content: String(r?.content || r?.match || ''),
+        match: typeof r?.match === 'string' ? r.match : undefined,
+      }));
     } catch (error: any) {
       console.error('Error searching in files:', error);
       throw new Error(error.response?.data?.error || error.message || 'Failed to search in files');
@@ -447,20 +462,25 @@ export const workstationService = {
     try {
       // Handle both formats: "projectId" or "ws-projectId"
       const cleanProjectId = projectId.startsWith('ws-') ? projectId.substring(3) : projectId;
+      const candidateIds = Array.from(
+        new Set([projectId, cleanProjectId].filter((id): id is string => Boolean(id && id.trim())))
+      );
 
-      // 1. Prima elimina i file clonati dal backend (try both IDs)
-      for (const id of [projectId, cleanProjectId]) {
-        try {
-          const response = await apiClient.delete(`${API_BASE_URL}/workstation/${id}?force=true`);
-        } catch (backendError: any) {
-          console.warn('⚠️ [DELETE] Backend error for', id, ':', backendError?.response?.data || backendError?.message);
-        }
-      }
+      // 1. Trigger backend cleanup (async-mode via force=true). Do not block UI on long container teardown.
+      await Promise.allSettled(
+        candidateIds.map(async (id) => {
+          try {
+            await apiClient.delete(`${API_BASE_URL}/workstation/${id}?force=true`, { timeout: 8000 });
+          } catch (backendError: any) {
+            console.warn('⚠️ [DELETE] Backend error for', id, ':', backendError?.response?.data || backendError?.message);
+          }
+        })
+      );
 
       // 2. Delete from Firebase — check existence first to avoid permission-denied
       //    on non-existent docs (Firestore can't evaluate resource.data on missing docs)
       let deleted = false;
-      for (const id of [cleanProjectId, projectId]) {
+      for (const id of candidateIds) {
         if (deleted) break;
         try {
           const docRef = doc(db, COLLECTION, id);

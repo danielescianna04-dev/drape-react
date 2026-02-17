@@ -94,6 +94,7 @@ notificationRouter.post('/send', asyncHandler(async (req, res) => {
  */
 notificationRouter.post('/send-batch', asyncHandler(async (req, res) => {
   const { userIds, title, body, data } = req.body;
+  const requesterId = req.userId;
 
   if (!Array.isArray(userIds) || userIds.length === 0) {
     throw new ValidationError('userIds must be a non-empty array');
@@ -101,6 +102,10 @@ notificationRouter.post('/send-batch', asyncHandler(async (req, res) => {
 
   if (!title || !body) {
     throw new ValidationError('title and body are required');
+  }
+
+  if (!requesterId || userIds.some((uid: string) => uid !== requesterId)) {
+    return res.status(403).json({ error: 'Cannot send notifications to other users' });
   }
 
   log.info(`[Notifications] Sending batch notification to ${userIds.length} users: ${title}`);
@@ -135,6 +140,10 @@ notificationRouter.post('/preferences', asyncHandler(async (req, res) => {
 
   if (!preferences || typeof preferences !== 'object') {
     throw new ValidationError('preferences must be an object');
+  }
+
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Cannot update preferences for other users' });
   }
 
   log.info(`[Notifications] Updating preferences for user ${userId}`);
@@ -175,6 +184,10 @@ notificationRouter.get('/preferences/:userId', asyncHandler(async (req, res) => 
 
   if (!userId) {
     throw new ValidationError('userId is required');
+  }
+
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Cannot read preferences for other users' });
   }
 
   const db = firebaseService.getFirestore();
@@ -233,6 +246,10 @@ notificationRouter.delete('/unregister/:userId', asyncHandler(async (req, res) =
 
   if (!userId) {
     throw new ValidationError('userId is required');
+  }
+
+  if (req.userId !== userId) {
+    return res.status(403).json({ error: 'Cannot unregister tokens for other users' });
   }
 
   log.info(`[Notifications] Unregistering token for user ${userId}`);

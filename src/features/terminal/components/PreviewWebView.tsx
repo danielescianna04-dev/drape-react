@@ -12,6 +12,7 @@ export interface PreviewWebViewProps {
   currentPreviewUrl: string;
   coderToken: string | null;
   globalFlyMachineId: string | null;
+  previewAccessToken: string | null;
   flyMachineIdRef: React.MutableRefObject<string | null>;
 
   // State
@@ -58,6 +59,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   currentPreviewUrl,
   coderToken,
   globalFlyMachineId,
+  previewAccessToken,
   flyMachineIdRef,
   hasWebUI,
   webViewReady,
@@ -89,6 +91,24 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   topInset,
   t,
 }) => {
+  // Safety-net retry for transient proxy errors that slip past checkServerStatus
+  const proxyRetryCountRef = React.useRef(0);
+  const MAX_PROXY_RETRIES = 5;
+  const readyFallbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset retry counter when URL or server status changes
+  React.useEffect(() => {
+    proxyRetryCountRef.current = 0;
+  }, [currentPreviewUrl, serverStatus]);
+
+  React.useEffect(() => {
+    return () => {
+      if (readyFallbackTimerRef.current) {
+        clearTimeout(readyFallbackTimerRef.current);
+        readyFallbackTimerRef.current = null;
+      }
+    };
+  }, []);
   return (
     <View style={{ flex: 1, backgroundColor: '#0a0a0c' }}>
       {/* LIVE APP LAYER (Below) */}
@@ -103,8 +123,9 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 headers: {
                   'Coder-Session-Token': coderToken || '',
                   'session_token': coderToken || '',
+                  ...(previewAccessToken ? { 'X-Drape-Preview-Token': previewAccessToken } : {}),
                   ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                  'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}`,
+                  'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}; drape_preview_token=${previewAccessToken || ''}`,
                   ...(flyMachineIdRef.current ? {
                     'X-Drape-VM-Id': flyMachineIdRef.current,
                     'Fly-Force-Instance-Id': flyMachineIdRef.current
@@ -119,6 +140,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               (function() {
                 var token = ${JSON.stringify(coderToken || '')};
                 var vmId = ${JSON.stringify(globalFlyMachineId || '')};
+                var previewToken = ${JSON.stringify(previewAccessToken || '')};
 
                 // Set cookies
                 if (token) {
@@ -127,6 +149,9 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 }
                 if (vmId) {
                   document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
+                }
+                if (previewToken) {
+                  document.cookie = "drape_preview_token=" + previewToken + "; path=/; SameSite=Lax";
                 }
 
                 // Prevent zoom out below 1.0 — force viewport
@@ -161,7 +186,9 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     // Support multiple root element IDs
                     var root = document.getElementById('root') ||
                                document.getElementById('__next') ||
+                               document.getElementById('__nuxt') ||
                                document.querySelector('[data-reactroot]') ||
+                               document.querySelector('app-root') ||
                                document.querySelector('[id^="app"]');
                     var rootChildren = root ? root.children.length : 0;
                     var text = document.body.innerText || '';
@@ -173,8 +200,15 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                       return;
                     }
 
-                    // React/Next.js mounted - or any content in body
-                    if ((root && rootChildren > 0) || document.body.children.length > 2) {
+                    // React/Next.js/Expo mounted
+                    // If a known root element exists, wait for it to have children AND visible text.
+                    // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
+                    // Only use body.children fallback for non-SPA pages (no root element).
+                    var hasText = root && root.innerText && root.innerText.trim().length > 0;
+                    var isReady = root
+                      ? rootChildren > 0 && hasText
+                      : document.body.children.length > 2;
+                    if (isReady) {
                       clearInterval(checkInterval);
                       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WEBVIEW_READY' }));
                     }
@@ -193,6 +227,10 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               onLoadStart={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
                 console.log('WebView load start:', nativeEvent.url);
+                if (readyFallbackTimerRef.current) {
+                  clearTimeout(readyFallbackTimerRef.current);
+                  readyFallbackTimerRef.current = null;
+                }
                 if (serverStatus !== 'running') {
                   setWebViewReady(false);
                 }
@@ -202,18 +240,73 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 const { nativeEvent } = syntheticEvent;
                 console.log('WebView load end:', nativeEvent.url);
                 // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
+                // AND framework build error overlays (Next.js, Vite, etc.)
                 webViewRef.current?.injectJavaScript(`
                (function() {
                  try {
                    var bodyText = document.body && document.body.innerText && document.body.innerText.trim();
-                   if (bodyText && bodyText.charAt(0) === '{' && bodyText.indexOf('"error"') !== -1) {
-                     var parsed = JSON.parse(bodyText);
-                     if (parsed.error) {
-                       window.ReactNativeWebView?.postMessage(JSON.stringify({
-                         type: 'PREVIEW_ERROR',
-                         message: parsed.error + (parsed.message ? ': ' + parsed.message : '')
-                       }));
+                   if (!bodyText) return;
+
+                   // 1. JSON proxy errors
+                   if (bodyText.charAt(0) === '{' && bodyText.indexOf('"error"') !== -1) {
+                     try {
+                       var parsed = JSON.parse(bodyText);
+                       if (parsed.error) {
+                         window.ReactNativeWebView?.postMessage(JSON.stringify({
+                           type: 'PREVIEW_ERROR',
+                           message: parsed.error + (parsed.message ? ': ' + parsed.message : '')
+                         }));
+                         return;
+                       }
+                     } catch(e) {}
+                   }
+
+                   // 2. Framework build/compile error overlays
+                   var lower = bodyText.toLowerCase();
+                   var isBuildError = false;
+                   var errorMsg = '';
+
+                   // Next.js error overlay
+                   var hasServerError = lower.indexOf('server error') !== -1;
+                   var hasUnhandled = lower.indexOf('unhandled') !== -1;
+                   var hasBuildFail = lower.indexOf('module build failed') !== -1
+                     || lower.indexOf('modulebuildError') !== -1
+                     || lower.indexOf('failed to compile') !== -1
+                     || lower.indexOf('build error') !== -1;
+                   var hasSyntaxErr = lower.indexOf('syntaxerror') !== -1
+                     || lower.indexOf('unexpected token') !== -1;
+                   var hasModuleNotFound = lower.indexOf('module not found') !== -1
+                     || lower.indexOf('cannot find module') !== -1;
+
+                   if (hasServerError && (hasBuildFail || hasSyntaxErr || hasModuleNotFound || hasUnhandled)) {
+                     isBuildError = true;
+                   }
+                   if (hasBuildFail || (hasSyntaxErr && hasUnhandled)) {
+                     isBuildError = true;
+                   }
+
+                   // Vite error overlay
+                   if (document.querySelector('vite-error-overlay')) {
+                     isBuildError = true;
+                   }
+
+                   if (isBuildError) {
+                     // Extract a concise error message from the page
+                     var lines = bodyText.split('\\n').map(function(l) { return l.trim(); }).filter(Boolean);
+                     var errorLines = [];
+                     for (var i = 0; i < lines.length && errorLines.length < 8; i++) {
+                       var ll = lines[i].toLowerCase();
+                       if (ll.indexOf('error') !== -1 || ll.indexOf('expected') !== -1
+                           || ll.indexOf('cannot find') !== -1 || ll.indexOf('module not found') !== -1
+                           || ll.indexOf('syntaxerror') !== -1 || (ll.indexOf('|') !== -1 && errorLines.length > 0)) {
+                         errorLines.push(lines[i]);
+                       }
                      }
+                     errorMsg = errorLines.length > 0 ? errorLines.join('\\n') : bodyText.substring(0, 500);
+                     window.ReactNativeWebView?.postMessage(JSON.stringify({
+                       type: 'BUILD_ERROR',
+                       message: errorMsg
+                     }));
                    }
                  } catch(e) {}
                })();
@@ -243,11 +336,18 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                    try {
                      const root = document.getElementById('root') ||
                                   document.getElementById('__next') ||
+                                  document.getElementById('__nuxt') ||
                                   document.querySelector('[data-reactroot]') ||
+                                  document.querySelector('app-root') ||
                                   document.querySelector('[id^="app"]');
-                     // Check root children OR any substantial body content
+                     // If a known root element exists, wait for it to have children AND visible text.
+                     // The text check prevents triggering on empty runtime wrappers (Metro/Expo bootstrap).
+                     // Only use body.children fallback for non-SPA pages (no root).
                      const rootChildren = root ? root.children.length : 0;
-                     const hasContent = (rootChildren > 0) || (document.body.children.length > 2);
+                     const hasText = root && root.innerText && root.innerText.trim().length > 0;
+                     const hasContent = root
+                       ? rootChildren > 0 && hasText
+                       : document.body.children.length > 2;
 
                      if (hasContent) {
                        window.ReactNativeWebView?.postMessage(JSON.stringify({
@@ -287,12 +387,16 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               }}
 
               onLoadProgress={({ nativeEvent }) => {
-                if (nativeEvent.progress === 1) setIsLoading(false);
+                // Don't wait for full network completion to reveal content.
+                if (nativeEvent.progress >= 0.85) setIsLoading(false);
               }}
               onNavigationStateChange={(navState) => {
                 setCanGoBack(navState.canGoBack);
                 setCanGoForward(navState.canGoForward);
-                setIsLoading(navState.loading);
+                // After first render, avoid bouncing back to loading on SPA-internal navigations.
+                if (!webViewReady || !navState.loading) {
+                  setIsLoading(navState.loading);
+                }
               }}
               onShouldStartLoadWithRequest={(request) => {
                 const url = request.url;
@@ -323,14 +427,38 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   const data = JSON.parse(event.nativeEvent.data);
 
                   if (data.type === 'WEBVIEW_READY') {
+                    if (readyFallbackTimerRef.current) {
+                      clearTimeout(readyFallbackTimerRef.current);
+                      readyFallbackTimerRef.current = null;
+                    }
                     setWebViewReady(true);
                   }
                   if (data.type === 'PREVIEW_ERROR') {
-                    // WebView loaded a JSON error from the proxy -- show error UI
-                    console.error('WebView detected proxy error:', data.message);
                     const rawMsg = data.message || '';
+                    // During verification phase (checking), ignore proxy errors —
+                    // checkServerStatus is polling and will handle the transition to 'running'.
+                    // Only treat errors as fatal when the server was confirmed running.
+                    if (serverStatus !== 'running') {
+                      console.warn('[Preview] Proxy error during verification (ignored, checkServerStatus polling):', rawMsg);
+                      return;
+                    }
+                    // Server was 'running' but proxy error appeared — try a few retries first
+                    const isTransient =
+                      rawMsg.includes('No active session') ||
+                      rawMsg.includes('ECONNREFUSED') ||
+                      rawMsg.includes('Too many requests') ||
+                      rawMsg.includes('429');
+                    if (isTransient && proxyRetryCountRef.current < MAX_PROXY_RETRIES) {
+                      proxyRetryCountRef.current++;
+                      console.warn(`[Preview] Transient proxy error (retry ${proxyRetryCountRef.current}/${MAX_PROXY_RETRIES}):`, rawMsg);
+                      setTimeout(() => {
+                        webViewRef.current?.reload();
+                      }, 2000);
+                      return;
+                    }
+                    // Exhausted retries or non-transient error — show error UI
+                    console.error('WebView detected proxy error:', rawMsg);
                     let userMsg = rawMsg;
-                    // Translate common proxy errors to user-friendly Italian messages
                     if (rawMsg.includes('ECONNREFUSED')) {
                       userMsg = t('terminal:preview.errorServerFailed');
                     } else if (rawMsg.includes('timeout') || rawMsg.includes('Timeout')) {
@@ -342,12 +470,22 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                     setServerStatus('stopped');
                     setIsStarting(false);
                   }
+                  if (data.type === 'BUILD_ERROR') {
+                    console.error('[Preview] Build error detected in WebView:', data.message);
+                    setPreviewError({ message: data.message || 'Build error', timestamp: new Date() });
+                    setServerStatus('stopped');
+                    setIsStarting(false);
+                  }
                   if (data.type === 'TRIGGER_REFRESH') {
                     handleRefresh();
                   }
                   if (data.type === 'PAGE_INFO') {
                     if (data.rootChildren > 0 || data.forceReady) {
-                      if (!webViewReady) setTimeout(() => setWebViewReady(true), 1000);
+                      if (readyFallbackTimerRef.current) {
+                        clearTimeout(readyFallbackTimerRef.current);
+                        readyFallbackTimerRef.current = null;
+                      }
+                      if (!webViewReady) setWebViewReady(true);
                     }
                   }
                   if (data.type === 'ELEMENT_SELECTED') {
