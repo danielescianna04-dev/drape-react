@@ -507,6 +507,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         return { content: `${msg.tool}\n└─ Error`, type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: false };
       case 'error':
         return { content: msg.content || 'Errore sconosciuto', type: TerminalItemType.ERROR, timestamp: msg.timestamp };
+      case 'context_compacted':
+        return { content: msg.isCompacting ? '__CONTEXT_COMPACTING__' : '__CONTEXT_COMPACTED__', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
       case 'budget_exceeded':
         return { content: '__BUDGET_EXCEEDED__', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp };
       case 'completion':
@@ -1042,6 +1044,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       // NOTE: Do NOT reset prevEngineMessagesRef/engineIdMapRef here!
       // The engine still has messages and the bridge would re-add them all.
       // Bridge refs are only reset in handleSend/handleStop when engine.reset() is called.
+
+      // Clean up any dangling "Thinking..." placeholders left in the tab
+      // (can happen if the user navigated away while the agent was processing)
+      preThinkingIdRef.current = null;
+      if (currentTab?.id) {
+        useTabStore.setState((state) => ({
+          tabs: state.tabs.map(t =>
+            t.id === currentTab.id
+              ? {
+                ...t,
+                terminalItems: (t.terminalItems ?? [])
+                  .map(item => item.isThinking ? { ...item, isThinking: false } : item)
+                  .filter(item => item.content !== ''),
+              }
+              : t
+          ),
+        }));
+      }
     }
   }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId]);
 
@@ -2639,6 +2659,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         Avvia preview
                       </Text>
                     </TouchableOpacity>
+                  );
+                }
+
+                // Handle context compaction messages
+                if (item.content === '__CONTEXT_COMPACTING__' || item.content === '__CONTEXT_COMPACTED__') {
+                  const isCompacting = item.content === '__CONTEXT_COMPACTING__';
+                  return (
+                    <View key={item.id} style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginVertical: 6, gap: 8 }}>
+                      <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                      {isCompacting
+                        ? <ActivityIndicator size="small" color={AppColors.primary} style={{ marginHorizontal: 4 }} />
+                        : <Ionicons name="flash" size={12} color={AppColors.primary} />
+                      }
+                      <SafeText style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontWeight: '500' }}>
+                        {isCompacting ? 'Compattazione contesto in corso...' : 'Contesto compattato'}
+                      </SafeText>
+                      <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                    </View>
                   );
                 }
 

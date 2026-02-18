@@ -264,6 +264,10 @@ export class AgentLoop {
 
         // Auto-compact conversation if approaching context window limit
         try {
+          const needsCompaction = this.shouldCompact(systemPrompt);
+          if (needsCompaction) {
+            yield { type: 'context_compacting' };
+          }
           const compacted = await this.compactConversationHistory(systemPrompt);
           if (compacted) {
             yield {
@@ -1103,6 +1107,12 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    * Auto-compact conversation history when approaching context window limits.
    * Summarizes older messages using Haiku and keeps recent ones intact.
    */
+  private shouldCompact(systemPrompt: string): boolean {
+    const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+    const estimatedTokens = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+    return estimatedTokens > contextWindow * 0.90;
+  }
+
   private async compactConversationHistory(systemPrompt: string): Promise<boolean> {
     const contextWindow = aiProviderService.getContextWindowTokens(this.model);
     const estimatedTokens = this.estimateTokenCount(this.conversationHistory, systemPrompt);

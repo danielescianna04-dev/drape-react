@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, TextInput, ScrollView, Keyboard, ActivityIndicator, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, Animated, TextInput, ScrollView, Keyboard, ActivityIndicator, LayoutAnimation } from 'react-native';
 import Reanimated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, Easing } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -9,6 +9,22 @@ import { AppColors } from '../../../shared/theme/colors';
 import { useNavigationStore } from '../../../core/navigation/navigationStore';
 import { TodoList } from '../../../shared/components/molecules/TodoList';
 import { stripToolCallXml } from '../../../shared/utils/stripToolCallXml';
+import Svg, { Circle } from 'react-native-svg';
+import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../../shared/components/icons';
+import { useUIStore } from '../../../core/terminal/uiStore';
+import { useAuthStore } from '../../../core/auth/authStore';
+
+const AI_MODELS = [
+  { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
+  { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, isPremium: false, thinkingLevels: [] as string[] },
+  { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, isPremium: true, thinkingLevels: [] as string[] },
+  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, isPremium: true, thinkingLevels: ['low', 'high'] },
+  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, isPremium: false, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
+];
+
+const THINKING_LEVEL_LABELS: Record<string, string> = {
+  minimal: 'Minimo', low: 'Basso', medium: 'Medio', high: 'Alto',
+};
 
 /** Strip markdown code blocks and truncate for the compact preview chat overlay. */
 function cleanPreviewText(text: string): string {
@@ -29,7 +45,8 @@ function cleanPreviewText(text: string): string {
 }
 
 export interface AIMessage {
-  type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded';
+  type: 'text' | 'tool_start' | 'tool_result' | 'user' | 'thinking' | 'budget_exceeded' | 'context_compacted';
+  isCompacting?: boolean;
   content: string;
   tool?: string;
   toolId?: string;
@@ -79,6 +96,8 @@ export interface PreviewAIChatProps {
   onSelectParentElement: () => void;
   onLoadPastChat: (chat: any) => void;
   onStartNewChat: () => void;
+  contextUsagePercent?: number;
+  selectedModel?: string;
 }
 
 export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
@@ -113,7 +132,45 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   onSelectParentElement,
   onLoadPastChat,
   onStartNewChat,
+  contextUsagePercent = 0,
+  selectedModel = 'claude-4-6-sonnet',
 }) => {
+  const [showContextInfo, setShowContextInfo] = React.useState(false);
+  const [showModelSelector, setShowModelSelector] = React.useState(false);
+  const dropdownAnim = useSharedValue(0);
+
+  const storeSelectedModel = useUIStore((state) => state.selectedModel);
+  const setSelectedModel = useUIStore((state) => state.setSelectedModel);
+  const [thinkingLevel, setThinkingLevel] = React.useState('medium');
+  const { user } = useAuthStore();
+  const isPaidUser = ['go', 'pro', 'team'].includes(user?.plan || '');
+  const navigateTo = useNavigationStore((state) => state.navigateTo);
+
+  const currentModelName = React.useMemo(() => {
+    const model = AI_MODELS.find(m => m.id === storeSelectedModel);
+    return model?.name ?? 'Claude 4.6 Sonnet';
+  }, [storeSelectedModel]);
+
+  const toggleModelSelector = React.useCallback(() => {
+    if (showModelSelector) {
+      dropdownAnim.value = withTiming(0, { duration: 150, easing: Easing.out(Easing.cubic) });
+      setTimeout(() => setShowModelSelector(false), 150);
+    } else {
+      setShowModelSelector(true);
+      dropdownAnim.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+    }
+  }, [showModelSelector]);
+
+  const closeDropdown = React.useCallback(() => {
+    dropdownAnim.value = withTiming(0, { duration: 150 });
+    setTimeout(() => setShowModelSelector(false), 150);
+  }, []);
+
+  const dropdownAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: dropdownAnim.value,
+    transform: [{ translateY: (1 - dropdownAnim.value) * 8 }],
+  }));
+
   const inspectScale = useSharedValue(1);
   const messagesOpacity = useSharedValue(isMessagesCollapsed ? 0 : 1);
   const messagesHeight = useSharedValue(isMessagesCollapsed ? 0 : 1);
@@ -158,6 +215,141 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   return (
     <Reanimated.View style={[styles.fabInputWrapper, { bottom: keyboardHeight > 0 ? keyboardHeight + 6 : bottomInset + 8, left: isInputExpanded ? 12 : undefined }]}>
 
+      {/* Model selector dropdown - rendered outside overflow:hidden FAB */}
+      {showModelSelector && (
+        <>
+          <Pressable
+            style={{ position: 'absolute', top: -500, left: -500, right: -500, bottom: -500 }}
+            onPress={closeDropdown}
+          />
+          <Reanimated.View style={[{
+            position: 'absolute', bottom: '100%', left: 0, marginBottom: 8,
+            backgroundColor: '#1a1a1e', borderRadius: 16,
+            paddingVertical: 8, paddingHorizontal: 6, minWidth: 200,
+            zIndex: 999,
+            shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.7, shadowRadius: 20, elevation: 20, overflow: 'hidden',
+          }, dropdownAnimatedStyle]}>
+            {AI_MODELS.map((model) => {
+              const IconComponent = model.IconComponent;
+              const isSelected = storeSelectedModel === model.id;
+              const hasThinkingOptions = model.thinkingLevels.length > 0;
+              const isLocked = model.isPremium && !isPaidUser;
+              return (
+                <TouchableOpacity
+                  key={model.id}
+                  style={[
+                    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, gap: 10, borderRadius: 12, marginHorizontal: 3, marginVertical: 2 },
+                    isSelected && { backgroundColor: AppColors.primaryAlpha.a25 },
+                    isLocked && { opacity: 0.45 },
+                  ]}
+                  onPress={() => {
+                    if (isLocked) { navigateTo('plans'); return; }
+                    setSelectedModel(model.id);
+                    if (hasThinkingOptions) {
+                      setThinkingLevel(model.id.includes('flash') ? 'medium' : 'low');
+                    }
+                    closeDropdown();
+                  }}
+                >
+                  <IconComponent size={16} />
+                  <Text style={[
+                    { flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: '500' },
+                    isSelected && { color: '#fff', fontWeight: '700' },
+                  ]}>{model.name}</Text>
+                  {isLocked ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ backgroundColor: AppColors.primary, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '900', color: '#fff' }}>GO</Text>
+                      </View>
+                      <Ionicons name="lock-closed" size={13} color="rgba(255,255,255,0.35)" />
+                    </View>
+                  ) : isSelected ? (
+                    <Ionicons name="checkmark-circle" size={16} color={AppColors.primary} />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+            {/* Thinking level */}
+            {(() => {
+              const currentModel = AI_MODELS.find(m => m.id === storeSelectedModel);
+              const modelLevels = currentModel?.thinkingLevels || [];
+              const allLevels = ['minimal', 'low', 'medium', 'high'];
+              return (
+                <View style={{ paddingHorizontal: 14, paddingBottom: 10, borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.06)', marginTop: 4 }}>
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: '500', marginBottom: 8, marginTop: 8 }}>Livello ragionamento:</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {allLevels.map((level) => {
+                      const isAvailable = modelLevels.includes(level);
+                      const isLevelSelected = isAvailable && thinkingLevel === level;
+                      return (
+                        <TouchableOpacity
+                          key={level}
+                          style={[
+                            { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', backgroundColor: 'rgba(255,255,255,0.04)' },
+                            isLevelSelected && { backgroundColor: AppColors.primaryAlpha.a25, borderColor: AppColors.primary },
+                            !isAvailable && { opacity: 0.25 },
+                          ]}
+                          onPress={() => { if (isAvailable) setThinkingLevel(level); }}
+                          disabled={!isAvailable}
+                        >
+                          <Text style={[
+                            { fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '500' },
+                            isLevelSelected && { color: AppColors.primary, fontWeight: '700' },
+                          ]}>{THINKING_LEVEL_LABELS[level] || level}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              );
+            })()}
+          </Reanimated.View>
+        </>
+      )}
+
+      {/* Context info tooltip - rendered outside overflow:hidden FAB */}
+      {showContextInfo && contextUsagePercent > 0 && (() => {
+        const contextWindows: Record<string, number> = {
+          'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
+          'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-pro': 1000000,
+          'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
+        };
+        const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
+        const compactionAt = 90;
+        const remaining = Math.max(0, compactionAt - contextUsagePercent);
+        const col = contextUsagePercent >= 90 ? '#FF6B6B' : contextUsagePercent >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
+        return (
+          <>
+            <Pressable
+              style={{ position: 'absolute', top: -500, left: -500, right: -500, bottom: -500 }}
+              onPress={() => setShowContextInfo(false)}
+            />
+            <View style={{
+              position: 'absolute', bottom: '100%', right: 0, marginBottom: 8,
+              backgroundColor: 'rgba(30,30,35,0.95)', borderRadius: 12,
+              paddingHorizontal: 14, paddingVertical: 10, width: 220,
+              borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+            }}>
+              <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
+                Contesto: {contextUsagePercent}%
+              </Text>
+              <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 }}>
+                {contextUsagePercent < compactionAt
+                  ? `Compattazione automatica al ${compactionAt}%. Manca il ${remaining}% prima del riassunto.`
+                  : 'Compattazione del contesto attiva.'}
+              </Text>
+              <View style={{ marginTop: 8, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                <View style={{ width: `${contextUsagePercent}%`, height: '100%', borderRadius: 1.5, backgroundColor: col }} />
+              </View>
+              <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 4 }}>
+                Finestra: {windowK}K token
+              </Text>
+            </View>
+          </>
+        );
+      })()}
+
       {/* Animated FAB that expands into input */}
       <Animated.View
         style={[
@@ -173,10 +365,22 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                 <>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                      <Ionicons name="sparkles" size={12} color="#fff" />
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>
-                        {activeTools.length > 0 ? `${activeTools[activeTools.length - 1]}` : 'AI'}
-                      </Text>
+                      {/* Model selector button */}
+                      <TouchableOpacity
+                        onPress={toggleModelSelector}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="sparkles" size={12} color="#fff" />
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.7)' }}>
+                          {activeTools.length > 0 ? activeTools[activeTools.length - 1] : currentModelName}
+                        </Text>
+                        <Ionicons
+                          name={showModelSelector ? 'chevron-up' : 'chevron-down'}
+                          size={10}
+                          color="rgba(255,255,255,0.4)"
+                        />
+                      </TouchableOpacity>
                       {activeTools.length > 0 && (
                         <ActivityIndicator size="small" color={AppColors.primary} />
                       )}
@@ -221,6 +425,23 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                         );
                       })()}
                     </View>
+                    {contextUsagePercent > 0 && (() => {
+                      const s = 16, sw = 2, r = (s - sw) / 2, c = 2 * Math.PI * r;
+                      const off = c * (1 - contextUsagePercent / 100);
+                      const col = contextUsagePercent >= 90 ? '#FF6B6B' : contextUsagePercent >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
+                      return (
+                        <TouchableOpacity
+                          onPress={() => setShowContextInfo(v => !v)}
+                          activeOpacity={0.7}
+                          style={{ width: s, height: s, justifyContent: 'center', alignItems: 'center', marginRight: 4 }}
+                        >
+                          <Svg width={s} height={s} style={{ transform: [{ rotate: '-90deg' }] }}>
+                            <Circle cx={s/2} cy={s/2} r={r} stroke="rgba(255,255,255,0.08)" strokeWidth={sw} fill="none" />
+                            <Circle cx={s/2} cy={s/2} r={r} stroke={col} strokeWidth={sw} fill="none" strokeDasharray={`${c}`} strokeDashoffset={off} strokeLinecap="round" />
+                          </Svg>
+                        </TouchableOpacity>
+                      );
+                    })()}
                     <TouchableOpacity onPress={() => {
                       LayoutAnimation.configureNext({
                         duration: 200,
@@ -350,6 +571,21 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                                 {msg.content || (msg.isThinking ? 'Thinking...' : '')}
                               </Text>
                             </View>
+                          </View>
+                        );
+                      }
+                      if (msg.type === 'context_compacted') {
+                        return (
+                          <View key={index} style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 4, marginHorizontal: 4, gap: 6 }}>
+                            <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+                            {msg.isCompacting
+                              ? <ActivityIndicator size="small" color={AppColors.primary} style={{ marginHorizontal: 2 }} />
+                              : <Ionicons name="flash" size={10} color={AppColors.primary} />
+                            }
+                            <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: '500' }}>
+                              {msg.isCompacting ? 'Compattazione in corso...' : 'Contesto compattato'}
+                            </Text>
+                            <View style={{ flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)' }} />
                           </View>
                         );
                       }

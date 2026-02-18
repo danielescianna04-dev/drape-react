@@ -17,7 +17,8 @@ import type { AgentToolEvent } from '../api/useAgentStream';
 
 export interface ChatEngineMessage {
   id: string;
-  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'completion';
+  type: 'thinking' | 'text' | 'tool_start' | 'tool_complete' | 'tool_error' | 'error' | 'budget_exceeded' | 'completion' | 'context_compacted';
+  isCompacting?: boolean;
   content: string;
 
   // Thinking
@@ -507,11 +508,23 @@ export function useChatEngine(
         continue;
       }
 
-      // ── BUDGET_EXCEEDED ─────────────────────────────────────────────────
-      // ── CONTEXT COMPACTED ──────────────────────────────────────────────
+      // ── CONTEXT COMPACTING / COMPACTED ─────────────────────────────────
+      if (event.type === 'context_compacting') {
+        const compactingId = `compacting-${Date.now()}`;
+        setMessages(prev => [
+          ...prev,
+          { id: compactingId, type: 'context_compacted' as const, content: '__CONTEXT_COMPACTING__', isCompacting: true, timestamp: new Date() },
+        ]);
+        currentMessageIdRef.current = compactingId;
+        continue;
+      }
       if (event.type === 'context_compacted') {
-        // Informational only — the agent continues running
-        console.log(`[ChatEngine] Context auto-compacted: ${(event as any).message}`);
+        setMessages(prev => prev.map(m =>
+          m.type === 'context_compacted' && m.isCompacting
+            ? { ...m, content: '__CONTEXT_COMPACTED__', isCompacting: false }
+            : m
+        ));
+        currentMessageIdRef.current = null;
         continue;
       }
 

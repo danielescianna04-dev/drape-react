@@ -86,13 +86,15 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
         {/* URL Bar - centered, only path suffix is editable */}
         <View style={[styles.urlBar, isEditing && styles.urlBarEditing]}>
           <View style={[styles.statusIndicator, { backgroundColor: '#00D084' }]} />
-          <Text style={styles.urlBaseText} numberOfLines={1}>{basePath}</Text>
           {isEditing ? (
             <TextInput
               ref={inputRef}
               style={styles.urlPathInput}
               value={editPath}
-              onChangeText={setEditPath}
+              onChangeText={(text) => {
+                if (!text.startsWith('/')) setEditPath('/' + text.replace(/^\/+/, ''));
+                else setEditPath(text);
+              }}
               onSubmitEditing={handleSubmit}
               onBlur={handleCancel}
               autoCorrect={false}
@@ -101,8 +103,6 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
               returnKeyType="go"
               selectTextOnFocus
               keyboardType="url"
-              placeholder="/"
-              placeholderTextColor="rgba(255,255,255,0.3)"
             />
           ) : (
             <TouchableOpacity onPress={handlePathPress} activeOpacity={0.7} style={styles.urlPathTappable}>

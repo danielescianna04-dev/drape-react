@@ -1569,6 +1569,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               onSelectParentElement={chat.selectParentElement}
               onLoadPastChat={chat.loadPastChat}
               onStartNewChat={chat.startNewChat}
+              contextUsagePercent={chat.contextUsagePercent}
+              selectedModel={chat.selectedModel}
             />
           )}
         </Animated.View>

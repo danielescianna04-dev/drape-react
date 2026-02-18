@@ -84,6 +84,22 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     });
   }, [history, engine.messages]);
 
+  // ── Context window usage estimate ─────────────────────────────────────
+  const contextUsage = useMemo(() => {
+    let totalChars = 15000; // system prompt estimate
+    for (const m of aiMessages) {
+      totalChars += String(m.content ?? '').length;
+    }
+    const windows: Record<string, number> = {
+      'claude-4-6-sonnet': 200000, 'claude-4-6-opus': 200000, 'claude-haiku-3.5': 200000,
+      'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-pro': 1000000,
+      'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
+    };
+    const windowTokens = windows[selectedModel] || 200000;
+    const pct = Math.min(100, Math.round((Math.ceil(totalChars / 3.5) / windowTokens) * 100));
+    return Math.max(pct, engine.contextUsagePercent);
+  }, [aiMessages, selectedModel, engine.contextUsagePercent]);
+
   // ── Inspect mode ────────────────────────────────────────────────────────
   const [isInspectMode, setIsInspectMode] = useState(false);
   const [selectedElement, setSelectedElement] = useState<{
@@ -348,6 +364,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     loadPastChat,
     startNewChat,
     handleQuestionAnswer,
+    contextUsagePercent: contextUsage,
+    selectedModel,
   };
 }
 
