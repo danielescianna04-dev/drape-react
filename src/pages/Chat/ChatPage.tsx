@@ -58,6 +58,7 @@ import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQues
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
+import Svg, { Circle } from 'react-native-svg';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
 
@@ -95,9 +96,6 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
   medium: 'Medio',
   high: 'Alto',
 };
-
-const MAX_AGENT_HISTORY_MESSAGES = 40;
-const MAX_AGENT_MESSAGE_CHARS = 6000;
 
 interface ChatPageProps {
   tab?: Tab;
@@ -688,6 +686,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
   // Model selector dropdown state
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showContextInfo, setShowContextInfo] = useState(false);
   const dropdownAnim = useSharedValue(0);
 
   // Animated styles for dropdown
@@ -717,10 +716,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     setTimeout(() => setShowModelSelector(false), 150);
   }, []);
 
-  // Get current model display name
+  // Get current model display name — migrate stale model IDs
   const currentModelName = useMemo(() => {
     const model = AI_MODELS.find(m => m.id === selectedModel);
-    return model?.name || 'Claude 4';
+    if (!model) {
+      // Stale ID from persist storage (e.g. 'claude-4-5-sonnet') — reset to default
+      setSelectedModel(AI_MODELS[1].id); // claude-4-6-sonnet
+      return AI_MODELS[1].name;
+    }
+    return model.name;
   }, [selectedModel]);
 
   // Memoize currentTab to prevent infinite re-renders
@@ -1485,15 +1489,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           return false;
         })()
       )
-      .slice(-MAX_AGENT_HISTORY_MESSAGES)
       .map(item => {
         const hasValidImages = Array.isArray(item.images) && item.images.some(img => Boolean(img?.base64));
         const content = String(item.content ?? '').trim() || (hasValidImages ? '[Image attached]' : '');
         const historyItem: any = {
           role: item.type === TerminalItemType.USER_MESSAGE ? 'user' : 'assistant',
-          content: content.length > MAX_AGENT_MESSAGE_CHARS
-            ? content.slice(0, MAX_AGENT_MESSAGE_CHARS) + '\n...(truncated)'
-            : content,
+          content,
         };
         if (item.images && item.images.length > 0) {
           historyItem.images = item.images.map(img => ({
@@ -1504,6 +1505,43 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         return historyItem;
       });
   }, [currentTab?.terminalItems]);
+
+  // ── Estimate context window usage from conversation length ──────
+  const contextUsage = useMemo(() => {
+    const items = currentTab?.terminalItems || [];
+    if (items.length === 0) return 0;
+
+    // Estimate total chars in conversation
+    let totalChars = 0;
+    for (const item of items) {
+      const content = String(item.content ?? '');
+      if (item.type === TerminalItemType.USER_MESSAGE || item.type === TerminalItemType.OUTPUT) {
+        totalChars += content.length;
+      }
+    }
+    // Add ~15K chars for system prompt estimate
+    totalChars += 15000;
+
+    // Context windows by model (tokens)
+    const contextWindows: Record<string, number> = {
+      'claude-sonnet-4': 200000,
+      'claude-4-6-sonnet': 200000,
+      'claude-4-6-opus': 200000,
+      'claude-haiku-3.5': 200000,
+      'gemini-3-flash': 1000000,
+      'gemini-3-pro': 1000000,
+      'gpt-5-3': 128000,
+      'llama-3.3-70b': 128000,
+    };
+    const windowTokens = contextWindows[selectedModel] || 200000;
+
+    // ~3.5 chars per token
+    const estimatedTokens = Math.ceil(totalChars / 3.5);
+    const pct = Math.min(100, Math.round((estimatedTokens / windowTokens) * 100));
+
+    // Use backend value if higher (more accurate, includes full system prompt + tools)
+    return Math.max(pct, engine.contextUsagePercent);
+  }, [currentTab?.terminalItems, selectedModel, engine.contextUsagePercent]);
 
   const handleSend = async (images?: { uri: string; base64?: string; type?: string }[]) => {
     // Use passed images or fall back to selectedInputImages
@@ -2880,17 +2918,53 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       </TouchableOpacity>
                     </View>
                   </View>
-                  <TouchableOpacity
-                    style={styles.modelSelector}
-                    onPress={toggleModelSelector}
-                  >
-                    <SafeText style={styles.modelText}>{currentModelName}</SafeText>
-                    <Ionicons
-                      name={showModelSelector ? "chevron-up" : "chevron-down"}
-                      size={12}
-                      color="rgba(255,255,255,0.4)"
-                    />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {/* Context window usage indicator */}
+                    {contextUsage > 0 && (() => {
+                      const size = 18;
+                      const strokeWidth = 2;
+                      const radius = (size - strokeWidth) / 2;
+                      const circumference = 2 * Math.PI * radius;
+                      const strokeDashoffset = circumference * (1 - contextUsage / 100);
+                      const color = contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)';
+                      return (
+                        <TouchableOpacity
+                          onPress={() => setShowContextInfo(true)}
+                          activeOpacity={0.7}
+                          style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}
+                        >
+                          <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
+                            <Circle
+                              cx={size / 2} cy={size / 2} r={radius}
+                              stroke="rgba(255,255,255,0.08)"
+                              strokeWidth={strokeWidth}
+                              fill="none"
+                            />
+                            <Circle
+                              cx={size / 2} cy={size / 2} r={radius}
+                              stroke={color}
+                              strokeWidth={strokeWidth}
+                              fill="none"
+                              strokeDasharray={`${circumference}`}
+                              strokeDashoffset={strokeDashoffset}
+                              strokeLinecap="round"
+                            />
+                          </Svg>
+                        </TouchableOpacity>
+                      );
+                    })()}
+                    <TouchableOpacity
+                      style={styles.modelSelector}
+                      onPress={toggleModelSelector}
+                    >
+                      <SafeText style={styles.modelText}>{currentModelName}</SafeText>
+                      <Ionicons
+                        name={showModelSelector ? "chevron-up" : "chevron-down"}
+                        size={12}
+                        color="rgba(255,255,255,0.4)"
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 {/* Undo/Redo Bar */}
@@ -3073,6 +3147,53 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   </Animated.View>
                 </>
               )}
+
+              {/* Context usage info tooltip */}
+              {showContextInfo && (() => {
+                const contextWindows: Record<string, number> = {
+                  'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
+                  'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-pro': 1000000,
+                  'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
+                };
+                const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);
+                const compactionAt = 90;
+                const remaining = Math.max(0, compactionAt - contextUsage);
+                return (
+                  <>
+                    <Pressable
+                      style={{ position: 'absolute', top: -500, left: -500, right: -500, bottom: -500 }}
+                      onPress={() => setShowContextInfo(false)}
+                    />
+                    <View style={{
+                      position: 'absolute', bottom: '100%', right: 0, marginBottom: 8,
+                      backgroundColor: 'rgba(30,30,35,0.95)', borderRadius: 12,
+                      paddingHorizontal: 14, paddingVertical: 10, width: 220,
+                      borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+                    }}>
+                      <SafeText style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '600', marginBottom: 6 }}>
+                        {t('context.title', { percent: contextUsage })}
+                      </SafeText>
+                      <SafeText style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, lineHeight: 16 }}>
+                        {contextUsage < compactionAt
+                          ? t('context.beforeCompaction', { threshold: compactionAt, remaining })
+                          : t('context.compactionActive')}
+                      </SafeText>
+                      <View style={{
+                        marginTop: 8, height: 3, borderRadius: 1.5,
+                        backgroundColor: 'rgba(255,255,255,0.06)', overflow: 'hidden',
+                      }}>
+                        <View style={{
+                          width: `${contextUsage}%`, height: '100%', borderRadius: 1.5,
+                          backgroundColor: contextUsage >= 90 ? '#FF6B6B' : contextUsage >= 60 ? '#FFB86C' : 'rgba(255,255,255,0.25)',
+                        }} />
+                      </View>
+                      <SafeText style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 4 }}>
+                        {t('context.window', { size: windowK })}
+                      </SafeText>
+                    </View>
+                  </>
+                );
+              })()}
             </Animated.View>
           </>
         )}

@@ -262,6 +262,19 @@ export class AgentLoop {
 
         log.info(`[AgentLoop] Model: ${this.model}, hasNativeThinking: ${hasNativeThinking}`);
 
+        // Auto-compact conversation if approaching context window limit
+        try {
+          const compacted = await this.compactConversationHistory(systemPrompt);
+          if (compacted) {
+            yield {
+              type: 'context_compacted',
+              message: `Contesto compattato automaticamente (${this.conversationHistory.length} messaggi rimanenti)`,
+            };
+          }
+        } catch (compactError: any) {
+          log.warn(`[AgentLoop] Compaction check failed: ${compactError.message}`);
+        }
+
         try {
           const tools = getToolDefinitions();
 
@@ -359,6 +372,10 @@ export class AgentLoop {
                   });
 
                   // Emit usage event for real-time cost tracking
+                  const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+                  const estimatedContext = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+                  const contextUsagePercent = Math.min(100, Math.round((estimatedContext / contextWindow) * 100));
+
                   yield {
                     type: 'usage',
                     inputTokens: chunk.usage.inputTokens,
@@ -368,6 +385,7 @@ export class AgentLoop {
                     totalCostEur: this.totalCostEur,
                     totalInputTokens: this.totalTokensUsed.input,
                     totalOutputTokens: this.totalTokensUsed.output,
+                    contextUsagePercent,
                   };
                 }
                 break;
@@ -1034,6 +1052,127 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    */
   getTokenUsage(): { input: number; output: number } {
     return this.totalTokensUsed;
+  }
+
+  // ── Auto-compaction ──────────────────────────────────────────────────
+
+  /**
+   * Estimate token count from messages + system prompt.
+   * Uses ~3.5 chars per token as a conservative heuristic.
+   */
+  private estimateTokenCount(messages: ChatMessage[], systemPrompt: string): number {
+    let charCount = systemPrompt.length;
+    for (const msg of messages) {
+      if (typeof msg.content === 'string') {
+        charCount += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'text') charCount += block.text.length;
+          else if (block.type === 'tool_use') charCount += JSON.stringify(block.input).length + 100;
+          else if (block.type === 'tool_result') charCount += (typeof block.content === 'string' ? block.content.length : 200);
+          else if (block.type === 'image') charCount += 6000; // Images ~1500 tokens ≈ 6000 chars
+        }
+      }
+    }
+    return Math.ceil(charCount / 3.5);
+  }
+
+  /**
+   * Format old messages into a readable text block for the summarizer.
+   */
+  private formatMessagesForSummary(messages: ChatMessage[]): string {
+    const parts: string[] = [];
+    for (const msg of messages) {
+      const role = msg.role.toUpperCase();
+      if (typeof msg.content === 'string') {
+        parts.push(`[${role}]: ${msg.content}`);
+      } else if (Array.isArray(msg.content)) {
+        const texts: string[] = [];
+        for (const block of msg.content) {
+          if (block.type === 'text') texts.push(block.text);
+          else if (block.type === 'tool_use') texts.push(`[Tool: ${block.name}](input: ${JSON.stringify(block.input).slice(0, 500)})`);
+          else if (block.type === 'tool_result') texts.push(`[Tool Result]: ${(typeof block.content === 'string' ? block.content : '').slice(0, 500)}`);
+        }
+        if (texts.length > 0) parts.push(`[${role}]: ${texts.join('\n')}`);
+      }
+    }
+    return parts.join('\n\n');
+  }
+
+  /**
+   * Auto-compact conversation history when approaching context window limits.
+   * Summarizes older messages using Haiku and keeps recent ones intact.
+   */
+  private async compactConversationHistory(systemPrompt: string): Promise<boolean> {
+    const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+    const estimatedTokens = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+
+    // Compact when >90% of context window is used
+    const threshold = contextWindow * 0.90;
+    if (estimatedTokens <= threshold) return false;
+
+    log.info(`[AgentLoop] Context compaction triggered: ~${estimatedTokens} tokens estimated, threshold ${Math.round(threshold)} (${this.conversationHistory.length} messages)`);
+
+    // Keep recent messages that fit in ~20% of the context window
+    const keepRecentTokens = contextWindow * 0.20;
+    let recentTokens = 0;
+    let splitIndex = this.conversationHistory.length;
+
+    for (let i = this.conversationHistory.length - 1; i >= 0; i--) {
+      const msgTokens = this.estimateTokenCount([this.conversationHistory[i]], '');
+      recentTokens += msgTokens;
+      if (recentTokens > keepRecentTokens) {
+        splitIndex = i + 1;
+        break;
+      }
+    }
+
+    // Nothing to compact if everything is "recent"
+    if (splitIndex <= 1) return false;
+
+    const oldMessages = this.conversationHistory.slice(0, splitIndex);
+    const recentMessages = this.conversationHistory.slice(splitIndex);
+
+    try {
+      const summaryText = this.formatMessagesForSummary(oldMessages);
+
+      // Truncate summary input to ~100K chars to stay within Haiku's context
+      const maxSummaryInput = 100000;
+      const truncatedSummary = summaryText.length > maxSummaryInput
+        ? summaryText.slice(-maxSummaryInput) + '\n\n[...earlier messages truncated...]'
+        : summaryText;
+
+      const summaryMessages: ChatMessage[] = [
+        { role: 'user', content: truncatedSummary },
+      ];
+
+      const summary = await aiProviderService.chatSimple(
+        summaryMessages,
+        'Summarize this conversation concisely. Include: key decisions, code changes made, files modified, current task status, and any important context the AI needs to continue working. Be specific about file names and technical details. Output ONLY the summary, no preamble.',
+      );
+
+      this.conversationHistory = [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: `[Previous conversation summary]\n${summary}` }],
+        },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Understood. I have the context from our previous conversation and will continue from where we left off.' }],
+        },
+        ...recentMessages,
+      ];
+
+      const newEstimate = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+      log.info(`[AgentLoop] Context compacted: ${oldMessages.length} old messages → summary. ${recentMessages.length} recent kept. ~${newEstimate} tokens now.`);
+
+      return true;
+    } catch (error: any) {
+      log.error(`[AgentLoop] Context compaction failed: ${error.message}. Falling back to truncation.`);
+      // Fallback: just keep recent messages without summary
+      this.conversationHistory = recentMessages;
+      return true;
+    }
   }
 
   /**

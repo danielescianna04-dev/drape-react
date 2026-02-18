@@ -38,8 +38,6 @@ interface UsePreviewChatParams {
   webViewRef: React.RefObject<WebView>;
 }
 
-const MAX_API_HISTORY_MESSAGES = 40;
-const MAX_API_MESSAGE_CHARS = 6000;
 const MAX_LOCAL_HISTORY_MESSAGES = 200;
 
 function buildConversationHistory(messages: AIMessage[]): Array<{ role: 'user' | 'assistant'; content: string }> {
@@ -48,16 +46,10 @@ function buildConversationHistory(messages: AIMessage[]): Array<{ role: 'user' |
       if (m.type !== 'user' && m.type !== 'text') return false;
       return String(m.content ?? '').trim().length > 0;
     })
-    .slice(-MAX_API_HISTORY_MESSAGES)
-    .map((m) => {
-      const content = String(m.content ?? '').trim();
-      return {
-        role: m.type === 'user' ? 'user' : 'assistant',
-        content: content.length > MAX_API_MESSAGE_CHARS
-          ? `${content.slice(0, MAX_API_MESSAGE_CHARS)}\n...(truncated)`
-          : content,
-      };
-    });
+    .map((m) => ({
+      role: m.type === 'user' ? 'user' as const : 'assistant' as const,
+      content: String(m.content ?? '').trim(),
+    }));
 }
 
 export function usePreviewChat({ currentWorkstationId, currentWorkstationName, webViewRef }: UsePreviewChatParams) {

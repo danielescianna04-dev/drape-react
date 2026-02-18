@@ -90,7 +90,7 @@ export const useUIStore = create<UIState>((set) => ({
     hasInteracted: false,
 
     // Initial state - UI
-    selectedModel: 'claude-4-5-sonnet',
+    selectedModel: 'claude-4-6-sonnet',
     isTerminalMode: true,
     autoApprove: false,
     isRecording: false,

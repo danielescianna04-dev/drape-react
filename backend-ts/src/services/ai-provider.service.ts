@@ -55,6 +55,7 @@ export interface ModelConfig {
   provider: 'anthropic' | 'gemini' | 'groq' | 'openai';
   modelId: string;
   maxTokens: number;
+  contextWindowTokens: number; // Total context window size in tokens
   supportsTools: boolean;
   supportsStreaming: boolean;
   supportsImages: boolean;
@@ -78,6 +79,7 @@ class AIProviderService {
       provider: 'anthropic',
       modelId: 'claude-sonnet-4-20250514',
       maxTokens: 8192,
+      contextWindowTokens: 200000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -88,6 +90,7 @@ class AIProviderService {
       provider: 'anthropic',
       modelId: 'claude-sonnet-4-6',
       maxTokens: 8192,
+      contextWindowTokens: 200000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -98,6 +101,7 @@ class AIProviderService {
       provider: 'anthropic',
       modelId: 'claude-opus-4-6',
       maxTokens: 8192,
+      contextWindowTokens: 200000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -108,6 +112,7 @@ class AIProviderService {
       provider: 'anthropic',
       modelId: 'claude-3-5-haiku-20241022',
       maxTokens: 8192,
+      contextWindowTokens: 200000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -117,7 +122,8 @@ class AIProviderService {
     'gemini-3-flash': {
       provider: 'gemini',
       modelId: 'gemini-3-flash-preview',
-      maxTokens: 65536, // Gemini 3 supports up to 1M context
+      maxTokens: 65536,
+      contextWindowTokens: 1000000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -127,7 +133,8 @@ class AIProviderService {
     'gemini-3-pro': {
       provider: 'gemini',
       modelId: 'gemini-3-pro-preview',
-      maxTokens: 65536, // Gemini 3 supports up to 1M context
+      maxTokens: 65536,
+      contextWindowTokens: 1000000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -138,6 +145,7 @@ class AIProviderService {
       provider: 'openai',
       modelId: 'gpt-5.3',
       maxTokens: 16384,
+      contextWindowTokens: 128000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: true,
@@ -148,6 +156,7 @@ class AIProviderService {
       provider: 'groq',
       modelId: 'llama-3.3-70b-versatile',
       maxTokens: 8192,
+      contextWindowTokens: 128000,
       supportsTools: true,
       supportsStreaming: true,
       supportsImages: false,
@@ -207,6 +216,33 @@ class AIProviderService {
 
   public getModelConfig(modelName: string): ModelConfig | null {
     return this.modelRegistry[modelName] || null;
+  }
+
+  public getContextWindowTokens(model: string): number {
+    const config = this.getModelConfig(model);
+    return config?.contextWindowTokens || 128000; // Default 128K
+  }
+
+  /**
+   * Non-streaming chat for internal use (e.g. context summarization).
+   * Uses Claude Haiku 3.5 for minimal cost.
+   */
+  public async chatSimple(messages: ChatMessage[], systemPrompt?: string): Promise<string> {
+    if (!this.anthropicClient) {
+      throw new Error('Anthropic client not initialized — cannot summarize context');
+    }
+
+    const formattedMessages = this.formatMessagesForProvider(messages, 'anthropic');
+
+    const response = await this.anthropicClient.messages.create({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 4096,
+      messages: formattedMessages,
+      ...(systemPrompt ? { system: systemPrompt } : {}),
+    });
+
+    const textBlocks = response.content.filter((b: any) => b.type === 'text');
+    return textBlocks.map((b: any) => b.text).join('\n') || '';
   }
 
   /**

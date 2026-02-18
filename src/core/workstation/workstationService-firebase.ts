@@ -140,6 +140,7 @@ export const workstationService = {
         createdAt: new Date(),
         lastAccessed: new Date(),
         status: 'running',
+        ...(technology ? { technology } : {}),
       };
 
       await setDoc(doc(db, COLLECTION, projectId), project);
@@ -644,7 +645,8 @@ export const workstationService = {
       return projects.map(project => ({
         id: project.id,
         name: project.name,
-        language: 'Unknown',
+        language: (project as any).technology || 'Unknown',
+        technology: (project as any).technology,
         status: project.status as any,
         createdAt: project.createdAt,
         lastOpened: project.lastAccessed,

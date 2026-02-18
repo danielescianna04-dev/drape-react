@@ -17,5 +17,11 @@
     "tip7": "Dependency injection makes code testable",
     "tip8": "Refactoring is development, not wasted time"
   },
-  "loading": "Loading"
+  "loading": "Loading",
+  "context": {
+    "title": "Context: {{percent}}%",
+    "beforeCompaction": "Auto-compaction at {{threshold}}%.\n{{remaining}}% remaining before summary.",
+    "compactionActive": "Compaction active — old messages are being summarized automatically.",
+    "window": "Window: {{size}}K tokens"
+  }
 }

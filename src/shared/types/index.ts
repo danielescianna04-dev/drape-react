@@ -91,6 +91,7 @@ export interface WorkstationInfo {
   id: string;
   name: string;
   language: string;
+  technology?: string;
   status: 'creating' | 'running' | 'stopped' | 'idle' | 'ready';
   url?: string;
   webUrl?: string;

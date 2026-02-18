@@ -686,6 +686,26 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       resolve();
                     };
 
+                    // Save detected technology to workstation store
+                    if (result.projectInfo?.type && currentWorkstation) {
+                      const detectedTech = result.projectInfo.type;
+                      if (detectedTech !== 'unknown' && detectedTech !== 'static' && detectedTech !== 'detecting') {
+                        const { useWorkstationStore } = require('../../../core/terminal/workstationStore');
+                        const wsStore = useWorkstationStore.getState();
+                        const updated = { ...currentWorkstation, technology: detectedTech, language: detectedTech };
+                        wsStore.setWorkstation(updated);
+                        // Also persist to Firestore
+                        import('firebase/firestore').then(({ doc, updateDoc }) => {
+                          import('../../../config/firebase').then(({ db }) => {
+                            if (currentWorkstation.projectId || currentWorkstation.id) {
+                              const projId = currentWorkstation.projectId || currentWorkstation.id;
+                              updateDoc(doc(db, 'user_projects', projId), { technology: detectedTech }).catch(() => {});
+                            }
+                          });
+                        }).catch(() => {});
+                      }
+                    }
+
                     if (result.previewUrl) {
                       if (result.coderToken) setCoderToken(result.coderToken);
                       if (result.previewToken) {

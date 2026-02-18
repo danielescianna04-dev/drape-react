@@ -58,6 +58,8 @@ export interface UseChatEngineReturn {
   pendingQuestion: any[] | null;
   /** Accumulated cost for the current session. */
   sessionCost: SessionCost;
+  /** Context window usage percentage (0-100). Updated with each usage event. */
+  contextUsagePercent: number;
   /** Add a user message to the message list (used by both consumers). */
   addUserMessage: (content: string, extra?: Record<string, any>) => string;
   /** Wipe all messages / state for a fresh session. */
@@ -82,6 +84,7 @@ export function useChatEngine(
   const thinkingContentRef = useRef('');
   const currentMessageIdRef = useRef<string | null>(null);
   const sessionCostRef = useRef<SessionCost>({ costEur: 0, inputTokens: 0, outputTokens: 0 });
+  const [contextUsagePercent, setContextUsagePercent] = useState(0);
   /** Tracks whether ANY text_delta was processed in the current agent run.
    *  Used to suppress duplicate completion messages when text was already streamed. */
   const hadStreamedTextRef = useRef(false);
@@ -152,6 +155,7 @@ export function useChatEngine(
     thinkingContentRef.current = '';
     currentMessageIdRef.current = null;
     sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
+    setContextUsagePercent(0);
     hadStreamedTextRef.current = false;
     lastStreamedMsgIdRef.current = null;
     if (gapTimerRef.current) { clearTimeout(gapTimerRef.current); gapTimerRef.current = null; }
@@ -504,6 +508,13 @@ export function useChatEngine(
       }
 
       // ── BUDGET_EXCEEDED ─────────────────────────────────────────────────
+      // ── CONTEXT COMPACTED ──────────────────────────────────────────────
+      if (event.type === 'context_compacted') {
+        // Informational only — the agent continues running
+        console.log(`[ChatEngine] Context auto-compacted: ${(event as any).message}`);
+        continue;
+      }
+
       if (event.type === 'budget_exceeded') {
         setIsLoading(false);
         // Remove empty thinking, close others
@@ -553,6 +564,9 @@ export function useChatEngine(
           inputTokens: (event as any).totalInputTokens || 0,
           outputTokens: (event as any).totalOutputTokens || 0,
         };
+        if ((event as any).contextUsagePercent !== undefined) {
+          setContextUsagePercent((event as any).contextUsagePercent);
+        }
         continue;
       }
 
@@ -667,6 +681,7 @@ export function useChatEngine(
     currentTodos,
     pendingQuestion,
     sessionCost: sessionCostRef.current,
+    contextUsagePercent,
     addUserMessage,
     reset,
   };
