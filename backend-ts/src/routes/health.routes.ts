@@ -3,8 +3,8 @@ import { asyncHandler } from '../middleware/async-handler';
 import { optionalAuth, getUserPlan, getPlanProjectLimits, getUserStorageMb } from '../middleware/auth';
 import { log } from '../utils/logger';
 import { dockerService } from '../services/docker.service';
-import { sessionService } from '../services/session.service';
 import { metricsService } from '../services/metrics.service';
+import { firebaseService } from '../services/firebase.service';
 
 export const healthRouter = Router();
 
@@ -53,8 +53,8 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
       free:    { tokens: 50000, previews: 5, projects: 5, search: 50 },
       go:      { tokens: 500000, previews: 20, projects: 15, search: 200 },
-      pro:     { tokens: 2000000, previews: 10, projects: 75, search: 1000 },
-      team:    { tokens: 10000000, previews: 50, projects: 300, search: 5000 },
+      pro:     { tokens: 2000000, previews: 75, projects: 75, search: 1000 },
+      team:    { tokens: 10000000, previews: 300, projects: 300, search: 5000 },
     };
 
     const limits = planLimits[planId] || planLimits.free;
@@ -77,10 +77,16 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
       hourly.push(hourEntries.reduce((sum, e) => sum + e.inputTokens + e.outputTokens, 0));
     }
 
-    // Active sessions/previews (per-user, not global)
-    const userSessions = await sessionService.getByUserId(userId);
-    const activePreviews = userSessions.filter(s => s.previewPort != null).length;
-    const activeProjects = userSessions.length;
+    // Total projects from Firestore (real count, not in-memory sessions)
+    let totalProjects = 0;
+    const fbDb = firebaseService.getFirestore();
+    if (fbDb) {
+      const projSnap = await fbDb.collection('user_projects').where('userId', '==', userId).get();
+      totalProjects = projSnap.size;
+    }
+
+    // Previews = same as projects (every project has a preview)
+    const totalPreviews = totalProjects;
 
     // Search usage (tracked as operation)
     const searchOps = metricsService.getOperationEntries('web_search', 10000)
@@ -98,14 +104,14 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
         hourly,
       },
       previews: {
-        active: activePreviews,
+        active: totalPreviews,
         limit: limits.previews,
-        percent: limits.previews > 0 ? Math.round((activePreviews / limits.previews) * 100) : 0,
+        percent: limits.previews > 0 ? Math.round((totalPreviews / limits.previews) * 100) : 0,
       },
       projects: {
-        active: activeProjects,
+        active: totalProjects,
         limit: limits.projects,
-        percent: limits.projects > 0 ? Math.round((activeProjects / limits.projects) * 100) : 0,
+        percent: limits.projects > 0 ? Math.round((totalProjects / limits.projects) * 100) : 0,
       },
       search: {
         used: searchOps,

@@ -9,7 +9,8 @@ interface ReengagementMessage {
 
 class ReengagementService {
   private cronInterval: ReturnType<typeof setInterval> | null = null;
-  private readonly INACTIVITY_THRESHOLD_DAYS = 3;
+  private readonly INACTIVITY_THRESHOLD_DAYS = 2;
+  private readonly COOLDOWN_DAYS = 2;
 
   /**
    * Start the reengagement service
@@ -59,7 +60,7 @@ class ReengagementService {
     }
 
     try {
-      // Calculate cutoff date (3 days ago)
+      // Calculate cutoff date
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - this.INACTIVITY_THRESHOLD_DAYS);
       const cutoffISO = cutoffDate.toISOString();
@@ -116,14 +117,15 @@ class ReengagementService {
         const lastDate = new Date(lastReengagement);
         const daysSince = (Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
 
-        if (daysSince < 7) {
+        if (daysSince < this.COOLDOWN_DAYS) {
           log.debug(`[Reengagement] Already sent notification to user ${userId} ${daysSince.toFixed(1)} days ago`);
           return false;
         }
       }
 
-      // Get personalized message
-      const message = this.getReengagementMessage(userData);
+      // Get personalized message (sequential, never repeats the last one)
+      const lastIndex = userData.lastReengagementMessageIndex ?? -1;
+      const message = this.getReengagementMessage(lastIndex, userData);
 
       // Send notification
       const sent = await notificationService.sendToUser(
@@ -139,11 +141,12 @@ class ReengagementService {
       );
 
       if (sent) {
-        // Update last reengagement timestamp
+        // Update last reengagement timestamp + message index
         const db = firebaseService.getFirestore();
         if (db) {
           await db.collection('users').doc(userId).update({
             lastReengagementNotification: new Date().toISOString(),
+            lastReengagementMessageIndex: message.index,
           });
         }
 
@@ -157,51 +160,26 @@ class ReengagementService {
     }
   }
 
+  private static readonly MESSAGES: ReengagementMessage[] = [
+    { title: 'Il tuo progetto ti aspetta!', body: 'Continua a costruire la tua app con Drape AI.' },
+    { title: 'Hai un\'idea? Realizzala ora', body: 'Descrivi la tua app e Drape la crea per te in pochi minuti.' },
+    { title: 'Non dimenticare il tuo progetto', body: 'Il tuo codice è pronto per essere migliorato.' },
+    { title: 'Torna a programmare!', body: 'Drape AI può aiutarti a completare il tuo progetto.' },
+    { title: 'Il tuo workspace ti aspetta', body: 'Riprendi da dove avevi lasciato con Drape.' },
+    { title: 'Nuove funzionalità disponibili', body: 'Abbiamo migliorato Drape. Provalo ora!' },
+    { title: 'La tua app è quasi pronta', body: 'Bastano pochi minuti per completarla con Drape AI.' },
+    { title: 'Crea qualcosa di nuovo oggi', body: 'React, Next.js, Flutter e tanto altro — tutto con l\'AI.' },
+    { title: 'Il tuo codice ti aspetta', body: 'Apri Drape e continua lo sviluppo del tuo progetto.' },
+    { title: 'Pronto per il prossimo progetto?', body: 'Descrivi la tua idea e lascia fare all\'AI.' },
+  ];
+
   /**
-   * Get a personalized reengagement message
+   * Get reengagement message — cycles sequentially so each notification is different
    */
-  private getReengagementMessage(userData?: any): ReengagementMessage {
-    const messages: ReengagementMessage[] = [
-      {
-        title: 'Il tuo progetto ti aspetta! 🚀',
-        body: 'Continua a costruire la tua app con Drape AI.',
-      },
-      {
-        title: 'Novità in Drape! ✨',
-        body: 'Nuove funzionalità disponibili. Provale ora!',
-      },
-      {
-        title: 'Non dimenticare il tuo progetto 💡',
-        body: 'Il tuo codice è pronto per essere migliorato.',
-      },
-      {
-        title: 'Torna a programmare! 👨‍💻',
-        body: 'Drape AI può aiutarti a completare il tuo progetto.',
-      },
-      {
-        title: 'Il tuo workspace ti aspetta 🎯',
-        body: 'Riprendi da dove avevi lasciato con Drape.',
-      },
-    ];
-
-    // Personalize based on user data
-    if (userData?.projects && userData.projects.length > 0) {
-      const projectCount = userData.projects.length;
-      messages.push({
-        title: `${projectCount} progett${projectCount === 1 ? 'o' : 'i'} in attesa 📱`,
-        body: 'Continua lo sviluppo con Drape AI.',
-      });
-    }
-
-    if (userData?.plan === 'pro' || userData?.plan === 'premium') {
-      messages.push({
-        title: 'Il tuo piano Premium è attivo ⭐',
-        body: 'Sfrutta tutte le funzionalità avanzate di Drape.',
-      });
-    }
-
-    // Return random message
-    return messages[Math.floor(Math.random() * messages.length)];
+  private getReengagementMessage(lastIndex: number, _userData?: any): ReengagementMessage & { index: number } {
+    const total = ReengagementService.MESSAGES.length;
+    const nextIndex = (lastIndex + 1) % total;
+    return { ...ReengagementService.MESSAGES[nextIndex], index: nextIndex };
   }
 
   /**
@@ -251,7 +229,7 @@ class ReengagementService {
         .get();
 
       const recentCutoff = new Date();
-      recentCutoff.setDate(recentCutoff.getDate() - 7);
+      recentCutoff.setDate(recentCutoff.getDate() - this.COOLDOWN_DAYS);
       const recentISO = recentCutoff.toISOString();
 
       const recentSnapshot = await db

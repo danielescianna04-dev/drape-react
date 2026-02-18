@@ -835,27 +835,29 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.premiumBanner}
-            onPress={() => {
-              setShowResourceUsage(false);
-              setShowPlanSelection(true);
-            }}
-          >
-            <LinearGradient
-              colors={['#1e1e20', '#121214']}
-              style={styles.premiumBannerGradient}
+          {currentPlan === 'free' && (
+            <TouchableOpacity
+              style={styles.premiumBanner}
+              onPress={() => {
+                setShowResourceUsage(false);
+                setShowPlanSelection(true);
+              }}
             >
-              <View style={styles.premiumIconBox}>
-                <Ionicons name="diamond" size={20} color={AppColors.primary} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 16 }}>
-                <Text style={styles.premiumTitle}>{t('plans.upgradeTo', { plan: 'Go' })}</Text>
-                <Text style={styles.premiumSub}>{t('plans.upgradeFeatures')}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={['#1e1e20', '#121214']}
+                style={styles.premiumBannerGradient}
+              >
+                <View style={styles.premiumIconBox}>
+                  <Ionicons name="diamond" size={20} color={AppColors.primary} />
+                </View>
+                <View style={{ flex: 1, marginLeft: 16 }}>
+                  <Text style={styles.premiumTitle}>{t('plans.upgradeTo', { plan: 'Go' })}</Text>
+                  <Text style={styles.premiumSub}>{t('plans.upgradeFeatures')}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </View>
     );

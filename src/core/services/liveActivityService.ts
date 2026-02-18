@@ -70,7 +70,12 @@ class LiveActivityService {
       );
       return true;
     } catch (error: any) {
-      console.error('❌ [LiveActivity] Update error:', error);
+      // "No active Live Activity" is expected when activity already ended — ignore silently
+      if (error?.message?.includes('No active')) {
+        this.activityId = null;
+      } else {
+        console.warn('[LiveActivity] Update error:', error?.message);
+      }
       return false;
     }
   }

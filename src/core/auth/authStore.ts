@@ -120,6 +120,9 @@ function startPresenceTracking(userId: string) {
       import('../iap/iapStore').then(({ useIAPStore }) => {
         useIAPStore.getState().refreshPlan();
       }).catch(() => {});
+
+      // Update lastActiveAt for reengagement tracking
+      pushNotificationService.updateLastActive(auth.currentUser?.uid || userId).catch(() => {});
     }
   });
 
