@@ -21,8 +21,18 @@ class ContainerLifecycleService {
     await fs.mkdir(`${config.cacheRoot}/ownership`, { recursive: true });
     await fs.mkdir(nextCachePath, { recursive: true });
 
-    // Fix ownership so container user (1000:1000) can write node_modules etc.
-    // Run recursively only once per project to avoid repeated heavy chown on large repos.
+    const { execSync } = await import('child_process');
+
+    // Always chown the .next cache dir — it may be recreated as root on container
+    // recreation (mkdir -p runs as root) and must be writable by container user (1000:1000).
+    // This dir is typically empty so chown is cheap.
+    try {
+      execSync(`chown 1000:1000 "${nextCachePath}"`, { timeout: 5000 });
+    } catch (e: any) {
+      log.warn(`[Lifecycle] chown .next cache failed (non-fatal): ${e.message}`);
+    }
+
+    // Fix project dir ownership only once — expensive for large repos.
     let needsOwnershipFix = false;
     try {
       await fs.access(ownershipMarker);
@@ -31,13 +41,11 @@ class ContainerLifecycleService {
     }
 
     if (needsOwnershipFix) {
-      const { execSync } = await import('child_process');
       try {
         execSync(`chown -R 1000:1000 "${projectPath}"`, { timeout: 10000 });
-        execSync(`chown -R 1000:1000 "${nextCachePath}"`, { timeout: 10000 });
         await fs.writeFile(ownershipMarker, `${Date.now()}\n`).catch(() => {});
       } catch (e: any) {
-        log.warn(`[Lifecycle] chown failed (non-fatal): ${e.message}`);
+        log.warn(`[Lifecycle] chown project dir failed (non-fatal): ${e.message}`);
       }
     }
 

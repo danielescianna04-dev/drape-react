@@ -159,6 +159,9 @@ export default function App() {
     // Richiedi permesso notifiche push all'avvio (non-blocking)
     liveActivityService.requestNotificationPermission().catch(() => {});
 
+    // Pulisci le Live Activity orfane rimaste da sessioni precedenti (crash, kill, ecc.)
+    liveActivityService.endAllActivities().catch(() => {});
+
     // Notification tap handling is centralized in pushNotificationService.handleNotificationTap
   }, []);
 
@@ -1136,7 +1139,7 @@ export default function App() {
                         setTimeout(async () => {
                           const { activeTabId, tabs } = useTabStore.getState();
                           const currentTab = tabs.find(t => t.id === activeTabId);
-                          const apiToken = await getAuthToken();
+                          const apiToken = await getAuthToken(true);
                           const apiHeaders: Record<string, string> = {
                             'Content-Type': 'application/json',
                             ...(apiToken ? { 'Authorization': `Bearer ${apiToken}` } : {}),

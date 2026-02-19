@@ -83,6 +83,19 @@ class DevServerService {
       return true;
     }
 
+    // If crash is a stale .next cache chunk (e.g. "./828.js"), clear cache and retry once
+    if (result.error && /Modulo non trovato: \.\/\d+\.js/.test(result.error)) {
+      log.warn(`[DevServer] Stale .next cache detected for ${session.projectId}, clearing and retrying...`);
+      await dockerService.exec(session.agentUrl, 'rm -rf .next', '/home/coder/project', 30000).catch(() => {});
+      await this.startDetached(session, info.startCommand);
+      const retryResult = await this.waitForReady(agentUrl, readyTimeout, crashDelay);
+      if (retryResult.ready) {
+        log.info(`[DevServer] Ready after .next cache clear in ${Date.now() - startTime}ms for ${session.projectId}`);
+        return true;
+      }
+      throw new Error(retryResult.error || 'Il dev server non è riuscito ad avviarsi.');
+    }
+
     log.warn(`[DevServer] Not ready after ${elapsed}ms for ${session.projectId}`);
     throw new Error(result.error || 'Il dev server non è riuscito ad avviarsi.');
   }
@@ -414,10 +427,12 @@ class DevServerService {
     }
 
     // Next.js workspace root / missing next package inference error
+    // Note: avoid matching "next/package.json" in the start command echo (e.g. NEXT_MAJOR=...)
     if (
       /couldn't find the next\.js package/i.test(fullLog) ||
-      /next\/package\.json/i.test(fullLog) ||
-      /inferred your workspace root/i.test(fullLog)
+      /inferred your workspace root/i.test(fullLog) ||
+      // Only match next/package.json when it appears in an error context (not in the $ echo of the start cmd)
+      /error.*next\/package\.json|next\/package\.json.*error/i.test(fullLog)
     ) {
       return 'Dipendenze Next.js non trovate nel workspace attivo. Verifica package.json e lockfile nella root usata dalla preview, poi riprova.';
     }

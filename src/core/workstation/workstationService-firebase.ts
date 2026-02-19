@@ -573,7 +573,7 @@ export const workstationService = {
       const project: Omit<UserProject, 'id'> = {
         name: workstation.name || 'Nuovo Progetto',
         type: workstation.repositoryUrl ? 'git' : 'personal',
-        repositoryUrl: workstation.repositoryUrl,
+        repositoryUrl: workstation.repositoryUrl ?? null,
         userId,
         createdAt: new Date(),
         lastAccessed: new Date(),

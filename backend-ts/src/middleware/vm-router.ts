@@ -3,6 +3,7 @@ import { sessionService } from '../services/session.service';
 import { log } from '../utils/logger';
 import * as http from 'http';
 import { Session } from '../types';
+import { AGENT_PORT } from '../utils/constants';
 
 function parseCookies(cookieHeader?: string): Record<string, string> {
   if (!cookieHeader) return {};
@@ -67,6 +68,54 @@ function cookieOptions(req: Request): string {
   return `Path=/; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
+function parseAgentEndpoint(agentUrl?: string): { host: string; port: number | null } {
+  if (!agentUrl) return { host: '127.0.0.1', port: null };
+  try {
+    const u = new URL(agentUrl);
+    return {
+      host: u.hostname || '127.0.0.1',
+      port: u.port ? parseInt(u.port, 10) : null,
+    };
+  } catch {
+    return { host: '127.0.0.1', port: null };
+  }
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+function isLikelyContainerBridgeHost(host: string): boolean {
+  return /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+    || /^10\./.test(host)
+    || /^192\.168\./.test(host);
+}
+
+function resolvePreviewTarget(session: Session): { host: string; port: number } {
+  const { host: agentHost, port: agentPort } = parseAgentEndpoint(session.agentUrl);
+  const appPort = session.projectInfo?.port || 3000;
+
+  // New mode: agentUrl is host-published endpoint (e.g. 127.0.0.1:49xxx).
+  // In this mode previewPort is the only correct target for app traffic.
+  if (session.previewPort) {
+    const legacyBridgeAgent = agentPort === AGENT_PORT
+      && isLikelyContainerBridgeHost(agentHost)
+      && !isLoopbackHost(agentHost);
+
+    if (legacyBridgeAgent) {
+      // Legacy mode: backend can reach container bridge IP directly on app internal port.
+      return { host: agentHost, port: appPort };
+    }
+
+    // Host-mapped mode: route to host + mapped preview port.
+    const host = isLoopbackHost(agentHost) ? '127.0.0.1' : agentHost;
+    return { host, port: session.previewPort };
+  }
+
+  // Last-resort fallback.
+  return { host: isLoopbackHost(agentHost) ? '127.0.0.1' : agentHost, port: appPort };
+}
+
 /**
  * Preview proxy middleware
  * Forwards requests to the container's dev server
@@ -121,14 +170,10 @@ export function createPreviewProxy() {
         proxyPath = parsedProxyPath.pathname + (parsedProxyPath.search || '');
       } catch { /* ignore */ }
 
-      // Use container IP directly via Docker network (agentUrl contains the container IP)
-      // Format: http://172.18.0.X:13338 -> extract IP and use internal port 3000
-      const containerIp = session.agentUrl?.replace('http://', '').split(':')[0];
-      const previewPort = containerIp ? (session.projectInfo?.port || 3000) : (session.previewPort || 3000);
-      const containerHost = containerIp || 'localhost';
-      log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${containerHost}:${previewPort} (user: ${session.userId}, lastUsed: ${new Date(session.lastUsed).toISOString()})`);
+      const target = resolvePreviewTarget(session);
+      log.info(`[Preview Proxy] ${req.method} ${proxyPath} → ${target.host}:${target.port} (user: ${session.userId}, lastUsed: ${new Date(session.lastUsed).toISOString()})`);
 
-      await proxyRequest(req, res, previewPort, proxyPath, projectId, containerHost, session);
+      await proxyRequest(req, res, target.port, proxyPath, projectId, target.host, session);
     } catch (error: any) {
       log.error('[Preview Proxy] Unexpected error:', error.message);
       if (!res.headersSent) {
@@ -168,11 +213,8 @@ export function createAssetProxy() {
         return;
       }
 
-      // Use container IP directly via Docker network (agentUrl contains the container IP)
-      const containerIp = session.agentUrl?.replace('http://', '').split(':')[0];
-      const previewPort = containerIp ? (session.projectInfo?.port || 3000) : (session.previewPort || 3000);
-      const containerHost = containerIp || 'localhost';
-      log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${containerHost}:${previewPort}`);
+      const target = resolvePreviewTarget(session);
+      log.debug(`[Asset Proxy] ${req.method} ${req.url} → ${target.host}:${target.port}`);
 
       let assetPath = req.url;
       try {
@@ -182,7 +224,7 @@ export function createAssetProxy() {
         assetPath = parsedAssetPath.pathname + (parsedAssetPath.search || '');
       } catch { /* ignore */ }
 
-      await proxyRequest(req, res, previewPort, assetPath, projectId, containerHost);
+      await proxyRequest(req, res, target.port, assetPath, projectId, target.host);
     } catch (error: any) {
       log.error('[Asset Proxy] Error:', error.message);
       if (!res.headersSent) {

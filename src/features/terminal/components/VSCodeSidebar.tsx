@@ -599,6 +599,9 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    borderTopRightRadius: 30,
+    borderBottomRightRadius: 30,
+    overflow: 'hidden',
   },
   slidePillGradient: {
     ...StyleSheet.absoluteFillObject,
@@ -613,12 +616,12 @@ const styles = StyleSheet.create({
   },
   panelBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 1050,
+    zIndex: 1155,
   },
   panelsContainer: {
     ...StyleSheet.absoluteFillObject,
     left: 0,
-    zIndex: 1100,
+    zIndex: 1160,
   },
   hiddenPreviewPanel: {
     transform: [{ translateX: -10000 }],

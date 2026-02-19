@@ -13,7 +13,7 @@ class FirebaseService {
 
     try {
       // Load service account for FCM support
-      const serviceAccountPath = path.join(process.cwd(), 'service-account-key.json');
+      const serviceAccountPath = path.join(__dirname, '../../service-account-key.json');
 
       if (fs.existsSync(serviceAccountPath)) {
         const serviceAccount = require(serviceAccountPath);

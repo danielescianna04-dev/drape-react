@@ -202,12 +202,18 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
     if (technology === 'nuxt') {
       ensureDep(pkg, 'dependencies', 'nuxt', '^3.12.0');
       ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false }\n});\n`);
+      if (hasTailwindSignals) {
+        ensureDep(pkg, 'devDependencies', '@nuxtjs/tailwindcss', '^6.12.0');
+        upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false },\n  modules: ['@nuxtjs/tailwindcss'],\n});\n`);
+      } else {
+        upsertFile(normalized, 'nuxt.config.ts', `export default defineNuxtConfig({\n  devtools: { enabled: false }\n});\n`);
+      }
       upsertFile(normalized, 'tsconfig.json', `{\n  "extends": "./.nuxt/tsconfig.json",\n  "compilerOptions": {\n    "strict": false,\n    "skipLibCheck": true\n  }\n}\n`);
       ensureFile('app.vue', `<template>\n  <main style="padding: 24px; font-family: system-ui, sans-serif;">\n    <h1>Benvenuto su ${projectName}</h1>\n  </main>\n</template>\n`);
     }
 
     if (technology === 'svelte') {
+      pkg.type = 'module'; // @sveltejs/vite-plugin-svelte v3+ is ESM-only
       ensureDep(pkg, 'dependencies', 'svelte', '^4.2.0');
       ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
       ensureDep(pkg, 'devDependencies', '@sveltejs/vite-plugin-svelte', '^3.0.0');
@@ -216,6 +222,17 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false\n  },\n  "include": ["src"]\n}\n`);
       upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang="it">\n  <head>\n    <meta charset="UTF-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id="app"></div>\n    <script type="module" src="/src/main.ts"></script>\n  </body>\n</html>\n`);
       ensureFile('src/main.ts', `import App from './App.svelte';\n\nconst app = new App({\n  target: document.getElementById('app')!,\n});\n\nexport default app;\n`);
+      // If AI generated SvelteKit routes instead of plain Svelte, rescue the content
+      const pageFile = normalized.find(f => f.path === 'src/routes/+page.svelte');
+      const appFile = normalized.find(f => f.path === 'src/App.svelte');
+      if (pageFile && !appFile) {
+        // Move +page.svelte content to App.svelte
+        upsertFile(normalized, 'src/App.svelte', pageFile.content);
+        // Remove SvelteKit route files
+        for (let i = normalized.length - 1; i >= 0; i--) {
+          if (normalized[i].path.startsWith('src/routes/')) normalized.splice(i, 1);
+        }
+      }
       ensureFile('src/App.svelte', `<main style="padding: 24px; font-family: system-ui, sans-serif;">\n  <h1>Benvenuto su ${projectName}</h1>\n</main>\n`);
     }
 
@@ -296,12 +313,19 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       ensureFile('App.tsx', `import { Text, View, StyleSheet } from 'react-native';\n\nexport default function App() {\n  return (\n    <View style={styles.container}>\n      <Text style={styles.title}>Benvenuto su ${projectName}</Text>\n      <Text style={styles.subtitle}>Modifica App.tsx per iniziare</Text>\n    </View>\n  );\n}\n\nconst styles = StyleSheet.create({\n  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },\n  title: { fontSize: 24, fontWeight: '700', marginBottom: 8 },\n  subtitle: { fontSize: 16, color: '#666' },\n});\n`);
     }
 
-    if (hasTailwindSignals || technology === 'nextjs') {
+    if ((hasTailwindSignals || technology === 'nextjs') && technology !== 'nuxt') {
+      // Nuxt uses @nuxtjs/tailwindcss module instead (configured above)
       ensureDep(pkg, 'devDependencies', 'tailwindcss', '^3.4.0');
       ensureDep(pkg, 'devDependencies', 'postcss', '^8.4.0');
       ensureDep(pkg, 'devDependencies', 'autoprefixer', '^10.4.0');
-      upsertFile(normalized, 'postcss.config.js', `module.exports = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n`);
-      upsertFile(normalized, 'tailwind.config.js', `/** @type {import('tailwindcss').Config} */\nmodule.exports = {\n  content: [\n    './src/**/*.{js,ts,jsx,tsx,vue,svelte,astro}',\n    './app/**/*.{js,ts,jsx,tsx}',\n    './pages/**/*.{js,ts,jsx,tsx}',\n    './components/**/*.{js,ts,jsx,tsx}',\n    './index.html',\n  ],\n  theme: { extend: {} },\n  plugins: [],\n};\n`);
+      const useESM = pkg.type === 'module'; // Svelte etc.
+      if (useESM) {
+        upsertFile(normalized, 'postcss.config.js', `export default {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n`);
+        upsertFile(normalized, 'tailwind.config.js', `/** @type {import('tailwindcss').Config} */\nexport default {\n  content: [\n    './src/**/*.{js,ts,jsx,tsx,vue,svelte,astro}',\n    './app/**/*.{js,ts,jsx,tsx}',\n    './pages/**/*.{js,ts,jsx,tsx}',\n    './components/**/*.{js,ts,jsx,tsx}',\n    './index.html',\n  ],\n  theme: { extend: {} },\n  plugins: [],\n};\n`);
+      } else {
+        upsertFile(normalized, 'postcss.config.js', `module.exports = {\n  plugins: {\n    tailwindcss: {},\n    autoprefixer: {},\n  },\n};\n`);
+        upsertFile(normalized, 'tailwind.config.js', `/** @type {import('tailwindcss').Config} */\nmodule.exports = {\n  content: [\n    './src/**/*.{js,ts,jsx,tsx,vue,svelte,astro}',\n    './app/**/*.{js,ts,jsx,tsx}',\n    './pages/**/*.{js,ts,jsx,tsx}',\n    './components/**/*.{js,ts,jsx,tsx}',\n    './index.html',\n  ],\n  theme: { extend: {} },\n  plugins: [],\n};\n`);
+      }
     }
 
     upsertFile(normalized, 'package.json', JSON.stringify(pkg, null, 2));
@@ -616,6 +640,7 @@ workstationRouter.post('/glob-files', asyncHandler(async (req, res) => {
 // POST /workstation/search-files
 workstationRouter.post('/search-files', asyncHandler(async (req, res) => {
   const { projectId, pattern } = req.body;
+  log.info(`[Search] Received: projectId=${projectId} pattern=${pattern} userId=${req.userId}`);
   if (!projectId || !pattern) throw new ValidationError('projectId and pattern required');
 
   // Verify project ownership
@@ -1002,14 +1027,15 @@ CRITICAL RULES to avoid build errors:
 - Do NOT use require() — use ES module import/export syntax only
 - Do NOT import packages that are not in your package.json dependencies
 - Do NOT use complex TypeScript generics, "as" type casts, or advanced type annotations — keep types simple
-- Do NOT add "type": "module" to package.json
+- Do NOT add "type": "module" to package.json (except for Svelte/SvelteKit which requires it)
 - Every import must reference a file you generated or a package listed in dependencies
 - Do NOT generate empty files
 - Use "export default function" for components
 - For React/Next.js/Remix/Solid: always use JSX syntax in .tsx files
 - For Vue: use <script setup lang="ts"> syntax
-- For Svelte: use <script lang="ts"> with standard Svelte 4 syntax
+- For Svelte: use <script lang="ts"> with standard Svelte 4 syntax. This is plain Svelte (NOT SvelteKit) — put ALL content in src/App.svelte. Do NOT use SvelteKit routing patterns (no +page.svelte, no +layout.svelte, no routes/ directory)
 - For Angular: use standalone components with inline templates
+- Do NOT use icon libraries (lucide, heroicons, react-icons, @fortawesome, etc.) — use emoji or inline SVG for icons instead. Icon library imports break at runtime due to version mismatches.
 - Use relative imports (./Component) not alias imports (@/components/Component) unless Next.js
 
 Return ONLY the JSON, no markdown fences, no explanation.`;
@@ -1073,37 +1099,35 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
         let chunkCount = 0;
         const streamStart = Date.now();
 
-        // Keep progress moving even when model pauses between chunks.
+        // Asymptotic exponential progress (Uber/Lyft pattern):
+        // - Uses 1 - e^(-t/τ) so it NEVER stops, just slows down naturally
+        // - Chunk arrivals give a small forward boost
+        // - Single ticker avoids competing progress emitters
+        const AI_START = 24;
+        const AI_CEILING = 95; // reserve 95-100 for deterministic post-processing
+        const TAU = 40; // time constant: ~63% at 40s, ~86% at 80s, ~95% at 120s
+
         generationTicker = setInterval(() => {
           const elapsed = (Date.now() - streamStart) / 1000;
-          // 24 -> 89 over ~25s (AI typically finishes in 10-20s).
-          // Uses sqrt curve so early seconds feel faster.
-          const timeRatio = Math.min(1, elapsed / 25);
-          const baseProgress = 24 + Math.round(Math.sqrt(timeRatio) * 65);
+          const range = AI_CEILING - AI_START;
+          const timeProgress = AI_START + range * (1 - Math.exp(-elapsed / TAU));
+          const chunkBonus = Math.min(5, chunkCount / 30);
+          const progress = Math.min(AI_CEILING, Math.round(timeProgress + chunkBonus));
           const message = pickGenerationMessage(elapsed, chunkCount);
-          update(Math.min(89, baseProgress), message, 'AI Generating');
+          update(progress, message, 'AI Generating');
         }, 600);
 
         for await (const chunk of stream) {
           if (chunk.type === 'text') {
             fullText += chunk.text;
             chunkCount++;
-            // Chunk-driven boost on top of time-driven progress.
-            if (chunkCount % 2 === 0) {
-              const elapsed = (Date.now() - streamStart) / 1000;
-              const timeRatio = Math.min(1, elapsed / 25);
-              const baseProgress = 24 + Math.round(Math.sqrt(timeRatio) * 65);
-              const chunkBoost = Math.min(4, Math.floor(chunkCount / 20));
-              const message = pickGenerationMessage(elapsed, chunkCount);
-              update(Math.min(90, baseProgress + chunkBoost), message, 'AI Generating');
-            }
           }
         }
         if (generationTicker) {
           clearInterval(generationTicker);
           generationTicker = null;
         }
-        update(90, 'Finalizing AI response...', 'Processing');
+        update(96, 'Finalizing AI response...', 'Processing');
         break; // Success — exit retry loop
       } catch (retryErr: any) {
         if (generationTicker) {
@@ -1117,7 +1141,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       }
     }
 
-    update(92, 'Analyzing generated code...', 'Processing');
+    update(97, 'Analyzing generated code...', 'Processing');
 
     // Parse the JSON response
     let cleanJson = fullText.trim();
@@ -1126,16 +1150,25 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       cleanJson = cleanJson.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
 
-    let parsed: { files: { path: string; content: string }[] };
+    let parsed: { files: { path: string; content: string }[] } = null as any;
     try {
       parsed = JSON.parse(cleanJson);
     } catch {
-      // Try to extract JSON from the text
-      const jsonMatch = cleanJson.match(/\{[\s\S]*"files"[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('AI returned invalid JSON');
+      // AI may append text after valid JSON — truncate at last '}'
+      for (let i = cleanJson.lastIndexOf('}'); i > 0; i = cleanJson.lastIndexOf('}', i - 1)) {
+        try {
+          parsed = JSON.parse(cleanJson.substring(0, i + 1));
+          break;
+        } catch { /* try earlier brace */ }
+      }
+      if (!parsed) {
+        // Last resort: regex extract
+        const jsonMatch = cleanJson.match(/\{[\s\S]*"files"[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('AI returned invalid JSON');
+        }
       }
     }
 
@@ -1145,7 +1178,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
     parsed.files = normalizeGeneratedFiles(parsed.files, technology, projectName);
 
-    update(94, 'Preparing files...', 'Processing');
+    update(98, 'Preparing files...', 'Processing');
 
     // Write files to NVMe
     const writtenFiles: string[] = [];
@@ -1153,7 +1186,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
       const file = parsed.files[i];
       if (!file.path || file.content === undefined) continue;
 
-      const progress = 95 + Math.floor((i / parsed.files.length) * 4); // 95 → 99
+      const progress = 98 + Math.floor((i / parsed.files.length) * 1.5); // 98 → 99
       update(progress, `Writing ${file.path}`, 'Writing files');
 
       await fileService.writeFile(projectId, file.path, file.content);

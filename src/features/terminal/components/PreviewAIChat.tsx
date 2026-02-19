@@ -681,12 +681,6 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                         </View>
                       </View>
                     )}
-                    {/* TodoList - show current todos from agent */}
-                    {currentTodos.length > 0 && (
-                      <View style={{ paddingHorizontal: 4, paddingTop: 8 }}>
-                        <TodoList todos={currentTodos} />
-                      </View>
-                    )}
                   </ScrollView>
                   </Reanimated.View>
                   <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', marginHorizontal: 8 }} />

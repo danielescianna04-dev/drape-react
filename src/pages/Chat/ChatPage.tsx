@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert, Linking } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import apiClient from '../../core/api/apiClient';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { applyGlassEffect, removeGlassEffect, removeAllGlassEffects } from '../../shared/components/NativeGlassView';
 import { useTranslation } from 'react-i18next';
 import * as MediaLibrary from 'expo-media-library';
+import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useChatStore } from '../../core/terminal/chatStore';
@@ -85,12 +86,13 @@ const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
   { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
-  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['low', 'high'], isPremium: true },
-  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['minimal', 'low', 'medium', 'high'] },
+  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
+  { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ];
 
 // Thinking level labels for display
 const THINKING_LEVEL_LABELS: Record<string, string> = {
+  none: 'Off',
   minimal: 'Minimo',
   low: 'Basso',
   medium: 'Medio',
@@ -163,6 +165,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   // Agent state - 2-mode system (Fast or Planning only)
   const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
   const [isInputbarTodoCollapsed, setIsInputbarTodoCollapsed] = useState(false);
+  const [isInputbarTodoDismissed, setIsInputbarTodoDismissed] = useState(false);
 
   // User plan state for upgrade CTA
   const { user } = useAuthStore();
@@ -581,11 +584,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setTimeout(() => {
         setShowToolsSheet(false);
         setSelectedPhotoIds(new Set()); // Clear selection when closing
+        // Restore input bar glass after sheet closes
+        if (Platform.OS === 'ios') applyInputGlass();
       }, 300);
     } else {
       Keyboard.dismiss(); // Close keyboard when opening sheet
       if (hideSidebar) hideSidebar();
       if (setForceHideToggle) setForceHideToggle(true);
+      // Remove input bar glass so it doesn't render on top of the sheet
+      if (Platform.OS === 'ios') removeGlassEffect(inputBarGlassId);
       setShowToolsSheet(true);
       loadRecentPhotos(); // Load photos when opening
       toolsSheetAnim.value = withTiming(0, {
@@ -593,7 +600,42 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         easing: Easing.bezier(0.25, 0.1, 0.25, 1)
       });
     }
-  }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle, loadRecentPhotos]);
+  }, [showToolsSheet, hideSidebar, showSidebar, setForceHideToggle, loadRecentPhotos, inputBarGlassId, applyInputGlass]);
+
+  const pickImageFromLibrary = useCallback(async () => {
+    toggleToolsSheet();
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permesso necessario',
+        'È necessario il permesso per accedere alla galleria',
+        [
+          { text: 'Annulla', style: 'cancel' },
+          { text: 'Impostazioni', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      allowsMultipleSelection: true,
+      selectionLimit: 4,
+      quality: 0.8,
+      base64: true,
+    });
+    if (!result.canceled && result.assets) {
+      const newImages = result.assets.map(asset => ({
+        uri: asset.uri,
+        base64: asset.base64 ?? '',
+        type: asset.mimeType ?? 'image/jpeg',
+      }));
+      setSelectedInputImages(prev => {
+        const combined = [...prev, ...newImages];
+        return combined.slice(0, 4);
+      });
+    }
+  }, [toggleToolsSheet]);
+
 
   const sendSelectedPhotos = useCallback(async () => {
     if (selectedPhotoIds.size === 0) return;
@@ -2494,6 +2536,16 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       .join('|');
   }, [engine.currentTodos]);
 
+  // Reset dismiss state when a new set of todos arrives
+  const prevTodoCountRef = React.useRef(0);
+  React.useEffect(() => {
+    const count = engine.currentTodos?.length || 0;
+    if (count > 0 && prevTodoCountRef.current === 0) {
+      setIsInputbarTodoDismissed(false);
+    }
+    prevTodoCountRef.current = count;
+  }, [engine.currentTodos?.length]);
+
   // Track updates on the last rendered item (also during streaming deltas)
   const lastItemAutoScrollKey = useMemo(() => {
     const last = processedTerminalItems[processedTerminalItems.length - 1]?.item;
@@ -3015,7 +3067,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 )}
 
                 {/* Integrate active tasks directly inside input bar */}
-                {engine.currentTodos.length > 0 && (
+                {engine.currentTodos.length > 0 && !isInputbarTodoDismissed && (
                   <View style={styles.inputbarTodoContainer}>
                     <TodoList
                       key={inputbarTodoRenderKey}
@@ -3025,6 +3077,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                       collapsible
                       collapsed={isInputbarTodoCollapsed}
                       onToggleCollapse={() => setIsInputbarTodoCollapsed(prev => !prev)}
+                      onDismiss={() => setIsInputbarTodoDismissed(true)}
                     />
                   </View>
                 )}
@@ -3322,48 +3375,24 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
             <View style={styles.sheetDivider} />
 
-            {/* Tools List */}
+            {/* Extra Tools */}
             <View style={styles.toolsList}>
-              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
+              <TouchableOpacity
+                style={styles.toolItem}
+                activeOpacity={0.7}
+                onPress={pickImageFromLibrary}
+              >
                 <View style={styles.toolIconContainer}>
-                  <Ionicons name="sparkles-outline" size={18} color="#fff" />
+                  <Ionicons name="images-outline" size={20} color="rgba(255,255,255,0.8)" />
                 </View>
                 <View style={styles.toolTextContainer}>
-                  <Text style={styles.toolTitle}>Crea immagine</Text>
-                  <Text style={styles.toolSubtitle}>Rendi visibile ogni concetto</Text>
+                  <Text style={styles.toolTitle}>Seleziona foto da dispositivo</Text>
+                  <Text style={styles.toolSubtitle}>Apri la libreria foto completa</Text>
                 </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
-                <View style={styles.toolIconContainer}>
-                  <Ionicons name="bulb-outline" size={18} color="#fff" />
-                </View>
-                <View style={styles.toolTextContainer}>
-                  <Text style={styles.toolTitle}>Pensa</Text>
-                  <Text style={styles.toolSubtitle}>Pensa più a lungo per risposte migliori</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
-                <View style={styles.toolIconContainer}>
-                  <Ionicons name="search-outline" size={18} color="#fff" />
-                </View>
-                <View style={styles.toolTextContainer}>
-                  <Text style={styles.toolTitle}>Deep Research</Text>
-                  <Text style={styles.toolSubtitle}>Ottieni un report dettagliato</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.toolItem} activeOpacity={0.6}>
-                <View style={styles.toolIconContainer}>
-                  <Ionicons name="globe-outline" size={18} color="#fff" />
-                </View>
-                <View style={styles.toolTextContainer}>
-                  <Text style={styles.toolTitle}>Ricerca sul web</Text>
-                  <Text style={styles.toolSubtitle}>Trova notizie e informazioni in tempo reale</Text>
-                </View>
+                <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.3)" />
               </TouchableOpacity>
             </View>
+
           </LinearGradient>
         </BlurView>
       </Animated.View>

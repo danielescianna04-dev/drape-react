@@ -234,12 +234,17 @@ class DockerService {
     const portBindings = info.NetworkSettings?.Ports || {};
     const devServerMapping = portBindings['3000/tcp'];
     const hostDevPort = devServerMapping?.[0]?.HostPort;
+    const agentMapping = portBindings[`${AGENT_PORT}/tcp`];
+    const hostAgentPort = agentMapping?.[0]?.HostPort;
+    const hostAgentAddress = server.isLocal ? '127.0.0.1' : server.host;
 
-    // Use container's internal IP on Docker network (backend runs inside a container too)
-    const containerIP = info.NetworkSettings?.Networks?.[DOCKER_NETWORK]?.IPAddress;
-    if (!containerIP) throw new Error('Container started but no IP on network');
-
-    const agentUrl = `http://${containerIP}:${AGENT_PORT}`;
+    // Prefer host-published agent port (more robust than bridge IP routing on busy hosts).
+    let agentUrl = hostAgentPort ? `http://${hostAgentAddress}:${hostAgentPort}` : '';
+    if (!agentUrl) {
+      const containerIP = info.NetworkSettings?.Networks?.[DOCKER_NETWORK]?.IPAddress;
+      if (!containerIP) throw new Error('Container started but no agent host port and no network IP');
+      agentUrl = `http://${containerIP}:${AGENT_PORT}`;
+    }
     const elapsed = Date.now() - startTime;
 
     log.info(`[Docker] Container created in ${elapsed}ms — ${container.id.substring(0, 12)} agent=${agentUrl}`);
@@ -277,12 +282,18 @@ class DockerService {
       const portBindings = info.NetworkSettings?.Ports || {};
       const devMapping = portBindings['3000/tcp'];
       const hostDevPort = devMapping?.[0]?.HostPort;
+      const agentMapping = portBindings[`${AGENT_PORT}/tcp`];
+      const hostAgentPort = agentMapping?.[0]?.HostPort;
+      const hostAgentAddress = server.isLocal ? '127.0.0.1' : server.host;
       const containerIP = info.NetworkSettings?.Networks?.[DOCKER_NETWORK]?.IPAddress || '';
+      const agentUrl = hostAgentPort
+        ? `http://${hostAgentAddress}:${hostAgentPort}`
+        : (containerIP ? `http://${containerIP}:${AGENT_PORT}` : '');
 
       return {
         id: info.Id,
         projectId: info.Config?.Labels?.[DOCKER_LABELS.project] || '',
-        agentUrl: containerIP ? `http://${containerIP}:${AGENT_PORT}` : '',
+        agentUrl,
         previewPort: hostDevPort ? parseInt(hostDevPort) : null,
         serverId: server.id,
         state: this.mapState(info.State.Status),
@@ -311,8 +322,10 @@ class DockerService {
         for (const c of containers) {
           const ports = c.Ports || [];
           const devPort = ports.find(p => p.PrivatePort === 3000 && p.PublicPort);
+          const agentPort = ports.find(p => p.PrivatePort === AGENT_PORT && p.PublicPort);
+          const hostAgentAddress = server.isLocal ? '127.0.0.1' : server.host;
 
-          // Get container IP from Docker network via inspect
+          // Fallback to container IP when published agent port is unavailable
           let containerIP = '';
           try {
             const containerObj = client.getContainer(c.Id);
@@ -320,10 +333,14 @@ class DockerService {
             containerIP = inspectInfo.NetworkSettings?.Networks?.[DOCKER_NETWORK]?.IPAddress || '';
           } catch { /* ignore */ }
 
+          const agentUrl = agentPort?.PublicPort
+            ? `http://${hostAgentAddress}:${agentPort.PublicPort}`
+            : (containerIP ? `http://${containerIP}:${AGENT_PORT}` : '');
+
           all.push({
             id: c.Id,
             projectId: c.Labels?.[DOCKER_LABELS.project] || '',
-            agentUrl: containerIP ? `http://${containerIP}:${AGENT_PORT}` : '',
+            agentUrl,
             previewPort: devPort?.PublicPort || null,
             serverId: server.id,
             state: this.mapState(c.State),
@@ -368,7 +385,7 @@ class DockerService {
         lastError = err;
         const status = err.response?.status;
         const isRetriable = [502, 503, 504].includes(status) ||
-          ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT'].includes(err.code) ||
+          ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'EAI_AGAIN'].includes(err.code) ||
           err.message?.includes('socket hang up');
 
         if (isRetriable && attempt < maxRetries) {

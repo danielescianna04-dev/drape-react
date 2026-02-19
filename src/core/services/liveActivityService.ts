@@ -185,6 +185,22 @@ class LiveActivityService {
     }
   }
 
+  /**
+   * Termina TUTTE le Live Activity attive (incluse quelle orfane di sessioni precedenti).
+   * Da chiamare all'avvio dell'app per ripulire notifiche accumulate.
+   */
+  async endAllActivities(): Promise<boolean> {
+    if (!this.isSupported || !PreviewActivityModule) return false;
+    try {
+      await PreviewActivityModule.endAllActivities();
+      this.activityId = null;
+      return true;
+    } catch (error: any) {
+      console.warn('[LiveActivity] endAllActivities error:', error?.message);
+      return false;
+    }
+  }
+
   isActivityActive(): boolean {
     return this.activityId !== null;
   }

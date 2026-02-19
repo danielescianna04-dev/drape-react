@@ -46,16 +46,23 @@ class PreviewActivityModule: NSObject {
         completionMessage: nil
       )
 
-      do {
-        let activity = try Activity<PreviewActivityAttributes>.request(
-          attributes: attributes,
-          content: .init(state: state, staleDate: nil),
-          pushType: nil
-        )
-        currentActivity = activity
-        resolve(activity.id)
-      } catch {
-        reject("START_ERROR", error.localizedDescription, error)
+      // End all orphaned activities from previous sessions before starting a new one
+      Task {
+        for orphan in Activity<PreviewActivityAttributes>.activities {
+          await orphan.end(nil, dismissalPolicy: .immediate)
+        }
+
+        do {
+          let activity = try Activity<PreviewActivityAttributes>.request(
+            attributes: attributes,
+            content: .init(state: state, staleDate: nil),
+            pushType: nil
+          )
+          self.currentActivity = activity
+          resolve(activity.id)
+        } catch {
+          reject("START_ERROR", error.localizedDescription, error)
+        }
       }
     } else {
       reject("NOT_SUPPORTED", "Live Activities require iOS 16.2+", nil)
@@ -156,8 +163,31 @@ class PreviewActivityModule: NSObject {
         try? await Task.sleep(nanoseconds: 1_500_000_000)
         await activity.end(
           .init(state: finalState, staleDate: nil),
-          dismissalPolicy: .default
+          dismissalPolicy: .immediate
         )
+        self.currentActivity = nil
+        resolve(true)
+      }
+    } else {
+      resolve(true)
+    }
+    #else
+    resolve(true)
+    #endif
+  }
+
+  // MARK: - End All Activities (cleanup orphans on app startup)
+
+  @objc func endAllActivities(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    reject: @escaping RCTPromiseRejectBlock
+  ) {
+    #if canImport(ActivityKit)
+    if #available(iOS 16.2, *) {
+      Task {
+        for activity in Activity<PreviewActivityAttributes>.activities {
+          await activity.end(nil, dismissalPolicy: .immediate)
+        }
         self.currentActivity = nil
         resolve(true)
       }

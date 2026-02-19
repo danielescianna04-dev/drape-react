@@ -29,7 +29,9 @@ class WebSocketService {
       return;
     }
 
-    const authToken = await getAuthToken();
+    // Force-refresh token on reconnect to avoid "Invalid or expired token" errors
+    const user = (await import('../../config/firebase')).auth.currentUser;
+    const authToken = user ? await user.getIdToken(true).catch(() => null) : null;
     const baseWsUrl = config.apiUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
     const wsUrl = authToken ? `${baseWsUrl}?token=${encodeURIComponent(authToken)}` : baseWsUrl;
 

@@ -18,6 +18,7 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
+import { useTabStore } from '../../core/tabs/tabStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../i18n/languageStore';
@@ -207,6 +208,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       setShowPlanSelection(false);
     }
   };
+  // Count open preview WebViews from tabStore (tabs with type === 'preview')
+  const activePreviewCount = useTabStore(state => state.tabs.filter(t => t.type === 'preview').length);
+
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -813,12 +817,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Anteprime</Text>
-                  <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.previews.limit ? Math.round((activePreviewCount / systemStatus.previews.limit) * 100) : 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.percent || 0}%`, backgroundColor: '#34D399' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.limit ? Math.min(Math.round((activePreviewCount / systemStatus.previews.limit) * 100), 100) : 0}%`, backgroundColor: '#34D399' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 10} attive</Text>
+                <Text style={styles.usageSubtext}>{activePreviewCount} / {systemStatus?.previews.limit || 10} attive</Text>
               </BlurView>
 
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>

@@ -901,7 +901,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     handleClose();
   };
 
-  const handleClose = () => {
+  const handleStopPreview = () => {
     if (checkInterval.current) {
       clearInterval(checkInterval.current);
       checkInterval.current = null;
@@ -914,7 +914,6 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     if (currentWorkstation?.id) {
       const closingProjectId = currentWorkstation.id;
 
-      // X in preview means "stop preview now", not just hide UI.
       clearPendingRelease(closingProjectId);
       pendingReleaseTimers.delete(closingProjectId);
 
@@ -951,6 +950,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         } catch {}
       })();
     }
+  };
+
+  const handleClose = () => {
+    handleStopPreview();
     // Keep panel opacity at 1 when closed because VSCodeSidebar now keeps
     // PreviewPanel mounted (hidden off-screen). Fading to 0 would persist
     // and make reopen look like "stuck on chat".
@@ -1428,7 +1431,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
               <Animated.View>
                 <PreviewToolbar
                   currentPreviewUrl={currentPreviewUrl}
-                  onClose={handleClose}
+                  onClose={handleStopPreview}
                   onRefresh={handleRefresh}
                   onPublish={publish.openPublishModal}
                   onUrlChange={setCurrentPreviewUrl}

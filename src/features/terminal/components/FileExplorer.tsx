@@ -42,9 +42,10 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'name' | 'content'>('name');
+  const [searchMode, setSearchMode] = useState<'name' | 'content'>('content');
   const [searchResults, setSearchResults] = useState<{ file: string; line: number; content: string }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [creating, setCreating] = useState<'file' | 'folder' | null>(null);
   const [newName, setNewName] = useState('');
   const [creatingInFolder, setCreatingInFolder] = useState<string | null>(null);
@@ -111,6 +112,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   useEffect(() => {
     let isMounted = true;
     if (searchMode === 'content' && searchQuery.trim()) {
+      setSearchError(null);
       const timer = setTimeout(async () => {
         try {
           if (!isMounted) return;
@@ -118,8 +120,13 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           const results = await workstationService.searchInFiles(projectId, searchQuery, repositoryUrl);
           if (!isMounted) return;
           setSearchResults(results);
-        } catch (err) {
-          if (isMounted) { console.error('Search error:', err); setSearchResults([]); }
+          setSearchError(null);
+        } catch (err: any) {
+          if (isMounted) {
+            console.error('Search error:', err);
+            setSearchResults([]);
+            setSearchError(err.message || 'Errore nella ricerca');
+          }
         } finally {
           if (isMounted) setSearching(false);
         }
@@ -127,6 +134,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       return () => { isMounted = false; clearTimeout(timer); };
     } else {
       setSearchResults([]);
+      setSearchError(null);
     }
     return () => { isMounted = false; };
   }, [searchQuery, searchMode, projectId, repositoryUrl]);
@@ -787,6 +795,15 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         );
       }
 
+      if (searchError) {
+        return (
+          <View style={styles.searchResultsContainer}>
+            <Ionicons name="alert-circle-outline" size={48} color={AppColors.white.w25} />
+            <Text style={styles.noResultsText}>Errore nella ricerca</Text>
+          </View>
+        );
+      }
+
       if (searchResults.length === 0) {
         return (
           <View style={styles.searchResultsContainer}>
@@ -951,9 +968,6 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                     <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.searchModeToggle} onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}>
-                  <Ionicons name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'} size={14} color={AppColors.primary} />
-                </TouchableOpacity>
               </View>
             </LiquidGlassView>
           ) : (
@@ -977,9 +991,6 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
                   <Ionicons name="close-circle" size={14} color={AppColors.white.w40} />
                 </TouchableOpacity>
               )}
-              <TouchableOpacity style={styles.searchModeToggle} onPress={() => setSearchMode(searchMode === 'name' ? 'content' : 'name')}>
-                <Ionicons name={searchMode === 'name' ? 'document-text-outline' : 'code-outline'} size={14} color={AppColors.primary} />
-              </TouchableOpacity>
             </View>
           )}
 
@@ -996,7 +1007,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       </View>
 
       {/* Results or File Tree */}
-      {searchQuery.trim() && searchMode === 'content' ? (
+      {searchQuery.trim() ? (
         renderSearchResults()
       ) : (
         <View style={styles.treeContainer}>

@@ -59,7 +59,8 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       const data = await response.json();
       if (!response.ok) {
         setPublishStatus('error');
-        setPublishError(data.error || 'Publish failed');
+        const detail = [data?.error, data?.stderr].filter(Boolean).join(': ');
+        setPublishError(detail || 'Publish failed');
       } else {
         setPublishStatus('done');
         setPublishedUrl(data.url);

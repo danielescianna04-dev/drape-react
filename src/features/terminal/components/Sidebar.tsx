@@ -307,14 +307,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
   const renderSidebarContent = () => (
     <>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Files</Text>
-        <IconButton
-          iconName="close"
-          size={20}
-          color={AppColors.white.w40}
-          onPress={handleClose}
-          accessibilityLabel={t('projects:sidebar.closeSidebar')}
-        />
+        <Text style={styles.headerTitle} numberOfLines={1}>{currentWorkstation?.name || 'Files'}</Text>
       </View>
 
       <ScrollView
@@ -656,11 +649,13 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   headerTitle: {
+    flex: 1,
     fontSize: 13,
     fontWeight: '600',
     color: AppColors.white.w60,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    marginRight: 8,
   },
   searchContainer: {
     paddingHorizontal: 8,

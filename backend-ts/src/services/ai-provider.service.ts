@@ -564,33 +564,48 @@ class AIProviderService {
     }
 
     const isFlash = modelConfig.modelId.includes('flash');
+    const levelKey = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
+    const thinkingDisabled = levelKey === 'none';
 
-    // Determine thinking level - default to 'minimal' for speed
-    let thinkingLevel = options?.thinkingLevel || (isFlash ? 'minimal' : 'low');
-    const validFlashLevels = ['minimal', 'low', 'medium', 'high'];
-    const validProLevels = ['low', 'high'];
-    const validLevels = isFlash ? validFlashLevels : validProLevels;
+    // Flash supports thinkingBudget (0 = off, precise token cap)
+    // Pro uses thinkingLevel string (min budget enforced by Google API)
+    const FLASH_BUDGETS: Record<string, number> = {
+      none: 0, minimal: 128, low: 1024, medium: 4096, high: 8192,
+    };
 
-    if (!validLevels.includes(thinkingLevel)) {
-      thinkingLevel = isFlash ? 'minimal' : 'low';
-    }
+    // Extract system prompt to pass as native systemInstruction (avoids fake user/model messages)
+    const systemText = this.extractSystemPrompt(messages, systemPrompt);
 
-    // Format contents once
-    const contents = this.formatContentsForGenAI(messages, systemPrompt);
+    // Format contents without injecting system as fake messages (we use systemInstruction below)
+    const contents = this.formatContentsForGenAI(messages, systemPrompt, true);
     const maxAttempts = 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const includeThoughts = attempt === 1;
-      log.info(`[Gemini 3] Attempt ${attempt}/${maxAttempts} (level: ${thinkingLevel}, includeThoughts: ${includeThoughts})`);
+      const includeThoughts = !thinkingDisabled && attempt === 1;
+      log.info(`[Gemini 3] Attempt ${attempt}/${maxAttempts} (level: ${levelKey}, isFlash: ${isFlash}, includeThoughts: ${includeThoughts})`);
 
       // Build config
       const requestConfig: any = {
-        thinkingConfig: {
-          thinkingLevel,
-          includeThoughts,
-        },
-        maxOutputTokens: options?.maxTokens || 65536,
+        maxOutputTokens: options?.maxTokens || 16384,
       };
+
+      // Add thinkingConfig only when thinking is enabled
+      if (!thinkingDisabled) {
+        if (isFlash) {
+          // Flash: use thinkingBudget for precise token control
+          const budget = FLASH_BUDGETS[levelKey] ?? 1024;
+          requestConfig.thinkingConfig = { thinkingBudget: budget, includeThoughts };
+        } else {
+          // Pro: use thinkingLevel string (budget is managed by Google API)
+          const proLevel = levelKey === 'low' ? 'low' : 'high';
+          requestConfig.thinkingConfig = { thinkingLevel: proLevel, includeThoughts };
+        }
+      }
+
+      // Pass system prompt as native systemInstruction (more efficient than fake user/model pair)
+      if (systemText) {
+        requestConfig.systemInstruction = systemText;
+      }
 
       if (options?.temperature !== undefined) {
         requestConfig.temperature = options.temperature;
@@ -739,22 +754,26 @@ class AIProviderService {
   }
 
   /**
-   * Format messages for the new @google/genai SDK
+   * Format messages for the new @google/genai SDK.
+   * @param skipSystemInjection - if true, skip prepending system as fake user/model pair
+   *   (used when systemInstruction is passed natively in the config instead).
    */
-  private formatContentsForGenAI(messages: ChatMessage[], systemPrompt?: string): any[] {
+  private formatContentsForGenAI(messages: ChatMessage[], systemPrompt?: string, skipSystemInjection = false): any[] {
     const contents: any[] = [];
 
-    // Add system prompt as first user message if provided
-    const system = this.extractSystemPrompt(messages, systemPrompt);
-    if (system) {
-      contents.push({
-        role: 'user',
-        parts: [{ text: `System: ${system}` }],
-      });
-      contents.push({
-        role: 'model',
-        parts: [{ text: 'Understood. I will follow these instructions.' }],
-      });
+    // Add system prompt as first user message if provided (legacy fallback)
+    if (!skipSystemInjection) {
+      const system = this.extractSystemPrompt(messages, systemPrompt);
+      if (system) {
+        contents.push({
+          role: 'user',
+          parts: [{ text: `System: ${system}` }],
+        });
+        contents.push({
+          role: 'model',
+          parts: [{ text: 'Understood. I will follow these instructions.' }],
+        });
+      }
     }
 
     // Filter out system messages and format

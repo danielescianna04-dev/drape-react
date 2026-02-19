@@ -124,13 +124,15 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
                 >
                   {tab.title}
                 </Text>
-                <TouchableOpacity
-                  onPress={(e) => handleRemoveTab(tab.id, e)}
-                  style={styles.closeButton}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={14} color={AppColors.icon.muted} />
-                </TouchableOpacity>
+                {tabs.length > 1 && (
+                  <TouchableOpacity
+                    onPress={(e) => handleRemoveTab(tab.id, e)}
+                    style={styles.closeButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={14} color={AppColors.icon.muted} />
+                  </TouchableOpacity>
+                )}
               </View>
             </TouchableOpacity>
           </RNAnimated.View>

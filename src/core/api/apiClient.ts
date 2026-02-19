@@ -5,6 +5,8 @@ const apiClient = axios.create();
 
 apiClient.interceptors.request.use(async (config) => {
   try {
+    // Wait for Firebase to restore auth state from AsyncStorage before first request
+    await auth.authStateReady();
     const user = auth.currentUser;
     if (user) {
       const token = await user.getIdToken();
@@ -16,13 +18,25 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Response interceptor for error handling
+// Response interceptor for error handling + token retry on 401
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error.response) {
       const status = error.response.status;
-      if (status === 401) {
+      if (status === 401 && !error.config._tokenRetried) {
+        // Force-refresh token and retry once
+        try {
+          const user = auth.currentUser;
+          if (user) {
+            const freshToken = await user.getIdToken(true);
+            error.config._tokenRetried = true;
+            error.config.headers.Authorization = `Bearer ${freshToken}`;
+            return apiClient.request(error.config);
+          }
+        } catch (refreshError) {
+          console.warn('[API] Token refresh failed:', refreshError);
+        }
         console.warn('[API] Unauthorized - token may be expired');
       } else if (status === 429) {
         console.warn('[API] Rate limited - too many requests');

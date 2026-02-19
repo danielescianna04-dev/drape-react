@@ -418,15 +418,6 @@ export const PreviewLoadingScreen: React.FC<{
       <View style={styles.macDesktopOrb2} />
       <View style={styles.macDesktopOrb3} />
 
-      {/* Close button top right */}
-      <TouchableOpacity
-        onPress={onClose}
-        style={[styles.startCloseButton, { top: topInset + 8, right: 16 }]}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="close" size={22} color="rgba(255, 255, 255, 0.4)" />
-      </TouchableOpacity>
-
       {/* Content - Error or Terminal (full screen) */}
       <View style={styles.fullScreenContent}>
         {previewError ? (

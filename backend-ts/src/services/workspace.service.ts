@@ -156,7 +156,16 @@ class WorkspaceService {
           const appError = await devServerService.checkResponseForErrors(existingSession.agentUrl);
           if (appError) {
             log.warn(`[Workspace] Fast path: app broken for ${projectId}: ${appError.substring(0, 100)}`);
-            throw new Error(appError);
+            // Stale .next cache chunk (e.g. "./828.js") — clear cache and fall through to slow path
+            if (/Modulo non trovato: \.\/\d+\.js/.test(appError)) {
+              log.warn(`[Workspace] Stale .next cache detected, clearing and restarting for ${projectId}`);
+              await devServerService.stop(existingSession).catch(() => {});
+              await dockerService.exec(existingSession.agentUrl, 'rm -rf .next', '/home/coder/project', 30000, true).catch(() => {});
+              existingSession.projectInfo = freshInfo;
+              // Fall through to slow path
+            } else {
+              throw new Error(appError);
+            }
           }
 
           const elapsed = Date.now() - startTime;

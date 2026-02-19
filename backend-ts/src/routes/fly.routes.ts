@@ -855,152 +855,382 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // 1. Sanitize slug
-  const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  if (!cleanSlug) throw new ValidationError('Invalid slug');
+  // Preview stays running during publish — builds use separate output dirs
+  // and don't conflict with dev servers.
+  const previewSession = await sessionService.get(projectId, userId);
+  const shouldResumePreview = false;
 
-  // 2. Check slug availability in Firestore
-  const db = firebaseService.getFirestore();
-  if (db) {
-    const existing = await db.collection('published_sites').doc(cleanSlug).get();
-    if (existing.exists && existing.data()?.projectId !== projectId) {
-      res.status(409).json({ error: 'Slug already taken', slug: cleanSlug });
-      return;
-    }
-  }
+  const isAgentTransportError = (error: any): boolean => {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '');
+    return [
+      'ECONNREFUSED',
+      'ECONNRESET',
+      'ETIMEDOUT',
+      'EHOSTUNREACH',
+      'EAI_AGAIN',
+    ].includes(code) || /EHOSTUNREACH|ECONNREFUSED|ECONNRESET|socket hang up|aborted/i.test(message);
+  };
 
-  // 3. Detect project type and build strategy
-  const pkgResult = await fileService.readFile(projectId, 'package.json');
-  let hasBuildScript = false;
-  if (pkgResult.success && pkgResult.data) {
+  const execForPublish = async (
+    command: string,
+    cwd = '/home/coder/project',
+    step = 'command',
+  ) => {
     try {
-      const pkg = JSON.parse(pkgResult.data.content);
-      hasBuildScript = !!pkg.scripts?.build;
-    } catch {}
-  }
-  const hasPubspec = await fileService.exists(projectId, 'pubspec.yaml');
-  const isFlutter = hasPubspec;
-  const isServerSide = await fileService.exists(projectId, 'manage.py') // Django
-    || await fileService.exists(projectId, 'artisan')                   // Laravel
-    || false;
+      return await workspaceService.exec(projectId, userId, command, cwd);
+    } catch (error: any) {
+      if (!isAgentTransportError(error)) throw error;
 
-  // Check for Python server frameworks (Flask/FastAPI) — these can't be published as static
-  if (!hasBuildScript && !isFlutter) {
-    const reqResult = await fileService.readFile(projectId, 'requirements.txt');
-    if (reqResult.success && reqResult.data) {
-      const reqs = reqResult.data.content.toLowerCase();
-      if (reqs.includes('flask') || reqs.includes('fastapi') || reqs.includes('django')) {
-        res.status(400).json({ error: 'Server-side frameworks (Flask, Django, FastAPI) cannot be published as static sites. Use the live preview instead.' });
-        return;
-      }
+      log.warn(`[Publish] Agent unavailable during ${step} for ${projectId}, recreating container and retrying once`);
+      await workspaceService.getOrCreateContainer(projectId, userId);
+      return await workspaceService.exec(projectId, userId, command, cwd);
     }
-  }
-  if (isServerSide) {
-    res.status(400).json({ error: 'Server-side frameworks (Django, Laravel) cannot be published as static sites. Use the live preview instead.' });
-    return;
-  }
+  };
 
-  let srcDir: string;
+  try {
+    // 1. Sanitize slug
+    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!cleanSlug) throw new ValidationError('Invalid slug');
 
-  if (isFlutter) {
-    // 4-flutter. Build Flutter Web
-    log.info(`[Publish] Building Flutter Web for ${projectId} slug "${cleanSlug}"...`);
-    const buildResult = await workspaceService.exec(projectId, userId, 'flutter build web --release', '/home/coder/project');
-    if (buildResult.exitCode !== 0) {
-      const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
-      log.error(`[Publish] Flutter build failed for ${projectId}:`, errorOutput);
-      res.status(500).json({ error: 'Flutter build failed', stderr: errorOutput.substring(0, 500) });
-      return;
-    }
-    srcDir = path.join(config.projectsRoot, projectId, 'build/web');
-  } else if (hasBuildScript) {
-    // 4a. Install deps if node_modules is missing
-    const hasNodeModules = await fileService.exists(projectId, 'node_modules');
-    if (!hasNodeModules) {
-      log.info(`[Publish] Installing dependencies for ${projectId}...`);
-      const installResult = await workspaceService.exec(projectId, userId, 'npm install --legacy-peer-deps', '/home/coder/project');
-      if (installResult.exitCode !== 0) {
-        log.error(`[Publish] npm install failed for ${projectId}:`, installResult.stderr || installResult.stdout);
-        res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+    // 2. Check slug availability in Firestore
+    const db = firebaseService.getFirestore();
+    if (db) {
+      const existing = await db.collection('published_sites').doc(cleanSlug).get();
+      if (existing.exists && existing.data()?.projectId !== projectId) {
+        res.status(409).json({ error: 'Slug already taken', slug: cleanSlug });
         return;
       }
     }
 
-    // 4b. Build project in container
-    log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
-    const buildResult = await workspaceService.exec(projectId, userId, 'CI=false npm run build', '/home/coder/project');
-    if (buildResult.exitCode !== 0) {
-      const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
-      log.error(`[Publish] Build failed for ${projectId}:`, errorOutput);
-      res.status(500).json({ error: 'Build failed', stderr: errorOutput.substring(0, 500) });
-      return;
+    // 3. Detect project type and build strategy
+    const pkgResult = await fileService.readFile(projectId, 'package.json');
+    let hasBuildScript = false;
+    let isNextJs = false;
+    let isNuxt = false;
+    if (pkgResult.success && pkgResult.data) {
+      try {
+        const pkg = JSON.parse(pkgResult.data.content);
+        hasBuildScript = !!pkg.scripts?.build;
+        isNextJs = !!(pkg.dependencies?.next || pkg.devDependencies?.next);
+        isNuxt = !!(pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt);
+      } catch {}
     }
+    const hasPubspec = await fileService.exists(projectId, 'pubspec.yaml');
+    const isFlutter = hasPubspec;
+    const isServerSide = await fileService.exists(projectId, 'manage.py') // Django
+      || await fileService.exists(projectId, 'artisan')                   // Laravel
+      || false;
 
-    // 4c. Detect build output directory (order matters — more specific first)
-    const outputDirs = [
-      '.output/public',      // Nuxt
-      'build/web',           // Flutter Web
-      'dist/browser',        // Angular (new)
-      'dist',                // Vite, Astro, Solid.js
-      'build',               // React CRA, SvelteKit, Remix
-      'out',                 // Next.js static export
-      '.next/standalone',    // Next.js standalone
-    ];
-    let outputDir: string | null = null;
-    for (const dir of outputDirs) {
-      if (await fileService.exists(projectId, dir)) {
-        outputDir = dir;
-        break;
-      }
-    }
-    if (!outputDir) {
-      // Angular fallback: dist/{subdir}/browser
-      const distResult = await fileService.listFiles(projectId, 'dist');
-      if (distResult.success && distResult.data) {
-        for (const f of distResult.data) {
-          const name = f.path.split('/').pop() || f.path;
-          if (f.isDirectory && await fileService.exists(projectId, `dist/${name}/browser`)) {
-            outputDir = `dist/${name}/browser`;
-            break;
-          }
+    // Check for Python server frameworks (Flask/FastAPI) — these can't be published as static
+    if (!hasBuildScript && !isFlutter) {
+      const reqResult = await fileService.readFile(projectId, 'requirements.txt');
+      if (reqResult.success && reqResult.data) {
+        const reqs = reqResult.data.content.toLowerCase();
+        if (reqs.includes('flask') || reqs.includes('fastapi') || reqs.includes('django')) {
+          res.status(400).json({ error: 'Server-side frameworks (Flask, Django, FastAPI) cannot be published as static sites. Use the live preview instead.' });
+          return;
         }
       }
     }
-    if (!outputDir) {
-      res.status(500).json({ error: 'No build output found (checked: dist, build, out, .output/public, build/web)' });
+    if (isServerSide) {
+      res.status(400).json({ error: 'Server-side frameworks (Django, Laravel) cannot be published as static sites. Use the live preview instead.' });
       return;
     }
-    srcDir = path.join(config.projectsRoot, projectId, outputDir);
-  } else {
-    // 4d. No build step — publish project root directly (HTML/CSS/JS)
-    log.info(`[Publish] No build script found, publishing project root for ${projectId}`);
-    srcDir = path.join(config.projectsRoot, projectId);
-  }
 
-  // 5. Copy to published directory using Node.js fs (no shell injection)
-  const destDir = path.join(config.publishedRoot, cleanSlug);
-  await fs.mkdir(config.publishedRoot, { recursive: true });
-  await fs.rm(destDir, { recursive: true, force: true });
-  await fs.cp(srcDir, destDir, { recursive: true });
-  // Clean up node_modules and .git from published dir if copied from root
-  if (!hasBuildScript) {
-    await fs.rm(path.join(destDir, 'node_modules'), { recursive: true, force: true }).catch(() => {});
-    await fs.rm(path.join(destDir, '.git'), { recursive: true, force: true }).catch(() => {});
-  }
+    let srcDir: string;
+    const projectHostPath = path.join(config.projectsRoot, projectId);
 
-  // 6. Save to Firestore
-  if (db) {
-    await db.collection('published_sites').doc(cleanSlug).set({
-      projectId,
-      userId,
-      slug: cleanSlug,
-      publishedAt: new Date(),
-      url: `${config.publicUrl}/p/${cleanSlug}`,
-    });
-  }
+    if (isNuxt) {
+      // 4-nuxt. Nuxt requires `nuxi generate` for static pre-rendered output.
+      // Runs inside the container as `coder` user to avoid root-owned file permission issues.
+      log.info(`[Publish] Generating static Nuxt site for ${projectId} slug "${cleanSlug}"...`);
+      const hasNodeModules = await fileService.exists(projectId, 'node_modules');
+      if (!hasNodeModules) {
+        log.info(`[Publish] Installing dependencies for ${projectId}...`);
+        const installResult = await execForPublish('npm install --legacy-peer-deps', '/home/coder/project', 'npm install');
+        if (installResult.exitCode !== 0) {
+          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+          return;
+        }
+      }
+      // Use a separate build dir so nuxi generate doesn't corrupt the running dev server's .nuxt/
+      const buildResult = await execForPublish(
+        'rm -rf .output /tmp/.nuxt-publish && NUXT_BUILD_DIR=/tmp/.nuxt-publish ./node_modules/.bin/nuxi generate',
+        '/home/coder/project',
+        'nuxi generate',
+      );
+      if (buildResult.exitCode !== 0) {
+        const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+        log.error(`[Publish] Nuxt generate failed for ${projectId}:`, errorOutput);
+        res.status(500).json({ error: 'Nuxt generate failed', stderr: errorOutput.substring(0, 500) });
+        return;
+      }
+      srcDir = path.join(projectHostPath, '.output', 'public');
+    } else if (isFlutter) {
+      // 4-flutter. Build Flutter Web
+      log.info(`[Publish] Building Flutter Web for ${projectId} slug "${cleanSlug}"...`);
+      const buildResult = await execForPublish('flutter build web --release', '/home/coder/project', 'flutter build');
+      if (buildResult.exitCode !== 0) {
+        const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+        log.error(`[Publish] Flutter build failed for ${projectId}:`, errorOutput);
+        res.status(500).json({ error: 'Flutter build failed', stderr: errorOutput.substring(0, 500) });
+        return;
+      }
+      srcDir = path.join(config.projectsRoot, projectId, 'build/web');
+    } else if (hasBuildScript) {
+      // 4a. Install deps if node_modules is missing
+      const hasNodeModules = await fileService.exists(projectId, 'node_modules');
+      if (!hasNodeModules) {
+        log.info(`[Publish] Installing dependencies for ${projectId}...`);
+        const installResult = await execShell(
+          'npm install --legacy-peer-deps',
+          projectHostPath,
+          15 * 60 * 1000,
+        );
+        if (installResult.exitCode !== 0) {
+          log.error(`[Publish] npm install failed for ${projectId}:`, installResult.stderr || installResult.stdout);
+          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+          return;
+        }
+      }
 
-  // 7. Return URL
-  const url = `${config.publicUrl}/p/${cleanSlug}`;
-  log.info(`[Publish] Published ${projectId} → ${url}`);
-  res.json({ success: true, url, slug: cleanSlug });
+      // 4b. Build project in container (clear .next cache first to avoid stale chunk errors)
+      log.info(`[Publish] Building project ${projectId} for slug "${cleanSlug}"...`);
+      // Clear .next cache from HOST side first — the container rm may fail for root-owned files
+      // (bind-mounted dir: /data/cache/next-build/{id} → container /home/coder/project/.next)
+      const nextCachePath = path.join(config.cacheRoot, 'next-build', projectId);
+      try {
+        const entries = await fs.readdir(nextCachePath).catch(() => []);
+        await Promise.all(entries.map(e =>
+          fs.rm(path.join(nextCachePath, e), { recursive: true, force: true }).catch(() => {})
+        ));
+        log.info(`[Publish] Cleared .next cache on host for ${projectId}`);
+      } catch (e: any) {
+        log.warn(`[Publish] Could not clear .next cache on host: ${e.message}`);
+      }
+      // For Next.js: patch next.config on the HOST to add output: 'export' for static publishing.
+      // The backend runs as root and has direct access to project files — no container needed.
+      // We restore the original config after the build regardless of success/failure.
+      let nextConfigRestore: { path: string; mode: 'restore' | 'delete'; original?: string } | null = null;
+      if (isNextJs) {
+        let configFound = false;
+        for (const name of ['next.config.ts', 'next.config.mjs', 'next.config.js']) {
+          const cfgPath = path.join(projectHostPath, name);
+          try {
+            const content = await fs.readFile(cfgPath, 'utf8');
+            configFound = true;
+            if (/output\s*:\s*["']export["']/.test(content)) {
+              log.info(`[Publish] ${name} already has output: 'export'`);
+              break;
+            }
+            // First try: inject output into object-literal export/module config.
+            let patched = content.replace(
+              /(const\s+\w[\w<>:, ]*\s*=\s*\{|module\.exports\s*=\s*\{|export\s+default\s*\{)/,
+              "$1\n  output: 'export',"
+            );
+            // Fallback for "export default nextConfig" style files.
+            if (patched === content) {
+              patched = content.replace(
+                /export\s+default\s+([A-Za-z_$][\w$]*)\s*;?/,
+                "$1.output = 'export';\nexport default $1"
+              );
+            }
+            // Fallback for "module.exports = nextConfig" style files.
+            if (patched === content) {
+              patched = content.replace(
+                /module\.exports\s*=\s*([A-Za-z_$][\w$]*)\s*;?/,
+                "$1.output = 'export';\nmodule.exports = $1"
+              );
+            }
+            if (patched !== content) {
+              nextConfigRestore = { path: cfgPath, mode: 'restore', original: content };
+              await fs.writeFile(cfgPath, patched, 'utf8');
+              log.info(`[Publish] Patched ${name} with output: 'export' for static build`);
+            } else {
+              log.warn(`[Publish] Could not auto-patch ${name}; build may require manual output: 'export'`);
+            }
+            break;
+          } catch { /* config file not found, try next */ }
+        }
+
+        // No next.config file at all: create a temporary one for static export.
+        if (!configFound) {
+          const createdPath = path.join(projectHostPath, 'next.config.mjs');
+          const createdContent = "const nextConfig = {\n  output: 'export',\n};\n\nexport default nextConfig;\n";
+          await fs.writeFile(createdPath, createdContent, 'utf8');
+          nextConfigRestore = { path: createdPath, mode: 'delete' };
+          log.info('[Publish] Created temporary next.config.mjs with output: export');
+        }
+      }
+
+      await fs.rm(path.join(projectHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(projectHostPath, 'dist'), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(projectHostPath, 'build'), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(projectHostPath, '.output'), { recursive: true, force: true }).catch(() => {});
+
+      const buildResult = await execShell(
+        'CI=false npm_config_update_notifier=false npm run build',
+        projectHostPath,
+        20 * 60 * 1000,
+      );
+
+      // Always restore temporary Next.js config changes after build.
+      if (nextConfigRestore) {
+        if (nextConfigRestore.mode === 'restore') {
+          await fs.writeFile(nextConfigRestore.path, nextConfigRestore.original || '', 'utf8').catch(() => {});
+          log.info('[Publish] Restored next.config after build');
+        } else {
+          await fs.rm(nextConfigRestore.path, { force: true }).catch(() => {});
+          log.info('[Publish] Removed temporary next.config.mjs after build');
+        }
+      }
+
+      if (buildResult.exitCode !== 0) {
+        const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+        log.error(`[Publish] Build failed for ${projectId}:`, errorOutput);
+        res.status(500).json({ error: 'Build failed', stderr: errorOutput.substring(0, 500) });
+        return;
+      }
+
+      // 4c. Detect build output directory on host filesystem.
+      let outputDir: string | null = null;
+      const outputCandidates = [
+        '.output/public',
+        'build/web',
+        'dist/browser',
+        'dist',
+        'build',
+        'out',
+        '.next/standalone',
+      ];
+
+      for (const candidate of outputCandidates) {
+        try {
+          const stat = await fs.stat(path.join(projectHostPath, candidate));
+          if (stat.isDirectory()) {
+            outputDir = candidate;
+            break;
+          }
+        } catch {
+          // Try next candidate
+        }
+      }
+
+      if (!outputDir) {
+        // Angular fallback: dist/{subdir}/browser
+        try {
+          const distEntries = await fs.readdir(path.join(projectHostPath, 'dist'), { withFileTypes: true });
+          const browserDir = distEntries.find((entry) => entry.isDirectory());
+          if (browserDir) {
+            const maybeBrowser = path.join(projectHostPath, 'dist', browserDir.name, 'browser');
+            const stat = await fs.stat(maybeBrowser).catch(() => null);
+            if (stat?.isDirectory()) {
+              outputDir = path.join('dist', browserDir.name, 'browser');
+            }
+          }
+        } catch {
+          // Ignore missing dist dir
+        }
+      }
+
+      if (!outputDir) {
+        res.status(500).json({ error: 'No build output found (checked: dist, build, out, .output/public, build/web, .next/standalone)' });
+        return;
+      }
+
+      srcDir = path.join(projectHostPath, outputDir);
+    } else {
+      // 4d. No build step — publish project root directly (HTML/CSS/JS)
+      log.info(`[Publish] No build script found, publishing project root for ${projectId}`);
+      srcDir = path.join(config.projectsRoot, projectId);
+    }
+
+    // 5. Copy to published directory using Node.js fs (no shell injection)
+    const destDir = path.join(config.publishedRoot, cleanSlug);
+    await fs.mkdir(config.publishedRoot, { recursive: true });
+    await fs.rm(destDir, { recursive: true, force: true });
+    await fs.cp(srcDir, destDir, { recursive: true });
+
+    // Next.js static export generated for root (/_next/*) needs slug-prefixed
+    // asset URLs when served under /p/:slug.
+    const nextStaticDir = path.join(destDir, '_next');
+    const hasNextStatic = await fs.stat(nextStaticDir).then(s => s.isDirectory()).catch(() => false);
+    if (hasNextStatic) {
+      const rewriteNextAssetPaths = async (dir: string): Promise<void> => {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            await rewriteNextAssetPaths(fullPath);
+            continue;
+          }
+          if (!entry.isFile() || !entry.name.endsWith('.html')) continue;
+
+          const content = await fs.readFile(fullPath, 'utf8');
+          const rewritten = content.replace(/\/_next\//g, `/p/${cleanSlug}/_next/`);
+          if (rewritten !== content) {
+            await fs.writeFile(fullPath, rewritten, 'utf8');
+          }
+        }
+      };
+
+      await rewriteNextAssetPaths(destDir);
+      log.info(`[Publish] Rewrote Next asset paths for slug ${cleanSlug}`);
+    }
+
+    // Clean up node_modules and .git from published dir if copied from root
+    if (!hasBuildScript) {
+      await fs.rm(path.join(destDir, 'node_modules'), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(destDir, '.git'), { recursive: true, force: true }).catch(() => {});
+    }
+
+
+    // 6. Save to Firestore
+    if (db) {
+      await db.collection('published_sites').doc(cleanSlug).set({
+        projectId,
+        userId,
+        slug: cleanSlug,
+        publishedAt: new Date(),
+        url: `${config.publicUrl}/p/${cleanSlug}`,
+      });
+    }
+
+    // 7. Return URL
+    const url = `${config.publicUrl}/p/${cleanSlug}`;
+    log.info(`[Publish] Published ${projectId} → ${url}`);
+    res.json({ success: true, url, slug: cleanSlug });
+  } catch (e: any) {
+    if (e instanceof ValidationError) throw e;
+
+    const rawMessage = e?.response?.data?.error || e?.message || 'Unknown error';
+    const message = String(rawMessage);
+    log.error(`[Publish] Unexpected error for ${projectId}: ${message}`);
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Publish failed', stderr: message.substring(0, 500) });
+    }
+  } finally {
+    if (shouldResumePreview) {
+      setImmediate(async () => {
+        try {
+          const resumeSession = await workspaceService.getOrCreateContainer(projectId, userId);
+
+          const alreadyRunning = await devServerService.isRunning(resumeSession.agentUrl);
+          if (alreadyRunning) return;
+
+          const projectInfo = resumeSession.projectInfo || await projectDetectorService.detect(projectId);
+          resumeSession.projectInfo = projectInfo;
+          await devServerService.start(resumeSession, projectInfo);
+          resumeSession.preparedAt = Date.now();
+          await sessionService.set(projectId, userId, resumeSession);
+          log.info(`[Publish] Preview resumed after publish for ${projectId}`);
+        } catch (e: any) {
+          log.warn(`[Publish] Failed to resume preview after publish for ${projectId}: ${e.message}`);
+        }
+      });
+    }
+  }
 }));

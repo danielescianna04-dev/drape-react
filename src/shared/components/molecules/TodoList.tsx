@@ -20,6 +20,7 @@ interface Props {
     collapsible?: boolean;
     collapsed?: boolean;
     onToggleCollapse?: () => void;
+    onDismiss?: () => void;
 }
 
 export const TodoList: React.FC<Props> = ({
@@ -29,6 +30,7 @@ export const TodoList: React.FC<Props> = ({
     collapsible = false,
     collapsed = false,
     onToggleCollapse,
+    onDismiss,
 }) => {
     if (!todos || todos.length === 0) {
         return null;
@@ -73,20 +75,36 @@ export const TodoList: React.FC<Props> = ({
                 <Text style={[styles.header, isInputbar && styles.headerInputbar]}>
                     Tasks ({todos.length})
                 </Text>
-                {collapsible && (
-                    <TouchableOpacity
-                        onPress={onToggleCollapse}
-                        style={styles.collapseButton}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                        <Ionicons
-                            name={isCollapsed ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color="rgba(255,255,255,0.65)"
-                        />
-                    </TouchableOpacity>
-                )}
+                <View style={styles.headerButtons}>
+                    {collapsible && (
+                        <TouchableOpacity
+                            onPress={onToggleCollapse}
+                            style={styles.collapseButton}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons
+                                name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+                                size={14}
+                                color="rgba(255,255,255,0.65)"
+                            />
+                        </TouchableOpacity>
+                    )}
+                    {onDismiss && (
+                        <TouchableOpacity
+                            onPress={onDismiss}
+                            style={styles.dismissButton}
+                            activeOpacity={0.7}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                            <Ionicons
+                                name="close"
+                                size={13}
+                                color="rgba(255,255,255,0.5)"
+                            />
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
             {!isCollapsed && visibleTodos.map((todo, index) => (
                 <View key={index} style={[styles.todoItem, isInputbar && styles.todoItemInputbar]}>
@@ -153,7 +171,22 @@ const styles = StyleSheet.create({
     headerRowCollapsed: {
         marginBottom: 0,
     },
+    headerButtons: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
     collapseButton: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    dismissButton: {
         width: 22,
         height: 22,
         borderRadius: 11,
