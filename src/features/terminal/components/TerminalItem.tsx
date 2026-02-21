@@ -1272,12 +1272,16 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                 nextjs: { icon: 'server-outline', color: '#FFFFFF', label: 'Next.js' },
                 expo: { icon: 'phone-portrait-outline', color: '#61DAFB', label: 'React Native' },
                 svelte: { icon: 'flame-outline', color: '#FF3E00', label: 'Svelte' },
-                angular: { icon: 'logo-angular', color: '#DD0031', label: 'Angular' },
-                astro: { icon: 'rocket-outline', color: '#FF5D01', label: 'Astro' },
-                remix: { icon: 'code-slash-outline', color: '#3992FF', label: 'Remix' },
-                solid: { icon: 'cube-outline', color: '#2C4F7C', label: 'Solid' },
-                nuxt: { icon: 'logo-vue', color: '#00DC82', label: 'Nuxt' },
-                flutter: { icon: 'layers-outline', color: '#02569B', label: 'Flutter' },
+                angular: { icon: 'navigate-outline', color: '#DD0031', label: 'Angular' },
+                astro: { icon: 'planet-outline', color: '#BC52EE', label: 'Astro' },
+                remix: { icon: 'repeat-outline', color: '#E8F2FF', label: 'Remix' },
+                solid: { icon: 'water-outline', color: '#2C4F7C', label: 'Solid.js' },
+                nuxt: { icon: 'layers-outline', color: '#00DC82', label: 'Nuxt.js' },
+                flutter: { icon: 'apps-outline', color: '#02569B', label: 'Flutter' },
+                laravel: { icon: 'diamond-outline', color: '#FF2D20', label: 'Laravel' },
+                django: { icon: 'shield-outline', color: '#44B78B', label: 'Django' },
+                flask: { icon: 'logo-python', color: '#3776AB', label: 'Flask' },
+                fastapi: { icon: 'flash-outline', color: '#009688', label: 'FastAPI' },
               };
               const lang = langIcons[info.language] || langIcons['html'];
               return (
