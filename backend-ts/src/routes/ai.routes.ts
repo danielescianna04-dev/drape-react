@@ -132,7 +132,7 @@ Rispondi SOLO con il titolo, senza virgolette.
 Testo: "${String(message).slice(0, 800)}"`;
 
   let rawTitle = '';
-  for await (const chunk of aiProviderService.chatStream('claude-haiku-3.5', [
+  for await (const chunk of aiProviderService.chatStream('gemini-3-flash', [
     { role: 'user', content: prompt },
   ], undefined, undefined, { temperature: 0.2, maxTokens: 40 })) {
     if (chunk.type === 'text' && chunk.text) {
@@ -183,7 +183,7 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    for await (const chunk of aiProviderService.chatStream('claude-haiku-3.5', messages)) {
+    for await (const chunk of aiProviderService.chatStream('gemini-3-flash', messages)) {
       if (chunk.type === 'text' && chunk.text) {
         response += chunk.text;
       }
@@ -198,12 +198,27 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
     let finalRecommendation = validTechs.find(tech => recommendation === tech) || validTechs.find(tech => recommendation.includes(tech));
 
     if (!finalRecommendation) {
-      if (description.toLowerCase().includes('landing') || description.toLowerCase().includes('static') || description.toLowerCase().includes('semplice')) {
-        finalRecommendation = 'html';
-      } else if (description.toLowerCase().includes('mobile') || description.toLowerCase().includes('app nativa')) {
-        finalRecommendation = 'expo';
-      } else {
-        finalRecommendation = 'react';
+      const desc = description.toLowerCase();
+      // Keyword-based fallback for explicit technology mentions
+      const techKeywords: Record<string, string> = {
+        flask: 'flask', django: 'django', fastapi: 'fastapi',
+        'next.js': 'nextjs', nextjs: 'nextjs', nuxt: 'nuxt',
+        svelte: 'svelte', angular: 'angular', 'solid': 'solid',
+        vue: 'vue', react: 'react', astro: 'astro', remix: 'remix',
+        flutter: 'flutter', expo: 'expo', laravel: 'laravel',
+        python: 'flask', php: 'laravel',
+      };
+      for (const [keyword, tech] of Object.entries(techKeywords)) {
+        if (desc.includes(keyword)) { finalRecommendation = tech; break; }
+      }
+      if (!finalRecommendation) {
+        if (desc.includes('landing') || desc.includes('static') || desc.includes('semplice')) {
+          finalRecommendation = 'html';
+        } else if (desc.includes('mobile') || desc.includes('app nativa')) {
+          finalRecommendation = 'expo';
+        } else {
+          finalRecommendation = 'react';
+        }
       }
     }
 

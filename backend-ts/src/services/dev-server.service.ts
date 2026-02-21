@@ -419,11 +419,16 @@ class DevServerService {
       return 'Il progetto richiede variabili d\'ambiente non configurate. Controlla il file .env.';
     }
 
-    // Check for MODULE_NOT_FOUND
+    // Check for MODULE_NOT_FOUND (Node.js) or ModuleNotFoundError / No module named (Python)
     if (fullLog.includes('MODULE_NOT_FOUND') || fullLog.includes('Cannot find module')) {
       const moduleMatch = fullLog.match(/Cannot find module '([^']+)'/);
       const moduleName = moduleMatch ? moduleMatch[1] : 'sconosciuto';
       return `Modulo non trovato: ${moduleName}\n\nProva a reinstallare le dipendenze.`;
+    }
+    if (fullLog.includes('ModuleNotFoundError') || fullLog.includes('No module named')) {
+      const pyMatch = fullLog.match(/No module named ['"]?([^\s'"]+)/);
+      const moduleName = pyMatch ? pyMatch[1] : 'sconosciuto';
+      return `Modulo Python non trovato: ${moduleName}\n\nProva a reinstallare le dipendenze (pip install -r requirements.txt).`;
     }
 
     // Next.js workspace root / missing next package inference error

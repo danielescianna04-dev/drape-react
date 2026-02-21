@@ -288,7 +288,7 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
       ensureDep(pkg, 'devDependencies', 'vite', '^5.0.0');
       ensureDep(pkg, 'devDependencies', 'vite-plugin-solid', '^2.9.0');
       ensureDep(pkg, 'devDependencies', 'typescript', '^5.4.0');
-      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport solid from 'vite-plugin-solid';\n\nexport default defineConfig({\n  plugins: [solid()],\n});\n`);
+      upsertFile(normalized, 'vite.config.ts', `import { defineConfig } from 'vite';\nimport solid from 'vite-plugin-solid';\n\nexport default defineConfig({\n  plugins: [solid({ hot: false })],\n});\n`);
       upsertFile(normalized, 'tsconfig.json', `{\n  "compilerOptions": {\n    "target": "ES2020",\n    "useDefineForClassFields": true,\n    "module": "ESNext",\n    "skipLibCheck": true,\n    "moduleResolution": "bundler",\n    "allowImportingTsExtensions": true,\n    "isolatedModules": true,\n    "moduleDetection": "force",\n    "noEmit": true,\n    "strict": false,\n    "noUnusedLocals": false,\n    "noUnusedParameters": false,\n    "jsx": "preserve",\n    "jsxImportSource": "solid-js"\n  },\n  "include": ["src"]\n}\n`);
       upsertFile(normalized, 'index.html', `<!doctype html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>${projectName}</title>\n  </head>\n  <body>\n    <div id=\"root\"></div>\n    <script type=\"module\" src=\"/src/index.tsx\"></script>\n  </body>\n</html>\n`);
       ensureFile('src/index.tsx', `import { render } from 'solid-js/web';\nimport App from './App';\n\nrender(() => <App />, document.getElementById('root')!);\n`);
@@ -349,9 +349,54 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
   }
 
   if (technology === 'django') {
-    const moduleName = sanitizePythonModuleName(projectName);
+    const fallbackModule = sanitizePythonModuleName(projectName);
+
+    // Detect the AI's settings module: find directories containing settings.py
+    const shadowNames = new Set(['django', 'flask', 'fastapi', 'uvicorn', 'gunicorn', 'celery', 'redis']);
+    let aiModule: string | null = null;
+    for (const f of normalized) {
+      const match = f.path.match(/^([^/]+)\/settings\.py$/);
+      if (match) { aiModule = match[1]; break; }
+    }
+
+    // If AI used a shadow name (e.g. "django/settings.py"), rename to fallbackModule
+    let didRename = false;
+    if (aiModule && shadowNames.has(aiModule)) {
+      const oldPrefix = `${aiModule}/`;
+      const newPrefix = `${fallbackModule}/`;
+      for (const file of normalized) {
+        if (file.path.startsWith(oldPrefix)) {
+          file.path = newPrefix + file.path.slice(oldPrefix.length);
+        }
+        file.content = file.content.replace(
+          new RegExp(`(['"])${aiModule}\\.`, 'g'),
+          `$1${fallbackModule}.`
+        );
+      }
+      aiModule = fallbackModule;
+      didRename = true;
+    }
+
+    // Use whichever module the AI chose (or fallbackModule if none / renamed)
+    const moduleName = aiModule || fallbackModule;
+
     ensureTextContains('requirements.txt', ['Django>=5.0,<6.0']);
-    ensureFile('manage.py', `#!/usr/bin/env python\nimport os\nimport sys\n\nif __name__ == '__main__':\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\n    from django.core.management import execute_from_command_line\n    execute_from_command_line(sys.argv)\n`);
+
+    // Only overwrite manage.py if a shadow rename happened or manage.py doesn't exist
+    if (didRename || !hasFile('manage.py')) {
+      upsertFile(normalized, 'manage.py', `#!/usr/bin/env python\nimport os\nimport sys\n\nif __name__ == '__main__':\n    os.environ.setdefault('DJANGO_SETTINGS_MODULE', '${moduleName}.settings')\n    from django.core.management import execute_from_command_line\n    execute_from_command_line(sys.argv)\n`);
+    }
+
+    // Ensure ALLOWED_HOSTS = ['*'] in AI-generated settings (otherwise Django rejects requests)
+    const settingsFile = normalized.find(f => f.path === `${moduleName}/settings.py`);
+    if (settingsFile && !settingsFile.content.includes("'*'") && !settingsFile.content.includes('"*"')) {
+      settingsFile.content = settingsFile.content.replace(
+        /ALLOWED_HOSTS\s*=\s*\[.*?\]/,
+        "ALLOWED_HOSTS = ['*']"
+      );
+    }
+
+    // Fallback files only if AI didn't generate them
     ensureFile(`${moduleName}/__init__.py`, ``);
     ensureFile(`${moduleName}/settings.py`, `from pathlib import Path\n\nBASE_DIR = Path(__file__).resolve().parent.parent\nSECRET_KEY = 'dev-secret-key'\nDEBUG = True\nALLOWED_HOSTS = ['*']\nROOT_URLCONF = '${moduleName}.urls'\nMIDDLEWARE = []\nINSTALLED_APPS = []\nTEMPLATES = [{\n  'BACKEND': 'django.template.backends.django.DjangoTemplates',\n  'DIRS': [BASE_DIR / 'templates'],\n  'APP_DIRS': True,\n  'OPTIONS': {},\n}]\nWSGI_APPLICATION = '${moduleName}.wsgi.application'\nDATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}\nSTATIC_URL = '/static/'\n`);
     ensureFile(`${moduleName}/urls.py`, `from django.urls import path\nfrom django.http import HttpResponse\n\ndef home(_request):\n    return HttpResponse('<!doctype html><html lang=\"it\"><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>')\n\nurlpatterns = [path('', home)]\n`);
@@ -365,11 +410,40 @@ function normalizeGeneratedFiles(files: GeneratedFile[], technology: string, pro
   }
 
   if (technology === 'laravel') {
+    // Strip @vite directives from Blade templates — Vite doesn't work in our container
+    for (const file of normalized) {
+      if (file.path.endsWith('.blade.php')) {
+        file.content = file.content.replace(/@vite\s*\([^)]*\)/g, '');
+      }
+    }
+    // Remove Vite config files — no Node.js build step in container
+    const viteFiles = ['vite.config.js', 'vite.config.ts', 'package.json', 'package-lock.json', 'webpack.mix.js'];
+    for (const vf of viteFiles) {
+      const idx = normalized.findIndex(f => f.path === vf);
+      if (idx >= 0) normalized.splice(idx, 1);
+    }
+
     ensureFile('composer.json', `{\n  \"name\": \"drape/${sanitizePackageName(projectName)}\",\n  \"type\": \"project\",\n  \"require\": {\n    \"php\": \">=8.1\"\n  }\n}\n`);
     ensureFile('artisan', `<?php\n$argv = $_SERVER['argv'] ?? [];\n$cmd = $argv[1] ?? '';\nif ($cmd === 'serve') {\n  $host = '0.0.0.0';\n  $port = '3000';\n  for ($i = 2; $i < count($argv); $i++) {\n    if (str_starts_with($argv[$i], '--host=')) $host = substr($argv[$i], 7);\n    if (str_starts_with($argv[$i], '--port=')) $port = substr($argv[$i], 7);\n    if ($argv[$i] === '--host' && isset($argv[$i + 1])) $host = $argv[$i + 1];\n    if ($argv[$i] === '--port' && isset($argv[$i + 1])) $port = $argv[$i + 1];\n  }\n  passthru('php -S ' . $host . ':' . $port . ' -t public', $exitCode);\n  exit($exitCode);\n}\necho \"Laravel guardrail stub ready\\n\";\n`);
-    ensureFile('public/index.php', `<?php\n?><!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
-    ensureFile('routes/web.php', `<?php\n// Guard rail route placeholder\n`);
-    ensureFile('resources/views/welcome.blade.php', `<h1>Benvenuto su ${projectName}</h1>\n`);
+    // Laravel requires .env with APP_KEY — without it, Finder.php fails with empty directory path
+    ensureFile('.env', `APP_NAME=${projectName}\nAPP_ENV=local\nAPP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx\nAPP_DEBUG=true\nAPP_URL=http://localhost:3000\n\nLOG_CHANNEL=stack\nLOG_LEVEL=debug\n\nDB_CONNECTION=sqlite\n`);
+    ensureFile('bootstrap/cache/.gitkeep', ``);
+    // bootstrap/app.php creates the Laravel application instance — required by public/index.php
+    ensureFile('bootstrap/app.php', `<?php\n$app = new Illuminate\\Foundation\\Application(\n    $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)\n);\n$app->singleton(Illuminate\\Contracts\\Http\\Kernel::class, Illuminate\\Foundation\\Http\\Kernel::class);\n$app->singleton(Illuminate\\Contracts\\Console\\Kernel::class, Illuminate\\Foundation\\Console\\Kernel::class);\n$app->singleton(Illuminate\\Contracts\\Debug\\ExceptionHandler::class, Illuminate\\Foundation\\Exceptions\\Handler::class);\nreturn $app;\n`);
+    // RouteServiceProvider loads routes/web.php — referenced in config/app.php providers
+    ensureFile('app/Providers/RouteServiceProvider.php', `<?php\nnamespace App\\Providers;\n\nuse Illuminate\\Support\\Facades\\Route;\nuse Illuminate\\Foundation\\Support\\Providers\\RouteServiceProvider as ServiceProvider;\n\nclass RouteServiceProvider extends ServiceProvider\n{\n    public function boot(): void\n    {\n        $this->routes(function () {\n            Route::middleware('web')->group(base_path('routes/web.php'));\n        });\n    }\n}\n`);
+    // Essential Laravel config files — without these, artisan serve crashes with "The "" directory does not exist."
+    ensureFile('config/app.php', `<?php\nreturn [\n    'name' => env('APP_NAME', 'Laravel'),\n    'env' => env('APP_ENV', 'local'),\n    'debug' => (bool) env('APP_DEBUG', true),\n    'url' => env('APP_URL', 'http://localhost'),\n    'key' => env('APP_KEY'),\n    'cipher' => 'AES-256-CBC',\n    'maintenance' => ['driver' => 'file'],\n    'providers' => \\Illuminate\\Support\\ServiceProvider::defaultProviders()->merge([\n        App\\Providers\\RouteServiceProvider::class,\n    ])->toArray(),\n    'aliases' => \\Illuminate\\Support\\Facades\\Facade::defaultAliases()->toArray(),\n];\n`);
+    ensureFile('config/view.php', `<?php\nreturn [\n    'paths' => [resource_path('views')],\n    'compiled' => env('VIEW_COMPILED_PATH', realpath(storage_path('framework/views'))),\n];\n`);
+    ensureFile('config/session.php', `<?php\nreturn [\n    'driver' => env('SESSION_DRIVER', 'file'),\n    'lifetime' => 120,\n    'expire_on_close' => false,\n    'encrypt' => false,\n    'files' => storage_path('framework/sessions'),\n    'connection' => null,\n    'table' => 'sessions',\n    'store' => null,\n    'lottery' => [2, 100],\n    'cookie' => 'laravel_session',\n    'path' => '/',\n    'domain' => null,\n    'secure' => false,\n    'http_only' => true,\n    'same_site' => 'lax',\n    'partitioned' => false,\n];\n`);
+    ensureFile('config/database.php', `<?php\nreturn [\n    'default' => env('DB_CONNECTION', 'sqlite'),\n    'connections' => [\n        'sqlite' => ['driver' => 'sqlite', 'database' => env('DB_DATABASE', database_path('database.sqlite')), 'prefix' => ''],\n    ],\n    'migrations' => 'migrations',\n];\n`);
+    ensureFile('config/logging.php', `<?php\nreturn [\n    'default' => env('LOG_CHANNEL', 'stack'),\n    'channels' => [\n        'stack' => ['driver' => 'stack', 'channels' => ['single']],\n        'single' => ['driver' => 'single', 'path' => storage_path('logs/laravel.log'), 'level' => 'debug'],\n    ],\n];\n`);
+    ensureFile('config/filesystems.php', `<?php\nreturn [\n    'default' => 'local',\n    'disks' => ['local' => ['driver' => 'local', 'root' => storage_path('app')]],\n];\n`);
+    ensureFile('config/cache.php', `<?php\nreturn [\n    'default' => env('CACHE_DRIVER', 'file'),\n    'stores' => [\n        'file' => ['driver' => 'file', 'path' => storage_path('framework/cache/data')],\n    ],\n];\n`);
+    // public/index.php MUST be the Laravel bootstrap — NOT a static HTML page
+    ensureFile('public/index.php', `<?php\nuse Illuminate\\Contracts\\Http\\Kernel;\nuse Illuminate\\Http\\Request;\n\ndefine('LARAVEL_START', microtime(true));\nrequire __DIR__.'/../vendor/autoload.php';\n$app = require_once __DIR__.'/../bootstrap/app.php';\n$kernel = $app->make(Kernel::class);\n$response = $kernel->handle($request = Request::capture());\n$response->send();\n$kernel->terminate($request, $response);\n`);
+    ensureFile('routes/web.php', `<?php\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::get('/', function () {\n    return view('welcome');\n});\n`);
+    ensureFile('resources/views/welcome.blade.php', `<!doctype html><html lang=\"it\"><head><meta charset=\"utf-8\"><title>${projectName}</title></head><body style=\"font-family:system-ui,sans-serif;padding:24px;\"><h1>Benvenuto su ${projectName}</h1></body></html>\n`);
   }
 
   // --- Post-normalization: remove duplicate config file variants ---
@@ -1012,12 +1086,12 @@ Requirements:
 - For Astro: use src/pages/ directory, include index.astro
 - For Remix: use app/routes/ directory, include root.tsx and _index.tsx
 - For Solid.js: use src/ directory, include App.tsx and index.tsx
-- For Flask: include app.py, requirements.txt, templates/ directory with base.html, static/ directory
+- For Flask: include app.py (with app = Flask(__name__) and app.run(host='0.0.0.0', port=3000, debug=True) in __main__), requirements.txt, templates/ directory with base.html, static/ directory. The server MUST listen on port 3000.
 - For Django: include manage.py, requirements.txt, project settings directory, templates/ directory, a main app with views.py and urls.py
 - For FastAPI: include main.py, requirements.txt (with fastapi and uvicorn), templates/ directory with index.html, static/ directory
 - For React Native (Expo): include package.json with "main": "expo/AppEntry" and dependencies: expo, react, react-dom, react-native, react-native-web, @expo/metro-runtime. Include App.tsx with a main screen using StyleSheet, backgroundColor '#fff'. Must support web platform (expo start --web)
 - For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
-- For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure
+- For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure. Do NOT use Vite or Laravel Mix for asset bundling — use plain inline CSS and JS in Blade templates instead. The welcome.blade.php MUST contain the actual project content (not the default Laravel welcome page). Include a .env file with APP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx and APP_DEBUG=true
 - For HTML: include index.html, style.css, script.js
 - Make it immediately runnable with the dev server
 - Do NOT include node_modules, lock files, vendor/, or .dart_tool/
@@ -1034,6 +1108,9 @@ CRITICAL RULES to avoid build errors:
 - For React/Next.js/Remix/Solid: always use JSX syntax in .tsx files
 - For Vue: use <script setup lang="ts"> syntax
 - For Svelte: use <script lang="ts"> with standard Svelte 4 syntax. This is plain Svelte (NOT SvelteKit) — put ALL content in src/App.svelte. Do NOT use SvelteKit routing patterns (no +page.svelte, no +layout.svelte, no routes/ directory)
+- For Flask: the Flask app variable MUST be named "app" (e.g., app = Flask(__name__)). Include app.run(host='0.0.0.0', port=3000, debug=True) in if __name__ == '__main__' block. NEVER use port 5000. In Jinja2 templates, always use parentheses for method calls: dict.items() not dict.items, list.sort() not list.sort. Pass only simple data (lists, dicts, strings) to templates — never pass functions or methods.
+- For Django: NEVER name the project settings directory "django" — this shadows the Django package and causes ImportError. Use a descriptive name derived from the project (e.g., "myproject", "pizzeria", "config"). The DJANGO_SETTINGS_MODULE must match this directory name (e.g., "pizzeria.settings"). Also NEVER use "flask", "fastapi", or any Python package name as a directory name.
+- For Laravel: Do NOT use Vite, Laravel Mix, or any Node.js build tools. Use plain CSS and JS directly in Blade templates. Do NOT include vite.config.js, package.json, or webpack.mix.js. Use @vite directives is FORBIDDEN — use <style> and <script> tags directly.
 - For Angular: use standalone components with inline templates
 - Do NOT use icon libraries (lucide, heroicons, react-icons, @fortawesome, etc.) — use emoji or inline SVG for icons instead. Icon library imports break at runtime due to version mismatches.
 - Use relative imports (./Component) not alias imports (@/components/Component) unless Next.js

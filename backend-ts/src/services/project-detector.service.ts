@@ -193,7 +193,7 @@ class ProjectDetectorService {
       return {
         type: 'laravel',
         description: 'Laravel project',
-        startCommand: 'php artisan serve --host=0.0.0.0 --port=3000',
+        startCommand: 'mkdir -p bootstrap/cache storage/framework/{sessions,views,cache} storage/logs 2>/dev/null; test -f .env || (test -f .env.example && cp .env.example .env || echo "APP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx" > .env); php artisan key:generate --force 2>/dev/null; php artisan config:clear 2>/dev/null; php artisan serve --host=0.0.0.0 --port=3000',
         port: 3000,
         installCommand: 'composer install',
       };
@@ -227,7 +227,7 @@ class ProjectDetectorService {
         return {
           type: 'flask',
           description: 'Flask project',
-          startCommand: 'python3 app.py',
+          startCommand: 'python3 -m flask run --host=0.0.0.0 --port=3000 --debug',
           port: 3000,
           installCommand: 'python3 -m pip install --user --break-system-packages -r requirements.txt',
         };

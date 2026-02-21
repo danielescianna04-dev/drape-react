@@ -110,7 +110,7 @@ class AIProviderService {
     },
     'claude-haiku-3.5': {
       provider: 'anthropic',
-      modelId: 'claude-3-5-haiku-20241022',
+      modelId: 'claude-haiku-4-5-20251001',
       maxTokens: 8192,
       contextWindowTokens: 200000,
       supportsTools: true,
