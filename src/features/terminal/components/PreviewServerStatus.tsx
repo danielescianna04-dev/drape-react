@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator } from 'react-native';
-import Reanimated, { FadeIn } from 'react-native-reanimated';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ScrollView, ActivityIndicator, Dimensions } from 'react-native';
+import Reanimated, { FadeIn, useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AppColors } from '../../../shared/theme/colors';
@@ -116,6 +117,47 @@ export const PreviewStartScreen: React.FC<{
   onStartWithTransition: () => void;
   t: any;
 }> = ({ currentWorkstation, isStartTransitioning, startTransitionAnim, onStartWithTransition, t }) => {
+  const { width: screenW, height: screenH } = Dimensions.get('window');
+  const winW = Math.min(screenW * 0.85, 340);
+  const winH = 420; // approximate window height
+  const maxX = (screenW - winW) / 2;
+  const maxY = (screenH - winH) / 2;
+
+  // Drag state
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const offsetX = useSharedValue(0);
+  const offsetY = useSharedValue(0);
+
+  const clamp = (val: number, min: number, max: number) => {
+    'worklet';
+    return Math.min(Math.max(val, min), max);
+  };
+
+  const panGesture = Gesture.Pan()
+    .onStart(() => {
+      offsetX.value = translateX.value;
+      offsetY.value = translateY.value;
+    })
+    .onUpdate((e) => {
+      translateX.value = clamp(offsetX.value + e.translationX, -maxX, maxX);
+      translateY.value = clamp(offsetY.value + e.translationY, -maxY, maxY);
+    })
+    .onEnd(() => {
+      // snap back if near center
+      if (Math.abs(translateX.value) < 20 && Math.abs(translateY.value) < 20) {
+        translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+        translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+      }
+    });
+
+  const dragStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: translateX.value },
+      { translateY: translateY.value },
+    ],
+  }));
+
   return (
     <View style={styles.startScreen}>
       {/* Same purple desktop background as loading screen */}
@@ -129,39 +171,42 @@ export const PreviewStartScreen: React.FC<{
       <View style={styles.macDesktopOrb2} />
       <View style={styles.macDesktopOrb3} />
 
-      {/* Terminal-style window with project info */}
-      <Animated.View style={[
-        styles.devTerminalWindow,
-        {
-          opacity: startTransitionAnim.interpolate({
-            inputRange: [0, 0.6, 1],
-            outputRange: [1, 0.5, 0],
-          }),
-          transform: [{
-            scale: startTransitionAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [1, 0.85],
+      {/* Terminal-style window with project info — draggable */}
+      <Reanimated.View style={[dragStyle, { width: '85%', maxWidth: 340, alignSelf: 'center' }]}>
+        <Animated.View style={[
+          styles.devTerminalWindow,
+          {
+            opacity: startTransitionAnim.interpolate({
+              inputRange: [0, 0.6, 1],
+              outputRange: [1, 0.5, 0],
             }),
-          }, {
-            translateY: startTransitionAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 30],
-            }),
-          }],
-        }
-      ]}>
-        {/* Window title bar */}
-        <View style={styles.devWindowTitleBar}>
-          <View style={styles.devWindowDots}>
-            <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
-            <View style={[styles.devWindowDot, { backgroundColor: '#FEBC2E' }]} />
-            <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
-          </View>
-          <Text style={styles.devWindowTitle}>
-            {currentWorkstation?.name || t('terminal:preview.project')} — preview
-          </Text>
-          <View style={{ width: 44 }} />
-        </View>
+            transform: [{
+              scale: startTransitionAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 0.85],
+              }),
+            }, {
+              translateY: startTransitionAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 30],
+              }),
+            }],
+          }
+        ]}>
+          {/* Window title bar — drag handle */}
+          <GestureDetector gesture={panGesture}>
+            <Reanimated.View style={styles.devWindowTitleBar}>
+              <View style={styles.devWindowDots}>
+                <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
+                <View style={[styles.devWindowDot, { backgroundColor: '#FEBC2E' }]} />
+                <View style={[styles.devWindowDot, { backgroundColor: '#28C840' }]} />
+              </View>
+              <Text style={styles.devWindowTitle}>
+                {currentWorkstation?.name || t('terminal:preview.project')} — preview
+              </Text>
+              <View style={{ width: 44 }} />
+            </Reanimated.View>
+          </GestureDetector>
 
         {/* Window content */}
         <View style={styles.devWindowContent}>
@@ -201,13 +246,6 @@ export const PreviewStartScreen: React.FC<{
             </View>
             <View style={styles.devInfoDivider} />
             <View style={styles.devInfoRow}>
-              <Text style={styles.devInfoLabel}>{t('terminal:preview.port')}</Text>
-              <Text style={styles.devInfoValue}>
-                {currentWorkstation?.technology === 'nextjs' ? '3000' : '5173'}
-              </Text>
-            </View>
-            <View style={styles.devInfoDivider} />
-            <View style={styles.devInfoRow}>
               <Text style={styles.devInfoLabel}>{t('terminal:preview.environment')}</Text>
               <View style={styles.devEnvBadge}>
                 <Text style={styles.devEnvBadgeText}>development</Text>
@@ -240,6 +278,7 @@ export const PreviewStartScreen: React.FC<{
           </TouchableOpacity>
         </View>
       </Animated.View>
+      </Reanimated.View>
 
       {/* macOS Dock */}
       <MacDock />
@@ -575,29 +614,75 @@ const ErrorContent: React.FC<{
 
 // ============ SHARED: macOS Dock ============
 const MacDock: React.FC = () => {
+  const [openApp, setOpenApp] = React.useState<string | null>(null);
+
+  const dockApps = [
+    { id: 'safari', icon: 'compass-outline', label: 'Safari', color1: '#3B82F6', color2: '#1D4ED8' },
+    { id: 'terminal', icon: 'terminal', label: 'Terminale', color1: '#2D2D2D', color2: '#111111', active: true },
+    { id: 'security', icon: 'shield-half-outline', label: 'Privacy', color1: '#6366F1', color2: '#4338CA' },
+    { id: 'ai', icon: 'sparkles', label: 'AI Assistant', color1: '#A855F7', color2: '#7C3AED' },
+  ];
+
   return (
-    <View style={styles.macDock}>
-      <View style={styles.macDockBar}>
-        {[
-          { icon: 'compass-outline', color1: '#3B82F6', color2: '#1D4ED8' },
-          { icon: 'terminal', color1: '#2D2D2D', color2: '#111111', active: true },
-          { icon: 'shield-half-outline', color1: '#6366F1', color2: '#4338CA' },
-          { icon: 'sparkles', color1: '#A855F7', color2: '#7C3AED' },
-        ].map((app, i) => (
-          <View key={i} style={styles.macDockIconWrap}>
-            <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
-              <LinearGradient
-                colors={[app.color1, app.color2]}
-                style={styles.macDockIconGradient}
-              >
-                <Ionicons name={app.icon as any} size={22} color="#fff" />
-              </LinearGradient>
+    <>
+      {/* Fake app overlay */}
+      {openApp && (
+        <TouchableOpacity
+          style={styles.fakeAppOverlay}
+          activeOpacity={1}
+          onPress={() => setOpenApp(null)}
+        >
+          <Reanimated.View entering={FadeIn.duration(200)} style={styles.fakeAppWindow}>
+            <View style={styles.fakeAppTitleBar}>
+              <TouchableOpacity onPress={() => setOpenApp(null)}>
+                <View style={[styles.devWindowDot, { backgroundColor: '#FF5F57' }]} />
+              </TouchableOpacity>
+              <Text style={styles.fakeAppTitle}>
+                {dockApps.find(a => a.id === openApp)?.label}
+              </Text>
+              <View style={{ width: 12 }} />
             </View>
-            {app.active && <View style={styles.macDockDot} />}
-          </View>
-        ))}
+            <View style={styles.fakeAppContent}>
+              <Ionicons
+                name={(dockApps.find(a => a.id === openApp)?.icon || 'apps') as any}
+                size={40}
+                color="rgba(255,255,255,0.15)"
+              />
+              <Text style={styles.fakeAppText}>
+                {openApp === 'safari' ? 'Navigazione non disponibile' :
+                 openApp === 'terminal' ? '$ _' :
+                 openApp === 'security' ? 'Nessuna minaccia rilevata' :
+                 'AI Assistant pronto'}
+              </Text>
+            </View>
+          </Reanimated.View>
+        </TouchableOpacity>
+      )}
+
+      <View style={styles.macDock}>
+        <View style={styles.macDockBar}>
+          {dockApps.map((app) => (
+            <TouchableOpacity
+              key={app.id}
+              activeOpacity={0.7}
+              onPress={() => setOpenApp(app.id)}
+            >
+              <View style={styles.macDockIconWrap}>
+                <View style={[styles.macDockIcon, app.active && styles.macDockIconActive]}>
+                  <LinearGradient
+                    colors={[app.color1, app.color2]}
+                    style={styles.macDockIconGradient}
+                  >
+                    <Ionicons name={app.icon as any} size={22} color="#fff" />
+                  </LinearGradient>
+                </View>
+                {(app.active || openApp === app.id) && <View style={styles.macDockDot} />}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
-    </View>
+    </>
   );
 };
 
@@ -654,8 +739,6 @@ const styles = StyleSheet.create({
   },
   // Terminal window (macOS style)
   devTerminalWindow: {
-    width: '92%',
-    maxWidth: 380,
     borderRadius: 12,
     backgroundColor: 'rgba(30, 30, 30, 0.85)',
     borderWidth: 1,
@@ -766,7 +849,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 280,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     paddingVertical: 4,
@@ -794,10 +877,10 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
   },
   devEnvBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 3,
     backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: 5,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.2)',
   },
@@ -810,7 +893,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 280,
     height: 50,
-    borderRadius: 12,
+    borderRadius: 25,
     overflow: 'hidden',
     marginTop: 20,
     marginBottom: 32,
@@ -1273,5 +1356,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  // Fake app overlay (dock click)
+  fakeAppOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  fakeAppWindow: {
+    width: '75%',
+    maxWidth: 300,
+    backgroundColor: 'rgba(30, 30, 30, 0.95)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 14,
+  },
+  fakeAppTitleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  fakeAppTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  fakeAppContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 14,
+  },
+  fakeAppText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.3)',
+    fontWeight: '500',
   },
 });

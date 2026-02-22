@@ -271,6 +271,22 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     }
   }, [tabs, setActiveTab, addTab]);
 
+  const handleShellClick = useCallback(() => {
+    Keyboard.dismiss();
+    setShowPreviewPanel(false);
+    const shellTab = tabs.find(t => t.id === 'shell');
+    if (shellTab) {
+      setActiveTab('shell');
+    } else {
+      addTab({
+        id: 'shell',
+        type: 'shell' as any,
+        title: 'Log',
+        data: {},
+      });
+    }
+  }, [tabs, setActiveTab, addTab]);
+
   const handleSupabasePress = useCallback(() => {
     Keyboard.dismiss();
     // Open as tab instead of panel (keep FAB visible)
@@ -440,6 +456,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
             <Animated.View entering={FadeInDown.delay(500).duration(500)}>
               <VerticalIconSwitcher
                 icons={[
+                  { name: 'receipt-outline', action: handleShellClick },
                   { name: 'git-branch-outline', action: handleGitClick },
                   { name: 'key-outline', action: handleEnvVarsClick },
                 ]}

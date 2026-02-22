@@ -192,7 +192,7 @@ export const SplashScreen = ({ onFinish }: { onFinish: () => void }) => {
         <View style={styles.bottomLine} />
         <View style={styles.bottomRow}>
           <View style={styles.versionBadge}>
-            <Text style={styles.versionText}>v1.0</Text>
+            <Text style={styles.versionText}>v1.5.3</Text>
           </View>
           <View style={styles.bottomDot} />
           <Text style={styles.bottomText}>Built for developers</Text>

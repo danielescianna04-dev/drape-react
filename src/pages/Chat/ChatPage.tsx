@@ -22,6 +22,7 @@ import { TerminalItem as TerminalItemComponent } from '../../features/terminal/c
 import { Sidebar } from '../../features/terminal/components/Sidebar';
 import { VSCodeSidebar } from '../../features/terminal/components/VSCodeSidebar';
 import { SafeText } from '../../shared/components/SafeText';
+import { ThinkingIndicator } from '../../shared/components/atoms/ThinkingIndicator';
 // import { PreviewEye } from './components/PreviewEye';
 import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
@@ -40,6 +41,7 @@ import { SupabaseView } from '../../features/terminal/components/views/SupabaseV
 import { FigmaView } from '../../features/terminal/components/views/FigmaView';
 import { EnvVarsView } from '../../features/terminal/components/views/EnvVarsView';
 import { TasksView } from '../../features/terminal/components/views/TasksView';
+import { ShellView } from '../../features/terminal/components/views/ShellView';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../../features/terminal/context/SidebarContext';
 import { useChatState } from '../../hooks/business/useChatState';
@@ -2620,6 +2622,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           <BrowserView tab={currentTab} />
         ) : currentTab?.type === 'preview' ? (
           <PreviewView tab={currentTab} />
+        ) : currentTab?.type === 'shell' ? (
+          <ShellView tab={currentTab} />
         ) : currentTab?.type === 'envVars' ? (
           <EnvVarsView tab={currentTab} />
         ) : currentTab?.type === 'tasks' ? (
@@ -2851,9 +2855,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         borderWidth: 1,
                         borderColor: 'rgba(255,255,255,0.08)',
                       }}>
-                        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, fontStyle: 'italic' }}>
-                          Thinking...
-                        </Text>
+                        <ThinkingIndicator
+                          textStyle={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, fontStyle: 'italic' }}
+                        />
                       </View>
                     </View>
                   )}

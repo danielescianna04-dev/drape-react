@@ -11,6 +11,8 @@ import { firebaseService } from './services/firebase.service';
 import { githubActivityService } from './services/github-activity.service';
 import { reengagementService } from './services/reengagement.service';
 import { metricsService } from './services/metrics.service';
+import { workspaceService } from './services/workspace.service';
+import type { Duplex } from 'stream';
 
 async function main() {
   log.info('Starting Drape Backend v3.0.0 (TypeScript + Docker Native)');
@@ -68,6 +70,10 @@ async function main() {
     let removeLogListener: (() => void) | null = null;
     const subscribedFileProjects = new Set<string>();
 
+    // Interactive terminal state
+    let terminalStream: Duplex | null = null;
+    let terminalExec: any = null;
+
     ws.send(JSON.stringify({
       type: 'connected',
       message: 'Connected to Drape Backend',
@@ -105,18 +111,24 @@ async function main() {
             break;
           }
 
-          case 'subscribe_logs':
+          case 'subscribe_logs': {
             // Remove previous listener if re-subscribing
             if (removeLogListener) {
               removeLogListener();
             }
+            const logProjectId = msg.projectId || null;
             removeLogListener = log.addListener((entry) => {
               if (ws.readyState === WebSocket.OPEN) {
+                // If projectId was provided, only send logs mentioning that project
+                if (logProjectId && entry.message && !entry.message.includes(logProjectId)) {
+                  return;
+                }
                 ws.send(JSON.stringify({ type: 'backend_log', log: entry }));
               }
             });
             ws.send(JSON.stringify({ type: 'subscribed_logs' }));
             break;
+          }
 
           case 'subscribe': {
             const { workstationId } = msg;
@@ -127,6 +139,77 @@ async function main() {
           case 'chat': {
             // TODO: Wire to agent-loop in Fase 5
             ws.send(JSON.stringify({ type: 'error', message: 'Agent not yet implemented in TS backend' }));
+            break;
+          }
+
+          case 'terminal_start': {
+            const { projectId } = msg;
+            if (!projectId || !userId) {
+              ws.send(JSON.stringify({ type: 'terminal_error', message: 'Missing projectId or auth' }));
+              break;
+            }
+            // Clean up previous terminal if any
+            if (terminalStream) {
+              terminalStream.destroy();
+              terminalStream = null;
+              terminalExec = null;
+            }
+            try {
+              const session = await workspaceService.getOrCreateContainer(projectId, userId);
+              const container = await dockerService.getDockerContainer(session.containerId);
+              const exec = await container.exec({
+                Cmd: ['/bin/bash'],
+                AttachStdin: true,
+                AttachStdout: true,
+                AttachStderr: true,
+                Tty: true,
+                Env: ['TERM=xterm-256color'],
+                WorkingDir: '/home/coder/project',
+              });
+              const stream = await exec.start({ hijack: true, stdin: true, Tty: true }) as unknown as Duplex;
+              terminalStream = stream;
+              terminalExec = exec;
+
+              stream.on('data', (chunk: Buffer) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: 'terminal_output', data: chunk.toString('base64') }));
+                }
+              });
+              stream.on('end', () => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: 'terminal_exit' }));
+                }
+                terminalStream = null;
+                terminalExec = null;
+              });
+              ws.send(JSON.stringify({ type: 'terminal_started' }));
+              log.info(`[WS] Terminal started for project ${projectId} (user: ${userId})`);
+            } catch (e: any) {
+              log.error(`[WS] Terminal start failed: ${e.message}`);
+              ws.send(JSON.stringify({ type: 'terminal_error', message: e.message }));
+            }
+            break;
+          }
+
+          case 'terminal_input': {
+            if (terminalStream && msg.data) {
+              try {
+                terminalStream.write(Buffer.from(msg.data, 'base64'));
+              } catch (e: any) {
+                log.warn(`[WS] Terminal input error: ${e.message}`);
+              }
+            }
+            break;
+          }
+
+          case 'terminal_resize': {
+            if (terminalExec && msg.cols && msg.rows) {
+              try {
+                await terminalExec.resize({ h: msg.rows, w: msg.cols });
+              } catch (e: any) {
+                log.warn(`[WS] Terminal resize error: ${e.message}`);
+              }
+            }
             break;
           }
         }
@@ -147,6 +230,12 @@ async function main() {
         fileWatcherService.deregisterClient(projectId, ws);
       }
       subscribedFileProjects.clear();
+      // Clean up terminal
+      if (terminalStream) {
+        terminalStream.destroy();
+        terminalStream = null;
+        terminalExec = null;
+      }
     });
   });
 

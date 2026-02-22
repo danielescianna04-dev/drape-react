@@ -460,6 +460,14 @@ class DockerService {
     return false;
   }
 
+  /**
+   * Get a dockerode Container object for interactive exec (PTY terminal).
+   */
+  async getDockerContainer(containerId: string): Promise<Docker.Container> {
+    const { client } = await this.findContainer(containerId);
+    return client.getContainer(containerId);
+  }
+
   // --- Internal helpers ---
 
   private async findContainer(containerId: string): Promise<{ server: ServerConfig; client: Docker }> {

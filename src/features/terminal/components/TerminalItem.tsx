@@ -97,38 +97,35 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     }
   }, [showThinking, isExecuting]);
 
-  // Animated loading dots (cycles through '.', '..', '...')
+  // Animated loading dots (bounce: . → .. → ... → .. → .)
+  const dotSequence = ['.', '..', '...', '..', '.'];
+  const [dotIndex, setDotIndex] = useState(0);
   useEffect(() => {
     if (showThinking) {
       const interval = setInterval(() => {
-        setLoadingDots(prev => {
-          if (prev === '.') return '..';
-          if (prev === '..') return '...';
-          return '.';
-        });
-      }, 500);
-      return () => clearInterval(interval);
-    } else {
-      setLoadingDots('.');
-    }
-  }, [showThinking]);
-
-  // Animated dots for executing tools (cycles through '.', '..', '...')
-  const [executingDots, setExecutingDots] = useState('.');
-  useEffect(() => {
-    if (isExecuting) {
-      const interval = setInterval(() => {
-        setExecutingDots(prev => {
-          if (prev === '.') return '..';
-          if (prev === '..') return '...';
-          return '.';
-        });
+        setDotIndex(prev => (prev + 1) % dotSequence.length);
       }, 400);
       return () => clearInterval(interval);
     } else {
-      setExecutingDots('.');
+      setDotIndex(0);
+      setLoadingDots('.');
+    }
+  }, [showThinking]);
+  const loadingDotsText = showThinking ? dotSequence[dotIndex] : loadingDots;
+
+  // Animated dots for executing tools (bounce: . → .. → ... → .. → .)
+  const [execDotIndex, setExecDotIndex] = useState(0);
+  useEffect(() => {
+    if (isExecuting) {
+      const interval = setInterval(() => {
+        setExecDotIndex(prev => (prev + 1) % dotSequence.length);
+      }, 400);
+      return () => clearInterval(interval);
+    } else {
+      setExecDotIndex(0);
     }
   }, [isExecuting]);
+  const executingDots = dotSequence[execDotIndex];
 
   // IMPORTANT: All hooks must be called before any conditional return!
   // Skip rendering empty placeholder messages (created for post-tool streaming)
@@ -1198,14 +1195,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   ) : (
                   <View style={styles.assistantMessageContent}>
                     {showThinking && !item.content ? (
-                      // Active thinking - show streaming text in gray
-                      <View style={styles.thinkingStreamContainer}>
+                      // Active thinking - show streaming text with pulse
+                      <Animated.View style={[styles.thinkingStreamContainer, { opacity: pulseAnim }]}>
                         {item.thinkingContent ? (
                           <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
                         ) : (
-                          <Text style={styles.thinkingStreamText}>Thinking{loadingDots}</Text>
+                          <Text style={styles.thinkingStreamText}>Thinking{loadingDotsText}</Text>
                         )}
-                      </View>
+                      </Animated.View>
                     ) : (
                       <View>
                         {/* Show thinking content in gray before the main response */}

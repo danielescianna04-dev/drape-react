@@ -131,10 +131,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 
-  // Keep currentPlan in sync with auth store user plan
+  // Keep currentPlan in sync with auth store user plan + re-fetch stats
   useEffect(() => {
     if (user?.plan) {
       setCurrentPlan(user.plan);
+      // Re-fetch system status when plan changes (e.g. after IAP upgrade)
+      fetchSystemStatus();
     }
   }, [user?.plan]);
 
@@ -285,14 +287,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       const authHeaders = await getAuthHeaders();
 
       // Fetch system status (per-user)
-      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}&planId=${encodeURIComponent(currentPlan)}`, {
+      const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}`, {
         headers: authHeaders,
       });
       const data = await response.json();
       setSystemStatus(data);
 
       // Fetch budget status
-      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}?planId=${currentPlan}`, {
+      const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}`, {
         headers: authHeaders,
       });
       const budgetData = await budgetResponse.json();

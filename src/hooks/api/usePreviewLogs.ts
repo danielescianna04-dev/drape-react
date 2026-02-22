@@ -141,7 +141,7 @@ export function usePreviewLogs(options: UsePreviewLogsOptions = {}) {
 
       ws.onopen = () => {
         backendReconnectAttemptsRef.current = 0;
-        try { ws.send(JSON.stringify({ type: 'subscribe_logs' })); } catch {}
+        try { ws.send(JSON.stringify({ type: 'subscribe_logs', projectId: projectId || undefined })); } catch {}
       };
 
       ws.onmessage = (event) => {
@@ -183,7 +183,7 @@ export function usePreviewLogs(options: UsePreviewLogsOptions = {}) {
         connectBackendHints();
       }, delay);
     }
-  }, [enabled, pushLogLine]);
+  }, [enabled, projectId, pushLogLine]);
 
   const connect = useCallback(async () => {
     if (!enabled || !projectId) return;

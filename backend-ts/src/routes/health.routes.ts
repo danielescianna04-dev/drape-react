@@ -47,7 +47,8 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
   try {
     // Use query param userId if provided (old app versions), fall back to auth
     const userId = (req.query.userId as string) || req.userId || 'anonymous';
-    const planId = (req.query.planId as string) || await getUserPlan(userId);
+    // Always read plan from Firestore — never trust client-provided planId
+    const planId = await getUserPlan(userId);
 
     // Plan limits
     const planLimits: Record<string, { tokens: number; previews: number; projects: number; search: number }> = {
@@ -134,7 +135,8 @@ healthRouter.get('/stats/system-status', optionalAuth, asyncHandler(async (req, 
 healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, res) => {
   try {
     const userId = req.params.userId;
-    const planId = (req.query.planId as string) || await getUserPlan(userId);
+    // Always read plan from Firestore — never trust client-provided planId
+    const planId = await getUserPlan(userId);
 
     const planBudgets: Record<string, { name: string; monthlyBudgetEur: number }> = {
       free:    { name: 'Free', monthlyBudgetEur: 2.00 },

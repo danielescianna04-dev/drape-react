@@ -156,7 +156,9 @@ export function useChatEngine(
     thinkingContentRef.current = '';
     currentMessageIdRef.current = null;
     sessionCostRef.current = { costEur: 0, inputTokens: 0, outputTokens: 0 };
-    setContextUsagePercent(0);
+    // NOTE: Do NOT reset contextUsagePercent here — the backend conversation
+    // history persists across messages, so the percentage should only update
+    // from backend usage events, not be zeroed on every message send.
     hadStreamedTextRef.current = false;
     lastStreamedMsgIdRef.current = null;
     if (gapTimerRef.current) { clearTimeout(gapTimerRef.current); gapTimerRef.current = null; }

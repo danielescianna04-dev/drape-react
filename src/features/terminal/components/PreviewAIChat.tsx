@@ -13,6 +13,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { AnthropicIcon, GoogleIcon, OpenAIIcon } from '../../../shared/components/icons';
 import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
 
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
@@ -567,9 +568,11 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                               <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
                             </View>
                             <View style={styles.aiMessageContent}>
-                              <Text style={styles.aiThinkingText}>
-                                {msg.content || (msg.isThinking ? 'Thinking...' : '')}
-                              </Text>
+                              {msg.content ? (
+                                <Text style={styles.aiThinkingText}>{msg.content}</Text>
+                              ) : msg.isThinking ? (
+                                <ThinkingIndicator textStyle={styles.aiThinkingText} />
+                              ) : null}
                             </View>
                           </View>
                         );
@@ -677,7 +680,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                           <Animated.View style={[styles.aiThreadDot, { backgroundColor: '#6E6E80' }]} />
                         </View>
                         <View style={styles.aiMessageContent}>
-                          <Text style={styles.aiThinkingText}>Thinking...</Text>
+                          <ThinkingIndicator textStyle={styles.aiThinkingText} />
                         </View>
                       </View>
                     )}
