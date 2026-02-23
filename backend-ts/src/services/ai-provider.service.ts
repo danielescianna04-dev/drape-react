@@ -130,9 +130,9 @@ class AIProviderService {
       costPerMInputToken: 0.5,
       costPerMOutputToken: 3.0,
     },
-    'gemini-3-pro': {
+    'gemini-3.1-pro': {
       provider: 'gemini',
-      modelId: 'gemini-3-pro-preview',
+      modelId: 'gemini-3.1-pro-preview',
       maxTokens: 65536,
       contextWindowTokens: 1000000,
       supportsTools: true,

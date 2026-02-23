@@ -24,7 +24,7 @@ const USD_TO_EUR = 0.92;
 // AI Model Pricing (USD per 1M tokens)
 const AI_PRICING: Record<string, { input: number; output: number; cachedInput: number }> = {
   'gemini-3-flash':          { input: 0.50,  output: 3.00,  cachedInput: 0.125 },
-  'gemini-3-pro':            { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
+  'gemini-3.1-pro':            { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
   'claude-sonnet-4':         { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-4-6-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-3.5-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },

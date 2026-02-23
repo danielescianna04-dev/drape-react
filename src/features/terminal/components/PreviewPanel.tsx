@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView, KeyboardAvoidingView } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView } from 'react-native';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
@@ -1426,7 +1426,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         <Animated.View style={[{ flex: 1 }, { opacity: fadeAnim }]}>
           <LinearGradient colors={['#0a0a0a', '#000000']} style={StyleSheet.absoluteFill} />
 
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={insets.top}>
+          <View style={{ flex: 1 }}>
             {shouldRenderToolbar && (
               <Animated.View>
                 <PreviewToolbar
@@ -1537,7 +1537,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                 />
               )}
             </View>
-          </KeyboardAvoidingView>
+          </View>
 
           {serverStatus === 'running' && webViewReady && (
             <PreviewAIChat

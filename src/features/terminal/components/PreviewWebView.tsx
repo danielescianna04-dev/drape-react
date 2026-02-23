@@ -178,6 +178,31 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   document.head.appendChild(style);
                 }
 
+                // Fix iOS keyboard pushing content up and showing white space
+                if (window.visualViewport) {
+                  var lastHeight = window.visualViewport.height;
+                  window.visualViewport.addEventListener('resize', function() {
+                    var newHeight = window.visualViewport.height;
+                    if (newHeight < lastHeight) {
+                      // Keyboard opened — constrain body height to visual viewport
+                      document.documentElement.style.height = newHeight + 'px';
+                      document.body.style.height = newHeight + 'px';
+                      document.documentElement.style.overflow = 'auto';
+                      // Ensure focused input stays in view within the constrained area
+                      var focused = document.activeElement;
+                      if (focused && focused.tagName && /INPUT|TEXTAREA|SELECT/.test(focused.tagName)) {
+                        setTimeout(function() { focused.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 50);
+                      }
+                    } else {
+                      // Keyboard closed — restore
+                      document.documentElement.style.height = '';
+                      document.body.style.height = '';
+                      document.documentElement.style.overflow = '';
+                    }
+                    lastHeight = newHeight;
+                  });
+                }
+
                 // Check for React/Next.js mount
                 var checkCount = 0;
                 var checkInterval = setInterval(function() {

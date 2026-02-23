@@ -88,7 +88,7 @@ const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, hasThinking: true, isPremium: true },
   { id: 'claude-4-6-sonnet', name: 'Claude 4.6 Sonnet', IconComponent: AnthropicIcon, hasThinking: true },
   { id: 'gpt-5-3', name: 'GPT 5.3', IconComponent: OpenAIIcon, hasThinking: false, isPremium: true },
-  { id: 'gemini-3-pro', name: 'Gemini 3.0 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
+  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'low', 'high'], isPremium: true },
   { id: 'gemini-3-flash', name: 'Gemini 3.0 Flash', IconComponent: GoogleIcon, hasThinking: true, thinkingLevels: ['none', 'minimal', 'low', 'medium', 'high'] },
 ];
 
@@ -1593,7 +1593,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       'claude-4-6-opus': 200000,
       'claude-haiku-3.5': 200000,
       'gemini-3-flash': 1000000,
-      'gemini-3-pro': 1000000,
+      'gemini-3.1-pro': 1000000,
       'gpt-5-3': 128000,
       'llama-3.3-70b': 128000,
     };
@@ -3247,7 +3247,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               {showContextInfo && (() => {
                 const contextWindows: Record<string, number> = {
                   'claude-4-6-opus': 200000, 'claude-4-6-sonnet': 200000, 'claude-haiku-3.5': 200000,
-                  'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3-pro': 1000000,
+                  'claude-sonnet-4': 200000, 'gemini-3-flash': 1000000, 'gemini-3.1-pro': 1000000,
                   'gpt-5-3': 128000, 'llama-3.3-70b': 128000,
                 };
                 const windowK = Math.round((contextWindows[selectedModel] || 200000) / 1000);

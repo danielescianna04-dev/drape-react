@@ -1121,7 +1121,7 @@ Return ONLY the JSON, no markdown fences, no explanation.`;
 
   // Fast-first fallback chain on Gemini as requested.
   // Keep two flash attempts before escalating to pro.
-  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3-pro'];
+  const models = ['gemini-3-flash', 'gemini-3-flash', 'gemini-3.1-pro'];
   const systemPrompt = 'You are a senior full-stack developer. You generate complete, working project scaffolds. Always return valid JSON.';
   const chatMessages = [{ role: 'user' as const, content: prompt }];
   const chatOptions = { temperature: 0.4, maxTokens: 8000 };

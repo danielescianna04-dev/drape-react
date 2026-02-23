@@ -44,6 +44,7 @@ import { useNavigationStore } from './src/core/navigation/navigationStore';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 
 // Helper to parse Git URL from any provider
 type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'unknown';
@@ -148,6 +149,23 @@ export default function App() {
 
   // Track import in progress to prevent double calls
   const importInProgress = useRef(false);
+
+  // Check for OTA updates on app start
+  useEffect(() => {
+    if (!__DEV__) {
+      (async () => {
+        try {
+          const update = await Updates.checkForUpdateAsync();
+          if (update.isAvailable) {
+            await Updates.fetchUpdateAsync();
+            await Updates.reloadAsync();
+          }
+        } catch (e) {
+          // Silent fail — don't block app startup
+        }
+      })();
+    }
+  }, []);
 
   // Initialize auth listener on app start
   useEffect(() => {
