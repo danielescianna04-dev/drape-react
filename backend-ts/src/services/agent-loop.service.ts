@@ -61,6 +61,7 @@ export class AgentLoop {
   private totalCostEur: number = 0;
   private iterationCount: number = 0;
   private latestTodos: Array<{ status?: string }> = [];
+  private cachedTokenEstimate: number = 0; // Incremental token tracking
 
   // Budget limits per plan (monthly EUR)
   private static readonly PLAN_BUDGETS: Record<string, number> = {
@@ -212,7 +213,7 @@ export class AgentLoop {
 
       // 4. Add user message to conversation
       const userMessage = this.buildUserMessage(prompt, images);
-      this.conversationHistory.push(userMessage);
+      this.pushMessage(userMessage);
 
       // 5. Main reasoning loop
       let shouldContinue = true;
@@ -224,8 +225,8 @@ export class AgentLoop {
       while (shouldContinue && this.iterationCount < MAX_ITERATIONS) {
         this.iterationCount++;
 
-        // Re-check budget mid-run to prevent runaway costs
-        if (this.iterationCount > 1) {
+        // Re-check budget mid-run every 5 iterations to prevent runaway costs
+        if (this.iterationCount > 1 && this.iterationCount % 5 === 0) {
           const midRunBudgetCheck = this.checkBudget();
           if (midRunBudgetCheck.exceeded) {
             log.warn(`[AgentLoop] Budget exceeded mid-run for user ${this.userId} (plan: ${this.userPlan}, ${midRunBudgetCheck.percentUsed}% used)`);
@@ -464,7 +465,7 @@ export class AgentLoop {
         }
 
         if (assistantContent.length > 0) {
-          this.conversationHistory.push({
+          this.pushMessage({
             role: 'assistant',
             content: assistantContent,
           });
@@ -705,7 +706,7 @@ export class AgentLoop {
 
           // Add tool results as user message
           if (toolResults.length > 0) {
-            this.conversationHistory.push({
+            this.pushMessage({
               role: 'user',
               content: toolResults,
             });
@@ -719,7 +720,7 @@ export class AgentLoop {
           if (hasPendingTodos && noToolWhileTodosPendingCount < 2) {
             noToolWhileTodosPendingCount++;
             log.warn('[AgentLoop] Model returned no tools while todos are still pending. Nudging continuation.');
-            this.conversationHistory.push({
+            this.pushMessage({
               role: 'user',
               content: [{
                 type: 'text',
@@ -1064,6 +1065,17 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    * Estimate token count from messages + system prompt.
    * Uses ~3.5 chars per token as a conservative heuristic.
    */
+  /**
+   * Push a message to conversation history and update the incremental token estimate.
+   */
+  private pushMessage(msg: ChatMessage): void {
+    this.conversationHistory.push(msg);
+    // Incrementally update cached token estimate
+    if (this.cachedTokenEstimate > 0) {
+      this.cachedTokenEstimate += this.estimateTokenCount([msg], '');
+    }
+  }
+
   private estimateTokenCount(messages: ChatMessage[], systemPrompt: string): number {
     let charCount = systemPrompt.length;
     for (const msg of messages) {
@@ -1109,8 +1121,11 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    */
   private shouldCompact(systemPrompt: string): boolean {
     const contextWindow = aiProviderService.getContextWindowTokens(this.model);
-    const estimatedTokens = this.estimateTokenCount(this.conversationHistory, systemPrompt);
-    return estimatedTokens > contextWindow * 0.90;
+    // Use cached estimate if available, otherwise compute full
+    if (this.cachedTokenEstimate === 0) {
+      this.cachedTokenEstimate = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+    }
+    return this.cachedTokenEstimate > contextWindow * 0.90;
   }
 
   private async compactConversationHistory(systemPrompt: string): Promise<boolean> {
@@ -1173,14 +1188,16 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
         ...recentMessages,
       ];
 
-      const newEstimate = this.estimateTokenCount(this.conversationHistory, systemPrompt);
-      log.info(`[AgentLoop] Context compacted: ${oldMessages.length} old messages → summary. ${recentMessages.length} recent kept. ~${newEstimate} tokens now.`);
+      // Reset cached estimate after compaction (history was replaced)
+      this.cachedTokenEstimate = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+      log.info(`[AgentLoop] Context compacted: ${oldMessages.length} old messages → summary. ${recentMessages.length} recent kept. ~${this.cachedTokenEstimate} tokens now.`);
 
       return true;
     } catch (error: any) {
       log.error(`[AgentLoop] Context compaction failed: ${error.message}. Falling back to truncation.`);
       // Fallback: just keep recent messages without summary
       this.conversationHistory = recentMessages;
+      this.cachedTokenEstimate = 0; // Force recalculation
       return true;
     }
   }
@@ -1191,7 +1208,7 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    */
   async *resume(userAnswers: string): AsyncGenerator<AgentEvent> {
     // Add user's answers to conversation
-    this.conversationHistory.push({
+    this.pushMessage({
       role: 'user',
       content: userAnswers,
     });

@@ -119,6 +119,17 @@ class AIProviderService {
       costPerMInputToken: 0.8,
       costPerMOutputToken: 4.0,
     },
+    'gemini-2.5-flash': {
+      provider: 'gemini',
+      modelId: 'gemini-2.5-flash',
+      maxTokens: 65536,
+      contextWindowTokens: 1000000,
+      supportsTools: true,
+      supportsStreaming: true,
+      supportsImages: true,
+      costPerMInputToken: 0.15,
+      costPerMOutputToken: 0.60,
+    },
     'gemini-3-flash': {
       provider: 'gemini',
       modelId: 'gemini-3-flash-preview',
@@ -333,6 +344,7 @@ class AIProviderService {
       let currentToolInput = '';
       let inThinking = false;
       let usage: UsageInfo = { inputTokens: 0, outputTokens: 0 };
+      let stopReason = 'end_turn';
 
       for await (const event of stream) {
         switch (event.type) {
@@ -405,6 +417,9 @@ class AIProviderService {
             if (event.usage) {
               usage.outputTokens = event.usage.output_tokens || 0;
             }
+            if ((event as any).delta?.stop_reason) {
+              stopReason = (event as any).delta.stop_reason;
+            }
             break;
 
           case 'message_start':
@@ -421,12 +436,12 @@ class AIProviderService {
         }
       }
 
-      const finalMessage = await stream.finalMessage();
+      // Use usage data already collected from stream events (avoids extra API round-trip)
       yield {
         type: 'done',
         fullText,
         toolCalls,
-        stopReason: finalMessage.stop_reason || 'end_turn',
+        stopReason,
         usage,
       };
     } catch (error) {
@@ -633,30 +648,7 @@ class AIProviderService {
           config: requestConfig,
         });
 
-        let chunkIndex = 0;
         for await (const chunk of response) {
-          chunkIndex++;
-          // Debug: Log raw chunk structure for first few chunks
-          if (chunkIndex <= 3) {
-            log.info(`[Gemini 3] Chunk ${chunkIndex} keys: ${Object.keys(chunk).join(', ')}`);
-            const candidates = (chunk as any).candidates;
-            if (candidates?.[0]) {
-              const c = candidates[0];
-              log.info(`[Gemini 3] Candidate keys: ${Object.keys(c).join(', ')}`);
-              if (c.content) {
-                log.info(`[Gemini 3] Content keys: ${Object.keys(c.content).join(', ')}`);
-              }
-              if (c.content?.parts) {
-                const parts = c.content.parts;
-                log.info(`[Gemini 3] Parts count: ${parts.length}`);
-                for (let i = 0; i < parts.length; i++) {
-                  const p = parts[i];
-                  log.info(`[Gemini 3] Part ${i}: ${JSON.stringify(p).substring(0, 200)}`);
-                }
-              }
-            }
-          }
-
           // Handle candidates from the new SDK response format
           const candidates = (chunk as any).candidates;
           if (!candidates || candidates.length === 0) continue;
@@ -673,7 +665,6 @@ class AIProviderService {
                 yield { type: 'thinking_start' };
               }
               yield { type: 'thinking', text: part.text };
-              log.info(`[Gemini 3] Thinking: ${part.text.substring(0, 80)}...`);
               continue;
             }
 

@@ -12,6 +12,8 @@ import { execShell, shellEscape } from '../utils/helpers';
 import { config } from '../config';
 import path from 'path';
 
+const HEALTH_CHECK_TTL = 30_000; // 30 seconds
+
 class WorkspaceService {
   /**
    * Get or create a container for a user+project.
@@ -22,9 +24,18 @@ class WorkspaceService {
       // Check existing session for this user+project
       const existing = await sessionService.get(projectId, userId);
       if (existing) {
+        // Skip health check if recently verified (saves ~100-200ms per message)
+        const now = Date.now();
+        if (existing.lastHealthCheck && (now - existing.lastHealthCheck) < HEALTH_CHECK_TTL) {
+          existing.lastUsed = now;
+          await sessionService.set(projectId, userId, existing);
+          return existing;
+        }
+
         const healthy = await containerLifecycleService.isHealthy(existing.agentUrl);
         if (healthy) {
-          existing.lastUsed = Date.now();
+          existing.lastUsed = now;
+          existing.lastHealthCheck = now;
           await sessionService.set(projectId, userId, existing);
           return existing;
         }

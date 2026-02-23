@@ -13,6 +13,57 @@ declare global {
   }
 }
 
+// ── Token verification cache (avoids Firebase network call on every request) ──
+const TOKEN_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const tokenCache = new Map<string, { userId: string; expiresAt: number }>();
+
+function getCachedToken(token: string): string | null {
+  const entry = tokenCache.get(token);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    tokenCache.delete(token);
+    return null;
+  }
+  return entry.userId;
+}
+
+function setCachedToken(token: string, userId: string): void {
+  tokenCache.set(token, { userId, expiresAt: Date.now() + TOKEN_CACHE_TTL });
+  // Evict stale entries periodically (keep map bounded)
+  if (tokenCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of tokenCache) {
+      if (now > v.expiresAt) tokenCache.delete(k);
+    }
+  }
+}
+
+// ── Ownership verification cache ──
+const OWNERSHIP_CACHE_TTL = 60 * 1000; // 60 seconds
+const ownershipCache = new Map<string, { result: boolean; expiresAt: number }>();
+
+function getCachedOwnership(userId: string, projectId: string): boolean | null {
+  const key = `${userId}:${projectId}`;
+  const entry = ownershipCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    ownershipCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCachedOwnership(userId: string, projectId: string, result: boolean): void {
+  const key = `${userId}:${projectId}`;
+  ownershipCache.set(key, { result, expiresAt: Date.now() + OWNERSHIP_CACHE_TTL });
+  if (ownershipCache.size > 1000) {
+    const now = Date.now();
+    for (const [k, v] of ownershipCache) {
+      if (now > v.expiresAt) ownershipCache.delete(k);
+    }
+  }
+}
+
 /**
  * requireAuth — Middleware that requires a valid Firebase ID token.
  * Extracts the token from the Authorization: Bearer <token> header,
@@ -38,9 +89,18 @@ export async function requireAuth(
     return;
   }
 
+  // Check token cache first
+  const cachedUserId = getCachedToken(token);
+  if (cachedUserId) {
+    req.userId = cachedUserId;
+    next();
+    return;
+  }
+
   try {
     const decodedToken = await firebaseService.getAuth().verifyIdToken(token);
     req.userId = decodedToken.uid;
+    setCachedToken(token, decodedToken.uid);
     next();
   } catch (err: any) {
     log.warn(`[Auth] Token verification failed: ${err.message}`);
@@ -74,9 +134,18 @@ export async function optionalAuth(
     return;
   }
 
+  // Check token cache first
+  const cachedUserId = getCachedToken(token);
+  if (cachedUserId) {
+    req.userId = cachedUserId;
+    next();
+    return;
+  }
+
   try {
     const decodedToken = await firebaseService.getAuth().verifyIdToken(token);
     req.userId = decodedToken.uid;
+    setCachedToken(token, decodedToken.uid);
   } catch {
     req.userId = undefined;
   }
@@ -270,6 +339,10 @@ export async function verifyProjectOwnership(userId: string, projectId: string):
     return false;
   }
 
+  // Check ownership cache first
+  const cached = getCachedOwnership(userId, projectId);
+  if (cached !== null) return cached;
+
   try {
     const db = firebaseService.getFirestore();
     if (!db) {
@@ -281,39 +354,40 @@ export async function verifyProjectOwnership(userId: string, projectId: string):
       return false;
     }
 
-    // Newer schema: users/{uid}/projects/{projectId}
-    const projectDoc = await db.collection('users').doc(userId).collection('projects').doc(projectId).get();
-    if (projectDoc.exists) return true;
+    // Run all ownership checks in parallel instead of sequentially
+    const [projectDoc, wsDoc, userProjectDoc, topLevelProjectsDoc, wsByProjectAndUser] = await Promise.all([
+      db.collection('users').doc(userId).collection('projects').doc(projectId).get(),
+      db.collection('users').doc(userId).collection('workstations').doc(projectId).get(),
+      db.collection('user_projects').doc(projectId).get(),
+      db.collection('projects').doc(projectId).get(),
+      db.collection('workstations')
+        .where('projectId', '==', projectId)
+        .where('userId', '==', userId)
+        .limit(1)
+        .get(),
+    ]);
 
-    // Newer schema: users/{uid}/workstations/{projectId}
-    const wsDoc = await db.collection('users').doc(userId).collection('workstations').doc(projectId).get();
-    if (wsDoc.exists) return true;
+    const owned =
+      projectDoc.exists ||
+      wsDoc.exists ||
+      (userProjectDoc.exists && userProjectDoc.data()?.userId === userId) ||
+      (topLevelProjectsDoc.exists && (() => {
+        const data = topLevelProjectsDoc.data() || {};
+        return data.userId === userId || data.ownerId === userId || data.uid === userId || data.createdBy === userId;
+      })()) ||
+      !wsByProjectAndUser.empty;
 
-    // Legacy/current app schema: top-level user_projects/{projectId}
-    const userProjectDoc = await db.collection('user_projects').doc(projectId).get();
-    if (userProjectDoc.exists && userProjectDoc.data()?.userId === userId) return true;
-
-    // Additional legacy schema fallbacks
-    const topLevelProjectsDoc = await db.collection('projects').doc(projectId).get();
-    if (topLevelProjectsDoc.exists) {
-      const data = topLevelProjectsDoc.data() || {};
-      if (data.userId === userId || data.ownerId === userId || data.uid === userId || data.createdBy === userId) {
-        return true;
-      }
+    if (owned) {
+      setCachedOwnership(userId, projectId, true);
+      return true;
     }
-
-    const wsByProjectAndUser = await db
-      .collection('workstations')
-      .where('projectId', '==', projectId)
-      .where('userId', '==', userId)
-      .limit(1)
-      .get();
-    if (!wsByProjectAndUser.empty) return true;
 
     if (allowBypass) {
       log.warn(`[Auth] Project ${projectId} not found for user ${userId} — bypass enabled`);
+      setCachedOwnership(userId, projectId, true);
       return true;
     }
+    setCachedOwnership(userId, projectId, false);
     return false;
   } catch (err: any) {
     if (allowBypass) {

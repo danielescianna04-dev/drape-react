@@ -79,6 +79,10 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
     'X-Accel-Buffering': 'no',
   });
 
+  // Disable Nagle's algorithm — send each SSE chunk immediately instead of
+  // buffering small writes for ~40ms. Critical for streaming responsiveness.
+  res.socket?.setNoDelay(true);
+
   // Send initial SSE comment to confirm connection
   res.write(': connected\n\n');
 

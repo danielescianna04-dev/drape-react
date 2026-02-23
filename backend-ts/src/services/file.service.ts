@@ -8,7 +8,11 @@ import { FileEntry, FileContent, Result, GrepMatch } from '../types';
 import { BINARY_EXTENSIONS, IGNORED_DIRS, MAX_FILE_SIZE, MAX_FILES_LIST } from '../utils/constants';
 import { sanitizePath, execShell, shellEscape } from '../utils/helpers';
 
+const FILE_LIST_CACHE_TTL = 60_000; // 60 seconds
+
 class FileService {
+  private fileListCache = new Map<string, { data: FileEntry[]; expiresAt: number }>();
+
   private projectPath(projectId: string): string {
     return path.join(config.projectsRoot, projectId);
   }
@@ -144,6 +148,12 @@ class FileService {
   }
 
   async listAllFiles(projectId: string): Promise<Result<FileEntry[]>> {
+    // Check cache first (avoids fast-glob scan on every agent message)
+    const cached = this.fileListCache.get(projectId);
+    if (cached && Date.now() < cached.expiresAt) {
+      return { success: true, data: cached.data };
+    }
+
     try {
       const base = this.projectPath(projectId);
       const files = await fg('**/*', {
@@ -158,6 +168,8 @@ class FileService {
         path: f.path,
         size: f.stats?.size,
       }));
+
+      this.fileListCache.set(projectId, { data: entries, expiresAt: Date.now() + FILE_LIST_CACHE_TTL });
 
       return { success: true, data: entries };
     } catch (e: any) {

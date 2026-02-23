@@ -13,4 +13,5 @@ export interface Session {
   preparedAt?: number;
   repositoryUrl?: string;
   accessToken?: string;
+  lastHealthCheck?: number;
 }

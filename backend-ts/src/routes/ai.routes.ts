@@ -76,6 +76,7 @@ aiRouter.post('/chat', asyncHandler(async (req: Request, res: Response) => {
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
+  res.socket?.setNoDelay(true);
 
   // Initial event to flush headers in proxies
   res.write(': connected\n\n');
@@ -184,7 +185,7 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    for await (const chunk of aiProviderService.chatStream('gemini-3-flash', messages)) {
+    for await (const chunk of aiProviderService.chatStream('gemini-2.5-flash', messages)) {
       if (chunk.type === 'text' && chunk.text) {
         response += chunk.text;
       }

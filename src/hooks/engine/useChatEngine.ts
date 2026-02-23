@@ -438,6 +438,15 @@ export function useChatEngine(
 
         hadStreamedTextRef.current = true;
 
+        // If a gap-thinking placeholder was created while text was still streaming,
+        // remove it and continue appending to the previous text message instead.
+        if (currentMessageIdRef.current?.startsWith('engine-thinking-gap-') && lastStreamedMsgIdRef.current) {
+          const gapId = currentMessageIdRef.current;
+          setMessages(prev => prev.filter(m => m.id !== gapId));
+          currentMessageIdRef.current = lastStreamedMsgIdRef.current;
+          // streamingContentRef still has the old content — don't reset it
+        }
+
         // First delta after thinking → convert thinking item to text in-place
         const isFirstDelta = currentMessageIdRef.current?.startsWith('engine-thinking-') && streamingContentRef.current === '';
         if (isFirstDelta) {
