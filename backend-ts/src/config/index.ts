@@ -45,7 +45,7 @@ export const config = {
   cacheRoot: optional('CACHE_ROOT', '/data/cache'),
 
   // Firebase
-  googleCloudProject: optional('GOOGLE_CLOUD_PROJECT', 'drape-mobile-ide'),
+  googleCloudProject: optional('GOOGLE_CLOUD_PROJECT', 'drapev2'),
 
   // AI
   anthropicApiKey: optional('ANTHROPIC_API_KEY', ''),

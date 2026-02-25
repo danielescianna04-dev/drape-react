@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, Keyboard } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+export type ViewportMode = 'mobile' | 'desktop';
+
 export interface PreviewToolbarProps {
   currentPreviewUrl: string;
   onClose: () => void;
@@ -10,6 +12,8 @@ export interface PreviewToolbarProps {
   onUrlChange?: (url: string) => void;
   existingPublish: { slug: string; url: string } | null;
   topInset: number;
+  viewportMode: ViewportMode;
+  onViewportChange: (mode: ViewportMode) => void;
 }
 
 export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
@@ -20,6 +24,8 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   onUrlChange,
   existingPublish,
   topInset,
+  viewportMode,
+  onViewportChange,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editPath, setEditPath] = useState('/');
@@ -122,6 +128,21 @@ export const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           <Ionicons name="refresh" size={16} color="rgba(255, 255, 255, 0.7)" />
         </TouchableOpacity>
 
+        {/* Viewport toggle — icon shows CURRENT mode */}
+        <TouchableOpacity
+          onPress={() => onViewportChange(viewportMode === 'mobile' ? 'desktop' : 'mobile')}
+          style={[styles.viewportButton, viewportMode === 'desktop' && styles.viewportButtonActive]}
+          activeOpacity={0.7}
+          accessibilityLabel={viewportMode === 'mobile' ? 'Visualizza desktop' : 'Visualizza mobile'}
+          accessibilityRole="button"
+        >
+          <Ionicons
+            name={viewportMode === 'desktop' ? 'desktop-outline' : 'phone-portrait-outline'}
+            size={15}
+            color={viewportMode === 'desktop' ? '#fff' : 'rgba(255, 255, 255, 0.7)'}
+          />
+        </TouchableOpacity>
+
         {/* Publish / Update */}
         <TouchableOpacity
           onPress={onPublish}
@@ -162,6 +183,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  viewportButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewportButtonActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.6)',
   },
   publishButton: {
     width: 28,

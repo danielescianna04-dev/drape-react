@@ -1078,6 +1078,7 @@ Requirements:
 - For HTML projects: do NOT include package.json, only include index.html, style.css, script.js
 - For framework projects (Next.js, React, Vue, Nuxt, Svelte, Angular, Astro, Remix, Solid.js): include package.json with project name "${projectName}" and all necessary dependencies
 - Include a working main page with a professional, modern UI
+- CRITICAL: Design mobile-first. The preview runs on a phone screen (390px wide). All layouts MUST look perfect on mobile first. Use responsive utilities (Tailwind: default styles for mobile, sm:/md:/lg: for larger screens. CSS: use min-width media queries). Never use fixed widths larger than 100%. Ensure tap targets are at least 44px. No horizontal scrolling. Use flexbox/grid with wrap. For Tailwind projects, start with mobile styles and enhance with breakpoint prefixes.
 - Use Italian language for user-facing text where appropriate
 - For Next.js: use App Router (app/ directory), include layout.tsx and page.tsx
 - For Nuxt: use pages/ directory, include app.vue

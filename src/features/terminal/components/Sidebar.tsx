@@ -47,9 +47,10 @@ const USE_HOLY_GRAIL = true;
 interface Props {
   onClose: () => void;
   onOpenAllProjects?: () => void;
+  onHidePreview?: () => void;
 }
 
-export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
+export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) => {
   const { t } = useTranslation(['projects', 'common']);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -335,6 +336,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects }: Props) => {
                     repositoryUrl: selectedRepoUrl,
                   }
                 });
+                onHidePreview?.();
                 onClose();
               }}
               onAuthRequired={(repoUrl) => {

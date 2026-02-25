@@ -1,7 +1,6 @@
 import React from 'react';
 import { Dimensions, View, Text, StyleSheet } from 'react-native';
-import Animated, { runOnJS } from 'react-native-reanimated';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useTabStore, Tab } from '../../../core/tabs/tabStore';
 import { FluidTabSwitcher } from '../../../shared/components/FluidTabSwitcher';
@@ -11,7 +10,6 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 interface ContentRendererProps {
   children: (tab: Tab, isCardMode: boolean, cardDimensions: { width: number, height: number }) => React.ReactNode;
   animatedStyle: any;
-  onPinchOut?: () => void;
   swipeEnabled?: boolean;
 }
 
@@ -42,7 +40,7 @@ const emptyStyles = StyleSheet.create({
   },
 });
 
-export const ContentRenderer = ({ children, animatedStyle, onPinchOut, swipeEnabled = true }: ContentRendererProps) => {
+export const ContentRenderer = ({ children, animatedStyle, swipeEnabled = true }: ContentRendererProps) => {
   const { tabs, activeTabId, setActiveTab } = useTabStore();
 
   // Find current tab index
@@ -64,27 +62,15 @@ export const ContentRenderer = ({ children, animatedStyle, onPinchOut, swipeEnab
     }
   };
 
-  // Pinch gesture to open multitasking (like iPad)
-  const pinchGesture = Gesture.Pinch()
-    .onEnd((event) => {
-      'worklet';
-      // If pinching in (scale < 0.8), open multitasking
-      if (event.scale < 0.8 && onPinchOut) {
-        runOnJS(onPinchOut)();
-      }
-    });
-
   return (
-    <GestureDetector gesture={pinchGesture}>
-      <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-        <FluidTabSwitcher
-          currentIndex={currentIndex}
-          tabs={tabs}
-          renderTab={(tab, width) => children(tab, false, { width, height: SCREEN_HEIGHT })}
-          onIndexChange={handleIndexChange}
-          swipeEnabled={swipeEnabled}
-        />
-      </Animated.View>
-    </GestureDetector>
+    <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+      <FluidTabSwitcher
+        currentIndex={currentIndex}
+        tabs={tabs}
+        renderTab={(tab, width) => children(tab, false, { width, height: SCREEN_HEIGHT })}
+        onIndexChange={handleIndexChange}
+        swipeEnabled={swipeEnabled}
+      />
+    </Animated.View>
   );
 };

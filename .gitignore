@@ -47,3 +47,12 @@ nul
 .claude/
 backend-ts/service-account-key.json
 SubscriptionKey_KQXQCH3L87.p8
+
+# Service account keys
+*firebase-adminsdk*.json
+backend-ts/new-sa.json
+backend-ts/old-sa.json
+backend-ts/check-data.js
+backend-ts/migrate-firestore.js
+migrate-firestore.mjs
+users.json

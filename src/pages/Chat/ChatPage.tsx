@@ -164,8 +164,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     keyboardHeight,
   } = chatState;
 
-  // Agent state - 2-mode system (Fast or Planning only)
-  const [agentMode, setAgentMode] = useState<'fast' | 'planning'>('fast');
+  // Agent state - 2-mode system (Fast or Terminal)
+  const [agentMode, setAgentMode] = useState<'fast' | 'terminal'>('fast');
   const [isInputbarTodoCollapsed, setIsInputbarTodoCollapsed] = useState(false);
   const [isInputbarTodoDismissed, setIsInputbarTodoDismissed] = useState(false);
 
@@ -182,9 +182,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     currentTool: agentCurrentTool,
     plan: agentPlan,
     reset: resetAgent
-  } = useAgentStream(agentMode);
+  } = useAgentStream('fast');
   // const [activeAgentProgressId, setActiveAgentProgressId] = useState<string | null>(null); // REMOVED
-  const [planItemId, setPlanItemId] = useState<string | null>(null);
   const [showNextJsWarning, setShowNextJsWarning] = useState(false);
   const [nextJsWarningData, setNextJsWarningData] = useState<any>(null);
 
@@ -496,6 +495,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const costProps: any = {};
     if ((msg as any).costEur) {
       costProps.costEur = (msg as any).costEur;
+    }
+    if ((msg as any).tokensUsed) {
       costProps.tokensUsed = (msg as any).tokensUsed;
     }
 
@@ -793,7 +794,13 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (currentTab?.id) {
       tabInputsRef.current[currentTab.id] = text;
     }
-  }, [currentTab?.id]);
+    // Auto-switch toggle based on input content
+    if (text.trim().length > 0 && isTerminalInput(text)) {
+      if (agentMode !== 'terminal') setAgentMode('terminal');
+    } else {
+      if (agentMode !== 'fast') setAgentMode('fast');
+    }
+  }, [currentTab?.id, agentMode]);
 
   // Load input when tab changes (ONLY depends on tab ID)
   useEffect(() => {
@@ -926,72 +933,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     prevEngineMessagesRef.current = curr;
   }, [engine.messages, currentTab?.id]);
 
-  // Handle plan approval
-  const handlePlanApprove = useCallback(() => {
-    if (!currentTab?.id || !planItemId) return;
-
-    // Update plan item status to approved
-    updateTerminalItemById(currentTab.id, planItemId, {
-      planInfo: {
-        title: agentCurrentPrompt || 'Task',
-        steps: agentPlan?.steps?.map((s: any) => s.description || s) || [],
-        status: 'approved',
-      },
-    });
-
-    // Execute the plan
-    executeAgentPlan();
-
-    // Don't reset planItemId here - it prevents duplicate plan items during execution
-    // It will be reset when a new user message is sent
-  }, [currentTab?.id, planItemId, agentCurrentPrompt, agentPlan, executeAgentPlan, updateTerminalItemById]);
-
-  // Handle plan rejection
-  const handlePlanReject = useCallback(() => {
-    if (!currentTab?.id || !planItemId) return;
-
-    // Update plan item status to rejected
-    updateTerminalItemById(currentTab.id, planItemId, {
-      planInfo: {
-        title: agentCurrentPrompt || 'Task',
-        steps: agentPlan?.steps?.map((s: any) => s.description || s) || [],
-        status: 'rejected',
-      },
-    });
-
-    // Reset agent state
-    resetAgent();
-    setLoading(false);
-
-    // Reset plan item ID
-    setPlanItemId(null);
-  }, [currentTab?.id, planItemId, agentCurrentPrompt, agentPlan, resetAgent, updateTerminalItemById]);
-
   // Load file history from storage on mount
   useEffect(() => {
     useFileHistoryStore.getState().loadHistory();
   }, []);
-
-  // Handle plan approval - add inline plan item to chat
-  useEffect(() => {
-    if (agentMode === 'planning' && agentPlan && !planItemId && currentTab?.id) {
-      const itemId = `plan-${Date.now()}`;
-      setPlanItemId(itemId);
-
-      // Add plan approval item to terminal
-      addTerminalItem({
-        id: itemId,
-        content: `Piano: ${agentPlan.steps?.length || 0} passaggi`,
-        type: TerminalItemType.PLAN_APPROVAL,
-        timestamp: new Date(),
-        planInfo: {
-          title: agentCurrentPrompt || 'Task',
-          steps: agentPlan.steps?.map((s: any) => s.description || s) || [],
-          status: 'pending',
-        },
-      });
-    }
-  }, [agentPlan, agentMode, planItemId, currentTab?.id, agentCurrentPrompt]);
 
   // Process agent events for sub-agents (todos + questions handled by engine)
   useEffect(() => {
@@ -1401,8 +1346,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
 
 
-  const handleToggleMode = (mode: 'fast' | 'planning') => {
-    // Switch between fast and planning agent modes
+  const handleToggleMode = (mode: 'fast' | 'terminal') => {
     setAgentMode(mode);
   };
 
@@ -1447,6 +1391,36 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const commandPrefixes = ['ls', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'cat', 'echo', 'touch', 'grep', 'find', 'chmod', 'chown', 'ps', 'kill', 'top', 'df', 'du', 'tar', 'zip', 'unzip', 'wget', 'curl', 'git', 'npm', 'node', 'python', 'pip', 'java', 'gcc', 'make', 'docker', 'kubectl'];
     const firstWord = text.trim().split(' ')[0].toLowerCase();
     return commandPrefixes.includes(firstWord) || text.includes('&&') || text.includes('|') || text.includes('>');
+  };
+
+  // Detect if input looks like a terminal command vs natural language for AI
+  const isTerminalInput = (text: string): boolean => {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    // Starts with ./ or / (executable path)
+    if (trimmed.startsWith('./') || (trimmed.startsWith('/') && !trimmed.includes(' '))) return true;
+    // Shell operators
+    if (trimmed.includes('&&') || trimmed.includes(' | ') || trimmed.includes(' > ') || trimmed.includes(' >> ') || trimmed.includes(' ; ')) return true;
+    // Known commands
+    const cmdBinaries = [
+      'ls', 'cd', 'pwd', 'mkdir', 'rmdir', 'rm', 'cp', 'mv', 'cat', 'head', 'tail',
+      'echo', 'touch', 'grep', 'egrep', 'find', 'chmod', 'chown', 'chgrp', 'ps', 'kill',
+      'top', 'htop', 'df', 'du', 'tar', 'zip', 'unzip', 'gzip', 'gunzip',
+      'wget', 'curl', 'ssh', 'scp', 'rsync', 'ping', 'nc', 'netstat',
+      'git', 'npm', 'npx', 'yarn', 'pnpm', 'bun', 'deno',
+      'node', 'python', 'python3', 'pip', 'pip3', 'ruby', 'php', 'go', 'cargo', 'rustc',
+      'java', 'javac', 'gcc', 'g++', 'clang', 'make', 'cmake',
+      'docker', 'docker-compose', 'kubectl', 'helm',
+      'apt', 'apt-get', 'yum', 'brew', 'pacman',
+      'which', 'whereis', 'whoami', 'hostname', 'uname', 'env', 'export', 'set', 'unset',
+      'clear', 'history', 'man', 'date', 'cal', 'wc', 'sort', 'uniq', 'cut', 'awk', 'sed',
+      'xargs', 'tee', 'diff', 'patch', 'file', 'stat', 'ln', 'readlink',
+      'tree', 'less', 'more', 'vi', 'vim', 'nano',
+      'systemctl', 'service', 'journalctl', 'crontab',
+      'dir', 'type', 'printenv', 'source', 'bash', 'sh', 'zsh',
+    ];
+    const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
+    return cmdBinaries.includes(firstWord);
   };
 
   // Handle Next.js downgrade acceptance
@@ -1618,9 +1592,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Reset tool processing flag for new message
     isProcessingToolsRef.current = false;
 
-    // Reset plan item ID so new plans can be displayed
-    setPlanItemId(null);
-
     // Animate input to bottom on first send - Apple-style smooth animation
     if (!hasChatStarted) {
       hasChatStartedAnim.value = 1; // Mark chat as started
@@ -1640,8 +1611,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     const userMessage = input.trim() || (imagesToSend && imagesToSend.length > 0 ? `[${imagesToSend.length} immagini allegate]` : '');
 
-    // Check if agent mode is active (fast or planning)
-    const isAgentMode = agentMode === 'fast' || agentMode === 'planning';
+    // Check if agent mode is active (fast only - terminal mode handles separately)
+    const isAgentMode = agentMode === 'fast';
 
     // Auto-save chat on first message - must happen BEFORE any return statements
     // Check if this is the first USER message (not system messages)
@@ -1788,6 +1759,59 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       setLoading(false);
       return;
+    }
+
+    // Terminal mode - auto-detect: command → execute in container, natural language → AI
+    if (agentMode === 'terminal' && currentWorkstation?.id && isTerminalInput(userMessage)) {
+      addTerminalItem({
+        id: Date.now().toString(),
+        content: userMessage,
+        type: TerminalItemType.COMMAND,
+        isDirectTerminal: true,
+        timestamp: new Date(),
+      });
+
+      setInput('');
+      setSelectedInputImages([]);
+      setLoading(true);
+
+      try {
+        const response = await apiClient.post(
+          `${config.apiUrl}/workstation/execute-command`,
+          {
+            projectId: currentWorkstation.id,
+            command: userMessage,
+          }
+        );
+
+        const stdout = response.data.stdout || '';
+        const stderr = response.data.stderr || '';
+        const output = (stdout + (stderr ? `\n${stderr}` : '')).trim() || '(nessun output)';
+
+        addTerminalItem({
+          id: (Date.now() + 1).toString(),
+          content: output,
+          type: TerminalItemType.OUTPUT,
+          isDirectTerminal: true,
+          timestamp: new Date(),
+        });
+      } catch (err: any) {
+        addTerminalItem({
+          id: (Date.now() + 1).toString(),
+          content: `Errore: ${err.message || 'Esecuzione fallita'}`,
+          isDirectTerminal: true,
+          type: TerminalItemType.OUTPUT,
+          timestamp: new Date(),
+        });
+      } finally {
+        setLoading(false);
+      }
+
+      isNearBottomRef.current = true;
+      setTimeout(() => scrollToBottom(true), 100);
+      setTimeout(() => scrollToBottom(true), 350);
+      return;
+    // Terminal mode but natural language → fall through to AI
     }
 
     // Se c'è un forced mode, usa quello, altrimenti auto-detect
@@ -2505,7 +2529,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       const isOutputAfterTerminalCommand =
         item.type === TerminalItemType.OUTPUT &&
         prevItem?.type === TerminalItemType.COMMAND &&
-        isCommand(prevItem.content || '');
+        (isCommand(prevItem.content || '') || prevItem.isDirectTerminal);
 
       const isNextItemAI = item.type !== TerminalItemType.USER_MESSAGE &&
         nextItem &&
@@ -2513,7 +2537,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       const outputItem =
         item.type === TerminalItemType.COMMAND &&
-          isCommand(item.content || '') &&
+          (isCommand(item.content || '') || item.isDirectTerminal) &&
           nextItem?.type === TerminalItemType.OUTPUT
           ? nextItem
           : undefined;
@@ -2803,8 +2827,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     isNextItemOutput={isNextItemAI}
                     outputItem={outputItem}
                     isLoading={shouldShowLoading}
-                    onPlanApprove={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanApprove : undefined}
-                    onPlanReject={item.type === TerminalItemType.PLAN_APPROVAL ? handlePlanReject : undefined}
+                    onPlanApprove={undefined}
+                    onPlanReject={undefined}
                   />
                 );
               }}
@@ -2988,25 +3012,21 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                         ]}
                       >
                         <Animated.View style={agentMode === 'fast' ? aiModeAnimatedStyle : undefined}>
-                          <Ionicons
-                            name="flash"
-                            size={14}
-                            color={agentMode === 'fast' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
-                          />
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: agentMode === 'fast' ? '#FFFFFF' : 'rgba(255,255,255,0.3)' }}>AI</Text>
                         </Animated.View>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => handleToggleMode('planning')}
+                        onPress={() => handleToggleMode('terminal')}
                         style={[
                           styles.modeButton,
-                          agentMode === 'planning' && styles.modeButtonActive,
+                          agentMode === 'terminal' && styles.modeButtonActive,
                         ]}
                       >
-                        <Animated.View style={agentMode === 'planning' ? aiModeAnimatedStyle : undefined}>
+                        <Animated.View style={agentMode === 'terminal' ? aiModeAnimatedStyle : undefined}>
                           <Ionicons
-                            name="clipboard"
+                            name="terminal-outline"
                             size={14}
-                            color={agentMode === 'planning' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
+                            color={agentMode === 'terminal' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}
                           />
                         </Animated.View>
                       </TouchableOpacity>
@@ -3101,9 +3121,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     value={input}
                     onChangeText={handleInputChange}
                     placeholder={
-                      agentMode === 'fast'
-                        ? t('placeholderFast')
-                        : t('placeholderPlanning')
+                      agentMode === 'terminal'
+                        ? '$ comando...'
+                        : t('placeholderFast')
                     }
                     placeholderTextColor={AppColors.dark.bodyText}
                     multiline
@@ -3821,7 +3841,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 20,
     padding: 3,
-    gap: 4,
+    gap: 1,
   },
   autoLabel: {
     fontSize: 9,

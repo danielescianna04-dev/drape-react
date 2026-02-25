@@ -15,9 +15,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { workstationService } from '../../../core/workstation/workstationService-firebase';
+import * as Haptics from 'expo-haptics';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSidebarOffset } from '../context/SidebarContext';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
+import { useAutocomplete } from '../hooks/useAutocomplete';
+import type { Suggestion } from '../hooks/useAutocomplete';
+import { AutocompleteBar } from './AutocompleteBar';
 
 interface Props {
   visible: boolean;
@@ -604,11 +608,28 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
+  const [cursorPos, setCursorPos] = useState(0);
+  const [selection, setSelection] = useState<{ start: number; end: number } | undefined>(undefined);
 
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const language = useMemo(() => getLanguage(filePath), [filePath]);
   const lines = useMemo(() => content.split('\n'), [content]);
+
+  const { suggestions, applySuggestion } = useAutocomplete({
+    content,
+    cursorPosition: cursorPos,
+    language,
+    isEditing,
+  });
+
+  const handleSuggestionSelect = useCallback((suggestion: Suggestion) => {
+    const { newContent, newCursorPosition } = applySuggestion(suggestion);
+    setContent(newContent);
+    setIsEdited(newContent !== originalContent);
+    setSelection({ start: newCursorPosition, end: newCursorPosition });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [applySuggestion, originalContent]);
   const fileName = filePath.split('/').pop() || filePath;
   const { icon, color: iconColor } = getFileIcon(fileName);
 
@@ -770,6 +791,11 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
                     ref={inputRef}
                     style={styles.codeInput}
                     value={content}
+                    selection={selection}
+                    onSelectionChange={(e) => {
+                      setCursorPos(e.nativeEvent.selection.start);
+                      if (selection !== undefined) setSelection(undefined);
+                    }}
                     onChangeText={(text) => {
                       setContent(text);
                       setIsEdited(text !== originalContent);
@@ -802,6 +828,11 @@ export const FileViewer = ({ visible, filePath, projectId, repositoryUrl, onClos
             </View>
           </ScrollView>
         </ScrollView>
+      )}
+
+      {/* Autocomplete suggestions */}
+      {isEditing && suggestions.length > 0 && (
+        <AutocompleteBar suggestions={suggestions} onSelect={handleSuggestionSelect} />
       )}
 
       {/* Footer */}

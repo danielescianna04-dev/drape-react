@@ -7,12 +7,7 @@
     <key>EXUpdatesURL</key>
     <string>https://u.expo.dev/ec6c855f-5325-47b4-8d13-982ba9a83a1c</string>
     <key>EXUpdatesRuntimeVersion</key>
-    <string>1.5.4</string>
-    <key>EXUpdatesRequestHeaders</key>
-    <dict>
-      <key>expo-channel-name</key>
-      <string>production</string>
-    </dict>
+    <string>1.5.5</string>
     <key>EXUpdatesCheckOnLaunch</key>
     <string>ALWAYS</string>
     <key>EXUpdatesLaunchWaitMs</key>

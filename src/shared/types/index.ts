@@ -33,6 +33,7 @@ export interface TerminalItem {
     base64?: string;
     type?: string;
   }[]; // Attached images (for multimodal support)
+  isDirectTerminal?: boolean; // Sent from terminal mode toggle — always render as bash card
   toolInfo?: {
     tool: string;
     input: any;

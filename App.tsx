@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator, Alert } from 'react-native';
+import { View, ActivityIndicator, Alert, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -124,6 +124,30 @@ const checkRepoAccess = async (
 };
 
 type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
+
+
+function ForceUpdateScreen() {
+  return (
+    <View style={fuStyles.container}>
+      <StatusBar style="light" />
+      <Text style={fuStyles.emoji}>🚀</Text>
+      <Text style={fuStyles.title}>Aggiornamento richiesto</Text>
+      <Text style={fuStyles.subtitle}>È disponibile una nuova versione di Drape.{'\n'}Aggiorna l'app per continuare.</Text>
+      <TouchableOpacity style={fuStyles.button} onPress={() => Linking.openURL('https://apps.apple.com/app/id6758354741')}>
+        <Text style={fuStyles.buttonText}>Aggiorna su App Store</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const fuStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0a0a0a', alignItems: 'center', justifyContent: 'center', padding: 32 },
+  emoji: { fontSize: 48, marginBottom: 24 },
+  title: { color: '#fff', fontSize: 22, fontWeight: '700', marginBottom: 12, textAlign: 'center' },
+  subtitle: { color: '#666', fontSize: 15, textAlign: 'center', lineHeight: 24, marginBottom: 40 },
+  button: { backgroundColor: '#6366f1', borderRadius: 14, paddingHorizontal: 32, paddingVertical: 16 },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+});
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('splash');

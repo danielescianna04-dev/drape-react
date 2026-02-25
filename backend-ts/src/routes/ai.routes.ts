@@ -185,7 +185,7 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    for await (const chunk of aiProviderService.chatStream('gemini-2.5-flash', messages)) {
+    for await (const chunk of aiProviderService.chatStream('gemini-3-flash', messages, undefined, undefined, { thinkingLevel: 'none', maxTokens: 50 })) {
       if (chunk.type === 'text' && chunk.text) {
         response += chunk.text;
       }

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { PreviewLoadingScreen } from './PreviewServerStatus';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
+import type { ViewportMode } from './PreviewToolbar';
 
 export interface PreviewWebViewProps {
   // WebView config
@@ -50,6 +51,7 @@ export interface PreviewWebViewProps {
   onRetryPreview: () => void;
   onSendErrorReport: () => void;
   topInset: number;
+  viewportMode: ViewportMode;
 
   t: ReturnType<typeof useTranslation>['t'];
 }
@@ -89,6 +91,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   onRetryPreview,
   onSendErrorReport,
   topInset,
+  viewportMode,
   t,
 }) => {
   // Safety-net retry for transient proxy errors that slip past checkServerStatus
@@ -100,6 +103,29 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   React.useEffect(() => {
     proxyRetryCountRef.current = 0;
   }, [currentPreviewUrl, serverStatus]);
+
+  // Switch viewport at runtime when user toggles desktop/mobile
+  React.useEffect(() => {
+    if (!webViewRef.current || serverStatus !== 'running') return;
+    const isDesktop = viewportMode === 'desktop';
+    const content = isDesktop
+      ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes'
+      : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+    webViewRef.current.injectJavaScript(`
+      (function() {
+        var meta = document.querySelector('meta[name="viewport"]');
+        if (meta) {
+          meta.setAttribute('content', '${content}');
+        } else {
+          meta = document.createElement('meta');
+          meta.name = 'viewport';
+          meta.content = '${content}';
+          document.head.appendChild(meta);
+        }
+      })();
+      true;
+    `);
+  }, [viewportMode]);
 
   React.useEffect(() => {
     return () => {
@@ -154,19 +180,18 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   document.cookie = "drape_preview_token=" + previewToken + "; path=/; SameSite=Lax";
                 }
 
-                // Prevent zoom out below 1.0 — force viewport
+                // Set viewport based on mode (mobile or desktop)
+                var isDesktopMode = ${JSON.stringify(viewportMode === 'desktop')};
+                var viewportContent = isDesktopMode
+                  ? 'width=1280, initial-scale=0.3, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes'
+                  : 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
                 var existingMeta = document.querySelector('meta[name="viewport"]');
                 if (existingMeta) {
-                  var content = existingMeta.getAttribute('content') || '';
-                  if (content.indexOf('minimum-scale') === -1) {
-                    existingMeta.setAttribute('content', content + ', minimum-scale=1.0');
-                  } else {
-                    existingMeta.setAttribute('content', content.replace(/minimum-scale=[0-9.]+/, 'minimum-scale=1.0'));
-                  }
+                  existingMeta.setAttribute('content', viewportContent);
                 } else {
                   var meta = document.createElement('meta');
                   meta.name = 'viewport';
-                  meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=5.0, user-scalable=yes';
+                  meta.content = viewportContent;
                   if (document.head) document.head.appendChild(meta);
                   else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(meta); });
                 }

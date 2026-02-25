@@ -629,7 +629,7 @@ export function useChatEngine(
         // Attach cost to the streamed text message (use lastStreamedMsgIdRef as fallback
         // since tool_start clears currentMessageIdRef)
         const costMsgId = currentMessageIdRef.current || lastStreamedMsgIdRef.current;
-        if (costMsgId && sessionCostRef.current.costEur > 0) {
+        if (costMsgId && (sessionCostRef.current.costEur > 0 || sessionCostRef.current.inputTokens > 0)) {
           const cost = { ...sessionCostRef.current };
           setMessages(prev => prev.map(m =>
             m.id === costMsgId

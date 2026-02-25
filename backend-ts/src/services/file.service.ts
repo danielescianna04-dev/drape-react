@@ -79,6 +79,7 @@ class FileService {
         await fs.chown(dir, 1000, 1000);
       } catch { /* non-fatal */ }
 
+      this.fileListCache.delete(projectId);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -94,6 +95,7 @@ class FileService {
       } else {
         await fs.unlink(fullPath);
       }
+      this.fileListCache.delete(projectId);
       return { success: true };
     } catch (e: any) {
       if (e.code === 'ENOENT') return { success: true }; // Already deleted
@@ -110,6 +112,7 @@ class FileService {
       await fs.mkdir(path.dirname(fullTo), { recursive: true });
       await fs.rename(fullFrom, fullTo);
       try { await fs.chown(fullTo, 1000, 1000); } catch { /* non-fatal */ }
+      this.fileListCache.delete(projectId);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -121,6 +124,7 @@ class FileService {
       const fullPath = sanitizePath(this.projectPath(projectId), folderPath);
       await fs.mkdir(fullPath, { recursive: true });
       try { await fs.chown(fullPath, 1000, 1000); } catch { /* non-fatal */ }
+      this.fileListCache.delete(projectId);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };

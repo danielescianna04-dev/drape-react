@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
 import { TerminalItem as TerminalItemType, TerminalItemType as ItemType } from '../../../shared/types';
 import { AppColors } from '../../../shared/theme/colors';
@@ -33,6 +35,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string>('');
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
+  const [copiedFeedback, setCopiedFeedback] = useState(false);
+
+  const handleCopy = useCallback(async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCopiedFeedback(true);
+    setTimeout(() => setCopiedFeedback(false), 1500);
+  }, []);
 
   // 🔍 LOGGING DETTAGLIATO - Disabled for performance
   // useEffect(() => {
@@ -149,14 +159,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     }
   };
 
-  const isTerminalCommand = item.type === ItemType.COMMAND && (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/i);
+  const isTerminalCommand = item.type === ItemType.COMMAND && (item.isDirectTerminal || (item.content || '').match(/^(ls|cd|pwd|mkdir|rm|cp|mv|cat|echo|touch|grep|find|chmod|chown|ps|kill|top|df|du|tar|zip|unzip|wget|curl|git|npm|node|python|pip|java|gcc|make|docker|kubectl)/i));
 
   // Check if this is a user message
   const isUserMessage = item.type === ItemType.USER_MESSAGE;
 
   // Determine dot color based on item type and success
   let dotColor = '#6E7681'; // Default gray
-  if (item.type === ItemType.COMMAND && isTerminalCommand && outputItem) {
+  if (item.type === ItemType.COMMAND && (isTerminalCommand || item.isDirectTerminal) && outputItem) {
     // Only check for actual errors (starting with "Error:" or "ERROR:")
     const hasError = (outputItem.content || '').match(/^Error:/i) ||
       (outputItem.content || '').match(/^ERROR:/i);
@@ -201,7 +211,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
       ]}
     >
       {/* Thread line and dot on the left - only for AI messages and bash commands */}
-      {!isUserMessage && !(item.content || '').startsWith('__PROJECT_CREATED__') && (
+      {/* Hide for direct terminal commands that already have outputItem embedded in the card */}
+      {!isUserMessage && !(item.content || '').startsWith('__PROJECT_CREATED__') && !(item.isDirectTerminal && outputItem) && (
         <View style={styles.threadContainer}>
           <Animated.View
             style={[
@@ -233,30 +244,25 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
             // Otherwise, render the command normally
             return isTerminalCommand && outputItem ? (
-              // Terminal command with output - show as card with title
+              // Terminal command with output - show as card
               (() => {
-                // Only consider it an error if it starts with "Error:" or "ERROR:"
-                const hasError = (outputItem.content || '').match(/^Error:/i) ||
-                  (outputItem.content || '').match(/^ERROR:/i);
+                // Only consider it an error if it starts with "Error:" or "ERROR:" or "command not found"
+                const outputContent = outputItem.content || '';
+                const hasError = outputContent.match(/^Error:/i) ||
+                  outputContent.match(/^ERROR:/i) ||
+                  outputContent.includes('command not found') ||
+                  outputContent.includes('No such file or directory');
 
                 // Check if this is a read file command (cat)
                 const isCatCommand = (item.content || '').trim().startsWith('cat ');
 
                 if (isCatCommand) {
-                  // Extract file path and line count from output
-                  // Output format: "Reading: filename\n140 lines\n\ncontent..."
                   const outputText = outputItem.content || '';
                   const lines = outputText.split('\n');
-
-                  // Extract filename from first line "Reading: filename"
                   const fileNameMatch = lines[0]?.match(/Reading:\s*(.+)/);
                   const fileName = fileNameMatch ? fileNameMatch[1] : (item.content || '').replace('cat ', '').trim();
-
-                  // Extract line count from second line "140 lines"
                   const lineCountMatch = lines[1]?.match(/(\d+)\s+lines?/);
                   const lineCount = lineCountMatch ? lineCountMatch[1] : lines.length;
-
-                  // Show inline format: READ filename (X lines)
                   return (
                     <View style={styles.readFileInline}>
                       <View style={styles.toolBadge}>
@@ -269,6 +275,80 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   );
                 }
 
+                // Direct terminal mode — render as real terminal card
+                if (item.isDirectTerminal) {
+                  return (
+                    <View style={[styles.termCard, hasError && styles.termCardError]}>
+                      {/* Terminal header with traffic lights */}
+                      <View style={styles.termHeader}>
+                        <View style={styles.termTrafficLights}>
+                          <View style={[styles.termDot, { backgroundColor: '#FF5F56' }]} />
+                          <View style={[styles.termDot, { backgroundColor: '#FFBD2E' }]} />
+                          <View style={[styles.termDot, { backgroundColor: '#27C93F' }]} />
+                        </View>
+                        <Text style={styles.termHeaderTitle}>Terminal</Text>
+                        <TouchableOpacity
+                          onPress={() => setIsModalVisible(true)}
+                          style={styles.expandButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="expand-outline" size={14} color="rgba(255, 255, 255, 0.35)" />
+                        </TouchableOpacity>
+                      </View>
+                      {/* Terminal body */}
+                      <View style={styles.termBody}>
+                        <View style={styles.termPromptLine}>
+                          <Text style={styles.termPromptChar}>$</Text>
+                          <Text style={styles.termCommandText}>{item.content || ''}</Text>
+                        </View>
+                        <Text
+                          style={[styles.termOutputText, hasError && styles.termOutputError]}
+                          numberOfLines={isExpanded ? undefined : 8}
+                        >
+                          {outputContent}
+                        </Text>
+                        {!isExpanded && outputContent.split('\n').length > 8 && (
+                          <TouchableOpacity onPress={() => setIsExpanded(true)} style={styles.termShowMore}>
+                            <Text style={styles.termShowMoreText}>
+                              mostra tutto ({outputContent.split('\n').length} righe)
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      {/* Full screen modal */}
+                      <Modal
+                        visible={isModalVisible}
+                        animationType="slide"
+                        transparent={false}
+                        onRequestClose={() => setIsModalVisible(false)}
+                      >
+                        <View style={styles.modalContainer}>
+                          <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Terminal Output</Text>
+                            <TouchableOpacity
+                              onPress={() => setIsModalVisible(false)}
+                              style={styles.closeButton}
+                            >
+                              <Ionicons name="close" size={24} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                          <ScrollView style={styles.modalContent}>
+                            <View style={styles.modalSection}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                <Text style={{ color: '#27C93F', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13 }}>$ </Text>
+                                <Text style={styles.modalInput}>{item.content || ''}</Text>
+                              </View>
+                              <Text style={styles.modalOutput}>{outputContent}</Text>
+                            </View>
+                          </ScrollView>
+                        </View>
+                      </Modal>
+                    </View>
+                  );
+                }
+
+                // Agent bash card (existing style)
                 return (
                   <View style={[styles.bashCard, hasError && styles.bashCardError]}>
                     <View style={styles.bashHeader}>
@@ -344,44 +424,53 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
         )}
 
         {item.type === ItemType.USER_MESSAGE && (
-          <View style={styles.userMessageBlock}>
-            <View style={[
-              styles.userMessageCard,
-              (item.images?.length === 2 || item.images?.length === 4) && styles.userMessageCardWide
-            ]}>
-              {/* Render attached images */}
-              {item.images && item.images.length > 0 && (
-                <View style={[
-                  styles.messageImagesContainer,
-                  item.images.length === 2 && styles.messageImagesContainerDouble,
-                  item.images.length === 4 && styles.messageImagesContainerQuad
-                ]}>
-                  {item.images.map((image, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      onPress={() => {
-                        setSelectedImageUri(image.uri);
-                        setImageViewerVisible(true);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Image
-                        source={{ uri: image.uri }}
-                        style={[
-                          styles.messageImage,
-                          item.images.length === 2 && styles.messageImageDouble,
-                          item.images.length === 4 && styles.messageImageQuad
-                        ]}
-                        resizeMode="cover"
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onLongPress={() => handleCopy(item.content || '')}
+            delayLongPress={300}
+          >
+            <View style={styles.userMessageBlock}>
+              <View style={[
+                styles.userMessageCard,
+                (item.images?.length === 2 || item.images?.length === 4) && styles.userMessageCardWide
+              ]}>
+                {/* Render attached images */}
+                {item.images && item.images.length > 0 && (
+                  <View style={[
+                    styles.messageImagesContainer,
+                    item.images.length === 2 && styles.messageImagesContainerDouble,
+                    item.images.length === 4 && styles.messageImagesContainerQuad
+                  ]}>
+                    {item.images.map((image, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => {
+                          setSelectedImageUri(image.uri);
+                          setImageViewerVisible(true);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Image
+                          source={{ uri: image.uri }}
+                          style={[
+                            styles.messageImage,
+                            item.images.length === 2 && styles.messageImageDouble,
+                            item.images.length === 4 && styles.messageImageQuad
+                          ]}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
 
-              <Text style={styles.userMessage}>{item.content || ''}</Text>
+                <Text style={styles.userMessage}>{item.content || ''}</Text>
+              </View>
+              {copiedFeedback && (
+                <Text style={styles.copiedFeedback}>Copiato</Text>
+              )}
             </View>
-          </View>
+          </TouchableOpacity>
         )}
 
         {item.type === ItemType.OUTPUT && (
@@ -1204,25 +1293,39 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                         )}
                       </Animated.View>
                     ) : (
-                      <View>
-                        {/* Show thinking content in gray before the main response */}
-                        {item.thinkingContent && (
-                          <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
-                        )}
-                        <View style={{ overflow: 'hidden', flex: 1 }}>
-                          <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
-                        </View>
-                        {/* Cost indicator for AI responses */}
-                        {item.costEur !== undefined && item.costEur > 0 && (
-                          <View style={styles.costIndicator}>
-                            <Ionicons name="flash-outline" size={11} color="rgba(255, 255, 255, 0.35)" />
-                            <Text style={styles.costText}>
-                              €{item.costEur < 0.01 ? item.costEur.toFixed(4) : item.costEur.toFixed(3)}
-                              {item.tokensUsed && ` · ${((item.tokensUsed.input + item.tokensUsed.output) / 1000).toFixed(1)}k tok`}
-                            </Text>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onLongPress={() => handleCopy(item.content || '')}
+                        delayLongPress={300}
+                      >
+                        <View>
+                          {/* Show thinking content in gray before the main response */}
+                          {item.thinkingContent && (
+                            <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
+                          )}
+                          <View style={{ overflow: 'hidden', flex: 1 }}>
+                            <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
                           </View>
-                        )}
-                      </View>
+                          {/* Token usage indicator / copied feedback */}
+                          {copiedFeedback ? (
+                            <View style={styles.costIndicator}>
+                              <View style={[styles.tokenBadge, { backgroundColor: 'rgba(63, 185, 80, 0.1)' }]}>
+                                <Ionicons name="checkmark" size={10} color="#3FB950" />
+                                <Text style={[styles.costText, { color: '#3FB950' }]}>Copiato</Text>
+                              </View>
+                            </View>
+                          ) : item.tokensUsed ? (
+                            <View style={styles.costIndicator}>
+                              <View style={styles.tokenBadge}>
+                                <Ionicons name="sparkles-outline" size={10} color="rgba(255, 255, 255, 0.45)" />
+                                <Text style={styles.costText}>
+                                  {((item.tokensUsed.input + item.tokensUsed.output) / 1000).toFixed(1)}k tokens
+                                </Text>
+                              </View>
+                            </View>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
                     )}
                   </View>
                 )
@@ -1913,6 +2016,88 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   // Bash card styles (terminal command + output grouped)
+  // ─── Direct terminal card ───
+  termCard: {
+    backgroundColor: '#0C0C0C',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  termCardError: {
+    borderColor: 'rgba(248, 81, 73, 0.2)',
+  },
+  termHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#1A1A1A',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  termTrafficLights: {
+    flexDirection: 'row',
+    gap: 6,
+    marginRight: 10,
+  },
+  termDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  termHeaderTitle: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.4)',
+    fontFamily: Platform.OS === 'ios' ? 'SF Pro Text' : 'sans-serif',
+  },
+  termBody: {
+    padding: 14,
+  },
+  termPromptLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  termPromptChar: {
+    color: '#27C93F',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginRight: 8,
+    lineHeight: 20,
+  },
+  termCommandText: {
+    flex: 1,
+    color: '#E8E8E8',
+    fontSize: 13,
+    fontWeight: '500',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 20,
+  },
+  termOutputText: {
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    lineHeight: 18,
+    paddingLeft: 20,
+  },
+  termOutputError: {
+    color: '#F85149',
+  },
+  termShowMore: {
+    paddingTop: 8,
+    paddingLeft: 20,
+  },
+  termShowMoreText: {
+    color: 'rgba(255, 255, 255, 0.3)',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  // ─── Agent bash card ───
   bashCard: {
     backgroundColor: 'rgba(20, 20, 20, 0.95)',
     borderRadius: 12,
@@ -2174,17 +2359,30 @@ const styles = StyleSheet.create({
   // Cost indicator styles
   costIndicator: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    marginTop: 0,
+  },
+  tokenBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   costText: {
-    fontSize: 11,
+    fontSize: 10,
     color: 'rgba(255, 255, 255, 0.35)',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontWeight: '500',
+  },
+  copiedFeedback: {
+    fontSize: 10,
+    color: '#3FB950',
+    fontWeight: '500',
+    textAlign: 'right',
+    marginTop: 4,
   },
   // Legacy styles (kept for compatibility)
   thinkingContainer: {

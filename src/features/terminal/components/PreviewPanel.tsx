@@ -19,7 +19,7 @@ import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQ
 import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
 
 // Sub-components
-import { PreviewToolbar } from './PreviewToolbar';
+import { PreviewToolbar, ViewportMode } from './PreviewToolbar';
 import { PreviewWebView } from './PreviewWebView';
 import { PreviewAIChat } from './PreviewAIChat';
 import { PreviewPublishSheet } from './PreviewPublishSheet';
@@ -180,6 +180,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   };
 
   const [webViewReady, setWebViewReady] = useState(false);
+  const [viewportMode, setViewportMode] = useState<ViewportMode>('mobile');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [hasWebUI, setHasWebUI] = useState(true);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
@@ -1437,6 +1438,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onUrlChange={setCurrentPreviewUrl}
                   existingPublish={publish.existingPublish}
                   topInset={insets.top}
+                  viewportMode={viewportMode}
+                  onViewportChange={setViewportMode}
                 />
               </Animated.View>
             )}
@@ -1533,6 +1536,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onRetryPreview={handleRetryPreview}
                   onSendErrorReport={sendErrorToChat}
                   topInset={insets.top}
+                  viewportMode={viewportMode}
                   t={t}
                 />
               )}

@@ -617,6 +617,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
         try {
           const cloneAuthHeaders = await getAuthHeaders();
+          console.log('[Home] VM warmup request:', { projectId: project.id, userId, hasAuth: !!cloneAuthHeaders['Authorization'] });
           var response = await fetch(`${config.apiUrl}/fly/clone`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...cloneAuthHeaders },

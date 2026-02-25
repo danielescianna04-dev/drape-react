@@ -41,6 +41,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const [loading, setLoading] = useState(!cachedFiles);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [lastExpandedFolder, setLastExpandedFolder] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'name' | 'content'>('content');
   const [searchResults, setSearchResults] = useState<{ file: string; line: number; content: string }[]>([]);
@@ -286,8 +287,17 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
   const toggleFolder = (folder: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(folder)) newExpanded.delete(folder);
-    else newExpanded.add(folder);
+    if (newExpanded.has(folder)) {
+      newExpanded.delete(folder);
+      // Se chiudo la cartella attiva, torno al parent o null
+      if (lastExpandedFolder === folder) {
+        const parent = folder.includes('/') ? folder.substring(0, folder.lastIndexOf('/')) : null;
+        setLastExpandedFolder(newExpanded.has(parent || '') ? parent : null);
+      }
+    } else {
+      newExpanded.add(folder);
+      setLastExpandedFolder(folder);
+    }
     setExpandedFolders(newExpanded);
   };
 
@@ -307,9 +317,15 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     const name = newName.trim();
     if (!name || !creating) { setCreating(null); return; }
     const fullPath = creatingInFolder ? `${creatingInFolder}/${name}` : name;
+    const isFolder = creating === 'folder';
     try {
-      if (creating === 'folder') await workstationService.createFolder(projectId, fullPath);
+      if (isFolder) await workstationService.createFolder(projectId, fullPath);
       else await workstationService.saveFileContent(projectId, fullPath, '', repositoryUrl);
+      // Optimistic: immediately add file to local state so it appears instantly
+      setFiles(prev => {
+        const entry = isFolder ? `${fullPath}/.keep` : fullPath;
+        return prev.includes(entry) ? prev : [...prev, entry];
+      });
       useFileCacheStore.getState().clearCache(projectId);
     } catch (err: any) {
       Alert.alert('Errore', err.message || 'Creazione fallita');
@@ -328,6 +344,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
         onPress: async () => {
           try {
             await workstationService.deleteFile(projectId, filePath);
+            // Optimistic: rimuovi subito dal local state
+            setFiles(prev => prev.filter(f => f !== filePath && !f.startsWith(filePath + '/')));
             useFileCacheStore.getState().clearCache(projectId);
           } catch (err: any) { Alert.alert('Errore', err.message || 'Eliminazione fallita'); }
         }
@@ -342,6 +360,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
     if (newPath === renamingFile) { setRenamingFile(null); setRenameValue(''); return; }
     try {
       await workstationService.moveFile(projectId, renamingFile, newPath);
+      // Optimistic: aggiorna path subito nel local state
+      setFiles(prev => prev.map(f => f === renamingFile ? newPath : f.startsWith(renamingFile + '/') ? f.replace(renamingFile, newPath) : f));
       useFileCacheStore.getState().clearCache(projectId);
     } catch (err: any) { Alert.alert('Errore', err.message || 'Rinomina fallita'); }
     finally { setRenamingFile(null); setRenameValue(''); Keyboard.dismiss(); }
@@ -994,12 +1014,12 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
             </View>
           )}
 
-          <TouchableOpacity style={styles.createBtn} onPress={() => startCreate('file')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+          <TouchableOpacity style={styles.createBtn} onPress={() => startCreate('file', lastExpandedFolder || undefined)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
             <Ionicons name="document-outline" size={15} color={AppColors.white.w60} />
             <Ionicons name="add" size={10} color={AppColors.white.w60} style={styles.createBtnPlus} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.createBtn} onPress={() => startCreate('folder')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+          <TouchableOpacity style={styles.createBtn} onPress={() => startCreate('folder', lastExpandedFolder || undefined)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
             <Ionicons name="folder-outline" size={15} color={AppColors.white.w60} />
             <Ionicons name="add" size={10} color={AppColors.white.w60} style={styles.createBtnPlus} />
           </TouchableOpacity>

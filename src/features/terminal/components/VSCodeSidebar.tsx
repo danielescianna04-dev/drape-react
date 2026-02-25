@@ -487,7 +487,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
         {/* Global Panels Container - ensures all menus are above the blur */}
         <Animated.View style={[styles.panelsContainer, panelAnimatedStyle]} pointerEvents="box-none">
-          {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} />}
+          {renderedPanel === 'files' && <Sidebar onClose={handleClosePanel} onOpenAllProjects={onOpenAllProjects} onHidePreview={() => setShowPreviewPanel(false)} />}
           {renderedPanel === 'chat' && <ChatPanel onClose={handleClosePanel} onHidePreview={() => setShowPreviewPanel(false)} />}
           {renderedPanel === 'settings' && <SettingsPanel onClose={handleClosePanel} />}
           {renderedPanel === 'git' && <GitPanel onClose={handleClosePanel} />}
@@ -497,7 +497,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
         {activePanel !== 'multitasking' && (
           <Animated.View style={{ flex: 1 }} entering={FadeInDown.delay(300).duration(800)}>
-            <ContentRenderer children={children} animatedStyle={{}} onPinchOut={() => togglePanel('multitasking')} swipeEnabled={false} />
+            <ContentRenderer children={children} animatedStyle={{}} swipeEnabled={false} />
           </Animated.View>
         )}
 
