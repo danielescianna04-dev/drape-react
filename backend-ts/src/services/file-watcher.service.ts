@@ -43,8 +43,20 @@ class FileWatcherService {
       this.broadcast(projectId, { type: 'file_created', path: rel, projectId, timestamp: Date.now() });
     });
 
+    watcher.on('addDir', (filePath) => {
+      const rel = path.relative(projectDir, filePath);
+      if (!rel) return; // ignore root dir itself
+      this.broadcast(projectId, { type: 'file_created', path: rel, projectId, timestamp: Date.now() });
+    });
+
     watcher.on('unlink', (filePath) => {
       const rel = path.relative(projectDir, filePath);
+      this.broadcast(projectId, { type: 'file_deleted', path: rel, projectId, timestamp: Date.now() });
+    });
+
+    watcher.on('unlinkDir', (filePath) => {
+      const rel = path.relative(projectDir, filePath);
+      if (!rel) return;
       this.broadcast(projectId, { type: 'file_deleted', path: rel, projectId, timestamp: Date.now() });
     });
 

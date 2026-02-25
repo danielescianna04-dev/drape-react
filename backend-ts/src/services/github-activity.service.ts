@@ -27,13 +27,13 @@ class GitHubActivityService {
   /**
    * Start the GitHub activity monitor
    */
-  start(intervalMs = 300000): void {
+  start(intervalMs = 1800000): void {
     if (this.checkInterval) {
       log.warn('[GitHub] Activity monitor already running');
       return;
     }
 
-    // Check every 5 minutes by default
+    // Check every 30 minutes by default
     this.checkInterval = setInterval(() => {
       this.checkAndNotify().catch(e => {
         log.error('[GitHub] Check failed:', e.message);

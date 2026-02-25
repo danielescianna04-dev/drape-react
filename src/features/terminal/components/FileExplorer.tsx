@@ -145,7 +145,8 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
       const isCacheValid = useFileCacheStore.getState().isCacheValid(projectId);
 
-      if (cachedFiles && !forceRefresh) {
+      if (cachedFiles && cachedFiles.length > 0 && !forceRefresh) {
+        // Only show stale cache if it has actual files; empty cache shows spinner
         if (!isMountedRef || isMountedRef.current) { setFiles(cachedFiles); setLoading(false); }
         if (isCacheValid) return;
       } else {
@@ -180,7 +181,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
           setError(t('terminal:fileExplorer.privateRepoAuth'));
         } else {
           const cachedFiles = useFileCacheStore.getState().getFilesIgnoringExpiry(projectId);
-          if (!cachedFiles && retryCount < 3) {
+          if ((!cachedFiles || cachedFiles.length === 0) && retryCount < 3) {
             setTimeout(() => loadFiles(false, retryCount + 1, isMountedRef), 2000);
             return;
           }

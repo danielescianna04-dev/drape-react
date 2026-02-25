@@ -1,7 +1,36 @@
 import axios from 'axios';
+import { Alert } from 'react-native';
 import { auth } from '../../config/firebase';
 
 const apiClient = axios.create();
+
+// Prevent showing multiple concurrent re-login alerts
+let authAlertShown = false;
+
+function showReloginAlert(): void {
+  if (authAlertShown) return;
+  authAlertShown = true;
+
+  import('../auth/authStore').then(({ useAuthStore }) => {
+    const { user, logout } = useAuthStore.getState();
+    if (!user) {
+      authAlertShown = false;
+      return;
+    }
+    Alert.alert(
+      'Sessione scaduta',
+      'La tua sessione non è più valida. Effettua di nuovo il login.',
+      [{
+        text: 'Accedi',
+        onPress: () => {
+          authAlertShown = false;
+          logout();
+        },
+      }],
+      { onDismiss: () => { authAlertShown = false; } }
+    );
+  }).catch(() => { authAlertShown = false; });
+}
 
 apiClient.interceptors.request.use(async (config) => {
   try {
@@ -38,6 +67,10 @@ apiClient.interceptors.response.use(
           console.warn('[API] Token refresh failed:', refreshError);
         }
         console.warn('[API] Unauthorized - token may be expired');
+      } else if (status === 401 && error.config._tokenRetried) {
+        // Retry with fresh token also failed → session is truly invalid
+        console.warn('[API] Persistent auth failure — prompting re-login');
+        showReloginAlert();
       } else if (status === 429) {
         console.warn('[API] Rate limited - too many requests');
       } else if (status >= 500) {

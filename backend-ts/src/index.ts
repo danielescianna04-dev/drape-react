@@ -54,8 +54,8 @@ async function main() {
           const decoded = await auth.verifyIdToken(token);
           userId = decoded.uid;
         }
-      } catch (err) {
-        log.warn('[WS] Invalid auth token');
+      } catch (err: any) {
+        log.warn(`[WS] Invalid auth token: ${err?.message || err?.code || err}`);
         ws.close(4001, 'Invalid auth token');
         return;
       }

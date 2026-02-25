@@ -39,7 +39,7 @@ function setCachedToken(token: string, userId: string): void {
 }
 
 // ── Ownership verification cache ──
-const OWNERSHIP_CACHE_TTL = 60 * 1000; // 60 seconds
+const OWNERSHIP_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 const ownershipCache = new Map<string, { result: boolean; expiresAt: number }>();
 
 function getCachedOwnership(userId: string, projectId: string): boolean | null {
@@ -153,17 +153,25 @@ export async function optionalAuth(
   next();
 }
 
+// ── User plan cache ──
+const USER_PLAN_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+const userPlanCache = new Map<string, { plan: string; expiresAt: number }>();
+
 /**
  * getUserPlan — Fetches the user's subscription plan from Firestore.
  * Returns 'free' if the user document doesn't exist or on error.
  */
 export async function getUserPlan(userId: string): Promise<string> {
+  const cached = userPlanCache.get(userId);
+  if (cached && Date.now() < cached.expiresAt) return cached.plan;
   try {
     const db = firebaseService.getFirestore();
     if (!db) return 'free';
     const doc = await db.collection('users').doc(userId).get();
-    const plan = doc.data()?.plan || 'free';
-    return plan === 'starter' ? 'free' : plan;
+    const raw = doc.data()?.plan || 'free';
+    const plan = raw === 'starter' ? 'free' : raw;
+    userPlanCache.set(userId, { plan, expiresAt: Date.now() + USER_PLAN_CACHE_TTL });
+    return plan;
   } catch {
     return 'free';
   }
@@ -285,11 +293,17 @@ export async function incrementCreationCounter(userId: string, type: 'created' |
   }
 }
 
+// ── User storage cache ──
+const USER_STORAGE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const userStorageCache = new Map<string, { mb: number; expiresAt: number }>();
+
 /**
  * getUserStorageMb — Calculates total disk usage (MB) for all the user's projects.
  * Uses `du -sm` on each project directory for fast calculation.
  */
 export async function getUserStorageMb(userId: string): Promise<number> {
+  const cached = userStorageCache.get(userId);
+  if (cached && Date.now() < cached.expiresAt) return cached.mb;
   try {
     const db = firebaseService.getFirestore();
     if (!db) return 0;
@@ -307,7 +321,10 @@ export async function getUserStorageMb(userId: string): Promise<number> {
       if (!projectIds.includes(doc.id)) projectIds.push(doc.id);
     }
 
-    if (projectIds.length === 0) return 0;
+    if (projectIds.length === 0) {
+      userStorageCache.set(userId, { mb: 0, expiresAt: Date.now() + USER_STORAGE_CACHE_TTL });
+      return 0;
+    }
 
     // Calculate total disk usage
     let totalMb = 0;
@@ -321,6 +338,7 @@ export async function getUserStorageMb(userId: string): Promise<number> {
       }
     }
 
+    userStorageCache.set(userId, { mb: totalMb, expiresAt: Date.now() + USER_STORAGE_CACHE_TTL });
     return totalMb;
   } catch (err: any) {
     log.warn(`[Auth] getUserStorageMb error for ${userId}: ${err.message}`);

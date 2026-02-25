@@ -211,6 +211,7 @@ flyRouter.get('/project/:id/files', asyncHandler(async (req, res) => {
   }
 
   const files = await workspaceService.listFiles(projectId);
+  log.info(`[Files] Listed ${files.length} files for project ${projectId} (user ${uid})`);
   res.json({ success: true, files, count: files.length, timestamp: new Date().toISOString() });
 }));
 
