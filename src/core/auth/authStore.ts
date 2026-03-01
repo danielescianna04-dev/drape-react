@@ -170,6 +170,7 @@ interface AuthState {
   logout: () => Promise<void>;
   deleteAccount: (password?: string) => Promise<void>;
   resendVerificationEmail: (email: string, password: string) => Promise<void>;
+  checkEmailVerified: (email: string, password: string) => Promise<boolean>;
   resetPassword: (email: string) => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   clearError: () => void;
@@ -208,8 +209,9 @@ const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
   }
 };
 
-// Flag to prevent onAuthStateChanged from processing during signUp
+// Flags to prevent onAuthStateChanged from processing during signUp / verification check
 let isSigningUp = false;
+let isCheckingVerification = false;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -222,8 +224,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: () => {
 
     onAuthStateChanged(auth, async (firebaseUser) => {
-      // Skip processing during signUp flow to avoid race condition
-      if (isSigningUp) return;
+      // Skip processing during signUp / verification-check flow to avoid race condition
+      if (isSigningUp || isCheckingVerification) return;
 
       const newUserId = firebaseUser?.uid || null;
       const userChanged = previousUserId !== null && previousUserId !== newUserId;
@@ -650,6 +652,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const errorMessage = i18n.t('auth:errors.errorSendingVerificationEmail');
       set({ isLoading: false, error: errorMessage });
       throw new Error(errorMessage);
+    }
+  },
+
+  checkEmailVerified: async (email: string, password: string): Promise<boolean> => {
+    isCheckingVerification = true;
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const verified = userCredential.user.emailVerified;
+      await signOut(auth);
+      return verified;
+    } catch {
+      return false;
+    } finally {
+      isCheckingVerification = false;
     }
   },
 

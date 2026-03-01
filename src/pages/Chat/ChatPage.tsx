@@ -28,6 +28,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
+import { useToastStore } from '../../core/toast/toastStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { config } from '../../config/config';
 import { getAuthToken, getAuthHeaders } from '../../core/api/getAuthToken';
@@ -61,6 +62,8 @@ import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQues
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
+import { useOnboardingStore, ONBOARDING_STEPS } from '../../core/onboarding/onboardingStore';
+import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
 import Svg, { Circle } from 'react-native-svg';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
@@ -116,6 +119,35 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const scrollViewRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX, hideSidebar, showSidebar, setForceHideToggle } = useSidebarOffset();
+
+  // ── Onboarding spotlight for chat-screen steps ──
+  const chatInputContainerRef = useRef<View>(null);
+  const { isActive: onboardingActive, currentStep: onboardingStep, setTargetRect } = useOnboardingStore();
+
+  useEffect(() => {
+    if (!onboardingActive) return;
+    const step = ONBOARDING_STEPS[onboardingStep];
+    if (!step || step.screen !== 'chat') return;
+
+    const timer = setTimeout(() => {
+      if (step.id === 'talkToAI' && chatInputContainerRef.current) {
+        chatInputContainerRef.current.measureInWindow((x, y, w, h) => {
+          if (w > 0 && h > 0) setTargetRect({ x, y, width: w, height: h });
+        });
+      } else {
+        // For preview and files steps, use approximate positions
+        // These appear in the sidebar area (left side, below header)
+        const screenW = Dimensions.get('window').width;
+        if (step.id === 'livePreview') {
+          setTargetRect({ x: 0, y: 200, width: 44, height: 44 });
+        } else if (step.id === 'exploreFiles') {
+          setTargetRect({ x: 0, y: 260, width: 44, height: 44 });
+        }
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [onboardingActive, onboardingStep]);
 
   // ── Auto-scroll tracking ────────────────────────────────────────
   const contentHeightRef = useRef(0);
@@ -321,6 +353,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       'execute_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
       'web_search': (i) => { const q = i?.query; return q ? `Web search\n└─ "${q}"...` : `Web search\n└─ Searching...`; },
       'web_fetch': () => `Fetch URL\n└─ Loading...`,
+      'multi_edit_file': (i) => { const f = getFileName(i); const n = i?.edits?.length || '?'; return f ? `Multi-edit ${f}\n└─ ${n} edits...` : `Multi-edit file\n└─ ${n} edits...`; },
+      'patch_file': (i) => { const f = getFileName(i); return f ? `Patch ${f}\n└─ Applying diff...` : `Patch file\n└─ Applying diff...`; },
+      'load_skill': (i) => { const n = i?.name; return n ? `Load skill: ${n}\n└─ Loading...` : `List skills\n└─ Discovering...`; },
+      'tool_search': (i) => { const q = i?.query; return q ? `Tool search\n└─ "${q}"...` : `Tool search\n└─ Searching...`; },
+      'command_output': (i) => { const id = i?.command_id || '?'; return `Check command\n└─ ${id}`; },
+      'memory_read': () => `Read memory\n└─ Loading project memory...`,
+      'memory_write': () => `Save memory\n└─ Updating project memory...`,
+      'dispatch_agent': (i) => { const t = i?.type || 'agent'; const p = i?.prompt?.substring(0, 60) || 'Processing...'; return `Agent: ${t}\n└─ ${p}`; },
       'ask_user_question': (i) => {
         const questions = i?.questions;
         if (Array.isArray(questions) && questions.length > 0) {
@@ -438,6 +478,44 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           `\n\n... (${cmdResultLines.length - MAX_OUTPUT_LINES} more lines - expand to see all)`;
       }
       return `Execute: ${cmd}\n└─ Command completed\n\n${truncatedResult}`;
+    }
+    if (tool === 'multi_edit_file') {
+      const f = getFileName(input);
+      const editCount = input?.edits?.length || '?';
+      if (hasError) return `Multi-edit ${f || 'file'}\n└─ Error: ${errorMessage}`;
+      return `Multi-edit ${f || 'file'}\n└─ ${editCount} edits applied\n\n${result}`;
+    }
+    if (tool === 'dispatch_agent') {
+      const agentType = input?.type || 'agent';
+      const description = input?.prompt?.substring(0, 80) || 'Task';
+      if (hasError) return `Agent: ${agentType}\n└─ Error: ${errorMessage}\n\n${description}`;
+      return `Agent: ${agentType}\n└─ Completed\n\n${description}${result ? `\n\n${result.substring(0, 1000)}` : ''}`;
+    }
+    if (tool === 'patch_file') {
+      const f = getFileName(input);
+      if (hasError) return `Patch ${f || 'file'}\n└─ Error: ${errorMessage}`;
+      return `Patch ${f || 'file'}\n└─ Applied\n\n${result}`;
+    }
+    if (tool === 'load_skill') {
+      const skillName = input?.name || 'skills';
+      if (hasError) return `Skill ${skillName}\n└─ ${errorMessage}`;
+      return `Skill: ${skillName}\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    }
+    if (tool === 'tool_search') {
+      return `Tool search\n└─ ${result.substring(0, 1000)}`;
+    }
+    if (tool === 'command_output') {
+      const cmdId = input?.command_id || '?';
+      if (hasError) return `Check command ${cmdId}\n└─ Error: ${errorMessage}`;
+      return `Check command ${cmdId}\n└─ ${result.includes('still running') ? 'Still running...' : 'Completed'}\n\n${result.substring(0, 2000)}`;
+    }
+    if (tool === 'memory_read') {
+      if (!result || result.includes('No memory saved')) return `Read memory\n└─ No memory saved yet`;
+      return `Read memory\n└─ Loaded\n\n${result.substring(0, 1500)}${result.length > 1500 ? '...' : ''}`;
+    }
+    if (tool === 'memory_write') {
+      if (hasError) return `Save memory\n└─ Error: ${errorMessage}`;
+      return `Save memory\n└─ Updated`;
     }
     if (tool === 'web_fetch') {
       const url = input?.url || 'URL';
@@ -1298,12 +1376,23 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     );
     const heightDiff = Math.max(0, widgetHeight.value - 90);
 
+    // iPad: centra la input bar nell'area di contenuto
+    const MAX_INPUT_WIDTH = 720;
+    const isIPad = SCREEN_WIDTH >= 768;
+    const computedLeft = isIPad
+      ? sidebarLeft + (SCREEN_WIDTH - sidebarLeft - MAX_INPUT_WIDTH) / 2
+      : sidebarLeft;
+    const computedRight = isIPad
+      ? SCREEN_WIDTH - computedLeft - MAX_INPUT_WIDTH
+      : 0;
+
     // Se la tastiera è aperta, calcola top dalla posizione della tastiera
     if (keyboardHeight.value > 0) {
       const topFromKeyboard = SCREEN_HEIGHT - keyboardHeight.value - widgetHeight.value - 12;
       return {
         top: topFromKeyboard,
-        left: sidebarLeft,
+        left: computedLeft,
+        right: computedRight,
         transform: []
       };
     }
@@ -1313,7 +1402,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     return {
       top: 410,
-      left: sidebarLeft,
+      left: computedLeft,
+      right: computedRight,
       transform: [{ translateY }]
     };
   });
@@ -1500,6 +1590,14 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         )
       }));
     }
+
+    // Show toast feedback
+    useToastStore.getState().showToast({
+      message: t('common:agentStopped'),
+      icon: 'stop-circle',
+      type: 'info',
+      duration: 2000,
+    });
   }, [stopAgent, currentTab?.id]);
 
   const buildAgentConversationHistory = useCallback(() => {
@@ -2886,10 +2984,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     </View>
                   )}
 
-                  {/* Show SubAgentStatus if a sub-agent is running */}
-                  {currentSubAgent && (
-                    <SubAgentStatus subAgent={currentSubAgent} />
-                  )}
+                  {/* Sub-agent progress removed — AGENT badge in chat handles it */}
                 </>
               ) : null}
             />
@@ -2949,7 +3044,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             <Animated.View style={[
               styles.inputWrapper,
               isCardMode && styles.inputWrapperCardMode,
-              inputWrapperAnimatedStyle
+              inputWrapperAnimatedStyle,
             ]}>
               {/* Compact Image Preview Bar - above input */}
               {selectedInputImages.length > 0 && (
@@ -3107,7 +3202,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 )}
 
                 {/* Main Input Row */}
-                <View style={styles.mainInputRow}>
+                <View ref={chatInputContainerRef} collapsable={false} style={styles.mainInputRow}>
                   <TouchableOpacity
                     style={styles.toolsButton}
                     onPress={toggleToolsSheet}
@@ -3421,6 +3516,8 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         </BlurView>
       </Animated.View>
 
+      {/* Spotlight Onboarding */}
+      <SpotlightOverlay />
     </Animated.View >
   );
 };

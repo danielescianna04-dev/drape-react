@@ -4,10 +4,12 @@ import {
   ChatSession,
   ChatFolder,
 } from '../../shared/types';
+import { AppColors } from '../../shared/theme/colors';
 
 // AsyncStorage keys
 const STORAGE_KEYS = {
   CHAT_HISTORY: '@drape_chat_history',
+  CHAT_FOLDERS: '@drape_chat_folders',
 };
 
 // Helper functions for AsyncStorage
@@ -34,7 +36,32 @@ const saveChatsToStorage = async (chats: ChatSession[]) => {
   try {
     await AsyncStorage.setItem(STORAGE_KEYS.CHAT_HISTORY, JSON.stringify(chats));
   } catch (error) {
-    console.error('❌ Error saving chats to storage:', error);
+    console.error('Error saving chats to storage:', error);
+  }
+};
+
+const loadFoldersFromStorage = async (): Promise<ChatFolder[]> => {
+  try {
+    const stored = await AsyncStorage.getItem(STORAGE_KEYS.CHAT_FOLDERS);
+    if (stored) {
+      const folders = JSON.parse(stored);
+      return folders.map((f: any) => ({
+        ...f,
+        createdAt: new Date(f.createdAt),
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error('Error loading folders from storage:', error);
+    return [];
+  }
+};
+
+const saveFoldersToStorage = async (folders: ChatFolder[]) => {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.CHAT_FOLDERS, JSON.stringify(folders));
+  } catch (error) {
+    console.error('Error saving folders to storage:', error);
   }
 };
 
@@ -56,9 +83,18 @@ export interface ChatState {
   deleteChat: (chatId: string) => void;
   updateChatLastUsed: (chatId: string) => void;
   loadChats: () => Promise<void>;
+
+  // Folder actions
+  loadFolders: () => Promise<void>;
+  addFolder: (name: string) => void;
+  updateFolder: (folderId: string, updates: Partial<ChatFolder>) => void;
+  deleteFolder: (folderId: string) => void;
+  pinChat: (chatId: string) => void;
+  unpinChat: (chatId: string) => void;
+  moveChatToFolder: (chatId: string, folderId: string | undefined) => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
     // Initial state
     chatHistory: [],
     chatFolders: [],
@@ -121,4 +157,72 @@ export const useChatStore = create<ChatState>((set) => ({
       const chats = await loadChatsFromStorage();
       set({ chatHistory: chats });
     },
+
+    // Folder actions
+    loadFolders: async () => {
+      const folders = await loadFoldersFromStorage();
+      set({ chatFolders: folders });
+    },
+
+    addFolder: (name) =>
+      set((state) => {
+        const newFolder: ChatFolder = {
+          id: Date.now().toString(),
+          name,
+          icon: 'folder',
+          color: AppColors.primary,
+          createdAt: new Date(),
+        };
+        const newFolders = [...state.chatFolders, newFolder];
+        saveFoldersToStorage(newFolders);
+        return { chatFolders: newFolders };
+      }),
+
+    updateFolder: (folderId, updates) =>
+      set((state) => {
+        const newFolders = state.chatFolders.map((f) =>
+          f.id === folderId ? { ...f, ...updates } : f
+        );
+        saveFoldersToStorage(newFolders);
+        return { chatFolders: newFolders };
+      }),
+
+    deleteFolder: (folderId) =>
+      set((state) => {
+        const newFolders = state.chatFolders.filter((f) => f.id !== folderId);
+        saveFoldersToStorage(newFolders);
+        // Reset folderId for all chats in this folder
+        const newHistory = state.chatHistory.map((chat) =>
+          chat.folderId === folderId ? { ...chat, folderId: undefined } : chat
+        );
+        saveChatsToStorage(newHistory);
+        return { chatFolders: newFolders, chatHistory: newHistory };
+      }),
+
+    pinChat: (chatId) =>
+      set((state) => {
+        const newHistory = state.chatHistory.map((chat) =>
+          chat.id === chatId ? { ...chat, pinned: true } : chat
+        );
+        saveChatsToStorage(newHistory);
+        return { chatHistory: newHistory };
+      }),
+
+    unpinChat: (chatId) =>
+      set((state) => {
+        const newHistory = state.chatHistory.map((chat) =>
+          chat.id === chatId ? { ...chat, pinned: false } : chat
+        );
+        saveChatsToStorage(newHistory);
+        return { chatHistory: newHistory };
+      }),
+
+    moveChatToFolder: (chatId, folderId) =>
+      set((state) => {
+        const newHistory = state.chatHistory.map((chat) =>
+          chat.id === chatId ? { ...chat, folderId } : chat
+        );
+        saveChatsToStorage(newHistory);
+        return { chatHistory: newHistory };
+      }),
 }));

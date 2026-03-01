@@ -82,6 +82,8 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   const [commitMessage, setCommitMessage] = useState('');
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showCommitModal, setShowCommitModal] = useState(false);
+  const [showCreateBranch, setShowCreateBranch] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
 
   const shimmerAnim = useRef(new RNAnimated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -516,6 +518,94 @@ export const GitSheet = ({ visible, onClose }: Props) => {
     }
   };
 
+  const handleCheckoutBranch = async (branchName: string) => {
+    if (!currentWorkstation?.id) return;
+
+    setActionLoading('checkout');
+    try {
+      const authHeaders = await getAuthHeaders();
+      const token = linkedAccount ? await gitAccountService.getToken(linkedAccount, userId) : '';
+
+      // 1. Auto-stash local changes
+      await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+        body: JSON.stringify({ action: 'push', message: `Auto-stash before checkout ${branchName}` }),
+      });
+
+      // 2. Checkout branch
+      const response = await fetch(`${config.apiUrl}/git/checkout/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+        body: JSON.stringify({ branch: branchName }),
+      });
+
+      if (response.ok) {
+        // 3. Try to restore stash
+        const popResponse = await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+          body: JSON.stringify({ action: 'pop' }),
+        });
+
+        if (popResponse.ok) {
+          Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
+        } else {
+          Alert.alert(t('common:success'), t('terminal:git.branchSwitched'));
+        }
+
+        // Invalidate cache and reload
+        useGitCacheStore.getState().clearCache(currentWorkstation.id);
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        // Restore stash if checkout failed
+        await fetch(`${config.apiUrl}/git/stash/${currentWorkstation.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders, 'X-Git-Token': token || '' },
+          body: JSON.stringify({ action: 'pop' }),
+        });
+        const error = await response.json();
+        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action: 'checkout' }));
+      }
+    } catch (error) {
+      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: 'checkout' }));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCreateBranch = async () => {
+    const name = newBranchName.trim();
+    if (!name || !currentWorkstation?.id) return;
+
+    setActionLoading('createBranch');
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/checkout/${currentWorkstation.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ branch: name, create: true }),
+      });
+
+      if (response.ok) {
+        Alert.alert(t('common:success'), t('terminal:git.branchCreated'));
+        setNewBranchName('');
+        setShowCreateBranch(false);
+        useGitCacheStore.getState().clearCache(currentWorkstation.id);
+        isLoadingRef.current = false;
+        await loadGitData();
+      } else {
+        const error = await response.json();
+        Alert.alert(t('common:error'), error.message || t('terminal:git.actionError', { action: 'create branch' }));
+      }
+    } catch (error) {
+      Alert.alert(t('common:error'), t('terminal:git.unableToExecute', { action: 'create branch' }));
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Get all changed files for selection
   const allChangedFiles = gitStatus ? [
     ...(gitStatus.modified || []).map(f => ({ file: f, type: 'modified' })),
@@ -845,7 +935,15 @@ export const GitSheet = ({ visible, onClose }: Props) => {
             ) : activeSection === 'branches' ? (
               <View style={styles.branchesList}>
                 {branches.map((branch) => (
-                  <TouchableOpacity key={branch.name} style={styles.branchItem} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    key={branch.name}
+                    style={styles.branchItem}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      if (!branch.isCurrent) handleCheckoutBranch(branch.name);
+                    }}
+                    disabled={branch.isCurrent || !!actionLoading}
+                  >
                     <View style={styles.branchItemLeft}>
                       <Ionicons
                         name={branch.isCurrent ? 'git-branch' : 'git-branch-outline'}
@@ -856,13 +954,63 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         {branch.name}
                       </Text>
                     </View>
-                    {branch.isCurrent && (
+                    {branch.isCurrent ? (
                       <View style={styles.currentBadge}>
                         <Text style={styles.currentBadgeText}>{t('terminal:git.current')}</Text>
                       </View>
+                    ) : actionLoading === 'checkout' ? (
+                      <ActivityIndicator size="small" color={AppColors.primary} />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.2)" />
                     )}
                   </TouchableOpacity>
                 ))}
+
+                {/* Create Branch */}
+                {showCreateBranch ? (
+                  <View style={styles.createBranchContainer}>
+                    <TextInput
+                      style={styles.createBranchInput}
+                      value={newBranchName}
+                      onChangeText={setNewBranchName}
+                      placeholder={t('terminal:git.newBranchName')}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoFocus
+                      keyboardAppearance="dark"
+                      returnKeyType="done"
+                      onSubmitEditing={handleCreateBranch}
+                    />
+                    <View style={styles.createBranchActions}>
+                      <TouchableOpacity
+                        onPress={() => { setShowCreateBranch(false); setNewBranchName(''); }}
+                        style={styles.createBranchCancelBtn}
+                      >
+                        <Text style={styles.createBranchCancelText}>{t('common:cancel')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleCreateBranch}
+                        disabled={!newBranchName.trim() || actionLoading === 'createBranch'}
+                        style={[styles.createBranchConfirmBtn, !newBranchName.trim() && { opacity: 0.4 }]}
+                      >
+                        {actionLoading === 'createBranch' ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.createBranchConfirmText}>{t('terminal:git.createBranch')}</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.addBranchBtn}
+                    onPress={() => setShowCreateBranch(true)}
+                  >
+                    <Ionicons name="add-circle-outline" size={16} color={AppColors.primary} />
+                    <Text style={styles.addBranchText}>{t('terminal:git.createBranch')}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               <View style={styles.changesContainer}>
@@ -1500,6 +1648,59 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '600',
     color: AppColors.primary,
+  },
+  addBranchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    marginTop: 4,
+  },
+  addBranchText: {
+    fontSize: 13,
+    color: AppColors.primary,
+    fontWeight: '500',
+  },
+  createBranchContainer: {
+    marginTop: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 10,
+    padding: 12,
+    gap: 10,
+  },
+  createBranchInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: '#fff',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  createBranchActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  createBranchCancelBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  createBranchCancelText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  createBranchConfirmBtn: {
+    backgroundColor: AppColors.primary,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  createBranchConfirmText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
   },
   changesContainer: {
     paddingTop: 4,

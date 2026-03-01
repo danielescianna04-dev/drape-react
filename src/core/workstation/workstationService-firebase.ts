@@ -177,7 +177,7 @@ export const workstationService = {
   },
 
   // Crea workstation per progetto
-  async createWorkstationForProject(project: UserProject, token?: string): Promise<{ workstationId: string; status: string; files?: string[] }> {
+  async createWorkstationForProject(project: UserProject, token?: string, branch?: string): Promise<{ workstationId: string; status: string; files?: string[] }> {
     try {
       let result;
 
@@ -194,6 +194,7 @@ export const workstationService = {
           repositoryUrl: project.repositoryUrl,
           githubToken: token, // Also pass in body for cloneRepository
           ...(project.source ? { source: project.source } : {}),
+          ...(branch ? { branch } : {}),
         }, { headers, timeout: 30000 });
 
         return {
@@ -543,8 +544,7 @@ export const workstationService = {
   // Aggiorna workstation (nome, ecc.)
   async updateWorkstation(workstationId: string, updates: Partial<{ name: string }>): Promise<void> {
     try {
-      const cleanId = workstationId.startsWith('ws-') ? workstationId.substring(3) : workstationId;
-      await updateDoc(doc(db, COLLECTION, cleanId), updates);
+      await updateDoc(doc(db, COLLECTION, workstationId), updates);
     } catch (error) {
       console.error('Error updating workstation:', error);
       throw error;

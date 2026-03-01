@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/async-handler';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, invalidateUserPlanCache } from '../middleware/auth';
 import { config } from '../config';
 import { appleIAPService } from '../services/apple-iap.service';
 import { firebaseService } from '../services/firebase.service';
@@ -28,6 +28,7 @@ iapRouter.post('/verify-receipt', requireAuth, asyncHandler(async (req, res) => 
     const status = await appleIAPService.verifyAndGetStatus(transactionId);
 
     log.info(`[IAP] Verified for user ${userId}: plan=${status.plan}, active=${status.isActive}, expires=${status.expiresAt}`);
+    invalidateUserPlanCache(userId);
 
     const db = firebaseService.getFirestore();
     if (db) {
@@ -186,6 +187,7 @@ iapRouter.post('/apple-webhook', asyncHandler(async (req, res) => {
       },
     }, { merge: true });
 
+    invalidateUserPlanCache(userId);
     log.info(`[IAP Webhook] Updated user ${userId}: plan=${newPlan}, active=${isActive}`);
 
     res.sendStatus(200);

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -9,10 +9,8 @@ import { useChatStore } from '../../../core/terminal/chatStore';
 import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { useAuthStore } from '../../../core/auth/authStore';
-import { useNavigationStore } from '../../../core/navigation/navigationStore';
-import { EmptyState } from '../../../shared/components/organisms';
-import { IconButton } from '../../../shared/components/atoms';
-import { LinearGradient } from 'expo-linear-gradient';
+import { ChatSession } from '../../../shared/types';
+import { FolderPickerModal } from './FolderPickerModal';
 
 interface Props {
   onClose: () => void;
@@ -25,53 +23,81 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
-  const { chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat, loadChats } = useChatStore();
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [folderPickerChat, setFolderPickerChat] = useState<ChatSession | null>(null);
+  const {
+    chatHistory, chatFolders, setCurrentChat, updateChat, deleteChat,
+    loadChats, loadFolders, pinChat, unpinChat, moveChatToFolder, deleteFolder,
+  } = useChatStore();
   const { currentWorkstation } = useWorkstationStore();
   const { addTab, tabs, removeTab, updateTab, setActiveTab } = useTabStore();
   const { user } = useAuthStore();
 
-  const isGoUser = user?.plan === 'go';
-
-  // Load chats from AsyncStorage on mount
+  // Load chats and folders from AsyncStorage on mount
   useEffect(() => {
     loadChats();
+    loadFolders();
   }, []);
 
   // Filter chats by current workspace and search query
-  const filteredChats = chatHistory.filter((chat) => {
-    const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
-    // Strict filtering: only show chats that belong to current project
-    // If no workspace is open, don't show any project-specific chats
-    if (!currentWorkstation) {
-      return matchesSearch && !chat.repositoryId; // Only show orphan chats
+  const filteredChats = useMemo(() => {
+    return chatHistory.filter((chat) => {
+      const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase());
+      if (!currentWorkstation) {
+        return matchesSearch && !chat.repositoryId;
+      }
+      const matchesWorkspace =
+        chat.repositoryId === currentWorkstation.id ||
+        chat.repositoryId === currentWorkstation.projectId;
+      return matchesSearch && matchesWorkspace;
+    });
+  }, [chatHistory, searchQuery, currentWorkstation]);
+
+  // Build sections: Pinned → Folders → Recent (uncategorized)
+  const sections = useMemo(() => {
+    const result: { key: string; title: string; icon?: string; folderId?: string; data: ChatSession[] }[] = [];
+
+    // 1. Pinned
+    const pinned = filteredChats.filter((c) => c.pinned);
+    if (pinned.length > 0) {
+      result.push({ key: 'pinned', title: t('chat.pinned'), icon: 'pin', data: pinned });
     }
-    // Check if chat belongs to this project
-    const matchesWorkspace =
-      chat.repositoryId === currentWorkstation.id ||
-      chat.repositoryId === currentWorkstation.projectId;
-    return matchesSearch && matchesWorkspace;
-  });
 
-  const handleSelectChat = (chat: any) => {
+    // 2. Custom folders
+    for (const folder of chatFolders) {
+      const folderChats = filteredChats.filter((c) => c.folderId === folder.id && !c.pinned);
+      if (folderChats.length > 0) {
+        result.push({ key: `folder-${folder.id}`, title: folder.name, icon: 'folder', folderId: folder.id, data: folderChats });
+      }
+    }
+
+    // 3. Recent / Uncategorized
+    const uncategorized = filteredChats.filter((c) => !c.pinned && !c.folderId);
+    if (uncategorized.length > 0) {
+      result.push({ key: 'recent', title: t('chat.recent'), data: uncategorized });
+    }
+
+    return result;
+  }, [filteredChats, chatFolders, t]);
+
+  const toggleSection = (key: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleSelectChat = (chat: ChatSession) => {
     setCurrentChat(chat);
-
-    // Check if a tab with this chatId already exists
     const existingTab = tabs.find(t => t.type === 'chat' && t.data?.chatId === chat.id);
-
     if (existingTab) {
-      // Tab already exists, just activate it
       setActiveTab(existingTab.id);
     } else {
-      // Create new tab with existing messages
       addTab({
         id: `chat-${chat.id}`,
         type: 'chat',
         title: chat.title || 'Chat',
         data: { chatId: chat.id },
-        terminalItems: chat.messages || [] // Load previous messages
+        terminalItems: chat.messages || [],
       });
     }
-    // Hide preview panel to show the chat
     onHidePreview?.();
     handleClose();
   };
@@ -88,39 +114,21 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
       repositoryId: currentWorkstation?.id,
       repositoryName: currentWorkstation?.name,
     };
-
-    // Save chat to chatHistory immediately
     useChatStore.getState().addChat(newChat);
-
-    // Don't save chat to chatHistory yet - it will be saved when the first message is sent
-    // Just create a new tab
     addTab({
       id: `chat-${chatId}`,
       type: 'chat',
       title: t('terminal:chat.newConversation'),
-      data: { chatId: chatId }
+      data: { chatId: chatId },
     });
     handleClose();
-  };
-
-  const getTimeAgo = (date: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - new Date(date).getTime();
-    const minutes = Math.floor(diff / (1000 * 60));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days > 0) return t('terminal:chat.daysAgo', { count: days });
-    if (hours > 0) return t('terminal:chat.hoursAgo', { count: hours });
-    if (minutes > 0) return t('terminal:chat.minutesAgo', { count: minutes });
-    return t('terminal:chat.justNow');
   };
 
   const handleMenuToggle = (chatId: string) => {
     setOpenMenuId(openMenuId === chatId ? null : chatId);
   };
 
-  const handleRename = (chat: any) => {
+  const handleRename = (chat: ChatSession) => {
     setRenamingChatId(chat.id);
     setRenamingValue(chat.title);
     setOpenMenuId(null);
@@ -129,7 +137,6 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const handleRenameSubmit = (chatId: string) => {
     if (renamingValue.trim()) {
       updateChat(chatId, { title: renamingValue.trim() });
-      // Update tab title if tab exists
       const chatTab = tabs.find(t => t.data?.chatId === chatId);
       if (chatTab) {
         updateTab(chatTab.id, { title: renamingValue.trim() });
@@ -142,12 +149,12 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const handleDelete = (chatId: string) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert(
-      'Elimina conversazione',
-      'Sei sicuro di voler eliminare questa conversazione? L\'azione non può essere annullata.',
+      t('common:confirmDelete'),
+      t('common:deleteConfirmMessage', { name: chatHistory.find(c => c.id === chatId)?.title || '' }),
       [
-        { text: 'Annulla', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Elimina',
+          text: t('common:delete'),
           style: 'destructive',
           onPress: () => {
             deleteChat(chatId);
@@ -156,8 +163,43 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
               removeTab(chatTab.id);
             }
             setOpenMenuId(null);
-          }
-        }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleTogglePin = (chat: ChatSession) => {
+    if (chat.pinned) {
+      unpinChat(chat.id);
+    } else {
+      pinChat(chat.id);
+    }
+    setOpenMenuId(null);
+  };
+
+  const handleMoveToFolder = (chat: ChatSession) => {
+    setFolderPickerChat(chat);
+    setOpenMenuId(null);
+  };
+
+  const handleRemoveFromFolder = (chat: ChatSession) => {
+    moveChatToFolder(chat.id, undefined);
+    setOpenMenuId(null);
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      t('chat.deleteFolder'),
+      t('chat.deleteFolderConfirm'),
+      [
+        { text: t('common:cancel'), style: 'cancel' },
+        {
+          text: t('common:delete'),
+          style: 'destructive',
+          onPress: () => deleteFolder(folderId),
+        },
       ]
     );
   };
@@ -166,14 +208,131 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     onClose();
   };
 
+  const renderChatItem = (chat: ChatSession) => (
+    <View style={styles.chatItemWrapper}>
+      {renamingChatId === chat.id ? (
+        isLiquidGlassSupported ? (
+          <LiquidGlassView
+            style={[
+              styles.renameContainer,
+              { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 },
+            ]}
+            interactive={true}
+            effect="clear"
+            colorScheme="dark"
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                style={styles.renameInput}
+                value={renamingValue}
+                onChangeText={setRenamingValue}
+                onSubmitEditing={() => handleRenameSubmit(chat.id)}
+                autoFocus
+                placeholder={t('terminal:chat.chatName')}
+                placeholderTextColor="rgba(255,255,255,0.4)"
+              />
+              <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+                <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+                <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+            </View>
+          </LiquidGlassView>
+        ) : (
+          <View style={styles.renameContainer}>
+            <TextInput
+              style={styles.renameInput}
+              value={renamingValue}
+              onChangeText={setRenamingValue}
+              onSubmitEditing={() => handleRenameSubmit(chat.id)}
+              autoFocus
+              placeholder={t('terminal:chat.chatName')}
+              placeholderTextColor="rgba(255,255,255,0.4)"
+            />
+            <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
+              <Ionicons name="checkmark" size={18} color={AppColors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
+              <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
+          </View>
+        )
+      ) : (
+        <TouchableOpacity
+          style={styles.chatItem}
+          onPress={() => handleSelectChat(chat)}
+          activeOpacity={0.7}
+        >
+          {chat.pinned && (
+            <Ionicons name="pin" size={12} color={AppColors.primary} style={{ marginRight: -4 }} />
+          )}
+          <Ionicons name={chat.id.startsWith('preview-') ? 'eye-outline' : 'chatbubble-outline'} size={16} color="rgba(255,255,255,0.5)" />
+          <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
+          <TouchableOpacity
+            onPress={() => handleMenuToggle(chat.id)}
+            style={styles.menuButton}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
+          </TouchableOpacity>
+        </TouchableOpacity>
+      )}
+
+      {/* Dropdown menu */}
+      {openMenuId === chat.id && (
+        <View style={styles.dropdown}>
+          {isLiquidGlassSupported ? (
+            <LiquidGlassView
+              style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+              interactive={true}
+              effect="clear"
+              colorScheme="dark"
+            />
+          ) : null}
+          <View style={styles.dropdownInner}>
+            {/* Pin / Unpin */}
+            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleTogglePin(chat)}>
+              <Ionicons name={chat.pinned ? 'pin-outline' : 'pin'} size={16} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.dropdownText}>{chat.pinned ? t('chat.unpin') : t('chat.pin')}</Text>
+            </TouchableOpacity>
+            <View style={styles.dropdownDivider} />
+            {/* Move to folder / Remove from folder */}
+            {chat.folderId ? (
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRemoveFromFolder(chat)}>
+                <Ionicons name="folder-open-outline" size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.dropdownText}>{t('chat.removeFromFolder')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.dropdownItem} onPress={() => handleMoveToFolder(chat)}>
+                <Ionicons name="folder-outline" size={16} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.dropdownText}>{t('chat.moveToFolder')}</Text>
+              </TouchableOpacity>
+            )}
+            <View style={styles.dropdownDivider} />
+            {/* Rename */}
+            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
+              <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.dropdownText}>{t('common:rename')}</Text>
+            </TouchableOpacity>
+            <View style={styles.dropdownDivider} />
+            {/* Delete */}
+            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
+              <Ionicons name="trash-outline" size={16} color="#ef4444" />
+              <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <>
       <View style={styles.container}>
-
         <View style={styles.containerInner}>
 
-
-          {/* New Chat Button - ChatGPT style */}
+          {/* New Chat Button */}
           <TouchableOpacity style={styles.newChatButton} onPress={handleNewChat} activeOpacity={0.7}>
             {isLiquidGlassSupported && (
               <LiquidGlassView
@@ -195,7 +354,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
               <LiquidGlassView
                 style={[
                   styles.searchContainer,
-                  { marginHorizontal: 0, marginBottom: 0, backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 8 }
+                  { marginHorizontal: 0, marginBottom: 0, backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 10, paddingVertical: 8 },
                 ]}
                 interactive={true}
                 effect="clear"
@@ -226,109 +385,44 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
             )}
           </View>
 
-          {/* Chat List */}
-          <FlatList
-            data={filteredChats}
+          {/* Chat List — SectionList */}
+          <SectionList
+            sections={sections.map((s) => ({
+              ...s,
+              data: collapsedSections[s.key] ? [] : s.data,
+            }))}
             keyExtractor={(item) => item.id}
-            renderItem={({ item: chat }) => (
-              <View style={styles.chatItemWrapper}>
-                {renamingChatId === chat.id ? (
-                  isLiquidGlassSupported ? (
-                    <LiquidGlassView
-                      style={[
-                        styles.renameContainer,
-                        { backgroundColor: 'transparent', overflow: 'hidden', paddingHorizontal: 12, paddingVertical: 8 }
-                      ]}
-                      interactive={true}
-                      effect="clear"
-                      colorScheme="dark"
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <TextInput
-                          style={styles.renameInput}
-                          value={renamingValue}
-                          onChangeText={setRenamingValue}
-                          onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                          autoFocus
-                          placeholder={t('terminal:chat.chatName')}
-                          placeholderTextColor="rgba(255,255,255,0.4)"
-                        />
-                        <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                          <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                          <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-                        </TouchableOpacity>
-                      </View>
-                    </LiquidGlassView>
-                  ) : (
-                    <View style={styles.renameContainer}>
-                      <TextInput
-                        style={styles.renameInput}
-                        value={renamingValue}
-                        onChangeText={setRenamingValue}
-                        onSubmitEditing={() => handleRenameSubmit(chat.id)}
-                        autoFocus
-                        placeholder={t('terminal:chat.chatName')}
-                        placeholderTextColor="rgba(255,255,255,0.4)"
-                      />
-                      <TouchableOpacity onPress={() => handleRenameSubmit(chat.id)} style={styles.renameAction}>
-                        <Ionicons name="checkmark" size={18} color={AppColors.primary} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => setRenamingChatId(null)} style={styles.renameAction}>
-                        <Ionicons name="close" size={18} color="rgba(255,255,255,0.5)" />
-                      </TouchableOpacity>
-                    </View>
-                  )
-                ) : (
+            renderItem={({ item }) => renderChatItem(item)}
+            renderSectionHeader={({ section }) => (
+              <TouchableOpacity
+                style={styles.sectionHeader}
+                onPress={() => toggleSection(section.key)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={collapsedSections[section.key] ? 'chevron-forward' : 'chevron-down'}
+                  size={12}
+                  color="rgba(255,255,255,0.35)"
+                />
+                {section.icon && (
+                  <Ionicons name={section.icon as any} size={12} color="rgba(255,255,255,0.4)" />
+                )}
+                <Text style={styles.sectionTitle}>{section.title}</Text>
+                <Text style={styles.sectionCount}>{
+                  // Show count from the original (non-collapsed) sections
+                  sections.find((s) => s.key === section.key)?.data.length || 0
+                }</Text>
+                {section.folderId && (
                   <TouchableOpacity
-                    style={styles.chatItem}
-                    onPress={() => handleSelectChat(chat)}
-                    activeOpacity={0.7}
+                    onPress={() => handleDeleteFolder(section.folderId!)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ marginLeft: 'auto' }}
                   >
-                    <Ionicons name={chat.id.startsWith('preview-') ? "eye-outline" : "chatbubble-outline"} size={16} color="rgba(255,255,255,0.5)" />
-                    <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
-                    <TouchableOpacity
-                      onPress={() => handleMenuToggle(chat.id)}
-                      style={styles.menuButton}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
-                    </TouchableOpacity>
+                    <Ionicons name="close-circle-outline" size={14} color="rgba(255,255,255,0.25)" />
                   </TouchableOpacity>
                 )}
-
-                {/* Dropdown menu */}
-                {openMenuId === chat.id && (
-                  <View style={styles.dropdown}>
-                    {isLiquidGlassSupported ? (
-                      <LiquidGlassView
-                        style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
-                        interactive={true}
-                        effect="clear"
-                        colorScheme="dark"
-                      />
-                    ) : null}
-                    <View style={styles.dropdownInner}>
-                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
-                        <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.dropdownText}>{t('common:rename')}</Text>
-                      </TouchableOpacity>
-                      <View style={styles.dropdownDivider} />
-                      <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
-                        <Ionicons name="trash-outline" size={16} color="#ef4444" />
-                        <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </View>
+              </TouchableOpacity>
             )}
-            ListHeaderComponent={
-              filteredChats.length > 0 ? (
-                <Text style={styles.sectionTitle}>{t('terminal:chat.recent')}</Text>
-              ) : null
-            }
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Ionicons name="chatbubbles-outline" size={32} color="rgba(255,255,255,0.2)" />
@@ -340,9 +434,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
             style={styles.content}
             contentContainerStyle={styles.contentContainer}
             showsVerticalScrollIndicator={false}
-            removeClippedSubviews={true}
-            maxToRenderPerBatch={10}
-            windowSize={5}
+            stickySectionHeadersEnabled={false}
           />
 
           {/* Bottom close button */}
@@ -352,6 +444,19 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Folder Picker Modal */}
+      <FolderPickerModal
+        visible={!!folderPickerChat}
+        onClose={() => setFolderPickerChat(null)}
+        onSelectFolder={(folderId) => {
+          if (folderPickerChat) {
+            moveChatToFolder(folderPickerChat.id, folderId);
+          }
+          setFolderPickerChat(null);
+        }}
+        currentFolderId={folderPickerChat?.folderId}
+      />
     </>
   );
 };
@@ -430,14 +535,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.4)',
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6,
+  },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.4)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  sectionCount: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.25)',
+    fontWeight: '500',
   },
   chatItemWrapper: {
     position: 'relative',
@@ -466,7 +581,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 8,
     zIndex: 1000,
-    minWidth: 140,
+    minWidth: 160,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     shadowColor: '#000',

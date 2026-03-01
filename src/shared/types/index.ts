@@ -56,6 +56,7 @@ export interface ChatSession {
   messages: TerminalItem[];
   aiModel: string;
   folderId?: string;
+  pinned?: boolean;
   repositoryId?: string;
   repositoryName?: string;
 }

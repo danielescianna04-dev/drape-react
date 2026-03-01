@@ -27,7 +27,9 @@
       "WebFetch(domain:awesomeclaude.ai)",
       "Bash(claude /plugin --help)",
       "Bash(claude plugin:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(claude logout:*)",
+      "WebFetch(domain:opencode.ai)"
     ]
   }
 }

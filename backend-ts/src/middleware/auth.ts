@@ -157,6 +157,11 @@ export async function optionalAuth(
 const USER_PLAN_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 const userPlanCache = new Map<string, { plan: string; expiresAt: number }>();
 
+/** Invalidate plan cache immediately (call after any plan change) */
+export function invalidateUserPlanCache(userId: string): void {
+  userPlanCache.delete(userId);
+}
+
 /**
  * getUserPlan — Fetches the user's subscription plan from Firestore.
  * Returns 'free' if the user document doesn't exist or on error.

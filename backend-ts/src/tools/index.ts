@@ -85,7 +85,7 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'run_command',
-    description: 'Execute a shell command in the project container. Returns stdout, stderr, and exit code. Use this to run tests, build scripts, install dependencies, etc.',
+    description: 'Execute a shell command in the project container. Returns stdout, stderr, and exit code. Use this to run tests, build scripts, install dependencies, etc. Set background: true for long-running commands.',
     input_schema: {
       type: 'object',
       properties: {
@@ -97,6 +97,11 @@ export const AGENT_TOOLS: ToolDefinition[] = [
           type: 'number',
           description: 'Timeout in milliseconds (default: 60000)',
           default: 60000,
+        },
+        background: {
+          type: 'boolean',
+          description: 'Run in background. Returns immediately with a command ID. Use command_output to check results later.',
+          default: false,
         },
       },
       required: ['command'],
@@ -220,6 +225,167 @@ export const AGENT_TOOLS: ToolDefinition[] = [
         },
       },
       required: ['result'],
+    },
+  },
+  {
+    name: 'multi_edit_file',
+    description: 'Apply multiple edits to a single file atomically. All edits succeed or none are applied. Use instead of multiple edit_file calls when making 2+ changes to the same file.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        file_path: {
+          type: 'string',
+          description: 'Path to the file (relative to project root)',
+        },
+        edits: {
+          type: 'array',
+          description: 'Array of edits to apply sequentially',
+          items: {
+            type: 'object',
+            properties: {
+              old_string: {
+                type: 'string',
+                description: 'Exact string to find and replace',
+              },
+              new_string: {
+                type: 'string',
+                description: 'Replacement string',
+              },
+            },
+            required: ['old_string', 'new_string'],
+          },
+        },
+      },
+      required: ['file_path', 'edits'],
+    },
+  },
+  {
+    name: 'web_fetch',
+    description: 'Fetch a URL and extract specific information using AI analysis. Returns analyzed content, not raw HTML.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'Full HTTP/HTTPS URL to fetch',
+        },
+        prompt: {
+          type: 'string',
+          description: 'What specific information to extract from the page',
+        },
+      },
+      required: ['url', 'prompt'],
+    },
+  },
+  {
+    name: 'todo_read',
+    description: 'Read the current todo list to check task status and progress.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'dispatch_agent',
+    description: 'Dispatch a sub-agent for independent tasks with isolated context. Use "explore" (fast model, read-only tools) for broad codebase search when 3+ queries are needed. Use "general" (same model, all tools except dispatch_agent) for complex independent subtasks. Do NOT use for simple searches where 1 grep/glob suffices.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          enum: ['explore', 'general'],
+          description: '"explore" for codebase search, "general" for complex subtasks',
+        },
+        prompt: {
+          type: 'string',
+          description: 'Detailed task description for the sub-agent',
+        },
+      },
+      required: ['type', 'prompt'],
+    },
+  },
+  {
+    name: 'patch_file',
+    description: 'Apply a unified diff patch to a file. Use for complex multi-part changes that would require many edit_file calls. The patch must be in unified diff format (lines starting with -, +, or space for context).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        file_path: {
+          type: 'string',
+          description: 'Path to file relative to project root',
+        },
+        patch: {
+          type: 'string',
+          description: 'Unified diff patch content',
+        },
+      },
+      required: ['file_path', 'patch'],
+    },
+  },
+  {
+    name: 'load_skill',
+    description: 'Load a reusable skill/workflow by name. Skills are defined in .drape/skills/, .agents/skills/, or .claude/skills/ as markdown files. Call without a name to list available skills.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Skill name to load (e.g. "deploy", "test", "review"). Omit to list all available.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'tool_search',
+    description: 'Search for additional tools from MCP servers. Use when you need a capability not available in your current tools (e.g., database access, GitHub operations, external APIs).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'What capability you need (e.g. "github pull request", "database query")',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'memory_read',
+    description: 'Read the persistent project memory. Contains learnings, patterns, and notes from previous conversations that persist across sessions.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'memory_write',
+    description: 'Write or update the persistent project memory. Use to save important project patterns, conventions, debugging insights, or user preferences that should persist across all conversations.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'Full markdown content for memory. Organize with headers (## Architecture, ## Conventions, etc.). Overwrites existing memory.',
+        },
+      },
+      required: ['content'],
+    },
+  },
+  {
+    name: 'command_output',
+    description: 'Get output from a background command started with run_command background: true. Returns the current output or final result.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        command_id: {
+          type: 'string',
+          description: 'The command ID returned by a background run_command',
+        },
+      },
+      required: ['command_id'],
     },
   },
 ];

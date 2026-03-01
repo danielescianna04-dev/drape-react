@@ -12,6 +12,8 @@ interface IAPState {
   isPurchasing: boolean;
   isRestoring: boolean;
   error: IAPError | null;
+  showCelebration: boolean;
+  celebrationPlan: string | null;
 
   initialize: () => Promise<void>;
   loadProducts: () => Promise<void>;
@@ -19,6 +21,7 @@ interface IAPState {
   restorePurchases: () => Promise<void>;
   refreshPlan: () => Promise<void>;
   clearError: () => void;
+  closeCelebration: () => void;
 }
 
 export const useIAPStore = create<IAPState>((set, get) => ({
@@ -28,6 +31,8 @@ export const useIAPStore = create<IAPState>((set, get) => ({
   isPurchasing: false,
   isRestoring: false,
   error: null,
+  showCelebration: false,
+  celebrationPlan: null,
 
   initialize: async () => {
     await iapService.initialize();
@@ -57,7 +62,7 @@ export const useIAPStore = create<IAPState>((set, get) => ({
           if (user) {
             useAuthStore.setState({ user: { ...user, plan: resultPlan } });
           }
-          set({ isPurchasing: false, currentProductId: productId });
+          set({ isPurchasing: false, currentProductId: productId, showCelebration: true, celebrationPlan: resultPlan });
         },
         onError: (error) => {
           if (error !== 'cancelled') {
@@ -108,4 +113,5 @@ export const useIAPStore = create<IAPState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+  closeCelebration: () => set({ showCelebration: false, celebrationPlan: null }),
 }));

@@ -1,4 +1,5 @@
-import { aiProviderService, ChatMessage, ContentBlock, ToolDefinition } from './ai-provider.service';
+import { ChatMessage, ContentBlock, ToolDefinition } from './ai-provider.service';
+import { vercelChatStream, vercelChatSimple, getContextWindowTokens as vercelGetContextWindowTokens } from './ai-providers';
 import { agentToolsService } from './agent-tools.service';
 import { fileService } from './file.service';
 import { workspaceService } from './workspace.service';
@@ -10,6 +11,9 @@ import { AgentEvent, AgentMode, AgentOptions, Session, ToolResult } from '../typ
 import path from 'path';
 import fs from 'fs';
 import { config } from '../config';
+import { runPreHooks, runPostHooks } from './hooks.service';
+import { saveConversation } from './conversation-store';
+import { initMcpServers, getAllMcpTools, callMcpTool, disconnectAllMcp } from './mcp-client';
 
 // Load the universal system prompt from file
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'claude-code-system-prompt.txt');
@@ -23,13 +27,15 @@ const USD_TO_EUR = 0.92;
 
 // AI Model Pricing (USD per 1M tokens)
 const AI_PRICING: Record<string, { input: number; output: number; cachedInput: number }> = {
+  'gemini-2.5-flash':        { input: 0.15,  output: 0.60,  cachedInput: 0.0375 },
   'gemini-3-flash':          { input: 0.50,  output: 3.00,  cachedInput: 0.125 },
-  'gemini-3.1-pro':            { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
+  'gemini-3.1-pro':          { input: 1.25,  output: 10.00, cachedInput: 0.3125 },
   'claude-sonnet-4':         { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-4-6-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-3.5-sonnet':       { input: 3.00,  output: 15.00, cachedInput: 0.30 },
   'claude-4-6-opus':         { input: 15.00, output: 75.00, cachedInput: 1.50 },
   'claude-3.5-haiku':        { input: 0.80,  output: 4.00,  cachedInput: 0.08 },
+  'gpt-5-3':                 { input: 2.00,  output: 8.00,  cachedInput: 0.50 },
   'llama-3.3-70b':           { input: 0.59,  output: 0.79,  cachedInput: 0.15 },
   'llama-3.1-8b':            { input: 0.05,  output: 0.08,  cachedInput: 0.01 },
 };
@@ -62,6 +68,18 @@ export class AgentLoop {
   private iterationCount: number = 0;
   private latestTodos: Array<{ status?: string }> = [];
   private cachedTokenEstimate: number = 0; // Incremental token tracking
+
+  // Sub-agent support
+  public toolFilter: 'all' | 'read_only' | 'no_subagent' = 'all';
+  public maxIterations: number = MAX_ITERATIONS;
+
+  // File watcher: external changes to inject into conversation
+  private pendingFileChanges: Array<{ type: string; path: string }> = [];
+
+  /** Notify the agent loop of external file changes (from file watcher). */
+  public notifyFileChange(type: string, filePath: string) {
+    this.pendingFileChanges.push({ type, path: filePath });
+  }
 
   // Budget limits per plan (monthly EUR)
   private static readonly PLAN_BUDGETS: Record<string, number> = {
@@ -222,8 +240,18 @@ export class AgentLoop {
 
       let noToolWhileTodosPendingCount = 0;
 
-      while (shouldContinue && this.iterationCount < MAX_ITERATIONS) {
+      while (shouldContinue && this.iterationCount < this.maxIterations) {
         this.iterationCount++;
+
+        // Inject external file changes into conversation (from file watcher)
+        if (this.pendingFileChanges.length > 0) {
+          const changes = this.pendingFileChanges.splice(0);
+          const changesSummary = changes.map(c => `${c.type}: ${c.path}`).join('\n');
+          this.pushMessage({
+            role: 'user',
+            content: [{ type: 'text', text: `[System] Files changed externally:\n${changesSummary}\nPlease take these changes into account.` }],
+          });
+        }
 
         // Re-check budget mid-run every 5 iterations to prevent runaway costs
         if (this.iterationCount > 1 && this.iterationCount % 5 === 0) {
@@ -243,7 +271,7 @@ export class AgentLoop {
         yield {
           type: 'iteration_start',
           iteration: this.iterationCount,
-          maxIterations: MAX_ITERATIONS,
+          maxIterations: this.maxIterations,
         };
 
         // Call AI model with streaming
@@ -281,9 +309,9 @@ export class AgentLoop {
         }
 
         try {
-          const tools = getToolDefinitions();
+          const tools = await this.getFilteredTools();
 
-          for await (const chunk of aiProviderService.chatStream(
+          for await (const chunk of vercelChatStream(
             this.model,
             this.conversationHistory,
             tools,
@@ -377,7 +405,7 @@ export class AgentLoop {
                   });
 
                   // Emit usage event for real-time cost tracking
-                  const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+                  const contextWindow = vercelGetContextWindowTokens(this.model);
                   const estimatedContext = this.estimateTokenCount(this.conversationHistory, systemPrompt);
                   const contextUsagePercent = Math.min(100, Math.round((estimatedContext / contextWindow) * 100));
 
@@ -599,108 +627,159 @@ export class AgentLoop {
           }
           lastToolSignature = toolSignature;
 
-          // Execute each tool
+          // Execute each tool (parallel for read-only, sequential for write/special)
           const toolResults: ContentBlock[] = [];
+          const PARALLEL_SAFE_TOOLS = ['read_file', 'list_directory', 'glob_search', 'grep_search', 'web_search', 'web_fetch', 'todo_read', 'load_skill', 'tool_search', 'command_output', 'memory_read'];
+          const allParallelSafe = toolCalls.length > 1 && toolCalls.every(tc => PARALLEL_SAFE_TOOLS.includes(tc.name));
 
-          for (const toolCall of toolCalls) {
-            try {
-              const result = await agentToolsService.executeTool(
-                toolCall.name,
-                toolCall.input,
-                this.projectId,
-                this.session || undefined
-              );
+          if (allParallelSafe) {
+            // ── Parallel execution for read-only tools ──
+            const promises = toolCalls.map(tc =>
+              agentToolsService.executeTool(tc.name, tc.input, this.projectId, this.session || undefined)
+                .then(result => ({ toolCall: tc, result, error: null as Error | null }))
+                .catch((error: Error) => ({ toolCall: tc, result: null as ToolResult | null, error }))
+            );
+            const parallelResults = await Promise.all(promises);
 
-              // Handle special tool results
-              if ((result as any)._pauseForUser) {
-                // ask_user_question tool
+            // Yield events in original order
+            for (const { toolCall, result, error } of parallelResults) {
+              if (error) {
+                log.error(`[AgentLoop] Tool ${toolCall.name} error: ${error.message}`);
+                yield { type: 'tool_error', id: toolCall.id, tool: toolCall.name, error: error.message };
+                const errorBlock: any = { type: 'tool_result', tool_use_id: toolCall.id, content: `Error: ${error.message}` };
+                if (toolCall.thoughtSignature) errorBlock.thoughtSignature = toolCall.thoughtSignature;
+                toolResults.push(errorBlock);
+              } else if (result) {
                 yield {
-                  type: 'ask_user_question',
-                  questions: (result as any).questions,
+                  type: 'tool_complete', id: toolCall.id, tool: toolCall.name,
+                  result: result.content || JSON.stringify(result), success: result.success, input: toolCall.input,
                 };
-                // Pause the loop - it will resume when user provides answers
-                return;
+                const resultBlock: any = { type: 'tool_result', tool_use_id: toolCall.id, content: result.content || JSON.stringify(result) };
+                if (toolCall.thoughtSignature) resultBlock.thoughtSignature = toolCall.thoughtSignature;
+                toolResults.push(resultBlock);
               }
+            }
+          } else {
+            // ── Sequential execution (write tools, special tools, mixed) ──
+            for (const toolCall of toolCalls) {
+              try {
+                // Handle dispatch_agent inline (sub-agent with isolated context)
+                if (toolCall.name === 'dispatch_agent') {
+                  const agentType: 'explore' | 'general' = toolCall.input?.type || 'explore';
+                  const agentPrompt: string = toolCall.input?.prompt || '';
+                  const agentId = `subagent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                  const description = agentPrompt.substring(0, 100);
 
-              if ((result as any)._completion) {
-                // signal_completion tool
-                yield {
-                  type: 'complete',
-                  result: result.content || 'Task completed',
-                  filesCreated: this.filesCreated,
-                  filesModified: this.filesModified,
-                  tokensUsed: this.totalTokensUsed,
-                  costEur: this.totalCostEur,
-                  iterations: this.iterationCount,
-                };
-                return;
-              }
+                  yield { type: 'sub_agent_start', agentId, agentType, description };
+                  const result = await this.executeSubAgent(agentType, agentPrompt);
+                  yield { type: 'sub_agent_complete', agentId, result: result.content, success: result.success };
+                  yield { type: 'tool_complete', id: toolCall.id, tool: toolCall.name, result: result.content, success: result.success, input: toolCall.input };
 
-              // Handle todo updates
-              if (toolCall.name === 'todo_write' && (result as any).todos) {
-                this.latestTodos = Array.isArray((result as any).todos) ? (result as any).todos : [];
-                yield {
-                  type: 'todo_update',
-                  todos: (result as any).todos,
-                };
-              }
+                  const toolResultBlock: any = { type: 'tool_result', tool_use_id: toolCall.id, content: result.content || '(no output)' };
+                  if (toolCall.thoughtSignature) toolResultBlock.thoughtSignature = toolCall.thoughtSignature;
+                  toolResults.push(toolResultBlock);
+                  continue;
+                }
 
-              // Track file operations
-              if (toolCall.name === 'write_file') {
-                const filePath = toolCall.input.file_path;
-                if (this.filesCreated.includes(filePath)) {
-                  if (!this.filesModified.includes(filePath)) {
-                    this.filesModified.push(filePath);
+                // Pre-hook
+                await runPreHooks(this.projectId, toolCall.name, this.session?.agentUrl).catch(() => {});
+
+                const result = await agentToolsService.executeTool(
+                  toolCall.name, toolCall.input, this.projectId, this.session || undefined
+                );
+
+                // Handle special tool results
+                if ((result as any)._pauseForUser) {
+                  yield { type: 'ask_user_question', questions: (result as any).questions };
+                  return;
+                }
+
+                if ((result as any)._completion) {
+                  // Auto-save conversation on completion
+                  saveConversation(
+                    this.projectId, this.userId || 'anonymous', this.model,
+                    this.conversationHistory, this.totalTokensUsed, this.totalCostEur,
+                  ).catch(() => {});
+
+                  yield {
+                    type: 'complete', result: result.content || 'Task completed',
+                    filesCreated: this.filesCreated, filesModified: this.filesModified,
+                    tokensUsed: this.totalTokensUsed, costEur: this.totalCostEur, iterations: this.iterationCount,
+                  };
+                  return;
+                }
+
+                // Handle todo updates
+                if (toolCall.name === 'todo_write' && (result as any).todos) {
+                  this.latestTodos = Array.isArray((result as any).todos) ? (result as any).todos : [];
+                  yield { type: 'todo_update', todos: (result as any).todos };
+                }
+
+                // Track file operations
+                if (toolCall.name === 'write_file') {
+                  const filePath = toolCall.input.file_path;
+                  if (this.filesCreated.includes(filePath)) {
+                    if (!this.filesModified.includes(filePath)) this.filesModified.push(filePath);
+                  } else {
+                    this.filesCreated.push(filePath);
                   }
-                } else {
-                  this.filesCreated.push(filePath);
+                } else if (toolCall.name === 'edit_file' || toolCall.name === 'multi_edit_file' || toolCall.name === 'patch_file') {
+                  const filePath = toolCall.input.file_path;
+                  if (!this.filesModified.includes(filePath)) this.filesModified.push(filePath);
                 }
-              } else if (toolCall.name === 'edit_file') {
-                const filePath = toolCall.input.file_path;
-                if (!this.filesModified.includes(filePath)) {
-                  this.filesModified.push(filePath);
+
+                // Yield tool completion
+                yield {
+                  type: 'tool_complete', id: toolCall.id, tool: toolCall.name,
+                  result: result.content || JSON.stringify(result), success: result.success, input: toolCall.input,
+                };
+
+                // Post-edit diagnostics: auto-run tsc after TS/JS file modifications
+                const DIAG_TOOLS = ['edit_file', 'multi_edit_file', 'write_file', 'patch_file'];
+                const TS_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
+                if (DIAG_TOOLS.includes(toolCall.name) && result.success && this.session) {
+                  const ext = path.extname(toolCall.input.file_path || '').toLowerCase();
+                  if (TS_EXTENSIONS.includes(ext)) {
+                    try {
+                      const diagResult = await agentToolsService.executeTool(
+                        'run_command',
+                        { command: 'cd /home/coder/project && npx tsc --noEmit --pretty false 2>&1 | head -30', timeout: 15000 },
+                        this.projectId, this.session || undefined,
+                      );
+                      if (diagResult.content?.includes('error TS')) {
+                        const diagLines = diagResult.content.split('\n').filter((l: string) => l.includes('error TS')).slice(0, 10);
+                        if (diagLines.length > 0) {
+                          // Append diagnostics — AI will see errors and auto-correct
+                          result.content = (result.content || '') + `\n\n⚠️ TypeScript errors detected:\n${diagLines.join('\n')}`;
+                        }
+                      }
+                    } catch { /* diagnostics non-fatal */ }
+                  }
                 }
-              }
 
-              // Yield tool completion
-              yield {
-                type: 'tool_complete',
-                id: toolCall.id,
-                tool: toolCall.name,
-                result: result.content || JSON.stringify(result),
-                success: result.success,
-                input: toolCall.input,
-              };
+                // Post-hook
+                const hookOutput = await runPostHooks(
+                  this.projectId, toolCall.name, this.session?.agentUrl, toolCall.input?.file_path
+                ).catch(() => null);
+                if (hookOutput) {
+                  result.content = (result.content || '') + `\n\n[Hook] ${hookOutput}`;
+                }
 
-              // Add tool result to conversation (include thoughtSignature for Gemini 3)
-              const toolResultBlock: any = {
-                type: 'tool_result',
-                tool_use_id: toolCall.id,
-                content: result.content || JSON.stringify(result),
-              };
-              if (toolCall.thoughtSignature) {
-                toolResultBlock.thoughtSignature = toolCall.thoughtSignature;
-              }
-              toolResults.push(toolResultBlock);
-            } catch (error: any) {
-              log.error(`[AgentLoop] Tool ${toolCall.name} error: ${error.message}`);
-              yield {
-                type: 'tool_error',
-                id: toolCall.id,
-                tool: toolCall.name,
-                error: error.message,
-              };
+                // Add tool result to conversation (include thoughtSignature for Gemini 3)
+                const toolResultBlock: any = {
+                  type: 'tool_result', tool_use_id: toolCall.id,
+                  content: result.content || JSON.stringify(result),
+                };
+                if (toolCall.thoughtSignature) toolResultBlock.thoughtSignature = toolCall.thoughtSignature;
+                toolResults.push(toolResultBlock);
+              } catch (error: any) {
+                log.error(`[AgentLoop] Tool ${toolCall.name} error: ${error.message}`);
+                yield { type: 'tool_error', id: toolCall.id, tool: toolCall.name, error: error.message };
 
-              // Add error result to conversation (include thoughtSignature for Gemini 3)
-              const errorResultBlock: any = {
-                type: 'tool_result',
-                tool_use_id: toolCall.id,
-                content: `Error: ${error.message}`,
-              };
-              if (toolCall.thoughtSignature) {
-                errorResultBlock.thoughtSignature = toolCall.thoughtSignature;
+                const errorResultBlock: any = { type: 'tool_result', tool_use_id: toolCall.id, content: `Error: ${error.message}` };
+                if (toolCall.thoughtSignature) errorResultBlock.thoughtSignature = toolCall.thoughtSignature;
+                toolResults.push(errorResultBlock);
               }
-              toolResults.push(errorResultBlock);
             }
           }
 
@@ -761,10 +840,10 @@ export class AgentLoop {
         }
 
         // Check iteration limit
-        if (this.iterationCount >= MAX_ITERATIONS) {
+        if (this.iterationCount >= this.maxIterations) {
           yield {
             type: 'budget_exceeded',
-            message: `Maximum iterations (${MAX_ITERATIONS}) reached`,
+            message: `Maximum iterations (${this.maxIterations}) reached`,
             iterations: this.iterationCount,
           };
           return;
@@ -778,6 +857,93 @@ export class AgentLoop {
         ...(process.env.NODE_ENV !== 'production' && { stack: error.stack }),
       };
     }
+  }
+
+  /**
+   * Get tool definitions filtered by toolFilter setting.
+   * Used for sub-agent isolation (read-only for explore, no dispatch_agent for general).
+   */
+  private _cachedTools: ToolDefinition[] | null = null;
+
+  private async getFilteredTools(): Promise<ToolDefinition[]> {
+    // Cache tools for the entire agent run — they don't change mid-conversation
+    if (this._cachedTools) return this._cachedTools;
+
+    const allTools = getToolDefinitions();
+
+    // Load MCP tools from project config (only for full-access agents)
+    let mcpTools: ToolDefinition[] = [];
+    if (this.toolFilter !== 'read_only') {
+      try {
+        mcpTools = await initMcpServers(this.projectId);
+      } catch (e: any) {
+        log.warn(`[AgentLoop] Failed to load MCP tools: ${e.message}`);
+      }
+    }
+
+    const combined = [...allTools, ...mcpTools];
+    let result: ToolDefinition[];
+
+    switch (this.toolFilter) {
+      case 'read_only': {
+        const readOnlyNames = ['read_file', 'list_directory', 'glob_search', 'grep_search', 'web_search', 'web_fetch', 'todo_read', 'signal_completion'];
+        result = allTools.filter(t => readOnlyNames.includes(t.name));
+        break;
+      }
+      case 'no_subagent':
+        result = combined.filter(t => t.name !== 'dispatch_agent');
+        break;
+      default:
+        result = combined;
+    }
+
+    this._cachedTools = result;
+    return result;
+  }
+
+  /**
+   * Execute a sub-agent with isolated context.
+   * Used by dispatch_agent tool for explore (Haiku, read-only) and general (same model, all tools except dispatch_agent).
+   */
+  private async executeSubAgent(type: 'explore' | 'general', prompt: string): Promise<ToolResult> {
+    const childLoop = new AgentLoop({
+      projectId: this.projectId,
+      mode: 'fast',
+      model: type === 'explore' ? 'claude-3.5-haiku' : this.model,
+      conversationHistory: [], // Isolated context
+      userId: this.userId || undefined,
+      userPlan: this.userPlan,
+    });
+
+    // Configure sub-agent constraints
+    childLoop.toolFilter = type === 'explore' ? 'read_only' : 'no_subagent';
+    childLoop.maxIterations = 15;
+    childLoop.session = this.session; // Share container
+
+    let finalText = '';
+
+    try {
+      for await (const event of childLoop.run(prompt)) {
+        // Collect text output
+        if (event.type === 'text_delta') {
+          finalText += (event as any).text || (event as any).delta || '';
+        }
+        if (event.type === 'complete') {
+          finalText = (event as any).result || finalText;
+        }
+        // Sum child costs to parent
+        if (event.type === 'usage') {
+          this.totalCostEur += ((event as any).iterationCostEur || 0);
+          this.totalTokensUsed.input += ((event as any).totalInputTokens || 0);
+          this.totalTokensUsed.output += ((event as any).totalOutputTokens || 0);
+        }
+      }
+    } catch (error: any) {
+      log.error(`[AgentLoop] Sub-agent ${type} failed: ${error.message}`);
+      return { success: false, content: `Sub-agent error: ${error.message}` };
+    }
+
+    return { success: true, content: finalText || '(no output from sub-agent)' };
   }
 
   /**
@@ -818,6 +984,35 @@ export class AgentLoop {
       }
     }
 
+    // Read project rules (AGENTS.md > CLAUDE.md)
+    let projectRules = '';
+    try {
+      const rulesFiles = ['AGENTS.md', 'CLAUDE.md', '.agents/AGENTS.md', '.claude/CLAUDE.md'];
+      for (const rulesFile of rulesFiles) {
+        const rulesResult = await fileService.readFile(this.projectId, rulesFile);
+        if (rulesResult.success && rulesResult.data?.content) {
+          const content = rulesResult.data.content.substring(0, 8000); // ~2K tokens max
+          projectRules = `\n\n## Project Rules\n\nThe following project-specific instructions MUST be followed:\n\n${content}\n`;
+          break; // Use first found
+        }
+      }
+    } catch {
+      // No rules found — fine
+    }
+
+    // Load persistent project memory
+    let memoryContext = '';
+    try {
+      const { readMemory } = await import('./memory.service');
+      const memory = await readMemory(this.projectId);
+      if (memory) {
+        const truncated = memory.substring(0, 4000); // ~1K tokens max
+        memoryContext = `\n\n## Project Memory\n\nPersistent knowledge from previous conversations:\n\n${truncated}\n`;
+      }
+    } catch {
+      // No memory — fine
+    }
+
     // Detect user language and add explicit directive
     let languageDirective = '';
     if (userPrompt) {
@@ -830,7 +1025,7 @@ export class AgentLoop {
       }
     }
 
-    return basePrompt + languageDirective + projectContext + sessionInfo + this.buildExecutionPlanContext();
+    return basePrompt + languageDirective + projectRules + memoryContext + projectContext + sessionInfo + this.buildExecutionPlanContext();
   }
 
   /**
@@ -1120,7 +1315,7 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
    * Summarizes older messages using Haiku and keeps recent ones intact.
    */
   private shouldCompact(systemPrompt: string): boolean {
-    const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+    const contextWindow = vercelGetContextWindowTokens(this.model);
     // Use cached estimate if available, otherwise compute full
     if (this.cachedTokenEstimate === 0) {
       this.cachedTokenEstimate = this.estimateTokenCount(this.conversationHistory, systemPrompt);
@@ -1129,7 +1324,7 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
   }
 
   private async compactConversationHistory(systemPrompt: string): Promise<boolean> {
-    const contextWindow = aiProviderService.getContextWindowTokens(this.model);
+    const contextWindow = vercelGetContextWindowTokens(this.model);
     const estimatedTokens = this.estimateTokenCount(this.conversationHistory, systemPrompt);
 
     // Compact when >90% of context window is used
@@ -1171,7 +1366,7 @@ CRITICAL LANGUAGE RULE: You MUST reply in the EXACT same language the user wrote
         { role: 'user', content: truncatedSummary },
       ];
 
-      const summary = await aiProviderService.chatSimple(
+      const summary = await vercelChatSimple(
         summaryMessages,
         'Summarize this conversation concisely. Include: key decisions, code changes made, files modified, current task status, and any important context the AI needs to continue working. Be specific about file names and technical details. Output ONLY the summary, no preamble.',
       );

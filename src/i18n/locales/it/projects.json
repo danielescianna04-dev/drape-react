@@ -33,7 +33,13 @@
     "discover": "Scopri Drape",
     "skip": "Salta",
     "next": "Avanti",
-    "start": "Inizia!"
+    "start": "Inizia!",
+    "talkToAI": "Parla con l'AI",
+    "talkToAIDesc": "Chiedi all'AI di costruire, modificare o spiegare qualsiasi parte del progetto",
+    "livePreview": "Preview Live",
+    "livePreviewDesc": "Guarda la tua app in tempo reale mentre l'AI scrive il codice",
+    "exploreFiles": "Esplora i File",
+    "exploreFilesDesc": "Sfoglia e modifica i file del progetto direttamente dall'editor"
   },
   "create": {
     "title": "Nuovo Progetto",
@@ -64,7 +70,14 @@
     "mustBeLoggedIn": "Devi essere loggato per creare un progetto",
     "unableToStartAgent": "Impossibile avviare l'agente. Riprova.",
     "unableToCreate": "Impossibile creare il progetto. Riprova.",
-    "aiHint": "L'AI genererà il codice in base a questa descrizione"
+    "aiHint": "L'AI genererà il codice in base a questa descrizione",
+    "popular": "Popolari",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "mobile": "Mobile",
+    "showAll": "Mostra tutte",
+    "showLess": "Mostra meno",
+    "aiRecommendedBecause": "Suggerimento AI:"
   },
   "limit": {
     "reached": "Limite raggiunto",

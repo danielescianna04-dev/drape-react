@@ -19,7 +19,7 @@ export const flyRouter = Router();
 
 // POST /fly/clone — Quick warmup
 flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
-  const { workstationId, projectId, repositoryUrl, githubToken } = req.body;
+  const { workstationId, projectId, repositoryUrl, githubToken, branch } = req.body;
   const id = projectId || workstationId;
   const uid = req.userId || 'anonymous';
   if (!id) throw new ValidationError('workstationId or projectId required');
@@ -58,7 +58,7 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
     await incrementCreationCounter(uid, 'cloned');
   }
 
-  const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken);
+  const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken, branch);
   const session = await sessionService.get(id, uid);
 
   res.json({
@@ -144,7 +144,7 @@ flyRouter.post('/preview/stop', asyncHandler(async (req, res) => {
 
 // POST /fly/project/create
 flyRouter.post('/project/create', asyncHandler(async (req, res) => {
-  const { projectId, repositoryUrl, githubToken, source } = req.body;
+  const { projectId, repositoryUrl, githubToken, source, branch } = req.body;
   const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
@@ -190,7 +190,7 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   await fileService.ensureProjectDir(projectId);
 
   if (repositoryUrl) {
-    await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken);
+    await workspaceService.cloneRepository(projectId, repositoryUrl, githubToken, branch);
   }
 
   const files = await workspaceService.listFiles(projectId);

@@ -52,7 +52,9 @@ export type AgentEventType =
   | 'context_compacting'
   | 'context_compacted'
   | 'error'
-  | 'fatal_error';
+  | 'fatal_error'
+  | 'sub_agent_start'
+  | 'sub_agent_complete';
 
 export interface AgentEvent {
   type: AgentEventType;

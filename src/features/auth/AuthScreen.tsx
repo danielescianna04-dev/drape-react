@@ -24,171 +24,158 @@ import { AppColors } from '../../shared/theme/colors';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
 
-// Animated glow orb component
-const AnimatedGlow = ({ style, durationY = 5000, durationX = 6000 }: { style: any; durationY?: number; durationX?: number }) => {
-  const translateY = useRef(new RNAnimated.Value(-25)).current;
-  const translateX = useRef(new RNAnimated.Value(-20)).current;
+// Animated gradient background — scrolls upward continuously
+const AnimatedGradientBg = () => {
+  const scrollY = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    // Floating animation Y
     RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(translateY, {
-          toValue: 25,
-          duration: durationY,
-          useNativeDriver: true,
-          easing: (t) => Math.sin(t * Math.PI),
-        }),
-        RNAnimated.timing(translateY, {
-          toValue: -25,
-          duration: durationY,
-          useNativeDriver: true,
-          easing: (t) => Math.sin(t * Math.PI),
-        }),
-      ])
-    ).start();
-
-    // Floating animation X
-    RNAnimated.loop(
-      RNAnimated.sequence([
-        RNAnimated.timing(translateX, {
-          toValue: 20,
-          duration: durationX,
-          useNativeDriver: true,
-          easing: (t) => Math.sin(t * Math.PI),
-        }),
-        RNAnimated.timing(translateX, {
-          toValue: -20,
-          duration: durationX,
-          useNativeDriver: true,
-          easing: (t) => Math.sin(t * Math.PI),
-        }),
-      ])
+      RNAnimated.timing(scrollY, {
+        toValue: -SCREEN_HEIGHT,
+        duration: 12000,
+        useNativeDriver: true,
+        easing: (t: number) => t, // linear
+      })
     ).start();
   }, []);
 
   return (
-    <RNAnimated.View
-      style={[
-        styles.glowOrb,
-        style,
-        {
-          transform: [
-            { translateY },
-            { translateX },
-          ],
-        },
-      ]}
-    />
-  );
-};
-
-// Terminal typing animation component
-const TerminalTyping = () => {
-  const [lines, setLines] = useState<{ text: string; isTyping: boolean; color?: string }[]>([]);
-  const [currentLineIndex, setCurrentLineIndex] = useState(0);
-  const [currentCharIndex, setCurrentCharIndex] = useState(0);
-
-  const codeLines = [
-    { text: '$ npm create drape-app', color: '#10B981' },
-    { text: '', color: '#fff' },
-    { text: 'Creating your project...', color: '#6B7280' },
-    { text: '', color: '#fff' },
-    { text: 'import { AI } from "@drape/core"', color: '#C084FC' },
-    { text: 'import { Preview } from "@drape/live"', color: '#C084FC' },
-    { text: '', color: '#fff' },
-    { text: 'const app = new AI({', color: '#F472B6' },
-    { text: '  model: "claude-sonnet",', color: '#60A5FA' },
-    { text: '  preview: true,', color: '#60A5FA' },
-    { text: '})', color: '#F472B6' },
-    { text: '', color: '#fff' },
-    { text: 'await app.generate("Build me an app")', color: '#34D399' },
-    { text: '', color: '#fff' },
-    { text: '✓ App generated successfully!', color: '#10B981' },
-  ];
-
-  useEffect(() => {
-    if (currentLineIndex >= codeLines.length) {
-      // Animation complete - stay as is, don't reset
-      return;
-    }
-
-    const currentLine = codeLines[currentLineIndex];
-
-    if (currentCharIndex === 0) {
-      // Start new line
-      setLines(prev => [...prev, { text: '', isTyping: true, color: currentLine.color }]);
-    }
-
-    if (currentCharIndex < currentLine.text.length) {
-      // Type next character
-      const timeout = setTimeout(() => {
-        setLines(prev => {
-          const newLines = [...prev];
-          const lastIndex = newLines.length - 1;
-          newLines[lastIndex] = {
-            ...newLines[lastIndex],
-            text: currentLine.text.substring(0, currentCharIndex + 1),
-          };
-          return newLines;
-        });
-        setCurrentCharIndex(prev => prev + 1);
-      }, 30 + Math.random() * 40); // Random typing speed
-      return () => clearTimeout(timeout);
-    } else {
-      // Line complete, move to next
-      const timeout = setTimeout(() => {
-        setLines(prev => {
-          const newLines = [...prev];
-          const lastIndex = newLines.length - 1;
-          newLines[lastIndex] = { ...newLines[lastIndex], isTyping: false };
-          return newLines;
-        });
-        setCurrentLineIndex(prev => prev + 1);
-        setCurrentCharIndex(0);
-      }, 200);
-      return () => clearTimeout(timeout);
-    }
-  }, [currentLineIndex, currentCharIndex]);
-
-  return (
-    <View style={styles.terminalWindow}>
-      {/* Terminal Header */}
-      <View style={styles.terminalHeader}>
-        <View style={styles.terminalButtons}>
-          <View style={[styles.terminalBtn, { backgroundColor: '#FF5F56' }]} />
-          <View style={[styles.terminalBtn, { backgroundColor: '#FFBD2E' }]} />
-          <View style={[styles.terminalBtn, { backgroundColor: '#27CA40' }]} />
-        </View>
-        <Text style={styles.terminalTitle}>drape — zsh</Text>
-        <View style={{ width: 52 }} />
-      </View>
-
-      {/* Terminal Content */}
-      <View style={styles.terminalContent}>
-        {lines.map((line, index) => (
-          <View key={index} style={styles.terminalLine}>
-            <Text style={[styles.terminalText, { color: line.color || '#fff' }]}>
-              {line.text}
-              {line.isTyping && <Text style={styles.cursor}>▋</Text>}
-            </Text>
-          </View>
-        ))}
-        {lines.length === 0 && (
-          <View style={styles.terminalLine}>
-            <Text style={[styles.terminalText, { color: '#10B981' }]}>
-              $ <Text style={styles.cursor}>▋</Text>
-            </Text>
-          </View>
-        )}
-      </View>
+    <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]} pointerEvents="none">
+      {/* Dark base */}
+      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#08080f' }]} />
+      {/* Scrolling gradient strip — 2x screen height, loops seamlessly */}
+      <RNAnimated.View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          height: SCREEN_HEIGHT * 2,
+          top: 0,
+          transform: [{ translateY: scrollY }],
+        }}
+      >
+        <LinearGradient
+          colors={['#08080f', '#14082a', '#1a0c34', '#12082a', '#08080f', '#14082a', '#1a0c34', '#12082a', '#08080f']}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ width: '100%', height: '100%' }}
+        />
+      </RNAnimated.View>
     </View>
   );
 };
+
+// Floating feature cards — abstract IDE representation
+const FeatureCards = () => {
+  const float0 = useRef(new RNAnimated.Value(0)).current;
+  const float1 = useRef(new RNAnimated.Value(0)).current;
+  const float2 = useRef(new RNAnimated.Value(0)).current;
+  const floats = [float0, float1, float2];
+
+  useEffect(() => {
+    floats.forEach((anim, i) => {
+      setTimeout(() => {
+        RNAnimated.loop(
+          RNAnimated.sequence([
+            RNAnimated.timing(anim, { toValue: 1, duration: 2800 + i * 400, useNativeDriver: true, easing: (t: number) => Math.sin(t * Math.PI) }),
+            RNAnimated.timing(anim, { toValue: 0, duration: 2800 + i * 400, useNativeDriver: true, easing: (t: number) => Math.sin(t * Math.PI) }),
+          ])
+        ).start();
+      }, i * 150);
+    });
+  }, []);
+
+  const cards = [
+    { icon: 'code-slash' as const, label: 'Code', color: '#A78BFA', lines: [0.75, 0.5, 0.85, 0.35, 0.6] },
+    { icon: 'sparkles' as const, label: 'AI', color: '#818CF8', lines: [0.6, 0.9, 0.45, 0.7] },
+    { icon: 'eye' as const, label: 'Preview', color: '#7C8BF5', lines: [0.8, 0.55, 0.65] },
+  ];
+
+  return (
+    <View style={featureCardStyles.container}>
+      {cards.map((card, i) => (
+        <RNAnimated.View
+          key={card.label}
+          style={[
+            featureCardStyles.card,
+            {
+              transform: [{
+                translateY: floats[i].interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, i === 1 ? -10 : 8],
+                }),
+              }],
+            },
+          ]}
+        >
+          <View style={[featureCardStyles.accent, { backgroundColor: card.color }]} />
+          <View style={featureCardStyles.header}>
+            <Ionicons name={card.icon} size={14} color={card.color} />
+            <Text style={[featureCardStyles.label, { color: card.color }]}>{card.label}</Text>
+          </View>
+          <View style={featureCardStyles.body}>
+            {card.lines.map((w, j) => (
+              <View
+                key={j}
+                style={{
+                  height: 4,
+                  borderRadius: 2,
+                  width: `${w * 100}%`,
+                  opacity: 0.25 - j * 0.03,
+                  backgroundColor: card.color,
+                }}
+              />
+            ))}
+          </View>
+        </RNAnimated.View>
+      ))}
+    </View>
+  );
+};
+
+const featureCardStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  card: {
+    flex: 1,
+    height: 140,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    overflow: 'hidden',
+  },
+  accent: {
+    height: 2,
+    width: '100%',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  body: {
+    paddingHorizontal: 10,
+    gap: 6,
+  },
+});
 
 // Helper component to render input field with or without LiquidGlass
 // Defined outside AuthScreen to prevent re-creation on each render (which causes input focus loss)
@@ -244,13 +231,14 @@ export const AuthScreen = () => {
   const [verificationEmail, setVerificationEmail] = useState('');
   const [verificationPassword, setVerificationPassword] = useState('');
   const [resendSuccess, setResendSuccess] = useState(false);
+  const [isAutoLogging, setIsAutoLogging] = useState(false);
 
   const modalHeight = useRef(new RNAnimated.Value(200)).current;
   const modalBottom = useRef(new RNAnimated.Value(90)).current;
   const blurOpacity = useRef(new RNAnimated.Value(0)).current;
   const keyboardHeight = useRef(0);
   const baseMarginBottom = useRef(90);
-  const { signIn, signUp, signInWithApple, resetPassword, resendVerificationEmail, isLoading, error, clearError } = useAuthStore();
+  const { signIn, signUp, signInWithApple, resetPassword, resendVerificationEmail, checkEmailVerified, isLoading, error, clearError } = useAuthStore();
   const insets = useSafeAreaInsets();
 
   // Check Apple Auth availability
@@ -302,6 +290,12 @@ export const AuthScreen = () => {
       ? keyboardHeight.current - insets.bottom + 10
       : targetMarginBottom;
 
+    // Stop any in-progress animations to prevent stale values
+    modalHeight.stopAnimation();
+    modalBottom.stopAnimation();
+    blurOpacity.stopAnimation();
+
+    // JS-driven animations (height + margin) — separate from native-driven
     RNAnimated.parallel([
       RNAnimated.timing(modalHeight, {
         toValue: targetHeight,
@@ -313,13 +307,60 @@ export const AuthScreen = () => {
         duration: 300,
         useNativeDriver: false,
       }),
-      RNAnimated.timing(blurOpacity, {
-        toValue: showBlur ? 1 : 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
     ]).start();
+
+    // Native-driven animation (opacity) — must run separately
+    RNAnimated.timing(blurOpacity, {
+      toValue: showBlur ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
   }, [mode]);
+
+  // Poll for email verification when in verify mode
+  useEffect(() => {
+    if (mode !== 'verify' || !verificationEmail || !verificationPassword) return;
+
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const verified = await checkEmailVerified(verificationEmail, verificationPassword);
+        if (cancelled) return;
+        if (verified) {
+          setIsAutoLogging(true);
+          try {
+            await signIn(verificationEmail, verificationPassword);
+            // signIn sets user in store → App.tsx navigates away from auth screen
+          } catch {
+            // If signIn fails for some reason, fall back to manual login
+            if (!cancelled) {
+              setIsAutoLogging(false);
+              setMode('login');
+              setEmail(verificationEmail);
+              setPassword(verificationPassword);
+            }
+          }
+          return; // Stop polling
+        }
+      } catch {
+        // Ignore polling errors
+      }
+      if (!cancelled) {
+        pollTimer = setTimeout(poll, 3000);
+      }
+    };
+
+    // Start polling after a short initial delay
+    pollTimer = setTimeout(poll, 2000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(pollTimer);
+    };
+  }, [mode, verificationEmail, verificationPassword]);
 
   const handleSubmit = async () => {
     setLocalError(null);
@@ -446,47 +487,63 @@ export const AuthScreen = () => {
       {/* Email Verification State */}
       {mode === 'verify' && (
         <Animated.View entering={FadeIn.duration(300)} style={styles.formContent}>
-          <View style={styles.verifyContainer}>
-            <View style={styles.verifyIconContainer}>
-              <Ionicons name="mail-outline" size={36} color={AppColors.primary} />
+          {isAutoLogging ? (
+            <View style={styles.verifyContainer}>
+              <View style={[styles.verifyIconContainer, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+                <Ionicons name="checkmark-circle" size={36} color="#10B981" />
+              </View>
+              <Text style={styles.verifyTitle}>{t('auth:emailVerification.verified')}</Text>
+              <ActivityIndicator color={AppColors.primary} style={{ marginTop: 16 }} />
             </View>
-            <Text style={styles.verifyTitle}>{t('auth:emailVerification.title')}</Text>
-            <Text style={styles.verifyMessage}>
-              {t('auth:emailVerification.message', { email: verificationEmail })}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.resendButton, resendSuccess && styles.resendButtonSuccess]}
-            onPress={async () => {
-              try {
-                setLocalError(null);
-                setResendSuccess(false);
-                await resendVerificationEmail(verificationEmail, verificationPassword);
-                setResendSuccess(true);
-              } catch (err: any) {
-                setLocalError(err?.message || t('auth:errors.errorSendingVerificationEmail'));
-              }
-            }}
-            disabled={isLoading}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name={resendSuccess ? 'checkmark-circle' : 'refresh-outline'}
-              size={18}
-              color={resendSuccess ? '#10B981' : 'rgba(255,255,255,0.8)'}
-            />
-            <Text style={[styles.resendButtonText, resendSuccess && { color: '#10B981' }]}>
-              {resendSuccess ? t('auth:emailVerification.resent') : t('auth:emailVerification.resend')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.switchMode}
-            onPress={() => switchMode('login')}
-          >
-            <Text style={[styles.switchModeText, { color: AppColors.primary }]}>
-              {t('auth:emailVerification.backToLogin')}
-            </Text>
-          </TouchableOpacity>
+          ) : (
+            <>
+              <View style={styles.verifyContainer}>
+                <View style={styles.verifyIconContainer}>
+                  <Ionicons name="mail-outline" size={36} color={AppColors.primary} />
+                </View>
+                <Text style={styles.verifyTitle}>{t('auth:emailVerification.title')}</Text>
+                <Text style={styles.verifyMessage}>
+                  {t('auth:emailVerification.message', { email: verificationEmail })}
+                </Text>
+                <View style={styles.checkingRow}>
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.4)" />
+                  <Text style={styles.checkingText}>{t('auth:emailVerification.checking')}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.resendButton, resendSuccess && styles.resendButtonSuccess]}
+                onPress={async () => {
+                  try {
+                    setLocalError(null);
+                    setResendSuccess(false);
+                    await resendVerificationEmail(verificationEmail, verificationPassword);
+                    setResendSuccess(true);
+                  } catch (err: any) {
+                    setLocalError(err?.message || t('auth:errors.errorSendingVerificationEmail'));
+                  }
+                }}
+                disabled={isLoading}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={resendSuccess ? 'checkmark-circle' : 'refresh-outline'}
+                  size={18}
+                  color={resendSuccess ? '#10B981' : 'rgba(255,255,255,0.8)'}
+                />
+                <Text style={[styles.resendButtonText, resendSuccess && { color: '#10B981' }]}>
+                  {resendSuccess ? t('auth:emailVerification.resent') : t('auth:emailVerification.resend')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.switchMode}
+                onPress={() => switchMode('login')}
+              >
+                <Text style={[styles.switchModeText, { color: AppColors.primary }]}>
+                  {t('auth:emailVerification.backToLogin')}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </Animated.View>
       )}
 
@@ -676,27 +733,18 @@ export const AuthScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Background */}
-      <LinearGradient
-        colors={['#0a0a0f', '#0f0f18', '#0a0a0f']}
-        style={StyleSheet.absoluteFillObject}
-      />
-
-      {/* Background Glow Effects */}
-      <View style={styles.glowContainer}>
-        <AnimatedGlow style={styles.glowOrb1} durationY={5000} durationX={6000} />
-        <AnimatedGlow style={styles.glowOrb2} durationY={6000} durationX={5000} />
-      </View>
+      {/* Animated Gradient Background */}
+      <AnimatedGradientBg />
 
       {/* Content */}
-      <View style={[styles.content, { paddingTop: insets.top + 20 }]}>
-        {/* Terminal Animation */}
-        <Animated.View entering={FadeInDown.delay(200).duration(800)} style={styles.terminalContainer}>
-          <TerminalTyping />
+      <View style={[styles.content, { paddingTop: insets.top + 40 }]}>
+        {/* Feature Cards */}
+        <Animated.View entering={FadeInDown.delay(200).duration(800)} style={styles.cardsSection}>
+          <FeatureCards />
         </Animated.View>
 
         {/* Branding */}
-        <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.brandingSection}>
+        <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.brandingSection}>
           <Text style={styles.brandName}>Drape</Text>
           <Text style={styles.tagline}>Code with AI</Text>
         </Animated.View>
@@ -749,29 +797,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0f',
   },
-  glowContainer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-  },
-  glowOrb: {
-    position: 'absolute',
-    borderRadius: 999,
-  },
-  glowOrb1: {
-    width: 400,
-    height: 400,
-    top: 60,
-    right: -120,
-    backgroundColor: '#7C3AED',
-    opacity: 0.2,
-  },
-  glowOrb2: {
-    width: 150,
-    height: 150,
-    bottom: 180,
-    left: -40,
-    backgroundColor: '#7C3AED',
-    opacity: 0.18,
+  cardsSection: {
+    marginTop: 20,
+    paddingHorizontal: 10,
   },
   blurOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -781,80 +809,23 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
   },
-  // Terminal Styles
-  terminalContainer: {
-    marginTop: 20,
-  },
-  terminalWindow: {
-    backgroundColor: '#1a1a24',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  terminalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#2a2a36',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  terminalButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  terminalBtn: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  terminalTitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: '500',
-  },
-  terminalContent: {
-    padding: 16,
-    height: 260,
-    overflow: 'hidden',
-  },
-  terminalLine: {
-    flexDirection: 'row',
-    marginBottom: 4,
-  },
-  terminalText: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  cursor: {
-    color: '#10B981',
-    opacity: 1,
-  },
   // Branding
   brandingSection: {
     alignItems: 'center',
-    marginTop: 32,
+    marginTop: 40,
   },
   brandName: {
-    fontSize: 42,
+    fontSize: 52,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: -1,
+    letterSpacing: -1.5,
   },
   tagline: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.45)',
-    marginTop: 6,
+    fontSize: 17,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 8,
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
   // Modal
   modalContainer: {
@@ -1133,6 +1104,17 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 8,
+  },
+  checkingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  checkingText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
   },
   resendButton: {
     flexDirection: 'row',

@@ -117,6 +117,7 @@
   "projectName": "Project name",
   "terminalMode": "Terminal Mode",
   "envVariables": "Environment Variables",
+  "agentStopped": "Agent stopped",
   "galleryPermissionRequired": "Gallery access permission is required",
   "offline": {
     "title": "No Connection",

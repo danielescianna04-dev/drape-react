@@ -87,14 +87,14 @@ class WorkspaceService {
    * Warm up a project: create container + install deps + start dev server in background.
    * Called by /fly/clone. Returns quickly, work continues in background.
    */
-  async warmProject(projectId: string, userId: string, repoUrl?: string, githubToken?: string): Promise<Result> {
+  async warmProject(projectId: string, userId: string, repoUrl?: string, githubToken?: string, branch?: string): Promise<Result> {
     const session = await this.getOrCreateContainer(projectId, userId);
 
     // If repo URL provided and no files exist, clone
     if (repoUrl) {
       const hasFiles = await fileService.exists(projectId, 'package.json');
       if (!hasFiles) {
-        await this.cloneRepository(projectId, repoUrl, githubToken);
+        await this.cloneRepository(projectId, repoUrl, githubToken, branch);
       }
     }
 
@@ -280,7 +280,7 @@ class WorkspaceService {
    * Clone a repository to the project directory on NVMe
    * Supports GitHub, GitLab, Bitbucket, and Gitea
    */
-  async cloneRepository(projectId: string, repoUrl: string, token?: string): Promise<Result> {
+  async cloneRepository(projectId: string, repoUrl: string, token?: string, branch?: string): Promise<Result> {
     const projectDir = path.join(config.projectsRoot, projectId);
 
     // Skip if directory already has files (already cloned)
@@ -310,9 +310,10 @@ class WorkspaceService {
       }
     }
 
-    log.info(`[Workspace] Cloning ${repoUrl} to ${projectId}`);
+    log.info(`[Workspace] Cloning ${repoUrl} to ${projectId}${branch ? ` (branch: ${branch})` : ''}`);
+    const branchFlag = branch ? `--branch ${shellEscape(branch)} ` : '';
     const result = await execShell(
-      `git clone --depth 1 ${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
+      `git clone --depth 1 ${branchFlag}${shellEscape(cloneUrl)} ${shellEscape(projectDir)}`,
       '/tmp',
       120000,
     );

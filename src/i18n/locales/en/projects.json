@@ -33,7 +33,13 @@
     "discover": "Discover Drape",
     "skip": "Skip",
     "next": "Next",
-    "start": "Start!"
+    "start": "Start!",
+    "talkToAI": "Talk to the AI",
+    "talkToAIDesc": "Ask AI to build, edit or explain any part of your project",
+    "livePreview": "Live Preview",
+    "livePreviewDesc": "See your app running in real-time as AI writes the code",
+    "exploreFiles": "Explore Files",
+    "exploreFilesDesc": "Browse and edit your project files directly from the editor"
   },
   "create": {
     "title": "New Project",
@@ -64,7 +70,14 @@
     "mustBeLoggedIn": "You must be logged in to create a project",
     "unableToStartAgent": "Unable to start the agent. Try again.",
     "unableToCreate": "Unable to create the project. Try again.",
-    "aiHint": "AI will generate the code based on this description"
+    "aiHint": "AI will generate the code based on this description",
+    "popular": "Popular",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "mobile": "Mobile",
+    "showAll": "Show all",
+    "showLess": "Show less",
+    "aiRecommendedBecause": "AI recommendation:"
   },
   "limit": {
     "reached": "Limit reached",

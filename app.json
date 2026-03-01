@@ -2,7 +2,7 @@
   "expo": {
     "name": "Drape",
     "slug": "drape-react",
-    "version": "1.5.5",
+    "version": "1.5.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +14,7 @@
       "backgroundColor": "#0A0A0C"
     },
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "com.drape.app",
       "infoPlist": {
         "UIUserInterfaceStyle": "Dark",
@@ -63,9 +63,12 @@
         "projectId": "ec6c855f-5325-47b4-8d13-982ba9a83a1c"
       }
     },
-    "runtimeVersion": "1.5.5",
+    "runtimeVersion": "1.5.7",
     "updates": {
-      "url": "https://u.expo.dev/ec6c855f-5325-47b4-8d13-982ba9a83a1c"
+      "url": "https://u.expo.dev/ec6c855f-5325-47b4-8d13-982ba9a83a1c",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     },
     "owner": "drape01",
     "plugins": [

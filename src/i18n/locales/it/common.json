@@ -117,6 +117,7 @@
   "projectName": "Nome del progetto",
   "terminalMode": "Modalità Terminale",
   "envVariables": "Variabili Ambiente",
+  "agentStopped": "Agente fermato",
   "galleryPermissionRequired": "È necessario il permesso per accedere alla galleria",
   "offline": {
     "title": "Nessuna Connessione",

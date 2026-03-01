@@ -243,7 +243,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
   const handleCreateFolder = (name: string) => {
   };
 
-  const handleImportRepo = async (url: string, token?: string) => {
+  const handleImportRepo = async (url: string, token?: string, branch?: string) => {
     try {
       const userId = useWorkstationStore.getState().userId || 'anonymous';
 
@@ -275,7 +275,7 @@ export const Sidebar = ({ onClose, onOpenAllProjects, onHidePreview }: Props) =>
 
       // STEP 2: Now safe to create the project and workstation
       const project = await workstationService.saveGitProject(url, userId);
-      const wsResult = await workstationService.createWorkstationForProject(project, token);
+      const wsResult = await workstationService.createWorkstationForProject(project, token, branch);
 
       const workstation = {
         id: wsResult.workstationId || project.id,

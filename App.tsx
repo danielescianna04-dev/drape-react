@@ -21,6 +21,7 @@ import { LoadingModal } from './src/shared/components/molecules/LoadingModal';
 import { GitAuthPopup } from './src/features/terminal/components/GitAuthPopup';
 import { ErrorBoundary } from './src/shared/components/ErrorBoundary';
 import { OfflineOverlay } from './src/shared/components/OfflineOverlay';
+import { InAppToast } from './src/shared/components/InAppToast';
 import { workstationService } from './src/core/workstation/workstationService-firebase';
 import { githubTokenService } from './src/core/github/githubTokenService';
 import { gitAccountService } from './src/core/git/gitAccountService';
@@ -479,7 +480,7 @@ export default function App() {
     };
   }, []);
 
-  const handleImportRepo = async (url: string, newToken?: string, forceCopy?: boolean) => {
+  const handleImportRepo = async (url: string, newToken?: string, forceCopy?: boolean, branch?: string) => {
     // Guard against double calls
     if (importInProgress.current) {
       return;
@@ -523,7 +524,7 @@ export default function App() {
               githubToken = tokenResult?.token || null;
             }
 
-            const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
+            const wsResult = await workstationService.createWorkstationForProject(project, githubToken, branch);
 
             const workstation = {
               id: wsResult.workstationId || project.id,
@@ -703,7 +704,7 @@ export default function App() {
                 text: 'Crea copia',
                 onPress: () => {
                   // Re-call with forceCopy=true
-                  handleImportRepo(url, newToken, true);
+                  handleImportRepo(url, newToken, true, branch);
                 },
               },
             ]
@@ -820,7 +821,7 @@ export default function App() {
       }
 
       const project = await workstationService.saveGitProject(url, userId, copyNumber);
-      const wsResult = await workstationService.createWorkstationForProject(project, githubToken);
+      const wsResult = await workstationService.createWorkstationForProject(project, githubToken, branch);
 
       const workstation = {
         id: wsResult.workstationId || project.id,
@@ -1015,7 +1016,7 @@ export default function App() {
             { repositoryUrl: url, owner: url.match(/github\.com\/([^\/]+)\//)?.[1] }
           );
           // Retry with new token
-          handleImportRepo(url, token, forceCopy);
+          handleImportRepo(url, token, forceCopy, branch);
         } catch (err) {
           // User cancelled, do nothing - no error shown
         }
@@ -1500,7 +1501,7 @@ export default function App() {
         <ImportGitHubModal
           visible={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onImport={handleImportRepo}
+          onImport={(url, branch) => handleImportRepo(url, undefined, undefined, branch)}
           isLoading={isImporting}
         />
         <GitHubAuthModal
@@ -1523,6 +1524,7 @@ export default function App() {
         />
         <GitAuthPopup />
         <OfflineOverlay />
+        <InAppToast />
         <StatusBar style="light" />
       </SafeAreaProvider>
     </GestureHandlerRootView>

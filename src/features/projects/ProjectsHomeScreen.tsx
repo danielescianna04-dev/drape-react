@@ -28,6 +28,8 @@ import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
 import { useTranslation } from 'react-i18next';
+import { useOnboardingStore, ONBOARDING_STEPS } from '../../core/onboarding/onboardingStore';
+import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
 
 interface Props {
   onCreateProject: () => void;
@@ -39,36 +41,6 @@ interface Props {
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-const TUTORIAL_KEY = '@drape_tutorial_completed';
-
-// Tutorial steps configuration
-const tutorialSteps = [
-  {
-    id: 'welcome',
-    title: 'Benvenuto su Drape!',
-    description: 'Ti mostro come funziona in pochi passi',
-    icon: 'sparkles' as const,
-  },
-  {
-    id: 'new',
-    title: 'Crea un nuovo progetto',
-    description: 'Usa AI per generare app complete partendo da una descrizione',
-    icon: 'add' as const,
-  },
-  {
-    id: 'clone',
-    title: 'Importa da GitHub',
-    description: 'Clona qualsiasi repository e modificalo con l\'AI',
-    icon: 'logo-github' as const,
-  },
-  {
-    id: 'recent',
-    title: 'Progetti recenti',
-    description: 'Qui trovi tutti i tuoi progetti salvati',
-    icon: 'time-outline' as const,
-  },
-];
 
 // Glass wrapper component for LiquidGlass effect
 const GlassWrapper = ({ children, style }: { children: React.ReactNode; style?: any }) => {
@@ -97,27 +69,34 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     };
   }, []);
 
-  // Check if user needs tutorial
+  // Initialize spotlight onboarding
+  const { isActive: onboardingActive, currentStep: onboardingStep, setTargetRect } = useOnboardingStore();
+  const newProjectCardRef = useRef<View>(null);
+  const cloneCardRef = useRef<View>(null);
+
   useEffect(() => {
-    const checkTutorial = async () => {
-      try {
-        const completed = await AsyncStorage.getItem(TUTORIAL_KEY);
-        if (!completed) {
-          // Small delay to let the screen render first
-          setTimeout(() => {
-            setShowTutorial(true);
-            Animated.timing(tutorialFadeAnim, {
-              toValue: 1,
-              duration: 400,
-              useNativeDriver: true,
-            }).start();
-          }, 800);
+    if (user?.uid) {
+      useOnboardingStore.getState().initialize(user.uid);
+    }
+  }, [user?.uid]);
+
+  // Measure target cards when onboarding is active on home screen steps
+  useEffect(() => {
+    if (!onboardingActive) return;
+    const step = ONBOARDING_STEPS[onboardingStep];
+    if (!step || step.screen !== 'home') return;
+
+    const timer = setTimeout(() => {
+      const ref = onboardingStep === 0 ? newProjectCardRef : cloneCardRef;
+      ref.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) {
+          setTargetRect({ x, y, width, height });
         }
-      } catch (error) {
-      }
-    };
-    checkTutorial();
-  }, []);
+      });
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [onboardingActive, onboardingStep]);
 
   const currentHour = new Date().getHours();
   const greeting = (currentHour >= 5 && currentHour < 18) ? t('goodMorning') : t('goodEvening');
@@ -142,9 +121,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   const [loadingStep, setLoadingStep] = useState('');
   const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>(user?.plan === 'starter' ? 'free' : (user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
   const [showUpgradeCta, setShowUpgradeCta] = useState(true);
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [tutorialStep, setTutorialStep] = useState(0);
-  const tutorialFadeAnim = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const sheetAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const progressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -957,29 +933,6 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   };
 
-  // Tutorial handlers
-  const handleNextTutorialStep = () => {
-    if (tutorialStep < tutorialSteps.length - 1) {
-      setTutorialStep(tutorialStep + 1);
-    } else {
-      handleCompleteTutorial();
-    }
-  };
-
-  const handleCompleteTutorial = async () => {
-    Animated.timing(tutorialFadeAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      setShowTutorial(false);
-    });
-    try {
-      await AsyncStorage.setItem(TUTORIAL_KEY, 'true');
-    } catch (error) {
-    }
-  };
-
   const shimmerOpacity = shimmerAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0.3, 0.6],
@@ -1100,48 +1053,54 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
 
           <View style={styles.quickActionsRow}>
             {/* New Project */}
-            <TouchableOpacity
-              style={styles.actionCard}
-              activeOpacity={0.8}
-              onPress={onCreateProject}
-            >
-              <LinearGradient
-                colors={[AppColors.primary, '#7B6BFF']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.actionCardGradient}
+            <View ref={newProjectCardRef} collapsable={false} style={styles.actionCardWrapper}>
+              <TouchableOpacity
+                style={styles.actionCard}
+                activeOpacity={0.8}
+                onPress={onCreateProject}
               >
-                <Ionicons name="add" size={26} color="#fff" />
-                <Text style={styles.actionCardTitle}>{t('home.newProject')}</Text>
-                <Text style={styles.actionCardSubtitle}>{t('home.createProject')}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                <LinearGradient
+                  colors={[AppColors.primary, '#7B6BFF']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.actionCardGradient}
+                >
+                  <Ionicons name="add" size={24} color="#fff" />
+                  <Text style={styles.actionCardTitle}>{t('home.newProject')}</Text>
+                  <Text style={styles.actionCardSubtitle}>{t('home.createProject')}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
 
             {/* Import from GitHub */}
-            <GlassWrapper key={`import-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
-              <TouchableOpacity
-                style={styles.actionCardInner}
-                activeOpacity={0.8}
-                onPress={onImportProject}
-              >
-                <Ionicons name="logo-github" size={24} color="#fff" />
-                <Text style={styles.actionCardTitle}>{t('home.clone')}</Text>
-                <Text style={styles.actionCardSubtitle}>{t('home.cloneRepo')}</Text>
-              </TouchableOpacity>
-            </GlassWrapper>
+            <View ref={cloneCardRef} collapsable={false} style={styles.actionCardWrapper}>
+              <GlassWrapper key={`import-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
+                <TouchableOpacity
+                  style={styles.actionCardInner}
+                  activeOpacity={0.8}
+                  onPress={onImportProject}
+                >
+                  <Ionicons name="logo-github" size={24} color="#fff" />
+                  <Text style={styles.actionCardTitle}>{t('home.clone')}</Text>
+                  <Text style={styles.actionCardSubtitle}>{t('home.cloneRepo')}</Text>
+                </TouchableOpacity>
+              </GlassWrapper>
+            </View>
 
             {/* Open File */}
-            <GlassWrapper key={`file-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
-              <TouchableOpacity
-                style={styles.actionCardInner}
-                activeOpacity={0.8}
-                onPress={handleBrowseFiles}
-              >
-                <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.actionCardTitle}>{t('home.files')}</Text>
-                <Text style={styles.actionCardSubtitle}>{t('home.openLocal')}</Text>
-              </TouchableOpacity>
-            </GlassWrapper>
+            <View style={styles.actionCardWrapper}>
+              <GlassWrapper key={`file-${focusKey}`} style={[styles.actionCard, styles.actionCardGlass]}>
+                <TouchableOpacity
+                  style={styles.actionCardInner}
+                  activeOpacity={0.8}
+                  onPress={handleBrowseFiles}
+                >
+                  <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
+                  <Text style={styles.actionCardTitle}>{t('home.files')}</Text>
+                  <Text style={styles.actionCardSubtitle}>{t('home.openLocal')}</Text>
+                </TouchableOpacity>
+              </GlassWrapper>
+            </View>
           </View>
         </View>
 
@@ -1599,97 +1558,8 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
         showTips={true}
       />
 
-      {/* Onboarding Tutorial */}
-      {showTutorial && (
-        <Animated.View
-          style={[styles.tutorialOverlay, { opacity: tutorialFadeAnim }]}
-        >
-          <Pressable
-            style={styles.tutorialBackdrop}
-            onPress={handleNextTutorialStep}
-          />
-
-          <View style={styles.tutorialCard}>
-            {/* Step indicator */}
-            <Text style={styles.tutorialStepLabel}>
-              {tutorialStep + 1} di {tutorialSteps.length}
-            </Text>
-
-            {/* Icon */}
-            <View style={[
-              styles.tutorialIconWrap,
-              tutorialStep === 1 && { backgroundColor: `${AppColors.primary}20` },
-              tutorialStep === 2 && { backgroundColor: 'rgba(255,255,255,0.08)' },
-              tutorialStep === 3 && { backgroundColor: 'rgba(96, 165, 250, 0.15)' },
-            ]}>
-              <Ionicons
-                name={tutorialSteps[tutorialStep].icon}
-                size={32}
-                color={
-                  tutorialStep === 0 ? '#F59E0B' :
-                    tutorialStep === 1 ? AppColors.primary :
-                      tutorialStep === 2 ? '#fff' :
-                        '#60A5FA'
-                }
-              />
-            </View>
-
-            {/* Content */}
-            <Text style={styles.tutorialTitle}>
-              {tutorialSteps[tutorialStep].title}
-            </Text>
-            <Text style={styles.tutorialDescription}>
-              {tutorialSteps[tutorialStep].description}
-            </Text>
-
-            {/* Progress dots */}
-            <View style={styles.tutorialProgress}>
-              {tutorialSteps.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.tutorialDot,
-                    index === tutorialStep && styles.tutorialDotActive,
-                  ]}
-                />
-              ))}
-            </View>
-
-            {/* Actions */}
-            <View style={styles.tutorialActions}>
-              {tutorialStep === 0 ? (
-                <TouchableOpacity
-                  style={styles.tutorialNextFull}
-                  onPress={handleNextTutorialStep}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.tutorialNextText}>Scopri Drape</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.tutorialButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.tutorialSkip}
-                    onPress={handleCompleteTutorial}
-                  >
-                    <Text style={styles.tutorialSkipText}>Salta</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.tutorialNext}
-                    onPress={handleNextTutorialStep}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.tutorialNextText}>
-                      {tutorialStep === tutorialSteps.length - 1 ? 'Inizia!' : 'Avanti'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-        </Animated.View>
-      )}
+      {/* Spotlight Onboarding */}
+      <SpotlightOverlay />
     </View>
   );
 };
@@ -1758,7 +1628,11 @@ const styles = StyleSheet.create({
   // Quick Actions Row - compact cards
   quickActionsRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: 10,
+  },
+  actionCardWrapper: {
+    flex: 1,
   },
   actionCard: {
     flex: 1,
@@ -1766,8 +1640,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   actionCardGradient: {
+    flex: 1,
     padding: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   actionCardDark: {
@@ -1779,8 +1655,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionCardInner: {
+    flex: 1,
     padding: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 14,

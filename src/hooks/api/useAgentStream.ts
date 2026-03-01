@@ -33,7 +33,9 @@ export type AgentEventType =
   | 'complete'
   | 'error'
   | 'fatal_error'
-  | 'done';
+  | 'done'
+  | 'sub_agent_start'
+  | 'sub_agent_complete';
 
 // Tool Event Interface
 export interface AgentToolEvent {
@@ -316,6 +318,8 @@ export function useAgentStream(
         'error',
         'fatal_error',
         'done',
+        'sub_agent_start',
+        'sub_agent_complete',
       ];
 
       eventTypes.forEach((eventType) => {
@@ -506,6 +510,8 @@ export function useAgentStream(
       'error',
       'fatal_error',
       'done',
+      'sub_agent_start',
+      'sub_agent_complete',
     ];
 
     eventTypes.forEach((eventType) => {

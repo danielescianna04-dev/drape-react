@@ -1,23 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, TouchableWithoutFeedback, Keyboard, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { Ionicons } from '@expo/vector-icons';
 import { AppColors } from '../../../shared/theme/colors';
+import { config } from '../../../config/config';
+import { getAuthHeaders } from '../../../core/api/getAuthToken';
+import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onImport: (url: string) => void;
+  onImport: (url: string, branch?: string) => void;
   isLoading?: boolean;
 }
 
 export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = false }: Props) => {
+  const { t } = useTranslation(['terminal']);
   const [repoUrl, setRepoUrl] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const modalOffset = useRef(new Animated.Value(0)).current;
+
+  // Branch selection state
+  const [branches, setBranches] = useState<string[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const fetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -36,6 +46,11 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
         }
       };
       loadClipboard();
+    } else {
+      // Reset state when closed
+      setBranches([]);
+      setSelectedBranch('');
+      setLoadingBranches(false);
     }
 
     return () => { isMounted = false; };
@@ -66,6 +81,49 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
     }).start();
   }, [keyboardVisible]);
 
+  // Debounced fetch of remote branches when URL changes
+  useEffect(() => {
+    if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+
+    const url = String(repoUrl || '').trim();
+    if (!url || !isGitUrl(url)) {
+      setBranches([]);
+      setSelectedBranch('');
+      return;
+    }
+
+    fetchTimerRef.current = setTimeout(() => {
+      fetchRemoteBranches(url);
+    }, 600);
+
+    return () => {
+      if (fetchTimerRef.current) clearTimeout(fetchTimerRef.current);
+    };
+  }, [repoUrl]);
+
+  const fetchRemoteBranches = async (url: string) => {
+    setLoadingBranches(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${config.apiUrl}/git/remote-branches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ repositoryUrl: url }),
+      });
+      const data = await response.json();
+      if (data.success && data.branches?.length > 0) {
+        setBranches(data.branches);
+        setSelectedBranch(''); // empty = default branch
+      } else {
+        setBranches([]);
+      }
+    } catch {
+      setBranches([]);
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
+
   const isGitUrl = (url: string): boolean => {
     if (!url || typeof url !== 'string') return false;
     const lowerUrl = url.toLowerCase();
@@ -82,12 +140,140 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
   const handleImport = () => {
     const url = String(repoUrl || '').trim();
     if (url) {
-      onImport(url);
+      onImport(url, selectedBranch || undefined);
       setRepoUrl('');
+      setBranches([]);
+      setSelectedBranch('');
     }
   };
 
   const isValidUrl = String(repoUrl || '').trim().length > 0;
+
+  const renderBranchSelector = () => {
+    if (loadingBranches) {
+      return (
+        <View style={styles.branchSection}>
+          <View style={styles.branchLoadingRow}>
+            <ActivityIndicator size="small" color={AppColors.primary} />
+            <Text style={styles.branchLoadingText}>{t('git.loadingBranches')}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (branches.length <= 1) return null;
+
+    return (
+      <View style={styles.branchSection}>
+        <Text style={styles.label}>{t('git.selectBranch')}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.branchChipsRow}>
+          {branches.map((branch) => {
+            const isSelected = selectedBranch === branch || (!selectedBranch && branches.indexOf(branch) === 0);
+            return (
+              <TouchableOpacity
+                key={branch}
+                style={[styles.branchChip, isSelected && styles.branchChipActive]}
+                onPress={() => setSelectedBranch(branches.indexOf(branch) === 0 ? '' : branch)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="git-branch-outline" size={12} color={isSelected ? '#fff' : AppColors.white.w60} />
+                <Text style={[styles.branchChipText, isSelected && styles.branchChipTextActive]}>
+                  {branch}
+                </Text>
+                {!selectedBranch && branches.indexOf(branch) === 0 && (
+                  <Text style={styles.branchDefaultBadge}>{t('git.defaultBranch')}</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  };
+
+  const modalContent = (
+    <>
+      {/* Header with icon */}
+      <View style={styles.header}>
+        <View style={styles.iconCircle}>
+          <LinearGradient
+            colors={[AppColors.primary, AppColors.purpleMedium]}
+            style={styles.iconGradient}
+          >
+            <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
+          </LinearGradient>
+        </View>
+        <Text style={styles.title}>Import from GitHub</Text>
+      </View>
+
+      {/* Input section */}
+      <View style={styles.inputSection}>
+        <Text style={styles.label}>GitHub URL</Text>
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.input}
+            value={String(repoUrl || '')}
+            onChangeText={(text) => setRepoUrl(String(text || ''))}
+            placeholder="https://github.com/username/repository"
+            placeholderTextColor={AppColors.white.w35}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!isLoading}
+            keyboardAppearance="dark"
+            returnKeyType="done"
+            onSubmitEditing={handleImport}
+          />
+          {repoUrl.length > 0 && !isLoading && (
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => setRepoUrl('')}
+            >
+              <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Branch selector */}
+      {renderBranchSelector()}
+
+      {/* Buttons */}
+      <View style={styles.buttons}>
+        <TouchableOpacity
+          style={styles.cancelButton}
+          onPress={onClose}
+          disabled={isLoading}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.importButtonContainer}
+          onPress={handleImport}
+          disabled={!isValidUrl || isLoading}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={
+              !isValidUrl || isLoading
+                ? [AppColors.primaryAlpha.a40, AppColors.primaryAlpha.a40]
+                : [AppColors.primary, AppColors.purpleMedium]
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.importButton}
+          >
+            {isLoading ? (
+              <ActivityIndicator color={AppColors.white.full} />
+            ) : (
+              <Text style={styles.importText}>Import</Text>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
 
   return (
     <Modal
@@ -106,82 +292,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
             {isLiquidGlassSupported ? (
               <LiquidGlassView style={styles.liquidGlassContainer} interactive={true} effect="clear" colorScheme="dark">
                 <View style={styles.modalContentInner}>
-                  {/* Header with icon */}
-                  <View style={styles.header}>
-                    <View style={styles.iconCircle}>
-                      <LinearGradient
-                        colors={[AppColors.primary, AppColors.purpleMedium]}
-                        style={styles.iconGradient}
-                      >
-                        <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
-                      </LinearGradient>
-                    </View>
-                    <Text style={styles.title}>Import from GitHub</Text>
-                  </View>
-
-                  {/* Input section */}
-                  <View style={styles.inputSection}>
-                    <Text style={styles.label}>GitHub URL</Text>
-                    <View style={styles.inputContainer}>
-                      <TextInput
-                        style={styles.input}
-                        value={String(repoUrl || '')}
-                        onChangeText={(text) => setRepoUrl(String(text || ''))}
-                        placeholder="https://github.com/username/repository"
-                        placeholderTextColor={AppColors.white.w35}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        editable={!isLoading}
-                        keyboardAppearance="dark"
-                        returnKeyType="done"
-                        onSubmitEditing={handleImport}
-                      />
-                      {repoUrl.length > 0 && !isLoading && (
-                        <TouchableOpacity
-                          style={styles.clearButton}
-                          onPress={() => setRepoUrl('')}
-                        >
-                          <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Buttons */}
-                  <View style={styles.buttons}>
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={onClose}
-                      disabled={isLoading}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.cancelText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.importButtonContainer}
-                      onPress={handleImport}
-                      disabled={!isValidUrl || isLoading}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={
-                          !isValidUrl || isLoading
-                            ? [AppColors.primaryAlpha.a40, AppColors.primaryAlpha.a40]
-                            : [AppColors.primary, AppColors.purpleMedium]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.importButton}
-                      >
-                        {isLoading ? (
-                          <ActivityIndicator color={AppColors.white.full} />
-                        ) : (
-                          <Text style={styles.importText}>Import</Text>
-                        )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
+                  {modalContent}
                 </View>
               </LiquidGlassView>
             ) : (
@@ -190,82 +301,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
                   colors={[AppColors.white.w08, AppColors.white.w04]}
                   style={styles.modalGradient}
                 >
-                  {/* Header with icon */}
-                  <View style={styles.header}>
-                    <View style={styles.iconCircle}>
-                      <LinearGradient
-                        colors={[AppColors.primary, AppColors.purpleMedium]}
-                        style={styles.iconGradient}
-                      >
-                        <Ionicons name="logo-github" size={24} color={AppColors.white.full} />
-                      </LinearGradient>
-                    </View>
-                    <Text style={styles.title}>Import from GitHub</Text>
-                  </View>
-
-                  {/* Input section */}
-                  <View style={styles.inputSection}>
-                    <Text style={styles.label}>GitHub URL</Text>
-                    <View style={styles.inputContainer}>
-                      <TextInput
-                        style={styles.input}
-                        value={String(repoUrl || '')}
-                        onChangeText={(text) => setRepoUrl(String(text || ''))}
-                        placeholder="https://github.com/username/repository"
-                        placeholderTextColor={AppColors.white.w35}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        editable={!isLoading}
-                        keyboardAppearance="dark"
-                        returnKeyType="done"
-                        onSubmitEditing={handleImport}
-                      />
-                      {repoUrl.length > 0 && !isLoading && (
-                        <TouchableOpacity
-                          style={styles.clearButton}
-                          onPress={() => setRepoUrl('')}
-                        >
-                          <Ionicons name="close-circle" size={18} color={AppColors.white.w40} />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-
-                  {/* Buttons */}
-                  <View style={styles.buttons}>
-                    <TouchableOpacity
-                      style={styles.cancelButton}
-                      onPress={onClose}
-                      disabled={isLoading}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={styles.cancelText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.importButtonContainer}
-                      onPress={handleImport}
-                      disabled={!isValidUrl || isLoading}
-                      activeOpacity={0.8}
-                    >
-                      <LinearGradient
-                        colors={
-                          !isValidUrl || isLoading
-                            ? [AppColors.primaryAlpha.a40, AppColors.primaryAlpha.a40]
-                            : [AppColors.primary, AppColors.purpleMedium]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.importButton}
-                      >
-                        {isLoading ? (
-                          <ActivityIndicator color={AppColors.white.full} />
-                        ) : (
-                          <Text style={styles.importText}>Import</Text>
-                        )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
+                  {modalContent}
                 </LinearGradient>
 
                 {/* Border glow */}
@@ -357,7 +393,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   inputSection: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   label: {
     fontSize: 13,
@@ -384,6 +420,54 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 12,
     top: 13,
+  },
+  branchSection: {
+    marginBottom: 16,
+  },
+  branchLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+  },
+  branchLoadingText: {
+    fontSize: 12,
+    color: AppColors.white.w40,
+  },
+  branchChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  branchChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: AppColors.white.w04,
+    borderWidth: 1,
+    borderColor: AppColors.white.w08,
+  },
+  branchChipActive: {
+    backgroundColor: `${AppColors.primary}25`,
+    borderColor: AppColors.primary,
+  },
+  branchChipText: {
+    fontSize: 12,
+    color: AppColors.white.w60,
+    fontWeight: '500',
+  },
+  branchChipTextActive: {
+    color: '#fff',
+  },
+  branchDefaultBadge: {
+    fontSize: 9,
+    color: AppColors.primary,
+    fontWeight: '600',
+    marginLeft: 2,
+    textTransform: 'uppercase',
   },
   buttons: {
     flexDirection: 'row',

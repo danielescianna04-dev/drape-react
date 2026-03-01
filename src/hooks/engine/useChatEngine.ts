@@ -539,6 +539,11 @@ export function useChatEngine(
         continue;
       }
 
+      // Sub-agent events are handled by SubAgentStatus in ChatPage (not here)
+      if (event.type === 'sub_agent_start' || event.type === 'sub_agent_complete') {
+        continue;
+      }
+
       if (event.type === 'budget_exceeded') {
         setIsLoading(false);
         // Remove empty thinking, close others

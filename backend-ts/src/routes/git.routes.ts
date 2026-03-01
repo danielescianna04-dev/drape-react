@@ -215,6 +215,30 @@ gitRouter.post('/init/:projectId', asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Git initialized', results });
 }));
 
+// POST /git/remote-branches — list remote branches without cloning
+gitRouter.post('/remote-branches', asyncHandler(async (req, res) => {
+  const { repositoryUrl, token } = req.body;
+  if (!repositoryUrl) throw new ValidationError('repositoryUrl required');
+
+  const authUrl = getAuthUrl(repositoryUrl, token);
+  const result = await execShell(
+    `git ls-remote --heads ${shellEscape(authUrl)} 2>&1`,
+    '/tmp',
+    15000,
+  );
+
+  if (result.exitCode !== 0) {
+    return res.json({ success: false, branches: [], error: result.stderr });
+  }
+
+  const branches = result.stdout.trim().split('\n')
+    .filter(Boolean)
+    .map(line => line.split('\t')[1]?.replace('refs/heads/', ''))
+    .filter(Boolean);
+
+  res.json({ success: true, branches });
+}));
+
 // POST /git/stash/:projectId
 gitRouter.post('/stash/:projectId', asyncHandler(async (req, res) => {
   const dir = projectDir(req.params.projectId);

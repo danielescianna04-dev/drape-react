@@ -37,7 +37,12 @@ import { InfoSection } from './components/InfoSection';
 import { DeviceSection } from './components/DeviceSection';
 import { AccountActionsSection } from './components/AccountActionsSection';
 import { EditNameModal } from './components/EditNameModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { SecuritySection } from './components/SecuritySection';
+import { ChangeEmailModal } from './components/ChangeEmailModal';
+import { getAuth } from 'firebase/auth';
 import { LegalPage } from './components/LegalPage';
+import { PurchaseCelebrationModal } from '../../shared/components/modals/PurchaseCelebrationModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS, getProductId } from '../../core/iap/iapConstants';
@@ -125,9 +130,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases } = useIAPStore();
+  const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases, showCelebration, celebrationPlan, closeCelebration } = useIAPStore();
   const [showEditName, setShowEditName] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
+  const isEmailUser = getAuth().currentUser?.providerData.some(p => p.providerId === 'password') ?? false;
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 
@@ -980,6 +988,15 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           t={t}
         />
 
+        {/* Security Section (email users only) */}
+        {isEmailUser && (
+          <SecuritySection
+            onChangePassword={() => setShowChangePassword(true)}
+            onChangeEmail={() => setShowChangeEmail(true)}
+            t={t}
+          />
+        )}
+
         {/* Account Actions (Logout) */}
         <AccountActionsSection
           userEmail={user?.email}
@@ -1050,6 +1067,25 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         onClose={() => setShowEditName(false)}
         onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
         t={t}
+      />
+
+      <ChangePasswordModal
+        visible={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        t={t}
+      />
+
+      <ChangeEmailModal
+        visible={showChangeEmail}
+        currentEmail={user?.email || ''}
+        onClose={() => setShowChangeEmail(false)}
+        t={t}
+      />
+
+      <PurchaseCelebrationModal
+        visible={showCelebration}
+        planName={celebrationPlan}
+        onClose={closeCelebration}
       />
 
       {showLegal && (

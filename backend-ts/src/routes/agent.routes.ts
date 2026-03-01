@@ -83,17 +83,20 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   // buffering small writes for ~40ms. Critical for streaming responsiveness.
   res.socket?.setNoDelay(true);
 
+  // TCP keepalive — prevents mobile proxies and NAT from closing the idle connection
+  res.socket?.setKeepAlive(true, 10000);
+
   // Send initial SSE comment to confirm connection
   res.write(': connected\n\n');
 
   log.info(`[Agent] SSE headers flushed for project ${projectId}, mode: ${mode}`);
 
-  // Keep-alive interval
+  // Keep-alive interval — 10s to survive aggressive mobile proxies (was 15s)
   const keepAliveInterval = setInterval(() => {
     if (!res.writableEnded) {
       res.write(': keepalive\n\n');
     }
-  }, 15000);
+  }, 10000);
 
   // Track if client is still connected
   let clientDisconnected = false;
@@ -130,6 +133,12 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
     log.info(`[Agent] Starting stream for project ${projectId}, mode: ${mode}, model: ${model || 'default'}`);
 
+    // Send a real SSE event immediately so mobile proxies don't time out waiting
+    // for data before Claude sends its first token (TTFT can be 20-30s)
+    if (!res.writableEnded) {
+      res.write(`event: processing\ndata: ${JSON.stringify({ type: 'processing' })}\n\n`);
+    }
+
     // Stream events from agent loop
     for await (const event of agentLoop.run(prompt, images)) {
       if (res.writableEnded) {
@@ -163,6 +172,22 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   } finally {
     cleanup();
   }
+}));
+
+// GET /conversation/:projectId - Load saved conversation
+agentRouter.get('/conversation/:projectId', asyncHandler(async (req, res) => {
+  const { loadConversation } = await import('../services/conversation-store');
+  const userId = req.userId || 'anonymous';
+  const conv = await loadConversation(req.params.projectId, userId);
+  res.json({ success: true, conversation: conv });
+}));
+
+// DELETE /conversation/:projectId - Delete saved conversation
+agentRouter.delete('/conversation/:projectId', asyncHandler(async (req, res) => {
+  const { deleteConversation } = await import('../services/conversation-store');
+  const userId = req.userId || 'anonymous';
+  await deleteConversation(req.params.projectId, userId);
+  res.json({ success: true });
 }));
 
 // POST /execute-tool - Single tool execution

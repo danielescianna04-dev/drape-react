@@ -530,6 +530,10 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                 badgeColor = '#FFA657';
                 badgeText = 'TODO';
                 iconName = 'checkbox-outline';
+              } else if (header.startsWith('Agent:')) {
+                badgeColor = '#BC8CFF';
+                badgeText = 'AGENT';
+                iconName = 'flash-outline';
               }
 
               // Extract the label from header (e.g., "style.css" from "Read style.css")
@@ -1197,53 +1201,69 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                 const statusLine = lines[1]; // "└─ Completed" or "└─ Error: ..."
 
                                 // Extract agent type from header
-                                const typeMatch = agentHeader.match(/Agent: (.+)/);
+                                const typeMatch = agentHeader.match(/Agent:\s*(.+)/);
                                 const agentType = typeMatch ? typeMatch[1] : 'agent';
 
                                 // Get description and summary
                                 const restContent = lines.slice(3).join('\n').trim();
                                 const parts = restContent.split('\n\n');
                                 const description = parts[0] || '';
-                                const summary = parts[1] || '';
+                                const summary = parts.slice(1).join('\n\n') || '';
 
                                 // Check for error
                                 const isError = statusLine && statusLine.includes('Error');
-                                const status = statusLine ? statusLine.replace('└─ ', '') : 'Completed';
+                                const errorMsg = isError ? statusLine.replace('└─ Error: ', '') : '';
+
+                                // Agent type icon
+                                const agentIcon = agentType === 'explore' ? 'search' : agentType === 'plan' ? 'document-text' : 'flash';
+                                const agentLabel = agentType === 'explore' ? 'Explore' : agentType === 'plan' ? 'Plan' : agentType === 'general' ? 'General' : agentType;
 
                                 return (
-                                  <View>
-                                    {/* Header with badge */}
-                                    <View style={styles.readFileInline}>
-                                      <View style={[styles.toolBadge, styles.toolBadgeAgent]}>
-                                        <Ionicons name="flash-outline" size={12} color="#BC8CFF" />
-                                        <Text style={[styles.toolBadgeText, { color: '#BC8CFF' }]}>AGENT</Text>
+                                  <View style={styles.agentCard}>
+                                    {/* Header row: badge + type + status chip */}
+                                    <View style={styles.agentCardHeader}>
+                                      <View style={styles.agentCardLeft}>
+                                        <View style={[styles.toolBadge, styles.toolBadgeAgent]}>
+                                          <Ionicons name={agentIcon as any} size={12} color="#BC8CFF" />
+                                          <Text style={[styles.toolBadgeText, { color: '#BC8CFF' }]}>AGENT</Text>
+                                        </View>
+                                        <Text style={styles.agentTypeName}>{agentLabel}</Text>
                                       </View>
-                                      <Text style={styles.readFileName}>{agentType}</Text>
+                                      <View style={[styles.agentStatusChip, isError && styles.agentStatusChipError]}>
+                                        <Ionicons
+                                          name={isError ? 'close-circle' : 'checkmark-circle'}
+                                          size={12}
+                                          color={isError ? '#F85149' : '#3FB950'}
+                                        />
+                                        <Text style={[styles.agentStatusChipText, isError && { color: '#F85149' }]}>
+                                          {isError ? 'Error' : 'Done'}
+                                        </Text>
+                                      </View>
                                     </View>
 
-                                    {/* Status line */}
-                                    <Text style={[
-                                      styles.agentStatus,
-                                      isError && { color: '#F85149' }
-                                    ]}>
-                                      {status}
-                                    </Text>
+                                    {/* Error message */}
+                                    {isError && errorMsg ? (
+                                      <Text style={styles.agentErrorText}>{errorMsg}</Text>
+                                    ) : null}
 
                                     {/* Description */}
-                                    {description && (
-                                      <View style={styles.agentDescription}>
-                                        <Ionicons name="document-text-outline" size={14} color="#6E7681" />
-                                        <Text style={styles.agentDescriptionText}>{description}</Text>
-                                      </View>
-                                    )}
+                                    {description ? (
+                                      <Text style={styles.agentCardDescription} numberOfLines={2}>{description}</Text>
+                                    ) : null}
 
-                                    {/* Summary (if any) */}
-                                    {summary && (
-                                      <View style={styles.agentSummary}>
-                                        <Text style={styles.agentSummaryLabel}>Result:</Text>
-                                        <Text style={styles.agentSummaryText}>{summary}</Text>
-                                      </View>
-                                    )}
+                                    {/* Summary (collapsible) */}
+                                    {summary ? (
+                                      <>
+                                        <View style={styles.agentDivider} />
+                                        <Text style={styles.agentResultText} numberOfLines={isExpanded ? undefined : 4}>{summary}</Text>
+                                        {summary.split('\n').length > 4 && (
+                                          <TouchableOpacity onPress={() => setIsExpanded(!isExpanded)} style={styles.agentExpandBtn}>
+                                            <Text style={styles.agentExpandText}>{isExpanded ? 'Show less' : 'Show more'}</Text>
+                                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={14} color="#6E7681" />
+                                          </TouchableOpacity>
+                                        )}
+                                      </>
+                                    ) : null}
                                   </View>
                                 );
                               })()
@@ -1964,56 +1984,77 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   // Agent styles
-  agentStatus: {
-    fontSize: 12,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: '#6E7681',
-    marginLeft: 20,
-    marginTop: 4,
-  },
-  agentDescription: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 8,
-    marginLeft: 20,
-    backgroundColor: 'rgba(20, 20, 20, 0.95)',
-    borderRadius: 8,
+  agentCard: {
+    backgroundColor: '#0d0d0d',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: '#BC8CFF',
+    borderColor: 'rgba(188, 140, 255, 0.15)',
+    borderRadius: 12,
+    padding: 14,
   },
-  agentDescriptionText: {
+  agentCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  agentCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  agentTypeName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  agentStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(63, 185, 80, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  agentStatusChipError: {
+    backgroundColor: 'rgba(248, 81, 73, 0.12)',
+  },
+  agentStatusChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#3FB950',
+  },
+  agentErrorText: {
+    fontSize: 12,
+    color: '#F85149',
+    marginTop: 8,
+    lineHeight: 16,
+  },
+  agentCardDescription: {
+    fontSize: 13,
+    color: '#9ca3af',
+    marginTop: 10,
+    lineHeight: 18,
+  },
+  agentDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginVertical: 10,
+  },
+  agentResultText: {
     fontSize: 13,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     color: 'rgba(255, 255, 255, 0.8)',
-    flex: 1,
     lineHeight: 18,
   },
-  agentSummary: {
-    marginTop: 8,
-    marginLeft: 20,
-    backgroundColor: 'rgba(20, 20, 20, 0.95)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
+  agentExpandBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
   },
-  agentSummaryLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#8B949E',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  agentSummaryText: {
-    fontSize: 13,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 18,
+  agentExpandText: {
+    fontSize: 12,
+    color: '#6E7681',
   },
   // Bash card styles (terminal command + output grouped)
   // ─── Direct terminal card ───

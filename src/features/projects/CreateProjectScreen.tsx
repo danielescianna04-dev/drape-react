@@ -63,6 +63,13 @@ const languages = [
   { id: 'laravel', name: 'Laravel', icon: 'diamond-outline', color: '#FF2D20' },
 ];
 
+const languageCategories = [
+  { id: 'popular', labelKey: 'create.popular', items: ['react', 'nextjs', 'html', 'flask'] },
+  { id: 'frontend', labelKey: 'create.frontend', items: ['vue', 'svelte', 'angular', 'astro', 'solid', 'remix'] },
+  { id: 'backend', labelKey: 'create.backend', items: ['django', 'fastapi', 'laravel', 'nuxt'] },
+  { id: 'mobile', labelKey: 'create.mobile', items: ['expo', 'flutter'] },
+];
+
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {
   const { t } = useTranslation('projects');
   const [step, setStep] = useState(1);
@@ -87,6 +94,8 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [projectLimit, setProjectLimit] = useState(2);
   const [aiRecommendedLang, setAiRecommendedLang] = useState<string | null>(null);
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [showAllLangs, setShowAllLangs] = useState(false);
 
   // Agent stream hook
   const {
@@ -557,6 +566,13 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         if (match) {
           setSelectedLanguage(match.id);
           setAiRecommendedLang(match.id);
+          if (result.explanation) {
+            setAiExplanation(result.explanation);
+          }
+          // Auto-expand if recommendation is not in Popular category
+          if (!languageCategories[0].items.includes(match.id)) {
+            setShowAllLangs(true);
+          }
         }
       }
     } catch (error) {
@@ -863,61 +879,91 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
         <Text style={styles.stepSubtitle}>{t('create.aiSuggests')}</Text>
       </View>
 
-      <View style={styles.languagesGrid}>
-        {languages.map((lang) => {
-          const isSelected = selectedLanguage === lang.id;
-          const isAiPick = aiRecommendedLang === lang.id;
-          const cardContent = (
-            <View style={styles.langCardInner}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                <View style={styles.langIconBox}>
-                  <Ionicons name={lang.icon as any} size={28} color={lang.color} />
-                </View>
-                {isAiPick && (
-                  <View style={styles.aiPickBadge}>
-                    <Ionicons name="sparkles" size={10} color="#fff" />
-                    <Text style={styles.aiPickText}>AI</Text>
+      {/* AI Explanation */}
+      {aiExplanation && aiRecommendedLang && (
+        <View style={styles.aiExplanationBox}>
+          <Ionicons name="sparkles" size={14} color={AppColors.primary} />
+          <Text style={styles.aiExplanationText}>
+            <Text style={{ fontWeight: '600' }}>{t('create.aiRecommendedBecause')} </Text>
+            {aiExplanation}
+          </Text>
+        </View>
+      )}
+
+      {(showAllLangs ? languageCategories : [languageCategories[0]]).map((category) => {
+        const catLangs = category.items.map(id => languages.find(l => l.id === id)!).filter(Boolean);
+        return (
+          <View key={category.id}>
+            {showAllLangs && (
+              <Text style={styles.categoryLabel}>{t(category.labelKey)}</Text>
+            )}
+            <View style={styles.languagesGrid}>
+              {catLangs.map((lang) => {
+                const isSelected = selectedLanguage === lang.id;
+                const isAiPick = aiRecommendedLang === lang.id;
+                const cardContent = (
+                  <View style={styles.langCardInner}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                      <View style={styles.langIconBox}>
+                        <Ionicons name={lang.icon as any} size={28} color={lang.color} />
+                      </View>
+                      {isAiPick && (
+                        <View style={styles.aiPickBadge}>
+                          <Ionicons name="sparkles" size={10} color="#fff" />
+                          <Text style={styles.aiPickText}>AI</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
+                      {lang.name}
+                    </Text>
                   </View>
-                )}
-              </View>
-              <Text style={[styles.langName, isSelected && { color: '#fff', fontWeight: '700' }]}>
-                {lang.name}
-              </Text>
+                );
+
+                return (
+                  <TouchableOpacity
+                    key={lang.id}
+                    style={[
+                      styles.langCard,
+                      isLiquidGlassSupported && styles.langCardGlass,
+                      isSelected && { borderColor: lang.color, backgroundColor: isLiquidGlassSupported ? 'transparent' : 'rgba(255,255,255,0.08)' }
+                    ]}
+                    onPress={() => setSelectedLanguage(lang.id)}
+                    activeOpacity={0.7}
+                  >
+                    {isLiquidGlassSupported ? (
+                      <LiquidGlassView
+                        style={[
+                          styles.langCardLiquid,
+                          isSelected && { borderColor: lang.color, borderWidth: 1.5 }
+                        ]}
+                        interactive={true}
+                        effect="regular"
+                        colorScheme="dark"
+                      >
+                        {cardContent}
+                      </LiquidGlassView>
+                    ) : (
+                      cardContent
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          );
+          </View>
+        );
+      })}
 
-          return (
-            <TouchableOpacity
-              key={lang.id}
-              style={[
-                styles.langCard,
-                isLiquidGlassSupported && styles.langCardGlass,
-                isSelected && { borderColor: lang.color, backgroundColor: isLiquidGlassSupported ? 'transparent' : 'rgba(255,255,255,0.08)' }
-              ]}
-              onPress={() => setSelectedLanguage(lang.id)}
-              activeOpacity={0.7}
-            >
-              {isLiquidGlassSupported ? (
-                <LiquidGlassView
-                  style={[
-                    styles.langCardLiquid,
-                    isSelected && { borderColor: lang.color, borderWidth: 1.5 }
-                  ]}
-                  interactive={true}
-                  effect="regular"
-                  colorScheme="dark"
-                >
-                  {cardContent}
-                </LiquidGlassView>
-              ) : (
-                cardContent
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* More templates coming soon */}
+      {/* Show all / Show less toggle */}
+      <TouchableOpacity
+        style={styles.showAllButton}
+        onPress={() => setShowAllLangs(!showAllLangs)}
+      >
+        <Ionicons name={showAllLangs ? 'chevron-up' : 'grid-outline'} size={16} color={AppColors.primary} />
+        <Text style={styles.showAllText}>
+          {showAllLangs ? t('create.showLess') : t('create.showAll')}
+        </Text>
+      </TouchableOpacity>
     </Animated.View>
   );
 
@@ -1545,7 +1591,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   langCard: {
     width: SCREEN_WIDTH / 2 - 30,
@@ -1599,6 +1645,46 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
     letterSpacing: 0.5,
+  },
+  aiExplanationBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: 'rgba(99,102,241,0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(99,102,241,0.15)',
+  },
+  aiExplanationText: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  categoryLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.4)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  showAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  showAllText: {
+    color: AppColors.primary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   langName: {
     fontSize: 15,

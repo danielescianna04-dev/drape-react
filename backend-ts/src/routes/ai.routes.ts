@@ -180,7 +180,11 @@ aiRouter.post('/recommend', asyncHandler(async (req: Request, res: Response) => 
 
 Project description: "${description}"
 
-Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing else.`;
+Respond with a JSON object with two fields:
+- "recommendation": the technology ID (e.g., "react", "nextjs", "html")
+- "explanation": a brief one-sentence explanation of why this technology is the best fit (max 15 words)
+
+Respond ONLY with the JSON object, no markdown.`;
 
     const messages = [{ role: 'user' as const, content: prompt }];
 
@@ -191,13 +195,22 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
       }
     }
 
-    // Clean up response - extract just the tech ID
-    const recommendation = response.trim().toLowerCase().replace(/[^a-z]/g, '');
-
     // Valid tech IDs matching the frontend
     const validTechs = ['react', 'nextjs', 'vue', 'nuxt', 'svelte', 'angular', 'astro', 'remix', 'solid', 'html', 'flask', 'django', 'fastapi', 'expo', 'flutter', 'laravel'];
 
-    let finalRecommendation = validTechs.find(tech => recommendation === tech) || validTechs.find(tech => recommendation.includes(tech));
+    // Try to parse JSON response with recommendation + explanation
+    let finalRecommendation: string | undefined;
+    let explanation = '';
+    try {
+      const parsed = JSON.parse(response.trim());
+      const rec = String(parsed.recommendation || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+      finalRecommendation = validTechs.find(tech => rec === tech) || validTechs.find(tech => rec.includes(tech));
+      explanation = String(parsed.explanation || '').trim();
+    } catch {
+      // Fallback: treat entire response as tech ID (backwards compatible)
+      const recommendation = response.trim().toLowerCase().replace(/[^a-z]/g, '');
+      finalRecommendation = validTechs.find(tech => recommendation === tech) || validTechs.find(tech => recommendation.includes(tech));
+    }
 
     if (!finalRecommendation) {
       const desc = description.toLowerCase();
@@ -229,6 +242,7 @@ Respond with ONLY the technology ID (e.g., "react", "nextjs", "html") - nothing 
     res.json({
       success: true,
       recommendation: finalRecommendation,
+      explanation: explanation || undefined,
       rawResponse: response
     });
   } catch (error: any) {

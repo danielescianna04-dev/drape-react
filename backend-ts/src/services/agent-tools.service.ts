@@ -3,7 +3,7 @@ import { dockerService } from './docker.service';
 import { globSearch } from '../tools/glob';
 import { grepSearch } from '../tools/grep';
 import { webSearch } from '../tools/web-search';
-import { writeTodos } from '../tools/todo-write';
+import { writeTodos, getTodos } from '../tools/todo-write';
 import { log } from '../utils/logger';
 import { Session, ToolResult } from '../types';
 import path from 'path';
@@ -20,6 +20,32 @@ const DANGEROUS_PATTERNS = [
   /169\.254\.169\.254/,            // AWS metadata endpoint
   /\/proc\/|\/sys\//,             // system pseudo-filesystems
 ];
+
+/**
+ * Truncate long command output (like OpenCode's 30K limit)
+ */
+function truncateOutput(output: string, maxChars = 30000): string {
+  if (output.length <= maxChars) return output;
+  const half = Math.floor(maxChars / 2);
+  const firstHalf = output.substring(0, half);
+  const lastHalf = output.substring(output.length - half);
+  const totalLines = output.split('\n').length;
+  const keptLines = firstHalf.split('\n').length + lastHalf.split('\n').length;
+  const truncatedLines = totalLines - keptLines;
+  return `${firstHalf}\n\n... [${truncatedLines} lines truncated] ...\n\n${lastHalf}`;
+}
+
+/**
+ * Background command tracking
+ */
+interface BackgroundCommand {
+  startedAt: number;
+  command: string;
+  status: 'running' | 'completed';
+  result?: { exitCode: number; stdout: string; stderr: string };
+}
+
+const backgroundCommands = new Map<string, BackgroundCommand>();
 
 function isCommandDangerous(command: string): string | null {
   for (const pattern of DANGEROUS_PATTERNS) {
@@ -68,6 +94,27 @@ class AgentToolsService {
         case 'run_command':
           return await this.runCommand(projectId, input, session);
 
+        case 'command_output':
+          return this.getCommandOutput(input);
+
+        case 'memory_read': {
+          const { readMemory } = await import('./memory.service');
+          const memory = await readMemory(projectId);
+          return {
+            success: true,
+            content: memory || 'No memory saved for this project yet. Use memory_write to save project-specific knowledge.',
+          };
+        }
+
+        case 'memory_write': {
+          const { writeMemory } = await import('./memory.service');
+          if (!input.content) {
+            return { success: false, error: 'content is required' };
+          }
+          await writeMemory(projectId, input.content);
+          return { success: true, content: 'Project memory updated successfully.' };
+        }
+
         case 'glob_search':
           return await this.globSearchTool(projectId, input);
 
@@ -86,11 +133,75 @@ class AgentToolsService {
         case 'signal_completion':
           return this.signalCompletion(input);
 
-        default:
+        case 'multi_edit_file':
+          return await this.multiEditFile(projectId, input, session);
+
+        case 'web_fetch': {
+          const { webFetch } = await import('../tools/web-fetch');
+          return webFetch(input.url, input.prompt);
+        }
+
+        case 'todo_read': {
+          const todos = getTodos(projectId);
+          return { success: true, content: JSON.stringify(todos), todos };
+        }
+
+        // dispatch_agent is handled directly in agent-loop.service.ts (not here)
+
+        case 'patch_file':
+          return await this.patchFile(projectId, input, session);
+
+        case 'load_skill': {
+          const { loadSkill, discoverSkills } = await import('../tools/skill-loader');
+          if (input.name) {
+            const content = await loadSkill(projectId, input.name);
+            if (content) return { success: true, content };
+            const skills = await discoverSkills(projectId);
+            const names = skills.map(s => s.name).join(', ');
+            return { success: false, content: `Skill "${input.name}" not found. Available: ${names || 'none'}` };
+          }
+          const skills = await discoverSkills(projectId);
+          return { success: true, content: skills.length > 0
+            ? skills.map(s => `- ${s.name}: ${s.description}`).join('\n')
+            : 'No skills found. Create .drape/skills/<name>.md files to add skills.' };
+        }
+
+        case 'tool_search': {
+          try {
+            const { getAllMcpTools } = await import('./mcp-client');
+            const query = (input.query || '').toLowerCase();
+            const allTools = await getAllMcpTools();
+            const matches = allTools.filter(t =>
+              t.name.toLowerCase().includes(query) || (t.description || '').toLowerCase().includes(query)
+            );
+            return {
+              success: true,
+              content: matches.length > 0
+                ? `Available tools:\n${matches.map(t => `- ${t.name}: ${t.description}`).join('\n')}`
+                : `No tools found matching "${input.query}". Configure MCP servers in .drape/mcp.json.`,
+            };
+          } catch {
+            return { success: true, content: 'No MCP servers configured. Add .drape/mcp.json to enable external tools.' };
+          }
+        }
+
+        default: {
+          // Check if it's an MCP tool (prefix: mcp_)
+          if (toolName.startsWith('mcp_')) {
+            try {
+              const { callMcpTool } = await import('./mcp-client');
+              const parts = toolName.split('_');
+              const serverName = parts[1];
+              return callMcpTool(serverName, toolName, input);
+            } catch (e: any) {
+              return { success: false, error: `MCP tool error: ${e.message}` };
+            }
+          }
           return {
             success: false,
             error: `Unknown tool: ${toolName}`,
           };
+        }
       }
     } catch (error: any) {
       log.error(`[AgentTools] Tool ${toolName} failed: ${error.message}`);
@@ -281,10 +392,10 @@ class AgentToolsService {
    */
   private async runCommand(
     projectId: string,
-    input: { command: string; timeout?: number },
+    input: { command: string; timeout?: number; background?: boolean },
     session?: Session
   ): Promise<ToolResult> {
-    const { command, timeout = 60000 } = input;
+    const { command, timeout = 60000, background = false } = input;
 
     if (!command) {
       return { success: false, error: 'command is required' };
@@ -304,6 +415,33 @@ class AgentToolsService {
       };
     }
 
+    // Background execution — launch and return immediately
+    if (background) {
+      const id = `bg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const entry: BackgroundCommand = {
+        startedAt: Date.now(),
+        command,
+        status: 'running',
+      };
+      backgroundCommands.set(id, entry);
+
+      // Fire and forget — save result when done
+      dockerService.exec(session.agentUrl, command, '/home/coder/project', Math.min(timeout, 300000))
+        .then(result => {
+          entry.status = 'completed';
+          entry.result = result;
+        })
+        .catch(err => {
+          entry.status = 'completed';
+          entry.result = { exitCode: 1, stdout: '', stderr: err.message };
+        });
+
+      return {
+        success: true,
+        content: `Background command started. ID: ${id}\nCommand: ${command}\nUse command_output with this ID to check results.`,
+      };
+    }
+
     try {
       const result = await dockerService.exec(
         session.agentUrl,
@@ -318,11 +456,11 @@ class AgentToolsService {
       ];
 
       if (result.stdout) {
-        output.push(`\nStdout:\n${result.stdout}`);
+        output.push(`\nStdout:\n${truncateOutput(result.stdout)}`);
       }
 
       if (result.stderr) {
-        output.push(`\nStderr:\n${result.stderr}`);
+        output.push(`\nStderr:\n${truncateOutput(result.stderr)}`);
       }
 
       return {
@@ -338,6 +476,51 @@ class AgentToolsService {
         error: `Command execution failed: ${error.message}`,
       };
     }
+  }
+
+  /**
+   * Get output from a background command
+   */
+  private getCommandOutput(input: { command_id: string }): ToolResult {
+    const { command_id } = input;
+    if (!command_id) {
+      return { success: false, error: 'command_id is required' };
+    }
+
+    const entry = backgroundCommands.get(command_id);
+    if (!entry) {
+      return { success: false, error: `No background command found with ID: ${command_id}` };
+    }
+
+    if (entry.status === 'running') {
+      const elapsed = Math.round((Date.now() - entry.startedAt) / 1000);
+      return {
+        success: true,
+        content: `Command still running (${elapsed}s elapsed).\nCommand: ${entry.command}\nCheck back later.`,
+      };
+    }
+
+    // Completed — return result and clean up
+    const result = entry.result!;
+    backgroundCommands.delete(command_id);
+
+    const output = [
+      `Command: ${entry.command}`,
+      `Exit code: ${result.exitCode}`,
+      `Duration: ${Math.round((Date.now() - entry.startedAt) / 1000)}s`,
+    ];
+
+    if (result.stdout) {
+      output.push(`\nStdout:\n${truncateOutput(result.stdout)}`);
+    }
+    if (result.stderr) {
+      output.push(`\nStderr:\n${truncateOutput(result.stderr)}`);
+    }
+
+    return {
+      success: result.exitCode === 0,
+      content: output.join('\n'),
+    };
   }
 
   /**
@@ -438,6 +621,120 @@ class AgentToolsService {
       content: 'User questions prepared',
       questions,
       _pauseForUser: true, // Signal to loop
+    };
+  }
+
+  /**
+   * Apply multiple edits to a single file atomically
+   */
+  private async multiEditFile(
+    projectId: string,
+    input: { file_path: string; edits: Array<{ old_string: string; new_string: string }> },
+    session?: Session
+  ): Promise<ToolResult> {
+    const { file_path, edits } = input;
+
+    if (!file_path || !Array.isArray(edits) || edits.length === 0) {
+      return { success: false, error: 'file_path and non-empty edits array are required' };
+    }
+
+    // Read the file once
+    const readResult = await fileService.readFile(projectId, file_path);
+    if (!readResult.success) {
+      return { success: false, error: `Failed to read file: ${readResult.error}` };
+    }
+
+    const fileContent = readResult.data!;
+    if (fileContent.isBinary) {
+      return { success: false, error: 'Cannot edit binary files' };
+    }
+
+    // Apply edits sequentially on a copy (atomic: all or nothing)
+    let content = fileContent.content;
+    const diffs: string[] = [];
+
+    for (let i = 0; i < edits.length; i++) {
+      const { old_string, new_string } = edits[i];
+
+      if (!content.includes(old_string)) {
+        return {
+          success: false,
+          error: `Edit ${i + 1}/${edits.length} failed: old_string not found in file. No edits were applied.`,
+        };
+      }
+
+      // Apply edit using function replacer to prevent $1 etc.
+      content = content.replace(old_string, () => new_string);
+
+      // Collect diff for display
+      const removedLines = old_string.split('\n').map(line => `- ${line}`).join('\n');
+      const addedLines = new_string.split('\n').map(line => `+ ${line}`).join('\n');
+      diffs.push(`Edit ${i + 1}:\n${removedLines}\n${addedLines}`);
+    }
+
+    // All edits passed — write the result
+    const writeResult = await fileService.writeFile(projectId, file_path, content);
+    if (!writeResult.success) {
+      return { success: false, error: `Failed to write file: ${writeResult.error}` };
+    }
+
+    // Notify agent for hot reload
+    if (session?.agentUrl) {
+      await fileService.notifyAgent(session.agentUrl, file_path, content);
+    }
+
+    const fileName = file_path.split('/').pop() || file_path;
+
+    return {
+      success: true,
+      content: `Multi-edit ${fileName}\n└─ ${edits.length} edits applied\n\n${diffs.join('\n\n')}`,
+    };
+  }
+
+  /**
+   * Apply a unified diff patch to a file
+   */
+  private async patchFile(
+    projectId: string,
+    input: { file_path: string; patch: string },
+    session?: Session
+  ): Promise<ToolResult> {
+    const { file_path, patch } = input;
+
+    if (!file_path || !patch) {
+      return { success: false, error: 'file_path and patch are required' };
+    }
+
+    const readResult = await fileService.readFile(projectId, file_path);
+    if (!readResult.success) {
+      return { success: false, error: `Failed to read file: ${readResult.error}` };
+    }
+
+    const fileContent = readResult.data!;
+    if (fileContent.isBinary) {
+      return { success: false, error: 'Cannot patch binary files' };
+    }
+
+    const { applyPatch } = await import('diff');
+    const result = applyPatch(fileContent.content, patch);
+
+    if (result === false) {
+      return { success: false, error: 'Patch could not be applied — content mismatch. Verify the patch context lines match the file.' };
+    }
+
+    const writeResult = await fileService.writeFile(projectId, file_path, result);
+    if (!writeResult.success) {
+      return { success: false, error: `Failed to write file: ${writeResult.error}` };
+    }
+
+    if (session?.agentUrl) {
+      await fileService.notifyAgent(session.agentUrl, file_path, result);
+    }
+
+    const fileName = file_path.split('/').pop() || file_path;
+    return {
+      success: true,
+      content: `Patch ${fileName}\n└─ Applied successfully\n\n${patch}`,
     };
   }
 
