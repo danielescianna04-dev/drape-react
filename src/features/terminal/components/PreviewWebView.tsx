@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { PreviewLoadingScreen } from './PreviewServerStatus';
 import { PreviewLog } from '../../../hooks/api/usePreviewLogs';
 import type { ViewportMode } from './PreviewToolbar';
+import { TerminalWebView } from './TerminalWebView';
 
 export interface PreviewWebViewProps {
   // WebView config
@@ -53,6 +54,12 @@ export interface PreviewWebViewProps {
   topInset: number;
   viewportMode: ViewportMode;
 
+  // Interactive terminal (console projects)
+  projectId?: string;
+  wsUrl?: string;
+  authToken?: string | null;
+  startCommand?: string;
+
   t: ReturnType<typeof useTranslation>['t'];
 }
 
@@ -92,6 +99,10 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   onSendErrorReport,
   topInset,
   viewportMode,
+  projectId,
+  wsUrl,
+  authToken,
+  startCommand,
   t,
 }) => {
   // Safety-net retry for transient proxy errors that slip past checkServerStatus
@@ -585,39 +596,22 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
             <View style={{ flex: 1, backgroundColor: '#ffffff' }} />
           )
         ) : (
-          /* Terminal Output View for CLI projects */
-          <ScrollView
-            ref={terminalScrollRef}
-            style={styles.terminalOutputContainer}
-            contentContainerStyle={styles.terminalOutputContent}
-          >
-            <View style={styles.terminalHeader}>
-              <View style={styles.terminalDot} />
-              <View style={[styles.terminalDot, { backgroundColor: '#f5c542' }]} />
-              <View style={[styles.terminalDot, { backgroundColor: '#5ac05a' }]} />
-              <Text style={styles.terminalTitle}>Terminal Output</Text>
+          /* Interactive Terminal for CLI projects */
+          projectId && wsUrl && authToken ? (
+            <TerminalWebView
+              projectId={projectId}
+              wsUrl={wsUrl}
+              authToken={authToken}
+              startCommand={startCommand}
+            />
+          ) : (
+            <View style={styles.terminalEmpty}>
+              <Ionicons name="terminal" size={48} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.terminalEmptyText}>
+                {t('terminal:preview.noWebUI')}
+              </Text>
             </View>
-            {terminalOutput.length === 0 ? (
-              <View style={styles.terminalEmpty}>
-                <Ionicons name="terminal" size={48} color="rgba(255,255,255,0.2)" />
-                <Text style={styles.terminalEmptyText}>
-                  {t('terminal:preview.noWebUI')}
-                </Text>
-              </View>
-            ) : (
-              (terminalOutput || []).map((line, index) => {
-                // Detect line type from prefix (system messages start with emoji)
-                const isSystem = line.startsWith('\uD83D\uDE80') || line.startsWith('\uD83D\uDD04') || line.startsWith('\u23F9\uFE0F') || line.startsWith('\u274C');
-                const isError = line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('warn');
-                const lineColor = isSystem ? '#6366f1' : isError ? '#f87171' : '#e0e0e0';
-                return (
-                  <Text key={index} style={[styles.terminalLine, { color: lineColor }]}>
-                    {line}
-                  </Text>
-                );
-              })
-            )}
-          </ScrollView>
+          )
         )}
       </View>
 

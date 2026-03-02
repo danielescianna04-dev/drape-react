@@ -32,6 +32,12 @@ class DevServerService {
     const { agentUrl } = session;
     const startTime = Date.now();
 
+    // Console projects: skip — frontend interactive terminal handles execution via WebSocket PTY
+    if (info.hasWebUI === false) {
+      log.info(`[DevServer] Console project — skipping (PTY terminal will execute)`);
+      return true;
+    }
+
     // Check if already running
     if (await this.isRunning(agentUrl)) {
       log.info(`[DevServer] Already running for ${session.projectId}`);

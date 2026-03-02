@@ -103,10 +103,13 @@ class WorkspaceService {
     session.projectInfo = projectInfo;
     await sessionService.set(projectId, userId, session);
 
-    // Check if dev server already running (fast path for re-warm)
-    if (await devServerService.isRunning(session.agentUrl)) {
-      log.info(`[Workspace] Dev server already running for ${projectId} — skip warming`);
-      return { success: true };
+    // Console projects don't have a persistent server — skip isRunning check
+    if (projectInfo.hasWebUI !== false) {
+      // Check if dev server already running (fast path for re-warm)
+      if (await devServerService.isRunning(session.agentUrl)) {
+        log.info(`[Workspace] Dev server already running for ${projectId} — skip warming`);
+        return { success: true };
+      }
     }
 
     // Background: install + start dev server
@@ -114,12 +117,14 @@ class WorkspaceService {
       try {
         log.info(`[Workspace] Background warming ${projectId}...`);
 
-        // Install dependencies
-        if (projectInfo.type !== 'static' && projectInfo.type !== 'unknown') {
+        // Install dependencies (skip for console projects without deps and static/unknown)
+        const skipInstall = projectInfo.type === 'static' || projectInfo.type === 'unknown'
+          || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
+        if (!skipInstall) {
           await dependencyService.install(projectId, session, projectInfo);
         }
 
-        // Start dev server
+        // Start dev server (or run console program)
         await devServerService.start(session, projectInfo);
         session.preparedAt = Date.now();
         await sessionService.set(projectId, userId, session);
@@ -149,9 +154,35 @@ class WorkspaceService {
   ): Promise<PreviewResult> {
     const startTime = Date.now();
 
-    // Fast path: session exists + dev server running
+    // Fast path: session exists + dev server running (or console project with container ready)
     const existingSession = await sessionService.get(projectId, userId);
     if (existingSession) {
+      // Console projects: if container exists AND agent healthy, return immediately
+      // (the frontend interactive terminal handles program execution via WebSocket PTY)
+      const storedInfo = existingSession.projectInfo;
+      if (storedInfo?.hasWebUI === false) {
+        const agentHealthy = await containerLifecycleService.isHealthy(existingSession.agentUrl);
+        if (agentHealthy) {
+          const freshInfo = await projectDetectorService.detect(projectId);
+          if (freshInfo.hasWebUI === false) {
+            const elapsed = Date.now() - startTime;
+            log.info(`[Workspace] Console fast path for ${projectId} — ${elapsed}ms (container ready, PTY will execute)`);
+            onProgress?.('starting', `Terminal ready (${elapsed}ms)`);
+            return {
+              success: true,
+              previewUrl: undefined,
+              agentUrl: existingSession.agentUrl,
+              containerId: existingSession.containerId,
+              previewToken: existingSession.accessToken,
+              projectInfo: freshInfo,
+              hasWebUI: false,
+            };
+          }
+        } else {
+          log.warn(`[Workspace] Console fast path: agent unhealthy for ${projectId}, falling through to slow path`);
+        }
+      }
+
       const devRunning = await devServerService.isRunning(existingSession.agentUrl);
       if (devRunning) {
         // Re-detect project type to catch mismatches (e.g. old "unknown" now detected as monorepo)
@@ -182,13 +213,15 @@ class WorkspaceService {
           const elapsed = Date.now() - startTime;
           log.info(`[Workspace] Fast path for ${projectId} — ${elapsed}ms`);
           onProgress?.('starting', `Preview ready (fast path, ${elapsed}ms)`);
+          const fastPathInfo = existingSession.projectInfo || freshInfo;
           return {
             success: true,
-            previewUrl: this.buildPreviewUrl(existingSession),
+            previewUrl: fastPathInfo.hasWebUI === false ? undefined : this.buildPreviewUrl(existingSession),
             agentUrl: existingSession.agentUrl,
             containerId: existingSession.containerId,
             previewToken: existingSession.accessToken,
-            projectInfo: existingSession.projectInfo || freshInfo,
+            projectInfo: fastPathInfo,
+            hasWebUI: fastPathInfo.hasWebUI !== false,
           };
         }
       }
@@ -212,18 +245,26 @@ class WorkspaceService {
     const projectInfo = await projectDetectorService.detect(projectId);
     session.projectInfo = projectInfo;
 
-    // Install deps
-    if (projectInfo.type !== 'static' && projectInfo.type !== 'unknown') {
+    // Install deps (skip for console projects without installCommand and static/unknown)
+    const skipInstall = projectInfo.type === 'static' || projectInfo.type === 'unknown'
+      || (projectInfo.hasWebUI === false && !projectInfo.installCommand);
+    if (!skipInstall) {
       onProgress?.('install', `Installing dependencies (${projectInfo.packageManager || 'bun'})...`);
       await dependencyService.install(projectId, session, projectInfo, (message) => {
         onProgress?.('install', message);
       }, onLog);
     }
 
-    // Start dev server — throws with specific error message if it crashes
-    onProgress?.('server', `Starting ${projectInfo.type} dev server...`);
-    onLog?.(`$ ${projectInfo.startCommand}`);
-    await devServerService.start(session, projectInfo);
+    // Start dev server (console projects skip — frontend PTY handles execution)
+    if (projectInfo.hasWebUI === false) {
+      // Console: container is ready, frontend interactive terminal will execute via WebSocket PTY
+      onProgress?.('server', `Terminal ready for ${projectInfo.type}`);
+    } else {
+      // Web: start dev server via /setup (long-running)
+      onProgress?.('server', `Starting ${projectInfo.type} dev server...`);
+      onLog?.(`$ ${projectInfo.startCommand}`);
+      await devServerService.start(session, projectInfo);
+    }
 
     session.preparedAt = Date.now();
     await sessionService.set(projectId, userId, session);
@@ -232,16 +273,17 @@ class WorkspaceService {
     fileWatcherService.startWatching(projectId).catch(() => {});
 
     const elapsed = Date.now() - startTime;
-    onProgress?.('starting', `Preview ready (${elapsed}ms)`);
+    onProgress?.('starting', projectInfo.hasWebUI === false ? `Terminal ready (${elapsed}ms)` : `Preview ready (${elapsed}ms)`);
     log.info(`[Workspace] Preview started for ${userId}:${projectId} in ${elapsed}ms`);
 
     return {
       success: true,
-      previewUrl: this.buildPreviewUrl(session),
+      previewUrl: projectInfo.hasWebUI === false ? undefined : this.buildPreviewUrl(session),
       agentUrl: session.agentUrl,
       containerId: session.containerId,
       previewToken: session.accessToken,
       projectInfo,
+      hasWebUI: projectInfo.hasWebUI !== false,
     };
   }
 

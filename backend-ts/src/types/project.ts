@@ -1,4 +1,4 @@
-export type ProjectType = 'nextjs' | 'vite' | 'expo' | 'nodejs' | 'static' | 'python' | 'go' | 'svelte' | 'angular' | 'astro' | 'remix' | 'ruby' | 'nuxt' | 'solid' | 'django' | 'fastapi' | 'flask' | 'flutter' | 'laravel' | 'unknown';
+export type ProjectType = 'nextjs' | 'vite' | 'expo' | 'nodejs' | 'static' | 'python' | 'go' | 'svelte' | 'angular' | 'astro' | 'remix' | 'ruby' | 'nuxt' | 'solid' | 'django' | 'fastapi' | 'flask' | 'flutter' | 'laravel' | 'python-console' | 'javascript-console' | 'c-lang' | 'cpp' | 'java' | 'unknown';
 export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
 export interface ProjectInfo {
@@ -6,6 +6,7 @@ export interface ProjectInfo {
   description: string;
   startCommand: string;
   port: number;
+  hasWebUI?: boolean;
   installCommand?: string;
   packageManager?: PackageManager;
   disableTurbopack?: boolean;

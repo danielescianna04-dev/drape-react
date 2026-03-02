@@ -116,6 +116,7 @@ flyRouter.post('/preview/start', asyncHandler(async (req: Request, res: Response
       machineId: result.containerId,
       previewToken: result.previewToken,
       projectInfo: result.projectInfo,
+      hasWebUI: result.hasWebUI,
     });
   } catch (e: any) {
     log.error('[Fly] Preview start error:', e);

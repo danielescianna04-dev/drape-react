@@ -61,6 +61,11 @@ const languages = [
   { id: 'expo', name: 'React Native', icon: 'phone-portrait-outline', color: '#61DAFB' },
   { id: 'flutter', name: 'Flutter', icon: 'apps-outline', color: '#02569B' },
   { id: 'laravel', name: 'Laravel', icon: 'diamond-outline', color: '#FF2D20' },
+  { id: 'python-console', name: 'Python', icon: 'logo-python', color: '#3776AB' },
+  { id: 'javascript-console', name: 'JavaScript', icon: 'logo-nodejs', color: '#F7DF1E' },
+  { id: 'c-lang', name: 'C', icon: 'code-slash-outline', color: '#A8B9CC' },
+  { id: 'cpp', name: 'C++', icon: 'code-working-outline', color: '#00599C' },
+  { id: 'java', name: 'Java', icon: 'cafe-outline', color: '#ED8B00' },
 ];
 
 const languageCategories = [
@@ -68,6 +73,7 @@ const languageCategories = [
   { id: 'frontend', labelKey: 'create.frontend', items: ['vue', 'svelte', 'angular', 'astro', 'solid', 'remix'] },
   { id: 'backend', labelKey: 'create.backend', items: ['django', 'fastapi', 'laravel', 'nuxt'] },
   { id: 'mobile', labelKey: 'create.mobile', items: ['expo', 'flutter'] },
+  { id: 'console', labelKey: 'create.console', items: ['python-console', 'javascript-console', 'c-lang', 'cpp', 'java'] },
 ];
 
 export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) => {

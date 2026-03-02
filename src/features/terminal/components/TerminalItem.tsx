@@ -1640,6 +1640,11 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
                 django: { icon: 'shield-outline', color: '#44B78B', label: 'Django' },
                 flask: { icon: 'logo-python', color: '#3776AB', label: 'Flask' },
                 fastapi: { icon: 'flash-outline', color: '#009688', label: 'FastAPI' },
+                'python-console': { icon: 'logo-python', color: '#3776AB', label: 'Python' },
+                'javascript-console': { icon: 'logo-nodejs', color: '#F7DF1E', label: 'JavaScript' },
+                'c-lang': { icon: 'code-slash-outline', color: '#A8B9CC', label: 'C' },
+                'cpp': { icon: 'code-working-outline', color: '#00599C', label: 'C++' },
+                'java': { icon: 'cafe-outline', color: '#ED8B00', label: 'Java' },
               };
               const lang = langIcons[info.language] || langIcons['html'];
               return (

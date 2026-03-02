@@ -1041,6 +1041,11 @@ async function generateProject(
     flutter: 'Flutter Web with Dart and Material Design',
     laravel: 'Laravel with PHP, Blade templates, and Tailwind CSS',
     'HTML/CSS/JS': 'HTML5, CSS3, and vanilla JavaScript',
+    'python-console': 'Python 3 console application (no web server, no framework)',
+    'javascript-console': 'Node.js console application (no web server, no Express)',
+    'c-lang': 'C console application compiled with gcc',
+    'cpp': 'C++ console application compiled with g++',
+    'java': 'Java console application',
   };
   const techDesc = techMap[technology] || techMap['nextjs'];
 
@@ -1094,6 +1099,11 @@ Requirements:
 - For Flutter: include pubspec.yaml (with flutter sdk), lib/main.dart with MaterialApp, web/index.html
 - For Laravel: include composer.json, artisan, routes/web.php, resources/views/ with Blade templates, app/ directory structure. Do NOT use Vite or Laravel Mix for asset bundling — use plain inline CSS and JS in Blade templates instead. The welcome.blade.php MUST contain the actual project content (not the default Laravel welcome page). Include a .env file with APP_KEY=base64:dGhpc2lzYWR1bW15a2V5Zm9yZGV2ZWxvcG1lbnQx and APP_DEBUG=true
 - For HTML: include index.html, style.css, script.js
+- For Python console: include main.py with a working example program that prints output to stdout. Include requirements.txt ONLY if external packages are needed. Do NOT include any web server, Flask, Django, or FastAPI. The program should demonstrate interesting logic (not just "Hello World").
+- For JavaScript console: include index.js with a working example program that uses console.log for output. Include package.json ONLY if external packages are needed. Do NOT include Express, http server, or any web framework.
+- For C: include main.c with a working example program and a Makefile with target "main". Use standard C (C11). Include interesting logic, not just printf("Hello").
+- For C++: include main.cpp with a working example program and a Makefile with target "main". Use standard C++ (C++17). Include interesting logic.
+- For Java: include Main.java with class Main and public static void main(String[] args). Do NOT use packages or subdirectories. Include interesting logic.
 - Make it immediately runnable with the dev server
 - Do NOT include node_modules, lock files, vendor/, or .dart_tool/
 - Keep it concise but functional${excludedNote}

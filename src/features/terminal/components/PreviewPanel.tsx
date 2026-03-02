@@ -59,7 +59,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const projectPreviewUrls = useUIStore((state) => state.projectPreviewUrls);
   const projectPreviewTokens = useUIStore((state) => state.projectPreviewTokens);
   const projectId = currentWorkstation?.id;
-  const { apiUrl } = useNetworkConfig();
+  const { apiUrl, wsUrl } = useNetworkConfig();
   const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { sidebarTranslateX } = useSidebarOffset();
@@ -184,8 +184,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const [webViewReady, setWebViewReady] = useState(false);
   const [viewportMode, setViewportMode] = useState<ViewportMode>('mobile');
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
-  const [hasWebUI, setHasWebUI] = useState(true);
+  const [hasWebUI, setHasWebUIState] = useState(true);
+  const hasWebUIRef = useRef(true);
+  const setHasWebUI = (val: boolean) => { hasWebUIRef.current = val; setHasWebUIState(val); };
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
+  const [terminalAuthToken, setTerminalAuthToken] = useState<string | null>(null);
   const terminalScrollRef = useRef<ScrollView>(null);
   const logsXhrRef = useRef<XMLHttpRequest | null>(null);
   const webViewRef = useRef<WebView>(null);
@@ -234,8 +237,9 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const inferHasWebUI = (projectType?: string): boolean => {
     const normalized = String(projectType || '').toLowerCase();
     if (!normalized) return true;
-    // Conservative fallback: only treat obviously CLI-first runtimes as no-web.
-    const noWebUiTypes = new Set(['go', 'python', 'nodejs', 'unknown']);
+    // Only explicit console templates are no-web. If backend doesn't provide
+    // hasWebUI, prefer web to avoid false negatives on server projects.
+    const noWebUiTypes = new Set(['python-console', 'javascript-console', 'c-lang', 'cpp', 'java']);
     return !noWebUiTypes.has(normalized);
   };
 
@@ -346,6 +350,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   };
 
   const checkServerStatus = async (urlOverride?: string, retryCount = 0) => {
+    // Console projects have no web server — skip health check entirely
+    if (!hasWebUIRef.current) return;
     const urlToCheck = urlOverride || currentPreviewUrl;
     if (!urlToCheck) return;
     const maxRetries = 300;
@@ -586,6 +592,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const previewEndpoint = USE_HOLY_GRAIL ? `${apiUrl}/fly/preview/start` : `${apiUrl}/preview/start`;
 
       const authToken = await getAuthToken();
+      if (authToken) setTerminalAuthToken(authToken);
 
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -739,16 +746,18 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       });
                     }
 
+                    // Determine hasWebUI from backend response or infer from project type
+                    const projectHasWebUI = typeof result.hasWebUI === 'boolean'
+                      ? result.hasWebUI
+                      : inferHasWebUI(result.projectInfo?.type);
+                    setHasWebUI(projectHasWebUI);
+                    if (!projectHasWebUI) setWebViewReady(true);
+
                     if (result.previewUrl) {
                       if (result.coderToken) setCoderToken(result.coderToken);
                       if (result.previewToken) {
                         updatePreviewAccessToken(result.previewToken, currentWorkstation?.id);
                       }
-                      const projectHasWebUI = typeof result.hasWebUI === 'boolean'
-                        ? result.hasWebUI
-                        : inferHasWebUI(result.projectInfo?.type);
-                      setHasWebUI(projectHasWebUI);
-                      if (!projectHasWebUI) setWebViewReady(true);
 
                       if (result.machineId) {
                         setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
@@ -775,6 +784,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                         completeSetup();
                       }
                     } else {
+                      // Console project (no web UI) — clear preview URL, keep machineId for exec
+                      setCurrentPreviewUrlLocal('');
+                      if (currentWorkstation?.id) {
+                        setPreviewServerUrl('', currentWorkstation.id);
+                      }
+                      if (result.machineId) {
+                        setGlobalFlyMachineId(result.machineId, currentWorkstation?.id);
+                        flyMachineIdRef.current = result.machineId;
+                      }
                       completeSetup();
                     }
                   }
@@ -1161,6 +1179,8 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
     const connectToLogs = async () => {
       if (!isMounted) return;
+      // Console projects get output via SSE exec, not agent /logs stream
+      if (!hasWebUIRef.current) return;
       if ((serverStatus !== 'running' && !startup.isStarting && serverStatus !== 'checking') || !currentWorkstation?.id) return;
       if (logsXhrRef.current) { logsXhrRef.current.abort(); logsXhrRef.current = null; }
 
@@ -1499,17 +1519,30 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           <View style={{ flex: 1 }}>
             {shouldRenderToolbar && (
               <Animated.View>
-                <PreviewToolbar
-                  currentPreviewUrl={currentPreviewUrl}
-                  onClose={handleStopPreview}
-                  onRefresh={handleRefresh}
-                  onPublish={publish.openPublishModal}
-                  onUrlChange={setCurrentPreviewUrl}
-                  existingPublish={publish.existingPublish}
-                  topInset={insets.top}
-                  viewportMode={viewportMode}
-                  onViewportChange={setViewportMode}
-                />
+                {!hasWebUI ? (
+                  /* Console projects: minimal header with just the close button */
+                  <View style={{ paddingTop: insets.top, backgroundColor: '#0d1117' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', height: 44, paddingHorizontal: 12 }}>
+                      <TouchableOpacity onPress={handleStopPreview} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Ionicons name="close" size={22} color="#9ca3af" />
+                      </TouchableOpacity>
+                      <Text style={{ flex: 1, textAlign: 'center', color: '#6b7280', fontSize: 13, fontFamily: 'SF Mono' }}>Terminal</Text>
+                      <View style={{ width: 22 }} />
+                    </View>
+                  </View>
+                ) : (
+                  <PreviewToolbar
+                    currentPreviewUrl={currentPreviewUrl}
+                    onClose={handleStopPreview}
+                    onRefresh={handleRefresh}
+                    onPublish={publish.openPublishModal}
+                    onUrlChange={setCurrentPreviewUrl}
+                    existingPublish={publish.existingPublish}
+                    topInset={insets.top}
+                    viewportMode={viewportMode}
+                    onViewportChange={setViewportMode}
+                  />
+                )}
               </Animated.View>
             )}
 
@@ -1617,6 +1650,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                   onSendErrorReport={sendErrorToChat}
                   topInset={insets.top}
                   viewportMode={viewportMode}
+                  projectId={projectId || ''}
+                  wsUrl={wsUrl}
+                  authToken={terminalAuthToken}
+                  startCommand={projectInfo?.startCommand}
                   t={t}
                 />
               )}

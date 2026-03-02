@@ -75,6 +75,7 @@
     "frontend": "Frontend",
     "backend": "Backend",
     "mobile": "Mobile",
+    "console": "Console",
     "showAll": "Mostra tutte",
     "showLess": "Mostra meno",
     "aiRecommendedBecause": "Suggerimento AI:"

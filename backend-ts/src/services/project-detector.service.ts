@@ -173,6 +173,22 @@ class ProjectDetectorService {
       }
     }
 
+    // JavaScript console (index.js without web framework, package.json optional)
+    // Must run BEFORE generic Node.js fallback, otherwise console templates with
+    // package.json are misdetected as web projects.
+    if (await this.hasAnyFile(projectDir, ['index.js'])) {
+      const hasRootIndexHtml = await this.hasAnyFile(projectDir, ['index.html']);
+      if (!hasRootIndexHtml && !this.hasWebDeps(packageJson)) {
+        return {
+          type: 'javascript-console',
+          description: 'JavaScript console application',
+          startCommand: 'timeout 30 node index.js < /dev/null 2>&1; true',
+          port: 0,
+          hasWebUI: false,
+        };
+      }
+    }
+
     // Generic Node.js (no framework detected, no monorepo subdirs found)
     if (hasPackageJson) {
       return this.nodejsProject(packageJson, packageManager);
@@ -234,7 +250,23 @@ class ProjectDetectorService {
       }
     }
 
-    // Check for generic Python
+    // Check for generic Python (console script — no web framework)
+    if (await this.hasAnyFile(projectDir, ['main.py'])) {
+      const reqs = await this.readFileSafe(projectDir, 'requirements.txt');
+      const hasWebFramework = reqs && (reqs.includes('flask') || reqs.includes('django') || reqs.includes('fastapi'));
+      if (!hasWebFramework) {
+        return {
+          type: 'python-console',
+          description: 'Python console application',
+          startCommand: 'timeout 30 stdbuf -oL python3 -u main.py < /dev/null 2>&1; true',
+          port: 0,
+          hasWebUI: false,
+          installCommand: reqs ? 'python3 -m pip install --user --break-system-packages -r requirements.txt' : undefined,
+        };
+      }
+    }
+
+    // Generic Python with requirements but no main.py
     if (await this.hasAnyFile(projectDir, ['requirements.txt', 'pyproject.toml', 'setup.py'])) {
       return {
         type: 'python',
@@ -262,6 +294,42 @@ class ProjectDetectorService {
         startCommand: 'bundle exec rails s -p 3000 -b 0.0.0.0',
         port: 3000,
         installCommand: 'bundle install',
+      };
+    }
+
+    // C++ (main.cpp or main.cc)
+    const hasMainCpp = await this.fileExists(projectDir, 'main.cpp');
+    const hasMainCc = !hasMainCpp && await this.fileExists(projectDir, 'main.cc');
+    if (hasMainCpp || hasMainCc) {
+      const cppEntry = hasMainCpp ? 'main.cpp' : 'main.cc';
+      return {
+        type: 'cpp',
+        description: 'C++ console application',
+        startCommand: `make 2>/dev/null || g++ -o main ${cppEntry} && timeout 10 stdbuf -oL ./main < /dev/null 2>&1; true`,
+        port: 0,
+        hasWebUI: false,
+      };
+    }
+
+    // C (main.c)
+    if (await this.hasAnyFile(projectDir, ['main.c'])) {
+      return {
+        type: 'c-lang',
+        description: 'C console application',
+        startCommand: 'make 2>/dev/null || gcc -o main main.c && timeout 10 stdbuf -oL ./main < /dev/null 2>&1; true',
+        port: 0,
+        hasWebUI: false,
+      };
+    }
+
+    // Java (Main.java)
+    if (await this.hasAnyFile(projectDir, ['Main.java'])) {
+      return {
+        type: 'java',
+        description: 'Java console application',
+        startCommand: 'javac Main.java && timeout 10 java Main < /dev/null 2>&1; true',
+        port: 0,
+        hasWebUI: false,
       };
     }
 
@@ -477,6 +545,11 @@ class ProjectDetectorService {
 
   private hasDep(pkg: any, dep: string): boolean {
     return !!(pkg?.dependencies?.[dep] || pkg?.devDependencies?.[dep]);
+  }
+
+  private hasWebDeps(pkg: any): boolean {
+    const webDeps = ['express', 'koa', 'fastify', 'hapi', 'http-server', 'serve', 'react', 'vue', 'svelte', 'next', 'nuxt', '@angular/core'];
+    return webDeps.some(dep => this.hasDep(pkg, dep));
   }
 
   /**

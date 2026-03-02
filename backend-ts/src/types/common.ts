@@ -39,5 +39,6 @@ export interface PreviewResult {
   containerId?: string;
   previewToken?: string;
   projectInfo?: import('./project').ProjectInfo;
+  hasWebUI?: boolean;
   error?: string;
 }
