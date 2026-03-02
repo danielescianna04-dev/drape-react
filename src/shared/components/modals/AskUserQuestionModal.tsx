@@ -54,7 +54,7 @@ export const AskUserQuestionModal: React.FC<Props> = ({
             <Text style={styles.title}>Agent has questions</Text>
 
             <ScrollView style={styles.questionsContainer} showsVerticalScrollIndicator={false}>
-                {questions.map((q, qIndex) => (
+                {(questions || []).map((q, qIndex) => (
                     <View key={qIndex} style={styles.questionBlock}>
                         <View style={styles.questionHeader}>
                             <Text style={styles.headerChip}>{q.header}</Text>
@@ -62,7 +62,7 @@ export const AskUserQuestionModal: React.FC<Props> = ({
                         <Text style={styles.questionText}>{q.question}</Text>
 
                         <View style={styles.optionsContainer}>
-                            {q.options.map((opt, oIndex) => {
+                            {(q.options || []).map((opt, oIndex) => {
                                 const key = `question_${qIndex}`;
                                 const isSelected = q.multiSelect
                                     ? ((answers[key] as string[]) || []).includes(opt.label)

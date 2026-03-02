@@ -906,17 +906,71 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
 
     // 3. Detect project type and build strategy
     const pkgResult = await fileService.readFile(projectId, 'package.json');
+    const hasPnpmLock = await fileService.exists(projectId, 'pnpm-lock.yaml');
+    const hasYarnLock = await fileService.exists(projectId, 'yarn.lock');
+    const hasBunLock = await fileService.exists(projectId, 'bun.lockb') || await fileService.exists(projectId, 'bun.lock');
+    const hasPackageLock = await fileService.exists(projectId, 'package-lock.json');
+    const hasYarnPnp = await fileService.exists(projectId, '.pnp.cjs') || await fileService.exists(projectId, '.pnp.js');
+
     let hasBuildScript = false;
+    let hasGenerateScript = false;
     let isNextJs = false;
     let isNuxt = false;
+    let packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun' = 'npm';
+
+    if (hasPnpmLock) packageManager = 'pnpm';
+    else if (hasYarnLock || hasYarnPnp) packageManager = 'yarn';
+    else if (hasBunLock) packageManager = 'bun';
+    else if (hasPackageLock) packageManager = 'npm';
+
     if (pkgResult.success && pkgResult.data) {
       try {
         const pkg = JSON.parse(pkgResult.data.content);
         hasBuildScript = !!pkg.scripts?.build;
+        hasGenerateScript = !!pkg.scripts?.generate;
         isNextJs = !!(pkg.dependencies?.next || pkg.devDependencies?.next);
         isNuxt = !!(pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt);
+        const pmFromPackageJson = String(pkg.packageManager || '').toLowerCase();
+        if (pmFromPackageJson.startsWith('pnpm@')) packageManager = 'pnpm';
+        else if (pmFromPackageJson.startsWith('yarn@')) packageManager = 'yarn';
+        else if (pmFromPackageJson.startsWith('bun@')) packageManager = 'bun';
+        else if (pmFromPackageJson.startsWith('npm@')) packageManager = 'npm';
       } catch {}
     }
+
+    const installCommandsByPm: Record<'npm' | 'pnpm' | 'yarn' | 'bun', string[]> = {
+      npm: ['npm install --legacy-peer-deps'],
+      pnpm: ['pnpm install --frozen-lockfile', 'pnpm install', 'npm install --legacy-peer-deps'],
+      yarn: ['yarn install --frozen-lockfile', 'yarn install', 'npm install --legacy-peer-deps'],
+      bun: ['bun install --frozen-lockfile', 'bun install', 'npm install --legacy-peer-deps'],
+    };
+
+    const buildCommandsByPm: Record<'npm' | 'pnpm' | 'yarn' | 'bun', string[]> = {
+      npm: ['CI=false npm_config_update_notifier=false npm run build'],
+      pnpm: ['CI=false pnpm run build', 'CI=false npm_config_update_notifier=false npm run build'],
+      yarn: ['CI=false yarn build', 'CI=false npm_config_update_notifier=false npm run build'],
+      bun: ['CI=false bun run build', 'CI=false npm_config_update_notifier=false npm run build'],
+    };
+
+    const generateCommandsByPm: Record<'npm' | 'pnpm' | 'yarn' | 'bun', string[]> = {
+      npm: ['npm run generate'],
+      pnpm: ['pnpm run generate', 'npm run generate'],
+      yarn: ['yarn generate', 'npm run generate'],
+      bun: ['bun run generate', 'npm run generate'],
+    };
+
+    const runCommandCandidates = async (commands: string[], step: string) => {
+      let lastResult: Awaited<ReturnType<typeof execForPublish>> | null = null;
+      for (const command of commands) {
+        const result = await execForPublish(command, '/home/coder/project', `${step}: ${command}`);
+        lastResult = result;
+        if (result.exitCode === 0) {
+          return result;
+        }
+        log.warn(`[Publish] ${step} command failed for ${projectId}: ${command}`);
+      }
+      return lastResult;
+    };
     const hasPubspec = await fileService.exists(projectId, 'pubspec.yaml');
     const isFlutter = hasPubspec;
     const isServerSide = await fileService.exists(projectId, 'manage.py') // Django
@@ -947,22 +1001,27 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       // Runs inside the container as `coder` user to avoid root-owned file permission issues.
       log.info(`[Publish] Generating static Nuxt site for ${projectId} slug "${cleanSlug}"...`);
       const hasNodeModules = await fileService.exists(projectId, 'node_modules');
-      if (!hasNodeModules) {
-        log.info(`[Publish] Installing dependencies for ${projectId}...`);
-        const installResult = await execForPublish('npm install --legacy-peer-deps', '/home/coder/project', 'npm install');
-        if (installResult.exitCode !== 0) {
-          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+      if (!hasNodeModules && !hasYarnPnp) {
+        log.info(`[Publish] Installing dependencies for ${projectId} with ${packageManager}...`);
+        const installResult = await runCommandCandidates(installCommandsByPm[packageManager], 'install deps');
+        if (!installResult || installResult.exitCode !== 0) {
+          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult?.stderr || installResult?.stdout)?.substring(0, 500) });
           return;
         }
       }
+
+      const withNuxtBuildDir = (cmd: string) =>
+        `rm -rf .output /tmp/.nuxt-publish && NUXT_BUILD_DIR=/tmp/.nuxt-publish ${cmd}`;
+      const generateCommands = [
+        ...(hasGenerateScript ? generateCommandsByPm[packageManager] : []),
+        'npx --yes nuxi generate',
+        './node_modules/.bin/nuxi generate',
+      ].map(withNuxtBuildDir);
+
       // Use a separate build dir so nuxi generate doesn't corrupt the running dev server's .nuxt/
-      const buildResult = await execForPublish(
-        'rm -rf .output /tmp/.nuxt-publish && NUXT_BUILD_DIR=/tmp/.nuxt-publish ./node_modules/.bin/nuxi generate',
-        '/home/coder/project',
-        'nuxi generate',
-      );
-      if (buildResult.exitCode !== 0) {
-        const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+      const buildResult = await runCommandCandidates(generateCommands, 'nuxt generate');
+      if (!buildResult || buildResult.exitCode !== 0) {
+        const errorOutput = buildResult?.stderr || buildResult?.stdout || 'Unknown error';
         log.error(`[Publish] Nuxt generate failed for ${projectId}:`, errorOutput);
         res.status(500).json({ error: 'Nuxt generate failed', stderr: errorOutput.substring(0, 500) });
         return;
@@ -982,16 +1041,12 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     } else if (hasBuildScript) {
       // 4a. Install deps if node_modules is missing
       const hasNodeModules = await fileService.exists(projectId, 'node_modules');
-      if (!hasNodeModules) {
-        log.info(`[Publish] Installing dependencies for ${projectId}...`);
-        const installResult = await execShell(
-          'npm install --legacy-peer-deps',
-          projectHostPath,
-          15 * 60 * 1000,
-        );
-        if (installResult.exitCode !== 0) {
-          log.error(`[Publish] npm install failed for ${projectId}:`, installResult.stderr || installResult.stdout);
-          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult.stderr || installResult.stdout)?.substring(0, 500) });
+      if (!hasNodeModules && !hasYarnPnp) {
+        log.info(`[Publish] Installing dependencies for ${projectId} with ${packageManager}...`);
+        const installResult = await runCommandCandidates(installCommandsByPm[packageManager], 'install deps');
+        if (!installResult || installResult.exitCode !== 0) {
+          log.error(`[Publish] Dependency install failed for ${projectId}:`, installResult?.stderr || installResult?.stdout);
+          res.status(500).json({ error: 'Dependency install failed', stderr: (installResult?.stderr || installResult?.stdout)?.substring(0, 500) });
           return;
         }
       }
@@ -1071,11 +1126,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       await fs.rm(path.join(projectHostPath, 'out'), { recursive: true, force: true }).catch(() => {});
       await fs.rm(path.join(projectHostPath, '.output'), { recursive: true, force: true }).catch(() => {});
 
-      const buildResult = await execShell(
-        'CI=false npm_config_update_notifier=false npm run build',
-        projectHostPath,
-        20 * 60 * 1000,
-      );
+      const buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
 
       // Always restore temporary Next.js config changes after build.
       if (nextConfigRestore) {
@@ -1088,8 +1139,8 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         }
       }
 
-      if (buildResult.exitCode !== 0) {
-        const errorOutput = buildResult.stderr || buildResult.stdout || 'Unknown error';
+      if (!buildResult || buildResult.exitCode !== 0) {
+        const errorOutput = buildResult?.stderr || buildResult?.stdout || 'Unknown error';
         log.error(`[Publish] Build failed for ${projectId}:`, errorOutput);
         res.status(500).json({ error: 'Build failed', stderr: errorOutput.substring(0, 500) });
         return;
@@ -1099,9 +1150,12 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       let outputDir: string | null = null;
       const outputCandidates = [
         '.output/public',
+        '.vercel/output/static',
         'build/web',
         'dist/browser',
+        'dist/client',
         'dist',
+        'build/client',
         'build',
         'out',
         '.next/standalone',

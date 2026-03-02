@@ -21,47 +21,133 @@ import { BlurView } from 'expo-blur';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
+import { DrapeLogo } from '../../shared/components/icons/DrapeLogo';
 import { useAuthStore } from '../../core/auth/authStore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 type AuthMode = 'initial' | 'login' | 'register' | 'forgot' | 'verify';
 
-// Animated gradient background — scrolls upward continuously
+// Animated gradient background — two layers moving in different directions
 const AnimatedGradientBg = () => {
-  const scrollY = useRef(new RNAnimated.Value(0)).current;
+  const layer1Y = useRef(new RNAnimated.Value(0)).current;
+  const layer2X = useRef(new RNAnimated.Value(0)).current;
+  const layer2Y = useRef(new RNAnimated.Value(0)).current;
+  const layer3X = useRef(new RNAnimated.Value(0)).current;
+  const layer3Y = useRef(new RNAnimated.Value(0)).current;
+  const pulseOpacity = useRef(new RNAnimated.Value(0.35)).current;
 
   useEffect(() => {
+    // Vertical scroll — faster
     RNAnimated.loop(
-      RNAnimated.timing(scrollY, {
+      RNAnimated.timing(layer1Y, {
         toValue: -SCREEN_HEIGHT,
-        duration: 12000,
+        duration: 7000,
         useNativeDriver: true,
-        easing: (t: number) => t, // linear
+        easing: (t: number) => t,
       })
+    ).start();
+
+    // Top blob — orbits around
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(layer2X, { toValue: 100, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+        RNAnimated.timing(layer2X, { toValue: -80, duration: 7000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+      ])
+    ).start();
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(layer2Y, { toValue: 80, duration: 8000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+        RNAnimated.timing(layer2Y, { toValue: -60, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+      ])
+    ).start();
+
+    // Bottom blob — orbits opposite
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(layer3X, { toValue: -100, duration: 7000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+        RNAnimated.timing(layer3X, { toValue: 90, duration: 6000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+      ])
+    ).start();
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(layer3Y, { toValue: -70, duration: 6500, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+        RNAnimated.timing(layer3Y, { toValue: 80, duration: 7500, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+      ])
+    ).start();
+
+    // Pulsing opacity on blobs
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(pulseOpacity, { toValue: 0.55, duration: 4000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+        RNAnimated.timing(pulseOpacity, { toValue: 0.25, duration: 4000, useNativeDriver: true, easing: (t: number) => t * (2 - t) }),
+      ])
     ).start();
   }, []);
 
   return (
     <View style={[StyleSheet.absoluteFillObject, { overflow: 'hidden' }]} pointerEvents="none">
-      {/* Dark base */}
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#08080f' }]} />
-      {/* Scrolling gradient strip — 2x screen height, loops seamlessly */}
+
+      {/* Layer 1 — vertical scroll, very smooth seamless gradient */}
       <RNAnimated.View
         style={{
           position: 'absolute',
-          left: 0,
-          right: 0,
+          left: -60,
+          right: -60,
           height: SCREEN_HEIGHT * 2,
           top: 0,
-          transform: [{ translateY: scrollY }],
+          transform: [{ translateY: layer1Y }],
         }}
       >
         <LinearGradient
-          colors={['#08080f', '#14082a', '#1a0c34', '#12082a', '#08080f', '#14082a', '#1a0c34', '#12082a', '#08080f']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
+          colors={[
+            '#0a0a14', '#0e0920', '#120b2a', '#150d30', '#120b2a', '#0e0920',
+            '#0a0a14', '#0e0920', '#120b2a', '#150d30', '#120b2a', '#0e0920', '#0a0a14',
+          ]}
+          start={{ x: 0.4, y: 0 }}
+          end={{ x: 0.6, y: 1 }}
+          style={{ width: '100%', height: '100%' }}
+        />
+      </RNAnimated.View>
+
+      {/* Layer 2 — full-screen color wash that drifts */}
+      <RNAnimated.View
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          top: -SCREEN_HEIGHT * 0.5,
+          bottom: -SCREEN_HEIGHT * 0.5,
+          left: -SCREEN_HEIGHT * 0.5,
+          right: -SCREEN_HEIGHT * 0.5,
+          opacity: pulseOpacity,
+          transform: [{ translateX: layer2X }, { translateY: layer2Y }],
+        }}
+      >
+        <LinearGradient
+          colors={['#0a0a14', '#150d32', '#1a1040', '#150d32', '#0a0a14']}
+          start={{ x: 0.1, y: 0.1 }}
+          end={{ x: 0.9, y: 0.9 }}
+          style={{ width: '100%', height: '100%' }}
+        />
+      </RNAnimated.View>
+
+      {/* Layer 3 — another full-screen wash, opposite direction */}
+      <RNAnimated.View
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          top: -SCREEN_HEIGHT * 0.5,
+          bottom: -SCREEN_HEIGHT * 0.5,
+          left: -SCREEN_HEIGHT * 0.5,
+          right: -SCREEN_HEIGHT * 0.5,
+          opacity: 0.3,
+          transform: [{ translateX: layer3X }, { translateY: layer3Y }],
+        }}
+      >
+        <LinearGradient
+          colors={['#0a0a14', '#12092e', '#180e38', '#12092e', '#0a0a14']}
+          start={{ x: 0.9, y: 0.2 }}
+          end={{ x: 0.1, y: 0.8 }}
           style={{ width: '100%', height: '100%' }}
         />
       </RNAnimated.View>
@@ -69,111 +155,147 @@ const AnimatedGradientBg = () => {
   );
 };
 
-// Floating feature cards — abstract IDE representation
-const FeatureCards = () => {
-  const float0 = useRef(new RNAnimated.Value(0)).current;
-  const float1 = useRef(new RNAnimated.Value(0)).current;
-  const float2 = useRef(new RNAnimated.Value(0)).current;
-  const floats = [float0, float1, float2];
+// Hero top section (new landing visual)
+const HeroShowcase = () => {
+  const pulse = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    floats.forEach((anim, i) => {
-      setTimeout(() => {
-        RNAnimated.loop(
-          RNAnimated.sequence([
-            RNAnimated.timing(anim, { toValue: 1, duration: 2800 + i * 400, useNativeDriver: true, easing: (t: number) => Math.sin(t * Math.PI) }),
-            RNAnimated.timing(anim, { toValue: 0, duration: 2800 + i * 400, useNativeDriver: true, easing: (t: number) => Math.sin(t * Math.PI) }),
-          ])
-        ).start();
-      }, i * 150);
-    });
-  }, []);
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
+        RNAnimated.timing(pulse, { toValue: 0, duration: 1800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [pulse]);
 
-  const cards = [
-    { icon: 'code-slash' as const, label: 'Code', color: '#A78BFA', lines: [0.75, 0.5, 0.85, 0.35, 0.6] },
-    { icon: 'sparkles' as const, label: 'AI', color: '#818CF8', lines: [0.6, 0.9, 0.45, 0.7] },
-    { icon: 'eye' as const, label: 'Preview', color: '#7C8BF5', lines: [0.8, 0.55, 0.65] },
+  const nodes = [
+    { icon: 'code-slash' as const, label: 'Code' },
+    { icon: 'sparkles' as const, label: 'AI' },
+    { icon: 'eye' as const, label: 'Preview' },
   ];
 
   return (
-    <View style={featureCardStyles.container}>
-      {cards.map((card, i) => (
-        <RNAnimated.View
-          key={card.label}
-          style={[
-            featureCardStyles.card,
-            {
-              transform: [{
-                translateY: floats[i].interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, i === 1 ? -10 : 8],
-                }),
-              }],
-            },
-          ]}
-        >
-          <View style={[featureCardStyles.accent, { backgroundColor: card.color }]} />
-          <View style={featureCardStyles.header}>
-            <Ionicons name={card.icon} size={14} color={card.color} />
-            <Text style={[featureCardStyles.label, { color: card.color }]}>{card.label}</Text>
-          </View>
-          <View style={featureCardStyles.body}>
-            {card.lines.map((w, j) => (
-              <View
-                key={j}
-                style={{
-                  height: 4,
-                  borderRadius: 2,
-                  width: `${w * 100}%`,
-                  opacity: 0.25 - j * 0.03,
-                  backgroundColor: card.color,
-                }}
-              />
-            ))}
-          </View>
-        </RNAnimated.View>
-      ))}
+    <View style={heroStyles.wrapper}>
+      <View style={heroStyles.canvas}>
+        <View style={heroStyles.pathLine} />
+
+        <View style={heroStyles.nodeRow}>
+          {nodes.map((node, idx) => (
+            <View key={node.label} style={heroStyles.nodeCluster}>
+              {idx === 1 && (
+                <RNAnimated.View
+                  style={[
+                    heroStyles.centerHalo,
+                    {
+                      opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
+                      transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }) }],
+                    },
+                  ]}
+                />
+              )}
+              <View style={[heroStyles.node, idx === 1 && heroStyles.nodeActive]}>
+                <Ionicons name={node.icon} size={20} color={idx === 1 ? '#DCD4FF' : '#A98FFF'} />
+              </View>
+              <Text style={[heroStyles.nodeLabel, idx === 1 && heroStyles.nodeLabelActive]}>{node.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={heroStyles.captionPill}>
+          <Text style={heroStyles.captionText}>Dal prompt alla release in un unico flusso.</Text>
+        </View>
+      </View>
     </View>
   );
 };
 
-const featureCardStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    gap: 10,
-  },
-  card: {
-    flex: 1,
-    height: 140,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
-    overflow: 'hidden',
-  },
-  accent: {
-    height: 2,
-    width: '100%',
-  },
-  header: {
-    flexDirection: 'row',
+const heroStyles = StyleSheet.create({
+  wrapper: {
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 8,
+    marginTop: 10,
   },
-  label: {
-    fontSize: 11,
+  canvas: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 26,
+    paddingBottom: 20,
+    backgroundColor: 'rgba(12, 9, 30, 0.56)',
+    borderWidth: 1,
+    borderColor: 'rgba(145,119,255,0.24)',
+    shadowColor: '#5D3BFF',
+    shadowOpacity: 0.26,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  nodeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    marginBottom: 26,
+  },
+  pathLine: {
+    position: 'absolute',
+    top: 53,
+    left: 70,
+    right: 70,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(131, 100, 255, 0.34)',
+  },
+  nodeCluster: {
+    width: 84,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  centerHalo: {
+    position: 'absolute',
+    top: -6,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: 'rgba(126, 94, 255, 0.32)',
+  },
+  node: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(150, 121, 255, 0.4)',
+  },
+  nodeActive: {
+    backgroundColor: 'rgba(122, 90, 255, 0.34)',
+    borderColor: 'rgba(190, 170, 255, 0.8)',
+  },
+  nodeLabel: {
+    marginTop: 10,
+    fontSize: 13,
     fontWeight: '600',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    color: 'rgba(194, 178, 255, 0.85)',
+    letterSpacing: 0.2,
   },
-  body: {
-    paddingHorizontal: 10,
-    gap: 6,
+  nodeLabelActive: {
+    color: '#EAE2FF',
+    fontWeight: '700',
+  },
+  captionPill: {
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(151, 124, 255, 0.28)',
+  },
+  captionText: {
+    fontSize: 12,
+    color: 'rgba(206, 194, 255, 0.9)',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
 
@@ -738,15 +860,11 @@ export const AuthScreen = () => {
 
       {/* Content */}
       <View style={[styles.content, { paddingTop: insets.top + 40 }]}>
-        {/* Feature Cards */}
-        <Animated.View entering={FadeInDown.delay(200).duration(800)} style={styles.cardsSection}>
-          <FeatureCards />
-        </Animated.View>
-
-        {/* Branding */}
-        <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.brandingSection}>
+        {/* Logo + Branding */}
+        <Animated.View entering={FadeInDown.delay(200).duration(700)} style={styles.brandingSection}>
+          <DrapeLogo size={72} gradient />
           <Text style={styles.brandName}>Drape</Text>
-          <Text style={styles.tagline}>Code with AI</Text>
+          <Text style={styles.tagline}>Il tuo IDE AI, semplice e potente.</Text>
         </Animated.View>
       </View>
 
@@ -797,10 +915,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0a0f',
   },
-  cardsSection: {
-    marginTop: 20,
-    paddingHorizontal: 10,
-  },
   blurOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 5,
@@ -815,17 +929,19 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   brandName: {
-    fontSize: 52,
+    fontSize: 54,
     fontWeight: '800',
     color: '#fff',
-    letterSpacing: -1.5,
+    letterSpacing: -1.6,
+    marginTop: 16,
   },
   tagline: {
-    fontSize: 17,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 8,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: 12,
     fontWeight: '500',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
+    textAlign: 'center',
   },
   // Modal
   modalContainer: {

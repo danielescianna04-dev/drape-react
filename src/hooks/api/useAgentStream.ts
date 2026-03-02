@@ -7,6 +7,7 @@
 
 import { useEffect, useCallback, useRef, useState } from 'react';
 import EventSource from 'react-native-sse';
+import NetInfo from '@react-native-community/netinfo';
 import { config } from '../../config/config';
 import { useAgentStore } from '../../core/agent/agentStore';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
@@ -15,6 +16,8 @@ import { getAuthToken } from '../../core/api/getAuthToken';
 
 // SSE Event Types
 export type AgentEventType =
+  | 'processing'
+  | 'heartbeat'
   | 'tool_start'
   | 'tool_input'
   | 'tool_complete'
@@ -30,6 +33,8 @@ export type AgentEventType =
   | 'plan_ready'
   | 'ask_user_question'
   | 'usage'
+  | 'context_compacting'
+  | 'context_compacted'
   | 'complete'
   | 'error'
   | 'fatal_error'
@@ -94,6 +99,22 @@ interface UseAgentStreamReturn {
   reset: () => void;
 }
 
+const isLikelyNetworkError = (error: any): boolean => {
+  const message = String(error?.message || '').toLowerCase();
+  const type = String(error?.type || '').toLowerCase();
+  const combined = `${type} ${message}`;
+  return (
+    combined.includes('network') ||
+    combined.includes('timeout') ||
+    combined.includes('timed out') ||
+    combined.includes('socket') ||
+    combined.includes('closed') ||
+    combined.includes('econn') ||
+    combined.includes('failed to fetch') ||
+    combined.includes('connection')
+  );
+};
+
 /**
  * Connect to Agent SSE endpoint and stream tool execution events
  *
@@ -126,6 +147,16 @@ export function useAgentStream(
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const isRunningRef = useRef(false);
+  const isConnectingRef = useRef(false);
+  const shouldResumeOnReconnectRef = useRef(false);
+  const lastConnectPayloadRef = useRef<{
+    prompt: string;
+    projectId: string;
+    model?: string;
+    conversationHistory?: any[];
+    images?: any[];
+    thinkingLevel?: string;
+  } | null>(null);
   const maxReconnectAttempts = 5;
 
   const setRunningState = useCallback((running: boolean) => {
@@ -248,10 +279,26 @@ export function useAgentStream(
    */
   const connect = useCallback(async (prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
     if (!enabled) return;
+    if (isConnectingRef.current) return;
 
     // Prevent multiple simultaneous connections
     if (isRunningRef.current && eventSourceRef.current) {
       return;
+    }
+
+    isConnectingRef.current = true;
+    lastConnectPayloadRef.current = {
+      prompt,
+      projectId,
+      model,
+      conversationHistory: conversationHistory || [],
+      images: images || [],
+      thinkingLevel,
+    };
+    shouldResumeOnReconnectRef.current = false;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
 
     // Close existing connection before creating new one
@@ -299,6 +346,8 @@ export function useAgentStream(
 
       // Handle all event types
       const eventTypes: AgentEventType[] = [
+        'processing',
+        'heartbeat',
         'tool_start',
         'tool_input',
         'tool_complete',
@@ -313,6 +362,8 @@ export function useAgentStream(
         'plan_ready',
         'ask_user_question',
         'usage',
+        'context_compacting',
+        'context_compacted',
         'budget_exceeded',
         'complete',
         'error',
@@ -338,10 +389,12 @@ export function useAgentStream(
       // Handle connection open
       es.addEventListener('open', () => {
         reconnectAttemptsRef.current = 0;
+        shouldResumeOnReconnectRef.current = false;
+        setError(null);
       });
 
       // Handle errors
-      es.addEventListener('error', (error: any) => {
+      es.addEventListener('error', async (error: any) => {
         // If we're not running anymore (already got a 'done' or 'complete' event),
         // just ignore any trailing socket errors
         if (!isRunningRef.current) {
@@ -355,37 +408,47 @@ export function useAgentStream(
         es.close();
         eventSourceRef.current = null;
 
-        // Check if this was a network error or server error
-        if (error.type === 'error' && error.message) {
-          const errorMsg = `Stream error: ${error.message}`;
-          // Only show error if we didn't just finish
-          setError(errorMsg);
-          getAgentStore().setError(errorMsg);
-          setRunningState(false);
-          getAgentStore().stopAgent();
-          onError?.(errorMsg);
+        const recoverable = isLikelyNetworkError(error);
+        if (recoverable) {
+          shouldResumeOnReconnectRef.current = true;
+          const net = await NetInfo.fetch().catch(() => null);
+          const isOnline = !!net?.isConnected && net?.isInternetReachable !== false;
+          const reconnectMsg = isOnline
+            ? 'Connessione instabile, riconnessione in corso...'
+            : 'Connessione persa. Riprendo appena torna online...';
+
+          setError(reconnectMsg);
+          getAgentStore().setError(reconnectMsg);
+
+          if (isOnline && reconnectAttemptsRef.current < maxReconnectAttempts) {
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+            }
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectAttemptsRef.current++;
+              connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
+            }, delay);
+          }
           return;
         }
 
-        // Attempt reconnection for network errors ONLY if we haven't finished
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            reconnectAttemptsRef.current++;
-            connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
-          }, delay);
-        } else {
-          const errorMsg = `Stream error after ${maxReconnectAttempts} attempts`;
-          setError(errorMsg);
-          getAgentStore().setError(errorMsg);
-          setRunningState(false);
-          getAgentStore().stopAgent();
-          onError?.(errorMsg);
-        }
+        const errorMsg = error?.message ? `Stream error: ${error.message}` : 'Stream error';
+        setError(errorMsg);
+        getAgentStore().setError(errorMsg);
+        setRunningState(false);
+        getAgentStore().stopAgent();
+        onError?.(errorMsg);
       });
 
     } catch (e: any) {
+      if (isRunningRef.current && isLikelyNetworkError(e)) {
+        shouldResumeOnReconnectRef.current = true;
+        const reconnectMsg = 'Connessione persa. Riprendo appena torna online...';
+        setError(reconnectMsg);
+        getAgentStore().setError(reconnectMsg);
+        return;
+      }
       const errorMsg = `Failed to connect to agent: ${e instanceof Error ? e.message : String(e)}`;
       console.error('[AgentStream]', errorMsg);
       setError(errorMsg);
@@ -393,6 +456,8 @@ export function useAgentStream(
       setRunningState(false);
       getAgentStore().stopAgent();
       onError?.(errorMsg);
+    } finally {
+      isConnectingRef.current = false;
     }
   }, [enabled, mode, handleEvent, onError, getAgentStore, setRunningState]);
 
@@ -414,6 +479,8 @@ export function useAgentStream(
     setCurrentTool(null);
     getAgentStore().stopAgent();
     reconnectAttemptsRef.current = 0;
+    shouldResumeOnReconnectRef.current = false;
+    isConnectingRef.current = false;
   }, [getAgentStore, setRunningState]);
 
   /**
@@ -435,6 +502,7 @@ export function useAgentStream(
     setCurrentModel(model || null);
     setCurrentConversationHistory(conversationHistory || []);
     setCurrentThinkingLevel(thinkingLevel || null);
+    shouldResumeOnReconnectRef.current = false;
 
     // Connect with selected model, conversation history, images, and thinking level
     connect(prompt, projectId, model, conversationHistory, images, thinkingLevel);
@@ -462,6 +530,15 @@ export function useAgentStream(
     // Connect directly to execute endpoint
     const executeEndpoint = '/agent/run/execute';
     const url = `${config.apiUrl}${executeEndpoint}`;
+    shouldResumeOnReconnectRef.current = false;
+    lastConnectPayloadRef.current = {
+      prompt: currentPrompt,
+      projectId: currentProjectId,
+      model: currentModel || undefined,
+      conversationHistory: currentConversationHistory,
+      images: [],
+      thinkingLevel: currentThinkingLevel || undefined,
+    };
 
     const authToken = await getAuthToken();
 
@@ -491,6 +568,8 @@ export function useAgentStream(
 
     // Handle all event types (same as connect function)
     const eventTypes: AgentEventType[] = [
+      'processing',
+      'heartbeat',
       'tool_start',
       'tool_input',
       'tool_complete',
@@ -505,6 +584,8 @@ export function useAgentStream(
       'plan_ready',
       'ask_user_question',
       'usage',
+      'context_compacting',
+      'context_compacted',
       'budget_exceeded',
       'complete',
       'error',
@@ -563,8 +644,43 @@ export function useAgentStream(
     setCurrentModel(null);
     setCurrentConversationHistory([]);
     setCurrentThinkingLevel(null);
+    lastConnectPayloadRef.current = null;
+    shouldResumeOnReconnectRef.current = false;
+    isConnectingRef.current = false;
     getAgentStore().reset();
   }, [getAgentStore, setRunningState]);
+
+  // Resume stream automatically after network reconnect
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const isOnline = !!state.isConnected && state.isInternetReachable !== false;
+      if (!isOnline) {
+        if (isRunningRef.current) {
+          shouldResumeOnReconnectRef.current = true;
+        }
+        return;
+      }
+
+      if (!isRunningRef.current) return;
+      if (!shouldResumeOnReconnectRef.current) return;
+      if (eventSourceRef.current || isConnectingRef.current) return;
+
+      const payload = lastConnectPayloadRef.current;
+      if (!payload) return;
+
+      reconnectAttemptsRef.current = 0;
+      connect(
+        payload.prompt,
+        payload.projectId,
+        payload.model,
+        payload.conversationHistory,
+        payload.images,
+        payload.thinkingLevel,
+      );
+    });
+
+    return () => unsubscribe();
+  }, [connect]);
 
   // Cleanup on unmount
   useEffect(() => {

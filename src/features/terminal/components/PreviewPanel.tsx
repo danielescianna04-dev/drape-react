@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform, ScrollView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Reanimated, { useAnimatedStyle, useAnimatedReaction, runOnJS, useSharedValue } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
@@ -17,6 +18,7 @@ import { serverLogService } from '../../../core/services/serverLogService';
 import { fileWatcherService } from '../../../core/services/agentService';
 import { AskUserQuestionModal } from '../../../shared/components/modals/AskUserQuestionModal';
 import { getAuthToken, getAuthHeaders } from '../../../core/api/getAuthToken';
+import { useAgentStore } from '../../../core/agent/agentStore';
 
 // Sub-components
 import { PreviewToolbar, ViewportMode } from './PreviewToolbar';
@@ -194,6 +196,15 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   const flyMachineIdRef = useRef<string | null>(globalFlyMachineId);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
+  // Reload banner: defer reload until agent finishes all file changes
+  const [showReloadBanner, setShowReloadBanner] = useState(false);
+  const pendingChangesRef = useRef(0);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const agentIsRunning = useAgentStore((s) => s.isRunning);
+  const agentFilesCreated = useAgentStore((s) => s.filesCreated);
+  const agentFilesModified = useAgentStore((s) => s.filesModified);
+  const agentIsRunningRef = useRef(false);
   const [previewAccessToken, setPreviewAccessTokenLocal] = useState<string | null>(
     projectId ? (projectPreviewTokens[projectId] || null) : null
   );
@@ -218,6 +229,14 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     return normalized.includes('preview access token required')
       || normalized.includes('preview token required')
       || normalized.includes('missing preview token');
+  };
+
+  const inferHasWebUI = (projectType?: string): boolean => {
+    const normalized = String(projectType || '').toLowerCase();
+    if (!normalized) return true;
+    // Conservative fallback: only treat obviously CLI-first runtimes as no-web.
+    const noWebUiTypes = new Set(['go', 'python', 'nodejs', 'unknown']);
+    return !noWebUiTypes.has(normalized);
   };
 
   const resetToStartScreen = () => {
@@ -707,12 +726,27 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
                       }
                     }
 
+                    if (result.projectInfo) {
+                      setProjectInfo({
+                        type: result.projectInfo.type || 'unknown',
+                        defaultPort: result.projectInfo.defaultPort || result.projectInfo.port || 3000,
+                        startCommand: result.projectInfo.startCommand || '',
+                        installCommand: result.projectInfo.installCommand || '',
+                        description: result.projectInfo.description || '',
+                        hasWebUI: typeof result.hasWebUI === 'boolean'
+                          ? result.hasWebUI
+                          : inferHasWebUI(result.projectInfo.type),
+                      });
+                    }
+
                     if (result.previewUrl) {
                       if (result.coderToken) setCoderToken(result.coderToken);
                       if (result.previewToken) {
                         updatePreviewAccessToken(result.previewToken, currentWorkstation?.id);
                       }
-                      const projectHasWebUI = result.hasWebUI !== false;
+                      const projectHasWebUI = typeof result.hasWebUI === 'boolean'
+                        ? result.hasWebUI
+                        : inferHasWebUI(result.projectInfo?.type);
                       setHasWebUI(projectHasWebUI);
                       if (!projectHasWebUI) setWebViewReady(true);
 
@@ -965,11 +999,21 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
   };
 
   const handleRefresh = () => {
+    pendingChangesRef.current = 0;
+    setShowReloadBanner(false);
+    useAgentStore.getState().clearFileTracking();
     webViewRef.current?.clearCache(true);
     const baseUrl = currentPreviewUrl.split('?')[0];
     setCurrentPreviewUrl(`${baseUrl}?_t=${Date.now()}`);
     webViewRef.current?.reload();
     checkServerStatus();
+  };
+
+  const handleBannerReload = () => {
+    pendingChangesRef.current = 0;
+    setShowReloadBanner(false);
+    useAgentStore.getState().clearFileTracking();
+    handleRefresh();
   };
 
   const handleSaveEnvVars = async () => {
@@ -1002,17 +1046,42 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
 
   // ---- Effects ----
 
-  // Hot reload: connect to file watcher
+  // Hot reload: connect to file watcher — defer reload when agent is active
   useEffect(() => {
     const workstationId = currentWorkstation?.id;
     const username = currentWorkstation?.githubAccountUsername?.toLowerCase() || 'default';
     if (serverStatus === 'running' && workstationId && username) {
       fileWatcherService.connect(workstationId, username, (change) => {
         logOutput(`[Hot Reload] ${change.file} changed`, 'preview', 0);
-        webViewRef.current?.reload();
+        pendingChangesRef.current += 1;
+
+        if (agentIsRunningRef.current) {
+          // Agent is active — accumulate changes, banner will appear when it finishes
+          return;
+        }
+        // No agent: debounce 1s then show banner
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = setTimeout(() => {
+          if (pendingChangesRef.current > 0) {
+            setShowReloadBanner(true);
+          }
+        }, 1000);
       });
     }
   }, [serverStatus, currentWorkstation?.id]);
+
+  // Show reload banner when agent finishes and there are pending changes
+  useEffect(() => {
+    const wasRunning = agentIsRunningRef.current;
+    agentIsRunningRef.current = agentIsRunning;
+    if (wasRunning && !agentIsRunning) {
+      // Check both file watcher events AND agentStore file tracking
+      const agentTouchedFiles = agentFilesCreated.length + agentFilesModified.length;
+      if (pendingChangesRef.current > 0 || agentTouchedFiles > 0) {
+        setShowReloadBanner(true);
+      }
+    }
+  }, [agentIsRunning, agentFilesCreated.length, agentFilesModified.length]);
 
   // Periodic health checks when running
   useEffect(() => {
@@ -1413,10 +1482,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     }
   }, [previewUrl]);
 
-  // Mount toolbar only when the live app is actually ready, otherwise a reserved
-  // top area appears before content (visible as a black strip).
+  // Keep toolbar hidden during the initial loading mask to avoid the black strip.
+  // If WEBVIEW_READY doesn't arrive, reveal it when loading settles.
   const shouldRenderToolbar = serverStatus === 'running'
-    && (!hasWebUI || webViewReady);
+    && (!hasWebUI || webViewReady || !isLoading);
 
   // ---- Render ----
   return (
@@ -1445,6 +1514,17 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
             )}
 
             <View style={styles.webViewContainer}>
+              {/* Reload banner — shown when file changes detected */}
+              {showReloadBanner && serverStatus === 'running' && (
+                <TouchableOpacity
+                  style={styles.reloadBanner}
+                  onPress={handleBannerReload}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="refresh" size={14} color="#fff" />
+                  <Text style={styles.reloadBannerText}>Modifiche rilevate — Ricarica</Text>
+                </TouchableOpacity>
+              )}
               {serverStatus === 'stopped' && requiredEnvVars ? (
                 <PreviewEnvVarsForm
                   requiredEnvVars={requiredEnvVars}
@@ -1624,5 +1704,30 @@ const styles = StyleSheet.create({
     flex: 1,
     position: 'relative',
     backgroundColor: '#0a0a0a',
+  },
+  reloadBanner: {
+    position: 'absolute',
+    top: 8,
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(99, 102, 241, 0.95)',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  reloadBannerText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, Platform, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Platform, KeyboardAvoidingView, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -24,6 +24,9 @@ interface Props {
 export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   const { t, i18n } = useTranslation();
   const flatListRef = useRef<FlatList>(null);
+  const isNearBottomRef = useRef(true);
+  const isUserScrollActiveRef = useRef(false);
+  const layoutHeightRef = useRef(0);
   const [input, setInput] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const { tabs, addTerminalItem: addTerminalItemToTab } = useTabStore();
@@ -87,14 +90,60 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
   // Check if this is an AI command history terminal (showing all commands or from another tab)
   const isAICommandHistory = sourceTabId === 'all' || sourceTabId !== terminalTabId;
 
-  // Auto-scroll to bottom when new items are added
+  // Auto-scroll only if the user is already pinned to bottom
   useEffect(() => {
-    if (flatListRef.current && terminalItems.length > 0) {
+    if (!flatListRef.current || terminalItems.length === 0) return;
+    if (!isNearBottomRef.current || isUserScrollActiveRef.current) return;
+
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }, 60);
+  }, [terminalItems.length]);
+
+  // Also follow bottom while pinned when content height grows (streaming logs)
+  const handleContentSizeChange = (_w: number, _h: number) => {
+    if (!isNearBottomRef.current || isUserScrollActiveRef.current) return;
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    });
+  };
+
+  const updateNearBottom = (contentOffsetY: number, contentHeight: number, layoutHeight: number) => {
+    const distanceFromBottom = contentHeight - contentOffsetY - layoutHeight;
+    isNearBottomRef.current = distanceFromBottom < 120;
+  };
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    updateNearBottom(contentOffset.y, contentSize.height, layoutMeasurement.height);
+  };
+
+  const handleMomentumScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isUserScrollActiveRef.current = false;
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    updateNearBottom(contentOffset.y, contentSize.height, layoutMeasurement.height);
+  };
+
+  const handleScrollBeginDrag = () => {
+    isUserScrollActiveRef.current = true;
+  };
+
+  const handleScrollEndDrag = () => {
+    isUserScrollActiveRef.current = false;
+  };
+
+  const handleMomentumScrollBegin = () => {
+    isUserScrollActiveRef.current = true;
+  };
+
+  // Keep previous behavior on initial load when user hasn't touched scroll.
+  useEffect(() => {
+    if (flatListRef.current && terminalItems.length > 0 && isNearBottomRef.current) {
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
+        flatListRef.current?.scrollToEnd({ animated: false });
       }, 100);
     }
-  }, [terminalItems]);
+  }, [sourceTabId]);
 
   const handleCommand = async () => {
     if (!input.trim() || isExecuting) return;
@@ -389,6 +438,16 @@ export const TerminalView = ({ terminalTabId, sourceTabId }: Props) => {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         bounces={true}
+        onContentSizeChange={handleContentSizeChange}
+        onLayout={(e) => {
+          layoutHeightRef.current = e.nativeEvent.layout.height;
+        }}
+        onScroll={handleScroll}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        onMomentumScrollBegin={handleMomentumScrollBegin}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
+        scrollEventThrottle={16}
         removeClippedSubviews={true}
         maxToRenderPerBatch={10}
         windowSize={5}

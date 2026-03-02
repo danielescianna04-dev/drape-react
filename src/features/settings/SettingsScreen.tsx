@@ -18,7 +18,6 @@ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { gitAccountService, GitAccount } from '../../core/git/gitAccountService';
 import { useTerminalStore } from '../../core/terminal/terminalStore';
-import { useTabStore } from '../../core/tabs/tabStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { useTranslation } from 'react-i18next';
 import { useLanguageStore } from '../../i18n/languageStore';
@@ -67,6 +66,11 @@ interface SystemStatus {
   search: {
     used: number;
     limit: number;
+    percent: number;
+  };
+  storage?: {
+    usedMb: number;
+    limitMb: number;
     percent: number;
   };
 }
@@ -218,9 +222,6 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       setShowPlanSelection(false);
     }
   };
-  // Count open preview WebViews from tabStore (tabs with type === 'preview')
-  const activePreviewCount = useTabStore(state => state.tabs.filter(t => t.type === 'preview').length);
-
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -298,16 +299,26 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       const response = await fetch(`${apiUrl}/stats/system-status?userId=${encodeURIComponent(userId)}`, {
         headers: authHeaders,
       });
-      const data = await response.json();
-      setSystemStatus(data);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.tokens) {
+          setSystemStatus(data);
+        }
+      } else {
+        console.warn('[Settings] system-status returned', response.status);
+      }
 
       // Fetch budget status
       const budgetResponse = await fetch(`${apiUrl}/ai/budget/${userId}`, {
         headers: authHeaders,
       });
-      const budgetData = await budgetResponse.json();
-      if (budgetData.success) {
-        setBudgetStatus(budgetData);
+      if (budgetResponse.ok) {
+        const budgetData = await budgetResponse.json();
+        if (budgetData.success) {
+          setBudgetStatus(budgetData);
+        }
+      } else {
+        console.warn('[Settings] budget returned', budgetResponse.status);
       }
     } catch (error) {
       console.error('Error fetching system status:', error);
@@ -738,20 +749,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   };
 
   const renderResourceUsage = () => {
-    const activeColor = AppColors.primary;
-
     // Budget data
-    const spentEur = budgetStatus?.usage.spentEur || 0;
-    const budgetEur = budgetStatus?.plan.monthlyBudgetEur || 2.50;
-    const remainingEur = budgetStatus?.usage.remainingEur || budgetEur;
     const percentUsed = budgetStatus?.usage.percentUsed || 0;
     const planName = budgetStatus?.plan.name || 'Free';
-
-    // Show more decimals for small amounts so users can see spending
-    const formatEur = (amount: number) => {
-      if (amount > 0 && amount < 0.01) return `€${amount.toFixed(4)}`;
-      return `€${amount.toFixed(2)}`;
-    };
     // Get color based on usage
     const getBudgetColor = () => {
       if (percentUsed >= 90) return '#F87171'; // Red
@@ -760,6 +760,16 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
     };
 
     const daysLeft = Math.ceil((new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate() - new Date().getDate()));
+
+    // Token usage
+    const tokensUsed = systemStatus?.tokens.used || 0;
+    const tokensLimit = systemStatus?.tokens.limit || 50000;
+    const tokensPercent = systemStatus?.tokens.percent || 0;
+    const formatTokens = (n: number) => {
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+      return `${n}`;
+    };
 
     return (
       <View style={styles.container}>
@@ -787,7 +797,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             )}
           </TouchableOpacity>
           <Text style={styles.headerTitleSmall}>Utilizzo</Text>
-          <View style={{ width: 44 }} />
+          <TouchableOpacity onPress={fetchSystemStatus} style={{ width: 44, alignItems: 'center' }}>
+            <Ionicons name="refresh-outline" size={20} color="rgba(255,255,255,0.5)" />
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -795,24 +807,24 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         >
-          {/* Budget Card - Claude style: clean bar + percentage */}
+          {/* Budget Card */}
           <BlurView intensity={30} tint="dark" style={styles.mainMonitorCard}>
             <Text style={styles.monitorTitle}>{t('subscription.aiBudget')}</Text>
-            <Text style={[styles.monitorSub, { marginBottom: 20 }]}>{t('subscription.currentPlan')} {planName} · {t('subscription.resetsIn')} {daysLeft}{t('subscription.days').charAt(0)}</Text>
+            <Text style={styles.monitorSub}>{t('subscription.currentPlan')} {planName} · {t('subscription.resetsIn')} {daysLeft}{t('subscription.days').charAt(0)}</Text>
 
-            {/* Clean Progress Bar */}
+            {/* Progress Bar */}
             <View style={styles.budgetProgressContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={[styles.budgetProgressBg, { flex: 1 }]}>
                   <View
                     style={[styles.budgetProgressFill, {
-                      width: `${Math.min(percentUsed, 100)}%`,
+                      width: `${Math.max(Math.min(percentUsed, 100), percentUsed > 0 ? 2 : 0)}%`,
                       backgroundColor: getBudgetColor(),
                     }]}
                   />
                 </View>
                 <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '500', minWidth: 65 }}>
-                  {Math.min(percentUsed, 100)}% usato
+                  {Math.min(percentUsed, 100)}%
                 </Text>
               </View>
             </View>
@@ -827,12 +839,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 <Ionicons name="eye-outline" size={18} color="#34D399" style={{ marginBottom: 16 }} />
                 <View style={styles.usageTextRow}>
                   <Text style={styles.usageNameMini}>Anteprime</Text>
-                  <Text style={styles.usagePercent}>{systemStatus?.previews.limit ? Math.round((activePreviewCount / systemStatus.previews.limit) * 100) : 0}%</Text>
+                  <Text style={styles.usagePercent}>{systemStatus?.previews.percent || 0}%</Text>
                 </View>
                 <View style={styles.miniBarBg}>
-                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.limit ? Math.min(Math.round((activePreviewCount / systemStatus.previews.limit) * 100), 100) : 0}%`, backgroundColor: '#34D399' }]} />
+                  <View style={[styles.miniBarFill, { width: `${systemStatus?.previews.percent || 0}%`, backgroundColor: '#34D399' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>{activePreviewCount} / {systemStatus?.previews.limit || 10} attive</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.previews.active || 0} / {systemStatus?.previews.limit || 5}</Text>
               </BlurView>
 
               <BlurView intensity={20} tint="dark" style={styles.usageCardRefinedHalf}>
@@ -844,10 +856,26 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                 <View style={styles.miniBarBg}>
                   <View style={[styles.miniBarFill, { width: `${systemStatus?.projects.percent || 0}%`, backgroundColor: '#60A5FA' }]} />
                 </View>
-                <Text style={styles.usageSubtext}>{systemStatus?.projects.active || 0} / {systemStatus?.projects.limit || 5} attivi</Text>
+                <Text style={styles.usageSubtext}>{systemStatus?.projects.active || 0} / {systemStatus?.projects.limit || 5}</Text>
               </BlurView>
             </View>
           </View>
+
+          {/* Storage */}
+          {systemStatus?.storage && (
+            <BlurView intensity={20} tint="dark" style={[styles.mainMonitorCard, { marginTop: 12 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="server-outline" size={16} color="#A78BFA" />
+                  <Text style={styles.monitorTitle}>Storage</Text>
+                </View>
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>{systemStatus.storage.usedMb} MB / {systemStatus.storage.limitMb} MB</Text>
+              </View>
+              <View style={styles.miniBarBg}>
+                <View style={[styles.miniBarFill, { width: `${Math.min(systemStatus.storage.percent, 100)}%`, backgroundColor: '#A78BFA' }]} />
+              </View>
+            </BlurView>
+          )}
 
           {currentPlan === 'free' && (
             <TouchableOpacity
@@ -1433,7 +1461,7 @@ const styles = StyleSheet.create({
   monitorSub: {
     fontSize: 11,
     color: 'rgba(255,255,255,0.3)',
-    marginTop: 1,
+    marginTop: 6,
   },
   monitorValueBadge: {
     paddingHorizontal: 10,
@@ -1610,7 +1638,7 @@ const styles = StyleSheet.create({
   },
   // Budget styles
   budgetProgressContainer: {
-    marginVertical: 20,
+    marginTop: 12,
   },
   budgetProgressBg: {
     height: 12,

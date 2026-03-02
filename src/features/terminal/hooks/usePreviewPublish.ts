@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
-import { useAuthStore } from '../../../core/auth/authStore';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 
 interface PublishState {
@@ -30,16 +29,31 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
 
   // Check if project is already published
   useEffect(() => {
-    if (!projectId || !apiUrl || serverStatus !== 'running') return;
-    getAuthHeaders().then(authHeaders =>
-      fetch(`${apiUrl}/fly/project/${projectId}/published`, { headers: authHeaders })
-    ).then(r => r.json())
+    if (!projectId || !apiUrl) return;
+    let cancelled = false;
+
+    getAuthHeaders()
+      .then(authHeaders =>
+        fetch(`${apiUrl}/fly/project/${projectId}/published`, { headers: authHeaders })
+      )
+      .then(r => r.json())
       .then(data => {
+        if (cancelled) return;
         if (data.published) {
           setExistingPublish({ slug: data.slug, url: data.url });
+        } else {
+          setExistingPublish(null);
         }
       })
-      .catch((err) => console.warn('[Publish] Failed to check published status:', err?.message || err));
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn('[Publish] Failed to check published status:', err?.message || err);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [projectId, apiUrl, serverStatus]);
 
   const handlePublish = async () => {
@@ -60,7 +74,15 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
       if (!response.ok) {
         setPublishStatus('error');
         const detail = [data?.error, data?.stderr].filter(Boolean).join(': ');
-        setPublishError(detail || 'Publish failed');
+        const normalized = String(detail).toLowerCase();
+
+        if (response.status === 409) {
+          setPublishError('Slug gia occupato. Scegli un altro nome.');
+        } else if (normalized.includes('server-side frameworks')) {
+          setPublishError('Questo framework e server-side e non puo essere pubblicato come sito statico. Usa la preview live.');
+        } else {
+          setPublishError(detail || 'Publish failed');
+        }
       } else {
         setPublishStatus('done');
         setPublishedUrl(data.url);

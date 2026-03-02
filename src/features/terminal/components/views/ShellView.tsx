@@ -1,7 +1,7 @@
 import React, { useRef, useCallback, useMemo, useState, useEffect } from 'react';
 import {
-  View, StyleSheet, Text,
-  FlatList, Platform,
+  View, StyleSheet, Text, TextInput, TouchableOpacity,
+  FlatList, Platform, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,7 +11,6 @@ import { AppColors } from '../../../../shared/theme/colors';
 import { useTerminalStore } from '../../../../core/terminal/terminalStore';
 import { Tab, useTabStore } from '../../../../core/tabs/tabStore';
 import { useUIStore } from '../../../../core/terminal/uiStore';
-import { useSidebarOffset } from '../../context/SidebarContext';
 import { TerminalItemType } from '../../../../shared/types';
 import { usePreviewLogs } from '../../../../hooks/api/usePreviewLogs';
 
@@ -41,6 +40,8 @@ interface LogGroupEntry {
 }
 
 type DisplayEntry = ToolEntry | LogGroupEntry;
+type LogKindFilter = 'all' | 'error' | 'tool';
+type LogTimeFilter = 'all' | '5m' | '30m' | '2h';
 
 /** Filter out noise from preview logs */
 const isNoisyLog = (msg: string): boolean => {
@@ -55,6 +56,17 @@ const isNoisyLog = (msg: string): boolean => {
   // Just a bare timestamp like "2026-02-21 14:04:47"
   if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(trimmed)) return true;
   return false;
+};
+
+const isErrorText = (msg: string): boolean => {
+  const lower = String(msg || '').toLowerCase();
+  return (
+    lower.includes('error') ||
+    lower.includes('failed') ||
+    lower.includes('enoent') ||
+    lower.includes('exception') ||
+    lower.includes('fatal')
+  );
 };
 
 /** Parse tool content into parts */
@@ -109,8 +121,14 @@ function isToolItem(item: any): boolean {
 export const ShellView = ({ tab }: Props) => {
   const insets = useSafeAreaInsets();
   const { currentWorkstation } = useTerminalStore();
-  const { isSidebarHidden } = useSidebarOffset();
   const flatListRef = useRef<FlatList>(null);
+  const isNearBottomRef = useRef(true);
+  const isUserScrollActiveRef = useRef(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isAutoFollowPaused, setIsAutoFollowPaused] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<LogKindFilter>('all');
+  const [timeFilter, setTimeFilter] = useState<LogTimeFilter>('all');
 
   const topPadding = insets.top + 38;
   const projectName = currentWorkstation?.name || 'Progetto';
@@ -195,15 +213,18 @@ export const ShellView = ({ tab }: Props) => {
       });
     }
 
-    for (const item of toolItems) {
+    toolItems.forEach((item, index) => {
       const ts = item.timestamp instanceof Date ? item.timestamp.getTime() : (item.timestamp || 0);
+      const fallbackBase = String(item.toolInfo?.tool || item.content || 'tool')
+        .replace(/\s+/g, '-')
+        .slice(0, 24);
       raw.push({
         type: 'tool',
         item,
         timestamp: ts,
-        id: item.id || `tool-${Math.random()}`,
+        id: item.id || `tool-${ts}-${index}-${fallbackBase}`,
       });
-    }
+    });
 
     raw.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -256,12 +277,93 @@ export const ShellView = ({ tab }: Props) => {
     return entries;
   }, [filteredPreviewLogs, toolItems]);
 
-  // Auto-scroll
-  const prevCountRef = useRef(0);
-  if (displayEntries.length > prevCountRef.current) {
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 80);
-  }
-  prevCountRef.current = displayEntries.length;
+  const filteredEntries = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const now = Date.now();
+    const timeCutoffMs =
+      timeFilter === '5m' ? now - 5 * 60 * 1000 :
+      timeFilter === '30m' ? now - 30 * 60 * 1000 :
+      timeFilter === '2h' ? now - 2 * 60 * 60 * 1000 :
+      0;
+
+    return displayEntries.filter((entry) => {
+      if (timeCutoffMs > 0 && entry.timestamp < timeCutoffMs) return false;
+
+      if (kindFilter === 'tool' && entry.type !== 'tool') return false;
+      if (kindFilter === 'error') {
+        if (entry.type === 'tool') {
+          if (!entry.isError && !isErrorText(entry.output) && !isErrorText(entry.status)) return false;
+        } else if (!entry.messages.some(isErrorText)) {
+          return false;
+        }
+      }
+
+      if (!query) return true;
+      if (entry.type === 'tool') {
+        return (
+          entry.command.toLowerCase().includes(query) ||
+          entry.status.toLowerCase().includes(query) ||
+          entry.output.toLowerCase().includes(query)
+        );
+      }
+      return entry.messages.some((msg) => msg.toLowerCase().includes(query));
+    });
+  }, [displayEntries, searchQuery, kindFilter, timeFilter]);
+
+  const updateNearBottom = useCallback((contentOffsetY: number, contentHeight: number, layoutHeight: number) => {
+    const distanceFromBottom = contentHeight - contentOffsetY - layoutHeight;
+    const nearBottom = distanceFromBottom < 120;
+    if (nearBottom !== isNearBottomRef.current) {
+      isNearBottomRef.current = nearBottom;
+      setShowScrollToBottom(!nearBottom);
+    }
+  }, []);
+
+  const scrollToBottom = useCallback((animated = true) => {
+    isNearBottomRef.current = true;
+    setShowScrollToBottom(false);
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
+
+  // Auto-follow only while pinned to bottom
+  useEffect(() => {
+    if (!flatListRef.current || filteredEntries.length === 0) return;
+    if (!isNearBottomRef.current || isUserScrollActiveRef.current || isAutoFollowPaused) return;
+    const t = setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 60);
+    return () => clearTimeout(t);
+  }, [filteredEntries.length, isAutoFollowPaused]);
+
+  const handleContentSizeChange = useCallback(() => {
+    if (!isNearBottomRef.current || isUserScrollActiveRef.current || isAutoFollowPaused) return;
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    });
+  }, [isAutoFollowPaused]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    updateNearBottom(contentOffset.y, contentSize.height, layoutMeasurement.height);
+  }, [updateNearBottom]);
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isUserScrollActiveRef.current = true;
+  }, []);
+
+  const handleScrollEndDrag = useCallback(() => {
+    isUserScrollActiveRef.current = false;
+  }, []);
+
+  const handleMomentumScrollBegin = useCallback(() => {
+    isUserScrollActiveRef.current = true;
+  }, []);
+
+  const handleMomentumScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isUserScrollActiveRef.current = false;
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    updateNearBottom(contentOffset.y, contentSize.height, layoutMeasurement.height);
+  }, [updateNearBottom]);
 
   const renderItem = useCallback(({ item }: { item: DisplayEntry }) => {
     if (item.type === 'log_group') {
@@ -274,9 +376,7 @@ export const ShellView = ({ tab }: Props) => {
           </View>
           <View style={styles.logCardBody}>
             {item.messages.map((msg, i) => {
-              const isErr = msg.toLowerCase().includes('error') ||
-                            msg.toLowerCase().includes('failed') ||
-                            msg.toLowerCase().includes('enoent');
+              const isErr = isErrorText(msg);
               return (
                 <Text key={i} style={[styles.logLineText, isErr && styles.logLineError]} numberOfLines={4}>
                   {msg}
@@ -323,9 +423,18 @@ export const ShellView = ({ tab }: Props) => {
     );
   }, []);
 
-  const hasItems = displayEntries.length > 0;
+  const hasAnyItems = displayEntries.length > 0;
+  const hasItems = filteredEntries.length > 0;
   const logCount = filteredPreviewLogs.length;
   const toolCount = toolItems.length;
+  const hasActiveFilters = searchQuery.trim().length > 0 || kindFilter !== 'all' || timeFilter !== 'all';
+
+  useEffect(() => {
+    if (!hasItems) {
+      isNearBottomRef.current = true;
+      setShowScrollToBottom(false);
+    }
+  }, [hasItems]);
 
   return (
     <LinearGradient
@@ -340,6 +449,20 @@ export const ShellView = ({ tab }: Props) => {
           <Text style={styles.topBarProject}>{projectName}</Text>
         </View>
         <View style={styles.topBarRight}>
+          <TouchableOpacity
+            onPress={() => setIsAutoFollowPaused((prev) => !prev)}
+            style={[styles.followToggleButton, isAutoFollowPaused && styles.followToggleButtonPaused]}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name={isAutoFollowPaused ? 'pause' : 'play'}
+              size={10}
+              color={isAutoFollowPaused ? '#fbbf24' : '#4ade80'}
+            />
+            <Text style={[styles.followToggleText, isAutoFollowPaused && styles.followToggleTextPaused]}>
+              {isAutoFollowPaused ? 'PAUSA' : 'AUTO'}
+            </Text>
+          </TouchableOpacity>
           {logCount > 0 && (
             <View style={styles.badge}>
               <View style={styles.liveDot} />
@@ -355,27 +478,89 @@ export const ShellView = ({ tab }: Props) => {
         </View>
       </Animated.View>
 
+      <View style={styles.filtersContainer}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Cerca log, errori o tool..."
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          style={styles.searchInput}
+        />
+        <View style={styles.filterRow}>
+          {([
+            { key: 'all', label: 'Tutto' },
+            { key: 'error', label: 'Error' },
+            { key: 'tool', label: 'Tool' },
+          ] as { key: LogKindFilter; label: string }[]).map((chip) => (
+            <TouchableOpacity
+              key={chip.key}
+              onPress={() => setKindFilter(chip.key)}
+              style={[styles.filterChip, kindFilter === chip.key && styles.filterChipActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, kindFilter === chip.key && styles.filterChipTextActive]}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          {([
+            { key: 'all', label: 'Sempre' },
+            { key: '5m', label: '5m' },
+            { key: '30m', label: '30m' },
+            { key: '2h', label: '2h' },
+          ] as { key: LogTimeFilter; label: string }[]).map((chip) => (
+            <TouchableOpacity
+              key={chip.key}
+              onPress={() => setTimeFilter(chip.key)}
+              style={[styles.filterChip, timeFilter === chip.key && styles.timeFilterChipActive]}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, timeFilter === chip.key && styles.filterChipTextActive]}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
       {/* Content */}
       {!hasItems ? (
         <View style={styles.emptyState}>
           <Ionicons name="terminal-outline" size={48} color="rgba(255,255,255,0.06)" />
-          <Text style={styles.emptyTitle}>Nessun log</Text>
+          <Text style={styles.emptyTitle}>{hasAnyItems ? 'Nessun risultato' : 'Nessun log'}</Text>
           <Text style={styles.emptySubtitle}>
-            I log del container e i comandi{'\n'}dell'IA appariranno qui
+            {hasAnyItems && hasActiveFilters
+              ? 'Modifica i filtri per vedere altre voci'
+              : "I log del container e i comandi\ndell'IA appariranno qui"}
           </Text>
         </View>
       ) : (
         <FlatList
           ref={flatListRef}
-          data={displayEntries}
+          data={filteredEntries}
           renderItem={renderItem}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => {
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }}
+          onContentSizeChange={handleContentSizeChange}
+          onScroll={handleScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
+          onMomentumScrollBegin={handleMomentumScrollBegin}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
+          scrollEventThrottle={16}
         />
+      )}
+
+      {showScrollToBottom && hasItems && (
+        <TouchableOpacity
+          style={styles.scrollToBottomButton}
+          onPress={() => scrollToBottom(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="arrow-down" size={14} color="#FFFFFF" />
+          <Text style={styles.scrollToBottomText}>Torna in basso</Text>
+        </TouchableOpacity>
       )}
     </LinearGradient>
   );
@@ -413,7 +598,33 @@ const styles = StyleSheet.create({
   },
   topBarRight: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+  },
+  followToggleButton: {
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(74,222,128,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(74,222,128,0.25)',
+  },
+  followToggleButtonPaused: {
+    backgroundColor: 'rgba(251,191,36,0.14)',
+    borderColor: 'rgba(251,191,36,0.35)',
+  },
+  followToggleText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#4ade80',
+    letterSpacing: 0.2,
+  },
+  followToggleTextPaused: {
+    color: '#fbbf24',
   },
   badge: {
     flexDirection: 'row',
@@ -437,6 +648,51 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#4ade80',
+  },
+  filtersContainer: {
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    gap: 8,
+  },
+  searchInput: {
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    paddingHorizontal: 12,
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  filterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  filterChipActive: {
+    borderColor: 'rgba(248,113,113,0.42)',
+    backgroundColor: 'rgba(248,113,113,0.13)',
+  },
+  timeFilterChipActive: {
+    borderColor: 'rgba(88,166,255,0.4)',
+    backgroundColor: 'rgba(88,166,255,0.13)',
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.55)',
+  },
+  filterChipTextActive: {
+    color: 'rgba(255,255,255,0.9)',
   },
   // Empty
   emptyState: {
@@ -462,7 +718,7 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    paddingBottom: 80,
+    paddingBottom: 128,
   },
   // Preview log group card (terminal-style)
   logCard: {
@@ -571,5 +827,24 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: 'rgba(255,255,255,0.4)',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  scrollToBottomButton: {
+    position: 'absolute',
+    right: 14,
+    bottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(20,20,25,0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(88,166,255,0.4)',
+  },
+  scrollToBottomText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
   },
 });

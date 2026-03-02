@@ -33,6 +33,8 @@ export interface ToolResult {
 
 export type AgentEventType =
   | 'start'
+  | 'processing'
+  | 'heartbeat'
   | 'iteration_start'
   | 'thinking_start'
   | 'thinking'

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Modal, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
@@ -21,6 +21,8 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   const { t } = useTranslation(['terminal', 'common']);
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const menuButtonRefs = useRef<Record<string, View | null>>({});
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -124,14 +126,43 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
     handleClose();
   };
 
-  const handleMenuToggle = (chatId: string) => {
-    setOpenMenuId(openMenuId === chatId ? null : chatId);
-  };
+  const handleMenuToggle = useCallback((chatId: string) => {
+    if (openMenuId === chatId) {
+      setOpenMenuId(null);
+      setMenuPosition(null);
+      return;
+    }
+    const ref = menuButtonRefs.current[chatId];
+    if (ref) {
+      ref.measureInWindow((x, y, width, height) => {
+        const screen = Dimensions.get('window');
+        const menuWidth = 170;
+        const estimatedMenuHeight = 190;
+        // Panel right edge: left(44) + min(55% of screen, 220)
+        const panelWidth = Math.min(screen.width * 0.55, 220);
+        const panelRight = 44 + panelWidth;
+        // Place menu just to the right of the panel
+        let menuX = panelRight + 4;
+        // If it overflows right, clamp to screen edge
+        if (menuX + menuWidth > screen.width - 8) {
+          menuX = screen.width - menuWidth - 8;
+        }
+        // Vertical: align with button, shift up if overflows bottom
+        const menuY = y;
+        const adjustedY = (menuY + estimatedMenuHeight > screen.height - 40)
+          ? screen.height - 40 - estimatedMenuHeight
+          : menuY;
+        setMenuPosition({ x: menuX, y: adjustedY });
+        setOpenMenuId(chatId);
+      });
+    }
+  }, [openMenuId]);
 
   const handleRename = (chat: ChatSession) => {
     setRenamingChatId(chat.id);
     setRenamingValue(chat.title);
     setOpenMenuId(null);
+    setMenuPosition(null);
   };
 
   const handleRenameSubmit = (chatId: string) => {
@@ -163,6 +194,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
               removeTab(chatTab.id);
             }
             setOpenMenuId(null);
+            setMenuPosition(null);
           },
         },
       ]
@@ -176,16 +208,19 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
       pinChat(chat.id);
     }
     setOpenMenuId(null);
+    setMenuPosition(null);
   };
 
   const handleMoveToFolder = (chat: ChatSession) => {
     setFolderPickerChat(chat);
     setOpenMenuId(null);
+    setMenuPosition(null);
   };
 
   const handleRemoveFromFolder = (chat: ChatSession) => {
     moveChatToFolder(chat.id, undefined);
     setOpenMenuId(null);
+    setMenuPosition(null);
   };
 
   const handleDeleteFolder = (folderId: string) => {
@@ -269,60 +304,19 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           )}
           <Ionicons name={chat.id.startsWith('preview-') ? 'eye-outline' : 'chatbubble-outline'} size={16} color="rgba(255,255,255,0.5)" />
           <Text style={styles.chatTitle} numberOfLines={1}>{chat.title.replace(/^👁\s?/, '')}</Text>
-          <TouchableOpacity
-            onPress={() => handleMenuToggle(chat.id)}
-            style={styles.menuButton}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          <View
+            ref={(ref) => { menuButtonRefs.current[chat.id] = ref; }}
+            collapsable={false}
           >
-            <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
-          </TouchableOpacity>
-        </TouchableOpacity>
-      )}
-
-      {/* Dropdown menu */}
-      {openMenuId === chat.id && (
-        <View style={styles.dropdown}>
-          {isLiquidGlassSupported ? (
-            <LiquidGlassView
-              style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
-              interactive={true}
-              effect="clear"
-              colorScheme="dark"
-            />
-          ) : null}
-          <View style={styles.dropdownInner}>
-            {/* Pin / Unpin */}
-            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleTogglePin(chat)}>
-              <Ionicons name={chat.pinned ? 'pin-outline' : 'pin'} size={16} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.dropdownText}>{chat.pinned ? t('chat.unpin') : t('chat.pin')}</Text>
-            </TouchableOpacity>
-            <View style={styles.dropdownDivider} />
-            {/* Move to folder / Remove from folder */}
-            {chat.folderId ? (
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRemoveFromFolder(chat)}>
-                <Ionicons name="folder-open-outline" size={16} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.dropdownText}>{t('chat.removeFromFolder')}</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={styles.dropdownItem} onPress={() => handleMoveToFolder(chat)}>
-                <Ionicons name="folder-outline" size={16} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.dropdownText}>{t('chat.moveToFolder')}</Text>
-              </TouchableOpacity>
-            )}
-            <View style={styles.dropdownDivider} />
-            {/* Rename */}
-            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
-              <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.dropdownText}>{t('common:rename')}</Text>
-            </TouchableOpacity>
-            <View style={styles.dropdownDivider} />
-            {/* Delete */}
-            <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
-              <Ionicons name="trash-outline" size={16} color="#ef4444" />
-              <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
+            <TouchableOpacity
+              onPress={() => handleMenuToggle(chat.id)}
+              style={styles.menuButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={16} color="rgba(255,255,255,0.3)" />
             </TouchableOpacity>
           </View>
-        </View>
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -444,6 +438,68 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Dropdown Menu Modal */}
+      <Modal
+        visible={!!openMenuId && !!menuPosition}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setOpenMenuId(null); setMenuPosition(null); }}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => { setOpenMenuId(null); setMenuPosition(null); }}
+        >
+          {menuPosition && openMenuId && (() => {
+            const chat = chatHistory.find(c => c.id === openMenuId);
+            if (!chat) return null;
+            return (
+              <View
+                style={[styles.dropdown, { left: menuPosition.x, top: menuPosition.y }]}
+                onStartShouldSetResponder={() => true}
+              >
+                {isLiquidGlassSupported ? (
+                  <LiquidGlassView
+                    style={[StyleSheet.absoluteFill, { borderRadius: 8, overflow: 'hidden' }]}
+                    interactive={true}
+                    effect="clear"
+                    colorScheme="dark"
+                  />
+                ) : null}
+                <View style={styles.dropdownInner}>
+                  <TouchableOpacity style={styles.dropdownItem} onPress={() => handleTogglePin(chat)}>
+                    <Ionicons name={chat.pinned ? 'pin-outline' : 'pin'} size={16} color="rgba(255,255,255,0.7)" />
+                    <Text style={styles.dropdownText}>{chat.pinned ? t('chat.unpin') : t('chat.pin')}</Text>
+                  </TouchableOpacity>
+                  <View style={styles.dropdownDivider} />
+                  {chat.folderId ? (
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRemoveFromFolder(chat)}>
+                      <Ionicons name="folder-open-outline" size={16} color="rgba(255,255,255,0.7)" />
+                      <Text style={styles.dropdownText}>{t('chat.removeFromFolder')}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.dropdownItem} onPress={() => handleMoveToFolder(chat)}>
+                      <Ionicons name="folder-outline" size={16} color="rgba(255,255,255,0.7)" />
+                      <Text style={styles.dropdownText}>{t('chat.moveToFolder')}</Text>
+                    </TouchableOpacity>
+                  )}
+                  <View style={styles.dropdownDivider} />
+                  <TouchableOpacity style={styles.dropdownItem} onPress={() => handleRename(chat)}>
+                    <Ionicons name="pencil-outline" size={16} color="rgba(255,255,255,0.7)" />
+                    <Text style={styles.dropdownText}>{t('common:rename')}</Text>
+                  </TouchableOpacity>
+                  <View style={styles.dropdownDivider} />
+                  <TouchableOpacity style={styles.dropdownItem} onPress={() => handleDelete(chat.id)}>
+                    <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                    <Text style={[styles.dropdownText, { color: '#ef4444' }]}>{t('common:delete')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Folder Picker Modal */}
       <FolderPickerModal
@@ -574,24 +630,25 @@ const styles = StyleSheet.create({
     padding: 4,
     opacity: 0.6,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   dropdown: {
     position: 'absolute',
-    top: 0,
-    right: 4,
     backgroundColor: 'transparent',
     borderRadius: 8,
-    zIndex: 1000,
-    minWidth: 160,
+    minWidth: 170,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
   },
   dropdownInner: {
-    backgroundColor: 'rgba(42, 42, 42, 0.4)',
+    backgroundColor: 'rgba(30, 30, 30, 0.97)',
     borderRadius: 8,
     overflow: 'hidden',
   },

@@ -242,6 +242,42 @@ export function useChatEngine(
         continue;
       }
 
+      // ── PROCESSING / HEARTBEAT ─────────────────────────────────────────
+      // Keep UI visibly alive during long model TTFT gaps.
+      if ((event as any).type === 'processing' || (event as any).type === 'heartbeat') {
+        const rawMessage = String((event as any).message || '').trim();
+        const rawElapsed = Number((event as any).elapsedSec);
+        const elapsedSec = Number.isFinite(rawElapsed) && rawElapsed > 0 ? Math.floor(rawElapsed) : 0;
+        const statusText = rawMessage || (elapsedSec > 0
+          ? `Ancora in elaborazione (${elapsedSec}s)...`
+          : 'Ancora in elaborazione...');
+
+        if (!currentMessageIdRef.current?.startsWith('engine-thinking-')) {
+          const newId = `engine-thinking-${Date.now()}`;
+          currentMessageIdRef.current = newId;
+          thinkingContentRef.current = statusText;
+          streamingContentRef.current = '';
+
+          setMessages(prev => [...prev, {
+            id: newId,
+            type: 'thinking',
+            content: '',
+            isThinking: true,
+            thinkingContent: statusText,
+            timestamp: new Date(),
+          }]);
+        } else {
+          thinkingContentRef.current = statusText;
+          const thinkingId = currentMessageIdRef.current;
+          setMessages(prev => prev.map(m =>
+            m.id === thinkingId
+              ? { ...m, isThinking: true, thinkingContent: statusText }
+              : m,
+          ));
+        }
+        continue;
+      }
+
       // ── THINKING (content delta) ────────────────────────────────────────
       if (event.type === 'thinking') {
         const thinkingText = (event as any).text;
@@ -275,8 +311,8 @@ export function useChatEngine(
 
       // ── TOOL_START ──────────────────────────────────────────────────────
       if (event.type === 'tool_start' && event.tool) {
-        // Skip signal_completion from visible UI
-        if (event.tool === 'signal_completion') continue;
+        // Skip signal_completion and ask_user_question from visible UI
+        if (event.tool === 'signal_completion' || event.tool === 'ask_user_question') continue;
 
         const input = event.input || {};
         setActiveTools(prev => [...prev, event.tool!]);
@@ -311,6 +347,7 @@ export function useChatEngine(
 
       // ── TOOL_INPUT ──────────────────────────────────────────────────────
       if (event.type === 'tool_input' && event.tool) {
+        if (event.tool === 'signal_completion' || event.tool === 'ask_user_question') continue;
         const input = event.input || {};
         // Merge input into existing tool_start message
         setActiveTools(prev => prev.includes(event.tool!) ? prev : [...prev, event.tool!]);
@@ -347,6 +384,9 @@ export function useChatEngine(
           const idx = prev.indexOf(event.tool!);
           return idx === -1 ? prev : [...prev.slice(0, idx), ...prev.slice(idx + 1)];
         });
+
+        // ask_user_question: skip from visible UI (question shown inline in text)
+        if (event.tool === 'ask_user_question') continue;
 
         // signal_completion: extract result as a text message
         if (event.tool === 'signal_completion') {
@@ -438,6 +478,10 @@ export function useChatEngine(
 
         hadStreamedTextRef.current = true;
 
+        // Remove visual gap-thinking placeholders before appending text chunks.
+        // They are UX-only and must not interfere with text accumulation.
+        setMessages(prev => prev.filter(m => !m.id.startsWith('engine-thinking-gap-')));
+
         // If a gap-thinking placeholder was created while text was still streaming,
         // remove it and continue appending to the previous text message instead.
         if (currentMessageIdRef.current?.startsWith('engine-thinking-gap-') && lastStreamedMsgIdRef.current) {
@@ -492,6 +536,9 @@ export function useChatEngine(
         }
         if (!content || !String(content).trim()) continue;
         content = String(content);
+
+        // Remove visual gap-thinking placeholders before appending/merging text messages.
+        setMessages(prev => prev.filter(m => !m.id.startsWith('engine-thinking-gap-')));
 
         // Convert thinking → text if first content
         if (currentMessageIdRef.current?.startsWith('engine-thinking-') && streamingContentRef.current === '') {
@@ -660,32 +707,30 @@ export function useChatEngine(
 
     lastProcessedIndexRef.current = agentEvents.length - 1;
 
-    // After processing events, set a gap timer: if no new events arrive within 250ms
-    // while streaming is active, show a thinking indicator (e.g. waiting for write_file generation)
+    // After processing events, set a gap timer: if no new events arrive
+    // while streaming is active, show a thinking indicator (e.g. waiting for next AI response)
     if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
     if (agentStreaming) {
       gapTimerRef.current = setTimeout(() => {
         setMessages(prev => {
           if (prev.length === 0) return prev;
           const last = prev[prev.length - 1];
-          // Only add if last message is idle (completed text or completed tool)
-          if ((last.type === 'text' || last.type === 'tool_complete') && !last.isThinking && !last.isExecuting) {
-            const newId = `engine-thinking-gap-${Date.now()}`;
-            currentMessageIdRef.current = newId;
-            thinkingContentRef.current = '';
-            streamingContentRef.current = '';
-            return [...prev, {
-              id: newId,
-              type: 'thinking' as const,
-              content: '',
-              isThinking: true,
-              thinkingContent: '',
-              timestamp: new Date(),
-            }];
-          }
-          return prev;
+          // Already showing thinking? Skip
+          if (last.isThinking) return prev;
+          // Don't add while tools are actively executing
+          if (last.type === 'tool_start' && last.isExecuting) return prev;
+          // Show thinking if last message is idle (completed text, completed tool, error, etc.)
+          const newId = `engine-thinking-gap-${Date.now()}`;
+          return [...prev, {
+            id: newId,
+            type: 'thinking' as const,
+            content: '',
+            isThinking: true,
+            thinkingContent: '',
+            timestamp: new Date(),
+          }];
         });
-      }, 250);
+      }, 0);
     }
   }, [agentEvents, agentStreaming, normalizeTodos]);
 
