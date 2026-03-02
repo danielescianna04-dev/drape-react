@@ -46,7 +46,7 @@ export const config = {
 
   // Google Cloud Project
   googleCloud: {
-    projectId: 'drape-mobile-ide',
+    projectId: 'drapev2',
     region: 'us-central1',
     repository: 'drape-repo',
   },

@@ -110,9 +110,17 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   const MAX_PROXY_RETRIES = 5;
   const readyFallbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset retry counter when URL or server status changes
+  // Guard against infinite redirect/rewrite loops
+  const redirectRetryRef = React.useRef(0);
+  const MAX_REDIRECT_RETRIES = 2;
+  const rewriteCountRef = React.useRef(0);
+  const MAX_REWRITES = 3;
+
+  // Reset retry counters when URL or server status changes
   React.useEffect(() => {
     proxyRetryCountRef.current = 0;
+    redirectRetryRef.current = 0;
+    rewriteCountRef.current = 0;
   }, [currentPreviewUrl, serverStatus]);
 
   // Switch viewport at runtime when user toggles desktop/mobile
@@ -308,6 +316,28 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               onLoadEnd={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
                 console.log('WebView load end:', nativeEvent.url);
+
+                // Detect if WebView was redirected outside the preview path
+                // (iOS WKWebView follows server-side redirects without calling onShouldStartLoadWithRequest)
+                const finalUrl = nativeEvent.url;
+                const previewMatch = currentPreviewUrl.match(/\/preview\/[^/?]+/);
+                if (previewMatch && finalUrl.includes('drape.info') && !finalUrl.includes(previewMatch[0])) {
+                  if (redirectRetryRef.current < MAX_REDIRECT_RETRIES) {
+                    redirectRetryRef.current++;
+                    console.warn(`[Preview] Redirect outside preview path detected: ${finalUrl} — retry ${redirectRetryRef.current}/${MAX_REDIRECT_RETRIES}`);
+                    // Navigate back to the correct preview URL via JS (source prop hasn't changed so React won't re-render)
+                    webViewRef.current?.injectJavaScript(`window.location.replace(${JSON.stringify(currentPreviewUrl)}); true;`);
+                    return;
+                  } else {
+                    console.error('[Preview] Redirect loop detected — preview server may be misconfigured');
+                    setPreviewError({ message: 'Preview server redirected unexpectedly. Try restarting the preview.', timestamp: new Date() });
+                    setServerStatus('stopped');
+                    setIsStarting(false);
+                    return;
+                  }
+                }
+                redirectRetryRef.current = 0;
+
                 // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
                 // AND framework build error overlays (Next.js, Vite, etc.)
                 webViewRef.current?.injectJavaScript(`
@@ -489,6 +519,12 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
 
                   // Don't intercept preview paths or special routes
                   if (!targetPath.startsWith('/preview/') && !targetPath.startsWith('/_next/') && !targetPath.startsWith('/@')) {
+                    // Guard against infinite rewrite loops
+                    if (rewriteCountRef.current >= MAX_REWRITES) {
+                      console.warn('[Preview] Max rewrites exceeded, stopping rewrite loop');
+                      return true;
+                    }
+                    rewriteCountRef.current++;
                     // Rewrite to stay within preview
                     const newUrl = `https://drape.info${previewPath}${targetPath}${urlObj.search}`;
                     console.log(`[Preview] Rewriting navigation: ${url} -> ${newUrl}`);

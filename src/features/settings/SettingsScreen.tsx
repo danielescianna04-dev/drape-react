@@ -39,7 +39,7 @@ import { EditNameModal } from './components/EditNameModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { SecuritySection } from './components/SecuritySection';
 import { ChangeEmailModal } from './components/ChangeEmailModal';
-import { getAuth } from 'firebase/auth';
+import { auth } from '../../config/firebase';
 import { LegalPage } from './components/LegalPage';
 import { PurchaseCelebrationModal } from '../../shared/components/modals/PurchaseCelebrationModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -139,7 +139,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [showChangeEmail, setShowChangeEmail] = useState(false);
   const [showLegal, setShowLegal] = useState<'privacy' | 'terms' | null>(null);
-  const isEmailUser = getAuth().currentUser?.providerData.some(p => p.providerId === 'password') ?? false;
+  const isEmailUser = auth.currentUser?.providerData.some(p => p.providerId === 'password') ?? false;
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
   const [deviceModelName, setDeviceModelName] = useState<string>('');
 

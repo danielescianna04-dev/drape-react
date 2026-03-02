@@ -427,6 +427,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       }
 
       if (response.status >= 200 && response.status < 400) {
+        // Detect redirect outside preview path (e.g. server redirected to drape.info root)
+        const previewMatch = urlToCheck.match(/\/preview\/[^/?]+/);
+        if (previewMatch && response.url && !response.url.includes(previewMatch[0])) {
+          console.warn('[Preview:CHECK] Redirected outside preview path:', response.url);
+          scheduleRetry(2000);
+          return;
+        }
         // If status changed to 'stopped' while this fetch was in-flight
         // (e.g. WebView detected a BUILD_ERROR), don't override back to 'running'.
         if (serverStatusRef.current === 'stopped') {
@@ -540,13 +547,20 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         clearTimeout(timeoutId);
         console.log('[Preview:START] Quick health check response:', response.status);
         if (response.status >= 200 && response.status < 400) {
-          console.log('[Preview:START] Quick health check PASSED — setting running');
-          setServerStatus('running');
-          startup.setIsStarting(false);
-          if (!hasWebUI) {
-            setWebViewReady(true);
+          // Detect redirect outside preview path (e.g. server redirected to drape.info root)
+          const previewMatch = currentPreviewUrl.match(/\/preview\/[^/?]+/);
+          if (previewMatch && response.url && !response.url.includes(previewMatch[0])) {
+            console.log('[Preview:START] Quick health check REDIRECTED outside preview path:', response.url);
+            // Fall through to SSE flow
+          } else {
+            console.log('[Preview:START] Quick health check PASSED — setting running');
+            setServerStatus('running');
+            startup.setIsStarting(false);
+            if (!hasWebUI) {
+              setWebViewReady(true);
+            }
+            return;
           }
-          return;
         }
         console.log('[Preview:START] Quick health check failed, falling through to SSE');
       } catch (e: any) {

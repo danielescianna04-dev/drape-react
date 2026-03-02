@@ -41,7 +41,7 @@ export const getSystemConfig = (): SystemConfig => {
       appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:123456789:web:abcdef',
     },
     googleCloud: {
-      projectId: process.env.EXPO_PUBLIC_GCP_PROJECT_ID || 'drape-mobile-ide',
+      projectId: process.env.EXPO_PUBLIC_GCP_PROJECT_ID || 'drapev2',
       region: process.env.EXPO_PUBLIC_GCP_REGION || 'us-central1',
     },
     github: {

@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { getAuth, reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail } from 'firebase/auth';
+import { reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail } from 'firebase/auth';
+import { auth } from '../../../config/firebase';
 import { AppColors } from '../../../shared/theme/colors';
 
 interface ChangeEmailModalProps {
@@ -47,7 +48,6 @@ export const ChangeEmailModal: React.FC<ChangeEmailModalProps> = ({
 
     setIsLoading(true);
     try {
-      const auth = getAuth();
       const firebaseUser = auth.currentUser;
       if (!firebaseUser || !firebaseUser.email) throw new Error('no-user');
 

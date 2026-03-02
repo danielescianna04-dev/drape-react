@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import { getAuth, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
+import { reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
+import { auth } from '../../../config/firebase';
 import { AppColors } from '../../../shared/theme/colors';
 import { useToastStore } from '../../../core/toast/toastStore';
 
@@ -49,7 +50,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
 
     setIsLoading(true);
     try {
-      const auth = getAuth();
       const firebaseUser = auth.currentUser;
       if (!firebaseUser || !firebaseUser.email) throw new Error('no-user');
 
