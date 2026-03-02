@@ -110,16 +110,13 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
   const MAX_PROXY_RETRIES = 5;
   const readyFallbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Guard against infinite redirect/rewrite loops
-  const redirectRetryRef = React.useRef(0);
-  const MAX_REDIRECT_RETRIES = 2;
+  // Guard against infinite rewrite loops in onShouldStartLoadWithRequest
   const rewriteCountRef = React.useRef(0);
   const MAX_REWRITES = 3;
 
   // Reset retry counters when URL or server status changes
   React.useEffect(() => {
     proxyRetryCountRef.current = 0;
-    redirectRetryRef.current = 0;
     rewriteCountRef.current = 0;
   }, [currentPreviewUrl, serverStatus]);
 
@@ -170,7 +167,12 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                   'session_token': coderToken || '',
                   ...(previewAccessToken ? { 'X-Drape-Preview-Token': previewAccessToken } : {}),
                   ...(globalFlyMachineId ? { 'Fly-Force-Instance-Id': globalFlyMachineId } : {}),
-                  'Cookie': `drape_vm_id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}; drape_preview_token=${previewAccessToken || ''}`,
+                  // IMPORTANT: lowercase 'cookie' key triggers react-native-webview native code
+                  // (RNCWebViewImpl.m:849) to write cookies into WKHTTPCookieStore.
+                  // Uppercase 'Cookie' only sets the header on the initial request but cookies
+                  // are lost on redirects. Lowercase writes to the store so cookies persist
+                  // across ALL requests (redirects, sub-resources, navigations).
+                  'cookie': `drape_vm_id=${globalFlyMachineId || ''}; fly-force-instance-id=${globalFlyMachineId || ''}; session_token=${coderToken || ''}; coder_session_token=${coderToken || ''}; drape_preview_token=${previewAccessToken || ''}`,
                   ...(flyMachineIdRef.current ? {
                     'X-Drape-VM-Id': flyMachineIdRef.current,
                     'Fly-Force-Instance-Id': flyMachineIdRef.current
@@ -194,6 +196,7 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
                 }
                 if (vmId) {
                   document.cookie = "drape_vm_id=" + vmId + "; path=/; SameSite=Lax";
+                  document.cookie = "fly-force-instance-id=" + vmId + "; path=/; SameSite=Lax";
                 }
                 if (previewToken) {
                   document.cookie = "drape_preview_token=" + previewToken + "; path=/; SameSite=Lax";
@@ -315,28 +318,8 @@ export const PreviewWebView: React.FC<PreviewWebViewProps> = ({
               }}
               onLoadEnd={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
-                console.log('WebView load end:', nativeEvent.url);
-
-                // Detect if WebView was redirected outside the preview path
-                // (iOS WKWebView follows server-side redirects without calling onShouldStartLoadWithRequest)
                 const finalUrl = nativeEvent.url;
-                const previewMatch = currentPreviewUrl.match(/\/preview\/[^/?]+/);
-                if (previewMatch && finalUrl.includes('drape.info') && !finalUrl.includes(previewMatch[0])) {
-                  if (redirectRetryRef.current < MAX_REDIRECT_RETRIES) {
-                    redirectRetryRef.current++;
-                    console.warn(`[Preview] Redirect outside preview path detected: ${finalUrl} — retry ${redirectRetryRef.current}/${MAX_REDIRECT_RETRIES}`);
-                    // Navigate back to the correct preview URL via JS (source prop hasn't changed so React won't re-render)
-                    webViewRef.current?.injectJavaScript(`window.location.replace(${JSON.stringify(currentPreviewUrl)}); true;`);
-                    return;
-                  } else {
-                    console.error('[Preview] Redirect loop detected — preview server may be misconfigured');
-                    setPreviewError({ message: 'Preview server redirected unexpectedly. Try restarting the preview.', timestamp: new Date() });
-                    setServerStatus('stopped');
-                    setIsStarting(false);
-                    return;
-                  }
-                }
-                redirectRetryRef.current = 0;
+                console.log('WebView load end:', finalUrl);
 
                 // Detect JSON error responses from preview proxy (e.g. ECONNREFUSED)
                 // AND framework build error overlays (Next.js, Vite, etc.)

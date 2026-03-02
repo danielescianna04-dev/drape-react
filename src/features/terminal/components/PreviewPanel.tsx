@@ -141,10 +141,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         const match = parsed.pathname.match(/^(\/preview\/[^/]+)/);
         if (match) {
           // Strip any user-edited path suffix — always open at base preview URL
-          url = `${parsed.origin}${match[1]}`;
+          // Trailing slash prevents 301 redirect (iOS WKWebView drops custom headers on redirects)
+          url = `${parsed.origin}${match[1]}/`;
         } else if (projectId) {
           // Stored URL is corrupted (no /preview/ path) — reconstruct
-          url = `${parsed.origin}/preview/${projectId}`;
+          url = `${parsed.origin}/preview/${projectId}/`;
         }
       } catch {}
     }
@@ -157,6 +158,11 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
     try {
       const parsed = new URL(url);
       if (!parsed.pathname.startsWith('/preview/')) return url;
+      // Ensure trailing slash on /preview/{projectId} to prevent 301 redirect
+      // (iOS WKWebView drops custom headers on server-side redirects)
+      if (parsed.pathname.match(/^\/preview\/[^/]+$/)) {
+        parsed.pathname += '/';
+      }
       parsed.searchParams.set('pt', token);
       return parsed.toString();
     } catch {
@@ -368,6 +374,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const timeoutId = setTimeout(() => controller.abort(), 30000);
       const response = await fetch(urlToCheck, {
         method: 'GET', cache: 'no-store', credentials: 'include',
+        redirect: 'manual' as RequestRedirect,
         headers: {
           'Coder-Session-Token': coderToken || '',
           'Accept': 'text/html',
@@ -378,6 +385,13 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
+
+      // With redirect:'manual', 3xx means the server is redirecting (not serving preview content)
+      if (response.status >= 300 && response.status < 400) {
+        console.warn('[Preview:CHECK] Server returned redirect (not serving preview):', response.status);
+        scheduleRetry(2000);
+        return;
+      }
 
       const agentStatus = response.headers.get('X-Drape-Agent-Status');
       const contentType = response.headers.get('Content-Type') || '';
@@ -426,14 +440,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         } catch { /* ignore malformed JSON */ }
       }
 
-      if (response.status >= 200 && response.status < 400) {
-        // Detect redirect outside preview path (e.g. server redirected to drape.info root)
-        const previewMatch = urlToCheck.match(/\/preview\/[^/?]+/);
-        if (previewMatch && response.url && !response.url.includes(previewMatch[0])) {
-          console.warn('[Preview:CHECK] Redirected outside preview path:', response.url);
-          scheduleRetry(2000);
-          return;
-        }
+      if (response.status >= 200 && response.status < 300) {
         // If status changed to 'stopped' while this fetch was in-flight
         // (e.g. WebView detected a BUILD_ERROR), don't override back to 'running'.
         if (serverStatusRef.current === 'stopped') {
@@ -538,6 +545,7 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
         const timeoutId = setTimeout(() => controller.abort(), 5000);
         const response = await fetch(currentPreviewUrl, {
           method: 'GET', cache: 'no-store', credentials: 'include',
+          redirect: 'manual' as RequestRedirect,
           headers: {
             'Fly-Force-Instance-Id': globalFlyMachineId,
             ...(previewAccessTokenRef.current ? { 'X-Drape-Preview-Token': previewAccessTokenRef.current } : {}),
@@ -545,22 +553,19 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
-        console.log('[Preview:START] Quick health check response:', response.status);
-        if (response.status >= 200 && response.status < 400) {
-          // Detect redirect outside preview path (e.g. server redirected to drape.info root)
-          const previewMatch = currentPreviewUrl.match(/\/preview\/[^/?]+/);
-          if (previewMatch && response.url && !response.url.includes(previewMatch[0])) {
-            console.log('[Preview:START] Quick health check REDIRECTED outside preview path:', response.url);
-            // Fall through to SSE flow
-          } else {
-            console.log('[Preview:START] Quick health check PASSED — setting running');
-            setServerStatus('running');
-            startup.setIsStarting(false);
-            if (!hasWebUI) {
-              setWebViewReady(true);
-            }
-            return;
+        console.log('[Preview:START] Quick health check response:', response.status, 'type:', response.type);
+        // With redirect:'manual', 3xx responses come back as-is (not followed)
+        if (response.status >= 300 && response.status < 400) {
+          console.log('[Preview:START] Quick health check got redirect — server not serving preview content');
+          // Fall through to SSE flow
+        } else if (response.status >= 200 && response.status < 300) {
+          console.log('[Preview:START] Quick health check PASSED — setting running');
+          setServerStatus('running');
+          startup.setIsStarting(false);
+          if (!hasWebUI) {
+            setWebViewReady(true);
           }
+          return;
         }
         console.log('[Preview:START] Quick health check failed, falling through to SSE');
       } catch (e: any) {
@@ -1491,10 +1496,10 @@ export const PreviewPanel = React.memo(({ onClose, previewUrl, projectName, proj
       const match = parsed.pathname.match(/^\/preview\/([^/]+)/);
       if (!match) {
         // No /preview/ path at all — reconstruct
-        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}`);
+        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}/`);
       } else if (match[1] !== projectId) {
         // URL has a different project's ID — fix it
-        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}`);
+        setCurrentPreviewUrl(`${parsed.origin}/preview/${projectId}/`);
       }
     } catch {}
   }, [currentPreviewUrl, projectId]);

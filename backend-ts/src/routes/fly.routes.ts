@@ -1209,32 +1209,54 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     await fs.rm(destDir, { recursive: true, force: true });
     await fs.cp(srcDir, destDir, { recursive: true });
 
-    // Next.js static export generated for root (/_next/*) needs slug-prefixed
-    // asset URLs when served under /p/:slug.
-    const nextStaticDir = path.join(destDir, '_next');
-    const hasNextStatic = await fs.stat(nextStaticDir).then(s => s.isDirectory()).catch(() => false);
-    if (hasNextStatic) {
-      const rewriteNextAssetPaths = async (dir: string): Promise<void> => {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            await rewriteNextAssetPaths(fullPath);
-            continue;
-          }
-          if (!entry.isFile() || !entry.name.endsWith('.html')) continue;
-
-          const content = await fs.readFile(fullPath, 'utf8');
-          const rewritten = content.replace(/\/_next\//g, `/p/${cleanSlug}/_next/`);
-          if (rewritten !== content) {
-            await fs.writeFile(fullPath, rewritten, 'utf8');
-          }
+    // Rewrite root-absolute asset paths in HTML/CSS files so they resolve
+    // correctly when served under /p/{slug}/.
+    // e.g. src="/assets/index.js" → src="/p/po9/assets/index.js"
+    // Handles: Vite (/assets/), Next.js (/_next/), and any other root-absolute paths.
+    const rewriteAssetPaths = async (dir: string): Promise<void> => {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await rewriteAssetPaths(fullPath);
+          continue;
         }
-      };
+        if (!entry.isFile()) continue;
 
-      await rewriteNextAssetPaths(destDir);
-      log.info(`[Publish] Rewrote Next asset paths for slug ${cleanSlug}`);
-    }
+        const ext = entry.name.split('.').pop()?.toLowerCase();
+        if (ext !== 'html' && ext !== 'css') continue;
+
+        let content = await fs.readFile(fullPath, 'utf8');
+        let rewritten = content;
+
+        if (ext === 'html') {
+          // Rewrite src="/...", href="/...", action="/..." attributes
+          // Skip: protocol-relative (//), already prefixed (/p/), data URIs
+          rewritten = rewritten.replace(
+            /((?:src|href|action)\s*=\s*["'])\/(?!\/|p\/)/gi,
+            `$1/p/${cleanSlug}/`
+          );
+          // Rewrite url() in inline <style> blocks
+          rewritten = rewritten.replace(
+            /(url\s*\(\s*["']?)\/(?!\/|p\/|data:)/gi,
+            `$1/p/${cleanSlug}/`
+          );
+        } else {
+          // CSS: rewrite url() paths
+          rewritten = rewritten.replace(
+            /(url\s*\(\s*["']?)\/(?!\/|p\/|data:)/gi,
+            `$1/p/${cleanSlug}/`
+          );
+        }
+
+        if (rewritten !== content) {
+          await fs.writeFile(fullPath, rewritten, 'utf8');
+        }
+      }
+    };
+
+    await rewriteAssetPaths(destDir);
+    log.info(`[Publish] Rewrote asset paths for slug ${cleanSlug}`);
 
     // Clean up node_modules and .git from published dir if copied from root
     if (!hasBuildScript) {
