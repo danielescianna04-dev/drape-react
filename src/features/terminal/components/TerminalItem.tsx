@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Animated, Platform, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, Platform, TouchableOpacity, Modal, ScrollView, Image, Dimensions } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
@@ -14,16 +14,30 @@ import { ImageViewerModal } from '../../../shared/components/modals/ImageViewerM
 
 const colors = AppColors.dark;
 
+// Module-level: each new thinking indicator picks the next phrase, never repeats "Thinking" every time
+const THINKING_PHRASES = [
+  'Thinking',
+  'Reasoning',
+  'Analyzing code',
+  'Planning approach',
+  'Working through this',
+  'Considering options',
+  'Reviewing context',
+  'Processing',
+];
+let _globalPhraseIndex = 0;
+
 interface Props {
   item: TerminalItemType;
   isNextItemOutput?: boolean;
   outputItem?: TerminalItemType; // For terminal commands, include the output
   isLoading?: boolean; // For animated loading indicator
+  onRetryTool?: (tool: string, input: any) => void | Promise<void>;
   onPlanApprove?: () => void; // Callback when plan is approved
   onPlanReject?: () => void; // Callback when plan is rejected
 }
 
-export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = false, onPlanApprove, onPlanReject }: Props) => {
+const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = false, onRetryTool, onPlanApprove, onPlanReject }: Props) => {
   const { t } = useTranslation();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(10)).current;
@@ -31,11 +45,13 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [dotCount, setDotCount] = useState(1);
-  const [loadingDots, setLoadingDots] = useState('.');
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string>('');
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
   const [copiedFeedback, setCopiedFeedback] = useState(false);
+  const [showMessageMenu, setShowMessageMenu] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const messageRef = useRef<View>(null);
 
   const handleCopy = useCallback(async (text: string) => {
     await Clipboard.setStringAsync(text);
@@ -79,13 +95,67 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
 
   // Determine if we should show thinking state (either from parent isLoading or item.isThinking)
   const showThinking = isLoading || item?.isThinking;
+  const canRetryTool = !!onRetryTool && item?.toolInfo?.status === 'error' && !!item.toolInfo?.tool;
 
   // Determine if tool is executing (pulsing animation but with content visible)
   const isExecuting = item?.isExecuting;
 
-  // Pulse animation for loading thread dot OR executing tools
+  const thinkingDotsPhase = useRef(new Animated.Value(0)).current;
+  // Native-driver clock for thinking animations (dots + pulse)
   useEffect(() => {
-    if (showThinking || isExecuting) {
+    const shouldAnimateThinkingDots = showThinking && !item?.content;
+    if (!shouldAnimateThinkingDots) {
+      thinkingDotsPhase.setValue(0);
+      return;
+    }
+
+    const dotsAnimation = Animated.loop(
+      Animated.timing(thinkingDotsPhase, {
+        toValue: 1,
+        duration: 1000,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    dotsAnimation.start();
+
+    return () => {
+      dotsAnimation.stop();
+      thinkingDotsPhase.setValue(0);
+    };
+  }, [showThinking, item?.content, thinkingDotsPhase]);
+
+  const thinkingPulseOpacity = thinkingDotsPhase.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.95, 0.32, 0.95],
+    extrapolate: 'clamp',
+  });
+
+  const thinkingDotOpacity1 = thinkingDotsPhase.interpolate({
+    inputRange: [0, 0.01, 0.34, 0.67, 1],
+    outputRange: [0.25, 1, 1, 1, 0.25],
+    extrapolate: 'clamp',
+  });
+  const thinkingDotOpacity2 = thinkingDotsPhase.interpolate({
+    inputRange: [0, 0.33, 0.34, 0.67, 1],
+    outputRange: [0.25, 0.25, 1, 1, 0.25],
+    extrapolate: 'clamp',
+  });
+  const thinkingDotOpacity3 = thinkingDotsPhase.interpolate({
+    inputRange: [0, 0.66, 0.67, 1],
+    outputRange: [0.25, 0.25, 1, 0.25],
+    extrapolate: 'clamp',
+  });
+
+  const threadDotOpacity = showThinking
+    ? thinkingPulseOpacity
+    : isExecuting
+      ? pulseAnim
+      : 1;
+
+  // Pulse animation for executing tools (thinking uses thinkingDotsPhase clock)
+  useEffect(() => {
+    if (isExecuting) {
       const pulseAnimation = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -105,23 +175,45 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     } else {
       pulseAnim.setValue(1);
     }
-  }, [showThinking, isExecuting]);
+  }, [isExecuting]);
 
-  // Animated loading dots (bounce: . → .. → ... → .. → .)
-  const dotSequence = ['.', '..', '...', '..', '.'];
-  const [dotIndex, setDotIndex] = useState(0);
+  // Pick a base thinking phrase per item, then rotate it slowly while waiting
+  const [currentPhrase] = useState(() => {
+    const phrase = THINKING_PHRASES[_globalPhraseIndex % THINKING_PHRASES.length];
+    _globalPhraseIndex++;
+    return phrase;
+  });
+  const [thinkingElapsedSec, setThinkingElapsedSec] = useState(0);
+
   useEffect(() => {
-    if (showThinking) {
-      const interval = setInterval(() => {
-        setDotIndex(prev => (prev + 1) % dotSequence.length);
-      }, 400);
-      return () => clearInterval(interval);
-    } else {
-      setDotIndex(0);
-      setLoadingDots('.');
+    const isActiveThinking = showThinking && !item?.content;
+    if (!isActiveThinking) {
+      setThinkingElapsedSec(0);
+      return;
     }
-  }, [showThinking]);
-  const loadingDotsText = showThinking ? dotSequence[dotIndex] : loadingDots;
+
+    const rawTs = item?.timestamp as any;
+    const startMs = rawTs instanceof Date
+      ? rawTs.getTime()
+      : (rawTs ? new Date(rawTs).getTime() : Date.now());
+
+    const tick = () => {
+      const next = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+      setThinkingElapsedSec(next);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [showThinking, item?.content, item?.timestamp]);
+
+  const basePhraseIndex = Math.max(0, THINKING_PHRASES.indexOf(currentPhrase));
+  const phraseOffset = Math.floor(thinkingElapsedSec / 4) % THINKING_PHRASES.length;
+  const rotatingPhrase = THINKING_PHRASES[(basePhraseIndex + phraseOffset) % THINKING_PHRASES.length];
+  const thinkingDisplayText = item?.thinkingContent
+    ? item.thinkingContent
+    : `${rotatingPhrase}${thinkingElapsedSec >= 10 ? ` (${thinkingElapsedSec}s)` : ''}`;
+  const dotSequence = ['.', '..', '...', '..', '.'];
 
   // Animated dots for executing tools (bounce: . → .. → ... → .. → .)
   const [execDotIndex, setExecDotIndex] = useState(0);
@@ -179,6 +271,8 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     const isToolResult = content.startsWith('Read ') ||
       content.startsWith('Write ') ||
       content.startsWith('Edit ') ||
+      content.startsWith('Multi-edit ') ||
+      content.startsWith('Patch ') ||
       content.startsWith('List files') ||
       content.startsWith('Search ') ||
       content.startsWith('Execute:') ||
@@ -218,7 +312,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             style={[
               styles.threadDot,
               { backgroundColor: isExecuting ? AppColors.primary : dotColor },
-              (showThinking || isExecuting) && { opacity: pulseAnim }
+              { opacity: threadDotOpacity }
             ]}
           />
           {isNextItemOutput && <View style={styles.threadLine} />}
@@ -234,7 +328,9 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             const isFormattedToolOutput = outputItem && (
               (outputItem.content || '').startsWith('Read ') ||
               (outputItem.content || '').startsWith('Write ') ||
-              (outputItem.content || '').startsWith('Edit ')
+              (outputItem.content || '').startsWith('Edit ') ||
+              (outputItem.content || '').startsWith('Multi-edit ') ||
+              (outputItem.content || '').startsWith('Patch ')
             );
 
             // If it's a formatted tool output, don't render the COMMAND at all
@@ -424,17 +520,32 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
         )}
 
         {item.type === ItemType.USER_MESSAGE && (
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onLongPress={() => handleCopy(item.content || '')}
-            delayLongPress={300}
-          >
-            <View style={styles.userMessageBlock}>
-              <View style={[
-                styles.userMessageCard,
-                (item.images?.length === 2 || item.images?.length === 4) && styles.userMessageCardWide
-              ]}>
-                {/* Render attached images */}
+          <View style={styles.userMessageBlock}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                messageRef.current?.measureInWindow((x, y, w, h) => {
+                  const screenH = Dimensions.get('window').height;
+                  const screenW = Dimensions.get('window').width;
+                  const MENU_H = 80; // approximate menu height
+                  const spaceBelow = screenH - (y + h);
+                  // Show below if not enough space above, or message is in upper third
+                  const below = y < MENU_H + 20 || spaceBelow > y;
+                  const top = below ? y + h + 4 : y - MENU_H - 4;
+                  setMenuPosition({ top, right: screenW - (x + w) });
+                  setShowMessageMenu(true);
+                });
+              }}
+              delayLongPress={300}
+            >
+              <View
+                ref={messageRef}
+                style={[
+                  styles.userMessageCard,
+                  (item.images?.length === 2 || item.images?.length === 4) && styles.userMessageCardWide
+                ]}
+              >
                 {item.images && item.images.length > 0 && (
                   <View style={[
                     styles.messageImagesContainer,
@@ -444,10 +555,7 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                     {item.images.map((image, index) => (
                       <TouchableOpacity
                         key={index}
-                        onPress={() => {
-                          setSelectedImageUri(image.uri);
-                          setImageViewerVisible(true);
-                        }}
+                        onPress={() => { setSelectedImageUri(image.uri); setImageViewerVisible(true); }}
                         activeOpacity={0.8}
                       >
                         <Image
@@ -463,14 +571,35 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                     ))}
                   </View>
                 )}
-
                 <Text style={styles.userMessage}>{item.content || ''}</Text>
               </View>
-              {copiedFeedback && (
-                <Text style={styles.copiedFeedback}>Copiato</Text>
-              )}
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+
+            {/* Floating context menu */}
+            <Modal visible={showMessageMenu} transparent animationType="fade" onRequestClose={() => setShowMessageMenu(false)}>
+              <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={() => setShowMessageMenu(false)}>
+                <BlurView
+                  intensity={50}
+                  tint="dark"
+                  style={[styles.menuCard, menuPosition ? { position: 'absolute', top: menuPosition.top, right: menuPosition.right } : {}]}
+                >
+                  <View style={styles.menuCardInner}>
+                    <Text style={styles.menuTime}>
+                      {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.menuItem}
+                      activeOpacity={0.7}
+                      onPress={() => { handleCopy(item.content || ''); setShowMessageMenu(false); }}
+                    >
+                      <Ionicons name="copy-outline" size={17} color="rgba(255,255,255,0.85)" />
+                      <Text style={styles.menuItemText}>Copia</Text>
+                    </TouchableOpacity>
+                  </View>
+                </BlurView>
+              </TouchableOpacity>
+            </Modal>
+          </View>
         )}
 
         {item.type === ItemType.OUTPUT && (
@@ -501,6 +630,14 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
               } else if (header.startsWith('Edit ')) {
                 badgeColor = '#3FB950';
                 badgeText = 'EDIT';
+                iconName = 'create-outline';
+              } else if (header.startsWith('Multi-edit ')) {
+                badgeColor = '#3FB950';
+                badgeText = 'MULTI-EDIT';
+                iconName = 'create-outline';
+              } else if (header.startsWith('Patch ')) {
+                badgeColor = '#3FB950';
+                badgeText = 'PATCH';
                 iconName = 'create-outline';
               } else if (header.startsWith('List files')) {
                 badgeColor = '#A371F7';
@@ -746,6 +883,93 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                         </View>
                       );
                     })()
+                  ) : // Check if this is a Multi-edit or Patch tool result
+                  ((item.content || '').startsWith('Multi-edit ') || (item.content || '').startsWith('Patch ')) ? (
+                    (() => {
+                      const content = item.content || '';
+                      const lines = content.split('\n');
+                      const header = lines[0]; // "Multi-edit file.astro" or "Patch file.astro"
+                      const subheader = lines[1]; // "└─ 4 edits applied" or "└─ Applied" or "└─ Error: ..."
+                      const isMultiEdit = header.startsWith('Multi-edit ');
+                      const fileName = isMultiEdit ? header.replace('Multi-edit ', '') : header.replace('Patch ', '');
+                      const badgeText = isMultiEdit ? 'MULTI-EDIT' : 'PATCH';
+
+                      const isError = subheader && subheader.includes('Error:');
+
+                      // Parse diff lines (skip header + subheader + empty line)
+                      const diffLines = lines.slice(2).filter(line => line.trim() !== '');
+                      const hasDiff = !isError && diffLines.length > 0;
+
+                      return (
+                        <View>
+                          <View style={styles.readFileInline}>
+                            <View style={[styles.toolBadge, styles.toolBadgeEdit]}>
+                              <Ionicons name="create-outline" size={12} color="#3FB950" />
+                              <Text style={[styles.toolBadgeText, { color: '#3FB950' }]}>{badgeText}</Text>
+                            </View>
+                            <Text style={styles.readFileName}>{fileName}</Text>
+                          </View>
+
+                          {subheader && (
+                            <Text style={[styles.writeStatus, isError && { color: '#F85149' }]}>
+                              {subheader.replace('└─ ', '')}
+                            </Text>
+                          )}
+
+                          {hasDiff && (
+                            <View style={[styles.editCard, !isExpanded && { maxHeight: 'auto' }]}>
+                              <View style={styles.editContent}>
+                                {diffLines.slice(0, isExpanded ? undefined : 6).map((line, index) => {
+                                  const isAddedLine = line.startsWith('+ ');
+                                  const isRemovedLine = line.startsWith('- ');
+                                  const isEditLabel = line.startsWith('Edit ');
+
+                                  if (isEditLabel) {
+                                    return (
+                                      <Text key={index} style={{ color: '#8B949E', fontSize: 11, fontWeight: '600', marginTop: index > 0 ? 6 : 0, marginBottom: 2 }}>
+                                        {line}
+                                      </Text>
+                                    );
+                                  }
+
+                                  return (
+                                    <View key={index} style={[styles.diffLine, isAddedLine && styles.addedLine, isRemovedLine && styles.removedLine]}>
+                                      <Text style={[
+                                        styles.terminalOutputLine,
+                                        isAddedLine && { color: '#3FB950' },
+                                        isRemovedLine && { color: '#F85149' },
+                                      ]}>
+                                        {line}
+                                      </Text>
+                                    </View>
+                                  );
+                                })}
+
+                                {!isExpanded && diffLines.length > 6 && (
+                                  <View style={styles.expandOverlay}>
+                                    <LinearGradient
+                                      colors={['transparent', 'rgba(20, 20, 20, 0.95)']}
+                                      style={styles.gradientOverlay}
+                                    />
+                                    <TouchableOpacity onPress={() => setIsExpanded(true)} style={styles.showMoreButton}>
+                                      <Text style={styles.showMoreText}>Show {diffLines.length - 6} more lines</Text>
+                                      <Ionicons name="chevron-down" size={14} color="#8B949E" />
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+
+                                {isExpanded && diffLines.length > 6 && (
+                                  <TouchableOpacity onPress={() => setIsExpanded(false)} style={styles.showLessButton}>
+                                    <Text style={styles.showMoreText}>Show less</Text>
+                                    <Ionicons name="chevron-up" size={14} color="#8B949E" />
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })()
                   ) : // Check if this is a List files tool result
                   (item.content || '').startsWith('List files') ? (
                     (() => {
@@ -844,8 +1068,6 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                       (() => {
                         const content = item.content || '';
                         const lines = content.split('\n');
-                        const fullHeader = lines[0]; // "Todo List"
-                        const stats = lines[1]; // "└─ X tasks (Y done, Z in progress)"
 
                         // Parse todo lines - format: "status|content"
                         const todoLines = lines.slice(3).filter(l => l.trim() && l.includes('|'));
@@ -858,19 +1080,17 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                         });
 
                         return (
-                          <View>
-                            {/* Header with badge */}
-                            <View style={styles.readFileInline}>
+                          <View style={styles.todoBoard}>
+                            <View style={styles.todoBoardHeader}>
                               <View style={[styles.toolBadge, styles.toolBadgeTodo]}>
-                                <Ionicons name="checkbox-outline" size={12} color="#FFA657" />
-                                <Text style={[styles.toolBadgeText, { color: '#FFA657' }]}>TODO</Text>
+                                <Ionicons name="checkmark-done-outline" size={12} color="#FFB86C" />
+                                <Text style={[styles.toolBadgeText, { color: '#FFB86C' }]}>TODO</Text>
                               </View>
-                              <Text style={[styles.readFileName, { color: 'rgba(255,255,255,0.5)', marginLeft: 8 }]}>
-                                {stats.replace('└─ ', '')}
-                              </Text>
+                              <View style={styles.todoBoardTitleWrap}>
+                                <Text style={styles.todoBoardTitle}>Attività</Text>
+                              </View>
                             </View>
 
-                            {/* Todo list card */}
                             <View style={styles.todoListCard}>
                               {todos.map((todo, index) => {
                                 const isPending = todo.status === 'pending';
@@ -888,8 +1108,18 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                                 }
 
                                 return (
-                                  <View key={index} style={styles.todoItem}>
-                                    <Ionicons name={icon as any} size={16} color={iconColor} />
+                                  <View
+                                    key={index}
+                                    style={[
+                                      styles.todoItem,
+                                      isPending && styles.todoItemPending,
+                                      isInProgress && styles.todoItemInProgress,
+                                      isCompleted && styles.todoItemCompletedRow
+                                    ]}
+                                  >
+                                    <View style={styles.todoItemIconMinimal}>
+                                      <Ionicons name={icon as any} size={15} color={iconColor} />
+                                    </View>
                                     <Text style={[
                                       styles.todoContent,
                                       isCompleted && styles.todoContentCompleted
@@ -1304,14 +1534,17 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                   ) : (
                   <View style={styles.assistantMessageContent}>
                     {showThinking && !item.content ? (
-                      // Active thinking - show streaming text with pulse
-                      <Animated.View style={[styles.thinkingStreamContainer, { opacity: pulseAnim }]}>
-                        {item.thinkingContent ? (
-                          <Text style={styles.thinkingStreamText}>{item.thinkingContent}</Text>
-                        ) : (
-                          <Text style={styles.thinkingStreamText}>Thinking{loadingDotsText}</Text>
-                        )}
-                      </Animated.View>
+                      // Active thinking — rotating phrases + native-driver opacity shimmer
+                      <View style={[styles.thinkingStreamContainer, styles.thinkingStreamRow]}>
+                        <Animated.Text style={[styles.thinkingShimmerText, { opacity: thinkingPulseOpacity }]}>
+                          {thinkingDisplayText}
+                        </Animated.Text>
+                        <View style={styles.thinkingDotsRow}>
+                          <Animated.Text style={[styles.thinkingDotsText, { opacity: thinkingDotOpacity1 }]}>.</Animated.Text>
+                          <Animated.Text style={[styles.thinkingDotsText, { opacity: thinkingDotOpacity2 }]}>.</Animated.Text>
+                          <Animated.Text style={[styles.thinkingDotsText, { opacity: thinkingDotOpacity3 }]}>.</Animated.Text>
+                        </View>
+                      </View>
                     ) : (
                       <TouchableOpacity
                         activeOpacity={0.9}
@@ -1326,24 +1559,29 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
                           <View style={{ overflow: 'hidden', flex: 1 }}>
                             <Markdown style={markdownStyles} rules={markdownRules}>{item.content || ''}</Markdown>
                           </View>
-                          {/* Token usage indicator / copied feedback */}
-                          {copiedFeedback ? (
-                            <View style={styles.costIndicator}>
-                              <View style={[styles.tokenBadge, { backgroundColor: 'rgba(63, 185, 80, 0.1)' }]}>
-                                <Ionicons name="checkmark" size={10} color="#3FB950" />
-                                <Text style={[styles.costText, { color: '#3FB950' }]}>Copiato</Text>
-                              </View>
-                            </View>
-                          ) : item.tokensUsed ? (
-                            <View style={styles.costIndicator}>
+                          {/* Token usage + copy button */}
+                          <View style={styles.costIndicator}>
+                            {item.tokensUsed ? (
                               <View style={styles.tokenBadge}>
                                 <Ionicons name="sparkles-outline" size={10} color="rgba(255, 255, 255, 0.45)" />
                                 <Text style={styles.costText}>
                                   {((item.tokensUsed.input + item.tokensUsed.output) / 1000).toFixed(1)}k tokens
                                 </Text>
                               </View>
-                            </View>
-                          ) : null}
+                            ) : null}
+                            <TouchableOpacity
+                              onPress={() => handleCopy(item.content || '')}
+                              activeOpacity={0.6}
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              style={styles.outputCopyButton}
+                            >
+                              <Ionicons
+                                name={copiedFeedback ? 'checkmark' : 'copy-outline'}
+                                size={12}
+                                color={copiedFeedback ? '#3FB950' : 'rgba(255,255,255,0.3)'}
+                              />
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       </TouchableOpacity>
                     )}
@@ -1507,6 +1745,17 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
             )}
           </>
         )}
+
+        {canRetryTool && (
+          <TouchableOpacity
+            style={styles.retryToolButton}
+            onPress={() => onRetryTool?.(item.toolInfo!.tool, item.toolInfo!.input)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh" size={13} color="#58A6FF" />
+            <Text style={styles.retryToolButtonText}>Riprova solo questo tool</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Image Viewer Modal */}
@@ -1518,6 +1767,18 @@ export const TerminalItem = ({ item, isNextItemOutput, outputItem, isLoading = f
     </Animated.View>
   );
 };
+
+const areTerminalItemPropsEqual = (prev: Props, next: Props) => (
+  prev.item === next.item &&
+  prev.outputItem === next.outputItem &&
+  prev.isNextItemOutput === next.isNextItemOutput &&
+  prev.isLoading === next.isLoading &&
+  prev.onRetryTool === next.onRetryTool &&
+  prev.onPlanApprove === next.onPlanApprove &&
+  prev.onPlanReject === next.onPlanReject
+);
+
+export const TerminalItem = React.memo(TerminalItemInner, areTerminalItemPropsEqual);
 
 const styles = StyleSheet.create({
   container: {
@@ -1552,6 +1813,25 @@ const styles = StyleSheet.create({
   },
   userMessageContainer: {
     marginLeft: 0, // No thread container for user messages
+  },
+  retryToolButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(88,166,255,0.35)',
+    backgroundColor: 'rgba(88,166,255,0.12)',
+  },
+  retryToolButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#58A6FF',
+    letterSpacing: -0.1,
   },
   readFileInline: {
     flexDirection: 'row',
@@ -1845,21 +2125,79 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   // Todo list styles (for TODO tool)
-  todoListCard: {
-    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+  todoBoard: {
+    marginTop: 6,
+    backgroundColor: 'rgba(12, 14, 18, 0.65)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     padding: 12,
-    marginTop: 8,
+  },
+  todoBoardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  todoBoardTitleWrap: {
+    flex: 1,
+  },
+  todoBoardTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  todoListCard: {
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
+    padding: 0,
+    gap: 6,
   },
   todoItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  todoItemPending: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  todoItemInProgress: {
+    backgroundColor: 'rgba(88, 166, 255, 0.08)',
+  },
+  todoItemCompletedRow: {
+    backgroundColor: 'rgba(63, 185, 80, 0.08)',
+  },
+  todoItemIconMinimal: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todoItemIconPill: {
+    marginTop: 1,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  todoItemIconPillPending: {
+    backgroundColor: 'rgba(154, 164, 178, 0.12)',
+    borderColor: 'rgba(154, 164, 178, 0.3)',
+  },
+  todoItemIconPillProgress: {
+    backgroundColor: 'rgba(88, 166, 255, 0.15)',
+    borderColor: 'rgba(88, 166, 255, 0.3)',
+  },
+  todoItemIconPillDone: {
+    backgroundColor: 'rgba(63, 185, 80, 0.16)',
+    borderColor: 'rgba(63, 185, 80, 0.3)',
   },
   todoContent: {
     fontSize: 13,
@@ -2264,7 +2602,7 @@ const styles = StyleSheet.create({
   },
   userMessageBlock: {
     marginBottom: 4,
-    alignItems: 'flex-start',
+    alignItems: 'flex-end',
   },
   userMessageCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
@@ -2347,10 +2685,32 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.6)',
     fontStyle: 'italic',
     lineHeight: 18,
+    flex: 1,
+  },
+  // Thinking text with phrase rotation
+  thinkingShimmerText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontStyle: 'italic',
+    lineHeight: 20,
   },
   // Simple streaming thinking style
   thinkingStreamContainer: {
     paddingVertical: 2,
+  },
+  thinkingStreamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  thinkingDotsRow: {
+    flexDirection: 'row',
+    marginLeft: 1,
+  },
+  thinkingDotsText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontStyle: 'italic',
+    lineHeight: 20,
   },
   thinkingStreamText: {
     fontSize: 14,
@@ -2396,6 +2756,57 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 10,
     lineHeight: 18,
+  },
+  // Long-press context menu (liquid glass)
+  menuOverlay: {
+    flex: 1,
+  },
+  menuCard: {
+    alignSelf: 'flex-end',
+    borderRadius: 16,
+    marginVertical: 6,
+    minWidth: 150,
+    zIndex: 100,
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  menuCardInner: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  menuTime: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontWeight: '500',
+    paddingHorizontal: 14,
+    paddingBottom: 8,
+    marginBottom: 2,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  menuItemText: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
+  },
+  outputCopyButton: {
+    padding: 4,
+    marginLeft: 6,
   },
   // Cost indicator styles
   costIndicator: {

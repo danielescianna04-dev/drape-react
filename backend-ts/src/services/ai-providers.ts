@@ -362,16 +362,23 @@ export async function* vercelChatStream(
 
           const partUsage = (part as any).usage || (part as any).totalUsage;
           if (part.type === 'finish') {
-            log.info(`[VercelAI] Stream finished: ${partCount} parts, ${Date.now() - streamStartTime}ms, usage keys: ${partUsage ? Object.keys(partUsage).join(',') : 'null'}, toolCalls: ${toolCalls.length}`);
+            log.info(`[VercelAI] Stream finished: ${partCount} parts, ${Date.now() - streamStartTime}ms, in=${partUsage?.inputTokens || 0} out=${partUsage?.outputTokens || 0}, toolCalls: ${toolCalls.length}`);
           }
+          // Vercel AI SDK uses inputTokens/outputTokens (not promptTokens/completionTokens)
           const usage: UsageInfo = {
-            inputTokens: partUsage?.promptTokens || 0,
-            outputTokens: partUsage?.completionTokens || 0,
+            inputTokens: partUsage?.inputTokens || 0,
+            outputTokens: partUsage?.outputTokens || 0,
           };
 
-          // Detect cached tokens from provider metadata if available
+          // Detect cached tokens from inputTokenDetails or provider metadata
+          const inputDetails = partUsage?.inputTokenDetails;
+          if (inputDetails) {
+            usage.cacheReadTokens = inputDetails.cacheReadTokens || 0;
+            usage.cacheCreationTokens = inputDetails.cacheWriteTokens || 0;
+          }
+          // Fallback: Anthropic provider metadata
           const metadata = (part as any).providerMetadata;
-          if (metadata?.anthropic) {
+          if (metadata?.anthropic && !usage.cacheReadTokens) {
             usage.cacheReadTokens = metadata.anthropic.cacheReadInputTokens || 0;
             usage.cacheCreationTokens = metadata.anthropic.cacheCreationInputTokens || 0;
           }

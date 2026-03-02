@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, FlatList, TouchableOpacity, KeyboardAvoidingView, Platform, Keyboard, Pressable, Dimensions, Image, Alert, Linking, ActivityIndicator } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, withSequence, withRepeat, interpolate, Extrapolate, Easing } from 'react-native-reanimated';
 import apiClient from '../../core/api/apiClient';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +28,6 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
-import { useToastStore } from '../../core/toast/toastStore';
 import { useAuthStore } from '../../core/auth/authStore';
 import { config } from '../../config/config';
 import { getAuthToken, getAuthHeaders } from '../../core/api/getAuthToken';
@@ -58,7 +57,7 @@ import { useFileCacheStore } from '../../core/cache/fileCacheStore';
 // PlanApprovalModal removed - plans now shown inline in chat
 import { AgentStatusBadge } from '../../shared/components/molecules/AgentStatusBadge';
 import { TodoList } from '../../shared/components/molecules/TodoList';
-import { AskUserQuestionModal } from '../../shared/components/modals/AskUserQuestionModal';
+// AskUserQuestionModal removed — questions shown inline in chat
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
@@ -154,9 +153,20 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const layoutHeightRef = useRef(0);
   const isNearBottomRef = useRef(true);        // true = user hasn't scrolled up
   const scrollLockUntilRef = useRef(0);        // timestamp: ignore onScroll isNearBottom updates until
+  const isUserScrollActiveRef = useRef(false); // true only while user is actively scrolling
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const setNearBottomState = useCallback((nearBottom: boolean) => {
+    isNearBottomRef.current = nearBottom;
+    setShowScrollToBottom((prev) => {
+      const next = !nearBottom;
+      return prev === next ? prev : next;
+    });
+  }, []);
 
   // ── Scroll helper (declared early, used by multiple effects) ──────────
   const scrollToBottom = useCallback((animated = true) => {
+    setNearBottomState(true);
     requestAnimationFrame(() => {
       scrollViewRef.current?.scrollToEnd?.({ animated });
 
@@ -165,7 +175,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         scrollViewRef.current?.scrollToOffset({ offset, animated });
       }
     });
-  }, []);
+  }, [setNearBottomState]);
 
   // Destructure chat state for easier access
   const {
@@ -343,7 +353,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const toolMessages: Record<string, (i: any) => string> = {
       'read_file': (i) => { const f = getFileName(i); return f ? `Read ${f}\n└─ Reading...` : `Read file\n└─ Reading...`; },
       'write_file': (i) => { const f = getFileName(i); return f ? `Write ${f}\n└─ Writing...` : `Write file\n└─ Writing...`; },
-      'edit_file': (i) => { const f = getFileName(i); return f ? `Edit ${f}\n└─ Editing...` : `Edit file\n└─ Editing...`; },
+      'edit_file': (i) => { const f = getFileName(i); return f ? `Edit ${f}\n└─ Applying edit...` : `Edit file\n└─ Applying edit...`; },
       'list_directory': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
       'list_files': (i) => `List files in ${i?.path || i?.directory || '.'}\n└─ Loading...`,
       'search_in_files': (i) => { const p = i?.pattern || i?.query; return p ? `Search "${p}"\n└─ Searching...` : `Search\n└─ Searching...`; },
@@ -353,7 +363,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       'execute_command': (i) => { const c = i?.command; return c ? `Run command\n└─ ${c.substring(0, 50)}...` : `Run command\n└─ Executing...`; },
       'web_search': (i) => { const q = i?.query; return q ? `Web search\n└─ "${q}"...` : `Web search\n└─ Searching...`; },
       'web_fetch': () => `Fetch URL\n└─ Loading...`,
-      'multi_edit_file': (i) => { const f = getFileName(i); const n = i?.edits?.length || '?'; return f ? `Multi-edit ${f}\n└─ ${n} edits...` : `Multi-edit file\n└─ ${n} edits...`; },
+      'multi_edit_file': (i) => { const f = getFileName(i); const n = i?.edits?.length || '?'; return f ? `Multi-edit ${f}\n└─ Applying ${n} edits...` : `Multi-edit file\n└─ Applying ${n} edits...`; },
       'patch_file': (i) => { const f = getFileName(i); return f ? `Patch ${f}\n└─ Applying diff...` : `Patch file\n└─ Applying diff...`; },
       'load_skill': (i) => { const n = i?.name; return n ? `Load skill: ${n}\n└─ Loading...` : `List skills\n└─ Discovering...`; },
       'tool_search': (i) => { const q = i?.query; return q ? `Tool search\n└─ "${q}"...` : `Tool search\n└─ Searching...`; },
@@ -419,12 +429,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (tool === 'write_file') {
       const f = getFileName(input);
       if (hasError) return `Write ${f || 'file'}\n└─ Error: ${errorMessage}`;
-      return `Write ${f || 'file'}\n└─ File created\n\n${result}`;
+      return `Write ${f || 'file'}\n└─ File created`;
     }
     if (tool === 'edit_file') {
       const f = getFileName(input);
       if (hasError) return `Edit ${f || 'file'}\n└─ Error: ${errorMessage}`;
-      return `Edit ${f || 'file'}\n└─ File modified\n\n${result}`;
+      return `Edit ${f || 'file'}\n└─ File modified${result ? `\n\n${result}` : ''}`;
     }
     if (tool === 'glob_files') {
       const pattern = input?.pattern || 'files';
@@ -483,7 +493,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       const f = getFileName(input);
       const editCount = input?.edits?.length || '?';
       if (hasError) return `Multi-edit ${f || 'file'}\n└─ Error: ${errorMessage}`;
-      return `Multi-edit ${f || 'file'}\n└─ ${editCount} edits applied\n\n${result}`;
+      // Backend result includes "Multi-edit file\n└─ N edits applied\n\nEdit 1:\n- old\n+ new..."
+      // Extract only the diff part (after the first double newline)
+      const diffStart = result.indexOf('\n\n');
+      const diffContent = diffStart >= 0 ? result.substring(diffStart + 2) : '';
+      return `Multi-edit ${f || 'file'}\n└─ ${editCount} edits applied${diffContent ? `\n\n${diffContent}` : ''}`;
     }
     if (tool === 'dispatch_agent') {
       const agentType = input?.type || 'agent';
@@ -494,7 +508,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (tool === 'patch_file') {
       const f = getFileName(input);
       if (hasError) return `Patch ${f || 'file'}\n└─ Error: ${errorMessage}`;
-      return `Patch ${f || 'file'}\n└─ Applied\n\n${result}`;
+      return `Patch ${f || 'file'}\n└─ Applied`;
     }
     if (tool === 'load_skill') {
       const skillName = input?.name || 'skills';
@@ -584,11 +598,43 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       case 'text':
         return { content: msg.content || '', type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isThinking: false, thinkingContent: '', ...costProps };
       case 'tool_start':
-        return { content: getToolStartMessage(msg.tool!, msg.toolInput), type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: true };
+        return {
+          content: getToolStartMessage(msg.tool!, msg.toolInput),
+          type: TerminalItemType.OUTPUT,
+          timestamp: msg.timestamp,
+          isExecuting: true,
+          toolInfo: {
+            tool: msg.tool!,
+            input: msg.toolInput,
+            status: 'running' as const,
+          },
+        };
       case 'tool_complete':
-        return { content: formatToolResult(msg.tool!, msg.toolInput, msg.toolResult), type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: false };
+        return {
+          content: formatToolResult(msg.tool!, msg.toolInput, msg.toolResult),
+          type: TerminalItemType.OUTPUT,
+          timestamp: msg.timestamp,
+          isExecuting: false,
+          toolInfo: {
+            tool: msg.tool!,
+            input: msg.toolInput,
+            output: msg.toolResult,
+            status: 'completed' as const,
+          },
+        };
       case 'tool_error':
-        return { content: `${msg.tool}\n└─ Error`, type: TerminalItemType.OUTPUT, timestamp: msg.timestamp, isExecuting: false };
+        return {
+          content: `${msg.tool}\n└─ Error`,
+          type: TerminalItemType.OUTPUT,
+          timestamp: msg.timestamp,
+          isExecuting: false,
+          toolInfo: {
+            tool: msg.tool!,
+            input: msg.toolInput,
+            output: msg.toolResult,
+            status: 'error' as const,
+          },
+        };
       case 'error':
         return { content: msg.content || 'Errore sconosciuto', type: TerminalItemType.ERROR, timestamp: msg.timestamp };
       case 'context_compacted':
@@ -895,7 +941,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setScrollPaddingBottom(300);
 
       // Scroll to bottom of new tab after a brief delay
-      isNearBottomRef.current = true;
+      setNearBottomState(true);
       setTimeout(() => scrollToBottom(false), 100);
 
       // Update previous tab reference
@@ -921,6 +967,27 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
   };
 
+  // Remove stale thinking placeholders when no stream is active
+  const clearDanglingThinkingState = useCallback((tabId: string) => {
+    const targetTab = useTabStore.getState().tabs.find(t => t.id === tabId);
+    const hasDanglingThinking = (targetTab?.terminalItems || []).some(item => item.isThinking);
+    if (!hasDanglingThinking) return;
+
+    preThinkingIdRef.current = null;
+    useTabStore.setState((state) => ({
+      tabs: state.tabs.map(t =>
+        t.id === tabId
+          ? {
+            ...t,
+            terminalItems: (t.terminalItems ?? [])
+              .map(item => item.isThinking ? { ...item, isThinking: false } : item)
+              .filter(item => item.content !== ''),
+          }
+          : t
+      ),
+    }));
+  }, []);
+
   // Always add item to tab-specific storage
   const addTerminalItem = useCallback((item: any) => {
     if (!currentTab) return;
@@ -928,6 +995,134 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Use atomic function from store to avoid race conditions
     addTerminalItemToStore(currentTab.id, item);
   }, [currentTab, addTerminalItemToStore]);
+
+  const processedUndoEventsRef = useRef<Set<string>>(new Set());
+
+  // Track file modifications coming from streamed tool_complete events
+  useEffect(() => {
+    if (!currentWorkstation?.id || !agentEvents?.length) return;
+
+    const seen = processedUndoEventsRef.current;
+    const nextSeen = new Set(seen);
+
+    for (const event of agentEvents) {
+      if (event.type !== 'tool_complete' || !event.tool) continue;
+
+      const eventKey = `${event.type}:${(event as any).id || ''}:${event.tool}:${event.timestamp?.toString?.() || ''}`;
+      if (nextSeen.has(eventKey)) continue;
+      nextSeen.add(eventKey);
+
+      if (!['write_file', 'edit_file', 'multi_edit_file', 'patch_file'].includes(event.tool)) continue;
+
+      const rawResult = (event as any).result ?? (event as any).output;
+      const resultText = typeof rawResult === 'string'
+        ? rawResult
+        : typeof rawResult?.content === 'string'
+          ? rawResult.content
+          : '';
+
+      if (!resultText) continue;
+
+      const { undoData } = parseUndoData(resultText);
+      if (undoData && undoData.__undo && undoData.filePath) {
+        useFileHistoryStore.getState().recordModification({
+          projectId: currentWorkstation.id,
+          filePath: undoData.filePath,
+          originalContent: undoData.originalContent || '',
+          newContent: undoData.newContent || '',
+          toolName: event.tool === 'write_file' ? 'write_file' : 'edit_file',
+          description: `AI: ${event.tool === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
+        });
+      }
+    }
+
+    // keep bounded to avoid unbounded growth in long sessions
+    if (nextSeen.size > 1000) {
+      processedUndoEventsRef.current = new Set(Array.from(nextSeen).slice(-500));
+    } else {
+      processedUndoEventsRef.current = nextSeen;
+    }
+  }, [agentEvents, currentWorkstation?.id]);
+
+  useEffect(() => {
+    processedUndoEventsRef.current.clear();
+  }, [currentTab?.id]);
+
+  const handleRetryTool = useCallback(async (tool: string, input: any) => {
+    if (!currentTab?.id || !currentWorkstation?.id) return;
+
+    const retryItemId = `tool-retry-${Date.now()}-${tool}`;
+    addTerminalItem({
+      id: retryItemId,
+      content: getToolStartMessage(tool, input),
+      type: TerminalItemType.OUTPUT,
+      timestamp: new Date(),
+      isExecuting: true,
+      toolInfo: {
+        tool,
+        input,
+        status: 'running',
+      },
+    });
+    scrollToBottom(true);
+
+    try {
+      const response = await apiClient.post(`${config.apiUrl}/agent/execute-tool`, {
+        tool,
+        input,
+        projectId: currentWorkstation.id,
+      });
+
+      const rawToolResult = response?.data?.result;
+      const rawResultText = typeof rawToolResult === 'string'
+        ? rawToolResult
+        : typeof rawToolResult?.content === 'string'
+          ? rawToolResult.content
+          : rawToolResult != null
+            ? JSON.stringify(rawToolResult)
+            : '';
+
+      const { cleanResult, undoData } = parseUndoData(rawResultText);
+      if (undoData && undoData.__undo && undoData.filePath) {
+        useFileHistoryStore.getState().recordModification({
+          projectId: currentWorkstation.id,
+          filePath: undoData.filePath,
+          originalContent: undoData.originalContent || '',
+          newContent: undoData.newContent || '',
+          toolName: tool === 'write_file' ? 'write_file' : 'edit_file',
+          description: `AI retry: ${tool === 'write_file' ? 'Created' : 'Modified'} ${undoData.filePath}`,
+        });
+      }
+
+      const normalizedResult = typeof rawToolResult === 'object' && rawToolResult !== null
+        ? { ...rawToolResult, content: cleanResult }
+        : cleanResult;
+
+      updateTerminalItemById(currentTab.id, retryItemId, {
+        content: formatToolResult(tool, input, normalizedResult),
+        isExecuting: false,
+        toolInfo: {
+          tool,
+          input,
+          output: normalizedResult,
+          status: 'completed',
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retry failed';
+      updateTerminalItemById(currentTab.id, retryItemId, {
+        content: `${tool}\n└─ Error: ${message}`,
+        type: TerminalItemType.OUTPUT,
+        isExecuting: false,
+        toolInfo: {
+          tool,
+          input,
+          output: message,
+          status: 'error',
+        },
+      });
+    }
+  }, [currentTab?.id, currentWorkstation?.id, addTerminalItem, updateTerminalItemById, scrollToBottom]);
 
   // ── Handle pending chat message from preview error ──────────────
   const pendingChatMessage = useUIStore((state) => state.pendingChatMessage);
@@ -1114,23 +1309,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
       // Clean up any dangling "Thinking..." placeholders left in the tab
       // (can happen if the user navigated away while the agent was processing)
-      preThinkingIdRef.current = null;
-      if (currentTab?.id) {
-        useTabStore.setState((state) => ({
-          tabs: state.tabs.map(t =>
-            t.id === currentTab.id
-              ? {
-                ...t,
-                terminalItems: (t.terminalItems ?? [])
-                  .map(item => item.isThinking ? { ...item, isThinking: false } : item)
-                  .filter(item => item.content !== ''),
-              }
-              : t
-          ),
-        }));
-      }
+      clearDanglingThinkingState(currentTab.id);
     }
-  }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId]);
+  }, [agentStreaming, agentEvents.length, currentTab?.id, currentTab?.data?.projectId, currentTab?.data?.chatId, clearDanglingThinkingState]);
+
+  // Defensive cleanup when entering/re-entering a tab with completed iteration.
+  // If no stream is active, any leftover isThinking state is stale UI.
+  useEffect(() => {
+    if (!currentTab?.id || !isActiveTab) return;
+    if (agentStreaming || isLoading) return;
+    clearDanglingThinkingState(currentTab.id);
+  }, [currentTab?.id, isActiveTab, agentStreaming, isLoading, clearDanglingThinkingState]);
 
   // Scroll to end when keyboard opens to show last messages
   useEffect(() => {
@@ -1180,7 +1369,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         // Scroll to bottom after padding shrinks to prevent view jumping up
         // (the padding reduction shifts content and can set isNearBottom=false)
         if (isNearBottomRef.current) {
-          isNearBottomRef.current = true; // keep pinned
+          setNearBottomState(true); // keep pinned
           setTimeout(() => scrollToBottom(false), 80);
         }
       }
@@ -1591,13 +1780,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }));
     }
 
-    // Show toast feedback
-    useToastStore.getState().showToast({
-      message: t('common:agentStopped'),
-      icon: 'stop-circle',
-      type: 'info',
-      duration: 2000,
-    });
   }, [stopAgent, currentTab?.id]);
 
   const buildAgentConversationHistory = useCallback(() => {
@@ -1704,7 +1886,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Lock scroll tracking for 500ms so keyboard dismiss animation
     // doesn't incorrectly set isNearBottom=false
     scrollLockUntilRef.current = Date.now() + 500;
-    isNearBottomRef.current = true;
+    setNearBottomState(true);
     Keyboard.dismiss();
 
     const userMessage = input.trim() || (imagesToSend && imagesToSend.length > 0 ? `[${imagesToSend.length} immagini allegate]` : '');
@@ -1831,7 +2013,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       setLoading(true);
 
       // Force scroll to bottom so user sees the Thinking... placeholder immediately
-      isNearBottomRef.current = true;
+      setNearBottomState(true);
       setTimeout(() => scrollToBottom(true), 50);
 
       // Store the prompt in the agent store
@@ -1905,7 +2087,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         setLoading(false);
       }
 
-      isNearBottomRef.current = true;
+      setNearBottomState(true);
       setTimeout(() => scrollToBottom(true), 100);
       setTimeout(() => scrollToBottom(true), 350);
       return;
@@ -1950,7 +2132,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       });
 
       // Force scroll to bottom so user sees the Thinking... placeholder immediately
-      isNearBottomRef.current = true;
+      setNearBottomState(true);
       setTimeout(() => scrollToBottom(true), 50);
     }
 
@@ -2611,11 +2793,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     if (terminalItems.length === 0) return [];
 
     // Filter out null items, empty content items, and "Executing:" placeholders
-    // BUT: Keep items with isThinking=true or isAgentProgress=true even if content is empty
+    // Keep empty thinking rows only while an actual stream/loading is active.
     const filtered = terminalItems.filter(item =>
       item &&
       item.content != null &&
-      (item.content.trim() !== '' || item.isThinking || (item as any).isAgentProgress) &&
+      (item.content.trim() !== '' || (item.isThinking && (isLoading || agentStreaming)) || (item as any).isAgentProgress) &&
       item.content !== '...' &&
       !item.content.startsWith('Executing: ')
     );
@@ -2641,7 +2823,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
           : undefined;
 
       const isLastItem = index === filteredArray.length - 1;
-      const shouldShowLoading = isLastItem && isLoading;
+      const shouldShowLoading = isLastItem && (isLoading || agentStreaming);
 
       return {
         item,
@@ -2651,7 +2833,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         shouldShowLoading,
       };
     }).filter(processed => !processed.isOutputAfterTerminalCommand);
-  }, [terminalItems, isLoading]);
+  }, [terminalItems, isLoading, agentStreaming]);
 
   const inputbarTodoRenderKey = useMemo(() => {
     if (!engine.currentTodos?.length) return 'no-todos';
@@ -2659,6 +2841,12 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       .map((t: any) => `${t.id || ''}:${t.status || ''}:${(t.activeForm || t.content || '').length}`)
       .join('|');
   }, [engine.currentTodos]);
+
+  useEffect(() => {
+    if (processedTerminalItems.length === 0) {
+      setNearBottomState(true);
+    }
+  }, [processedTerminalItems.length, setNearBottomState]);
 
   // Reset dismiss state when a new set of todos arrives
   const prevTodoCountRef = React.useRef(0);
@@ -2783,13 +2971,31 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 }
               }}
               onLayout={(e) => { layoutHeightRef.current = e.nativeEvent.layout.height; }}
+              onScrollBeginDrag={() => {
+                isUserScrollActiveRef.current = true;
+              }}
+              onScrollEndDrag={() => {
+                isUserScrollActiveRef.current = false;
+              }}
+              onMomentumScrollBegin={() => {
+                isUserScrollActiveRef.current = true;
+              }}
+              onMomentumScrollEnd={(e) => {
+                isUserScrollActiveRef.current = false;
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+                setNearBottomState(distanceFromBottom < 220);
+              }}
               onScroll={(e) => {
                 const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
                 const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
                 // During keyboard dismiss animation, scroll events fire with stale positions
                 // that would incorrectly set isNearBottom=false. Skip those updates.
                 if (Date.now() < scrollLockUntilRef.current) return;
-                isNearBottomRef.current = distanceFromBottom < 220;
+                // While streaming, only allow user-driven scroll events to change pin state.
+                // Programmatic/layout scroll events can otherwise flip this to false and stop auto-follow.
+                if ((isLoading || agentStreaming) && !isUserScrollActiveRef.current) return;
+                setNearBottomState(distanceFromBottom < 220);
               }}
               scrollEventThrottle={16}
               renderItem={({ item: processed }) => {
@@ -2925,6 +3131,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                     isNextItemOutput={isNextItemAI}
                     outputItem={outputItem}
                     isLoading={shouldShowLoading}
+                    onRetryTool={handleRetryTool}
                     onPlanApprove={undefined}
                     onPlanReject={undefined}
                   />
@@ -2989,63 +3196,40 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
               ) : null}
             />
 
-            {/* AskUserQuestion Modal */}
-            <AskUserQuestionModal
-              visible={!!engine.pendingQuestion}
-              questions={engine.pendingQuestion || []}
-              onAnswer={(answers) => {
-                // Format answers as a response message to continue the agent
-                const questions = engine.pendingQuestion || [];
-                const responseLines = questions.map((q: any, idx: number) => {
-                  const answer = answers[`q${idx}`] || '';
-                  return `${q.question}: ${answer}`;
-                }).join('\n');
-
-                const responseMessage = `Ecco le mie risposte:\n${responseLines}`;
-
-                // Resume agent with the answers by sending as a new message
-                if (currentWorkstation?.id) {
-                  // Reset engine and bridge for new session
-                  engine.reset();
-                  prevEngineMessagesRef.current = [];
-                  engineIdMapRef.current.clear();
-
-                  // Build history BEFORE adding current response (it is sent as prompt)
-                  const resumeHistory = buildAgentConversationHistory();
-
-                  // Add user response to terminal
-                  addTerminalItem({
-                    id: Date.now().toString(),
-                    content: responseMessage,
-                    type: TerminalItemType.USER_MESSAGE,
-                    timestamp: new Date(),
-                  });
-
-                  // Add pre-thinking placeholder for instant UX
-                  const preId = `pre-thinking-${Date.now()}`;
-                  preThinkingIdRef.current = preId;
-                  addTerminalItem({
-                    id: preId,
-                    content: '',
-                    type: TerminalItemType.OUTPUT,
-                    timestamp: new Date(),
-                    isThinking: true,
-                    thinkingContent: '',
-                  });
-
-                  startAgent(responseMessage, currentWorkstation.id, selectedModel, resumeHistory, undefined, thinkingLevel);
-                }
-              }}
-              onCancel={() => {
-                // No-op: engine manages pendingQuestion state
-              }}
-            />
+            {/* AskUserQuestion: shown inline in chat as Q&A card, user replies via input */}
 
             <Animated.View style={[
               styles.inputWrapper,
               isCardMode && styles.inputWrapperCardMode,
               inputWrapperAnimatedStyle,
             ]}>
+              {showScrollToBottom && (
+                <TouchableOpacity
+                  style={[
+                    styles.scrollToBottomButton,
+                    selectedInputImages.length > 0 && styles.scrollToBottomButtonWithImages,
+                  ]}
+                  onPress={() => scrollToBottom(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="arrow-down" size={16} color="#FFFFFF" />
+                  <Text style={styles.scrollToBottomText}>Torna in basso</Text>
+                </TouchableOpacity>
+              )}
+
+              {currentWorkstation?.id && (
+                <View style={[
+                  styles.undoFloatingContainer,
+                  selectedInputImages.length > 0 && styles.undoFloatingContainerWithImages,
+                ]}>
+                  <UndoRedoBar
+                    projectId={currentWorkstation.id}
+                    onUndoComplete={() => {}}
+                    onRedoComplete={() => {}}
+                  />
+                </View>
+              )}
+
               {/* Compact Image Preview Bar - above input */}
               {selectedInputImages.length > 0 && (
                 <View style={styles.compactImageBar}>
@@ -3176,30 +3360,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                   </View>
                 </View>
 
-                {/* Undo/Redo Bar */}
-                {currentWorkstation?.id && (
-                  <UndoRedoBar
-                    projectId={currentWorkstation.id}
-                    onUndoComplete={() => {}}
-                    onRedoComplete={() => {}}
-                  />
-                )}
-
-                {/* Integrate active tasks directly inside input bar */}
-                {engine.currentTodos.length > 0 && !isInputbarTodoDismissed && (
-                  <View style={styles.inputbarTodoContainer}>
-                    <TodoList
-                      key={inputbarTodoRenderKey}
-                      todos={engine.currentTodos}
-                      variant="inputbar"
-                      maxVisibleItems={4}
-                      collapsible
-                      collapsed={isInputbarTodoCollapsed}
-                      onToggleCollapse={() => setIsInputbarTodoCollapsed(prev => !prev)}
-                      onDismiss={() => setIsInputbarTodoDismissed(true)}
-                    />
-                  </View>
-                )}
+                {/* Tasks in input bar — disabled */}
 
                 {/* Main Input Row */}
                 <View ref={chatInputContainerRef} collapsable={false} style={styles.mainInputRow}>
@@ -3555,6 +3716,41 @@ const styles = StyleSheet.create({
     right: 0,
     pointerEvents: 'box-none',
     overflow: 'visible',
+  },
+  scrollToBottomButton: {
+    position: 'absolute',
+    right: 18,
+    bottom: '100%',
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(17, 17, 22, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 124, 246, 0.45)',
+    zIndex: 140,
+  },
+  scrollToBottomButtonWithImages: {
+    marginBottom: 58,
+  },
+  scrollToBottomText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.92)',
+    letterSpacing: -0.1,
+  },
+  undoFloatingContainer: {
+    position: 'absolute',
+    left: 16,
+    bottom: '100%',
+    marginBottom: 12,
+    zIndex: 130,
+  },
+  undoFloatingContainerWithImages: {
+    marginBottom: 58,
   },
   inputWrapperCentered: {
     top: 100,

@@ -134,7 +134,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
   onLoadPastChat,
   onStartNewChat,
   contextUsagePercent = 0,
-  selectedModel = 'claude-4-6-sonnet',
+  selectedModel = 'gemini-3-flash',
 }) => {
   const [showContextInfo, setShowContextInfo] = React.useState(false);
   const [showModelSelector, setShowModelSelector] = React.useState(false);
