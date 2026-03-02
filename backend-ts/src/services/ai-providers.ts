@@ -147,14 +147,22 @@ function convertMessages(messages: ChatMessage[]): ModelMessage[] {
         } else if (block.type === 'tool_use') {
           const toolCallId = (block as any).id;
           const toolName = (block as any).name;
+          const thoughtSig = (block as any).thoughtSignature;
           // Track for later tool_result matching
           toolCallNames.set(toolCallId, toolName);
-          assistantContent.push({
+          const toolCallPart: any = {
             type: 'tool-call',
             toolCallId,
             toolName,
             input: (block as any).input || {},
-          });
+          };
+          // Preserve thoughtSignature for Gemini 3 round-trips
+          if (thoughtSig) {
+            toolCallPart.providerOptions = {
+              google: { thoughtSignature: thoughtSig },
+            };
+          }
+          assistantContent.push(toolCallPart);
         }
       }
       if (assistantContent.length > 0) {
@@ -232,17 +240,21 @@ export async function* vercelChatStream(
   messages: ChatMessage[],
   tools?: ToolDefinition[],
   systemPrompt?: string,
-  options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null }
+  options?: { temperature?: number; maxTokens?: number; thinkingLevel?: string | null; abortSignal?: AbortSignal }
 ): AsyncGenerator<StreamChunk> {
   const model = getVercelModel(modelName);
   const entry = MODEL_REGISTRY[modelName];
   const coreMessages = convertMessages(messages);
 
   const maxTokens = options?.maxTokens || entry?.maxTokens || 8192;
-  const providerOptions = getProviderOptions(modelName, options?.thinkingLevel || null);
+  let providerOptions = getProviderOptions(modelName, options?.thinkingLevel || null);
 
   // Build Vercel tools (no execute — agent loop handles execution)
   const vercelTools = tools ? convertTools(tools) : undefined;
+
+  // Gemini 3.x thinking with tools: thoughtSignature is now captured from
+  // tool-call events and preserved through the agent loop round-trip.
+  // No need to disable thinking — it flows correctly through convertMessages.
 
   log.info(`[VercelAI] Starting stream with ${entry?.provider}/${entry?.modelId}, ${coreMessages.length} messages`);
 
@@ -257,6 +269,9 @@ export async function* vercelChatStream(
     log.info(`[VercelAI] msg[${i}] role=${m.role} content=${contentSummary}`);
   }
 
+  // Don't pass temperature when Anthropic thinking is enabled (SDK warning + potential stall)
+  const isAnthropicThinking = entry?.provider === 'anthropic' && providerOptions;
+
   const result = streamText({
     model,
     system: systemPrompt,
@@ -265,8 +280,9 @@ export async function* vercelChatStream(
     // No stopWhen / no execute on tools = single step only.
     // The agent loop handles iteration externally.
     maxOutputTokens: maxTokens,
-    temperature: options?.temperature ?? 0.7,
+    ...(isAnthropicThinking ? {} : { temperature: options?.temperature ?? 0.7 }),
     providerOptions: providerOptions as any,
+    abortSignal: options?.abortSignal,
   });
 
   let fullText = '';
@@ -274,7 +290,13 @@ export async function* vercelChatStream(
   let isInThinking = false;
 
   try {
+    let partCount = 0;
+    const streamStartTime = Date.now();
     for await (const part of result.fullStream) {
+      partCount++;
+      if (partCount === 1) {
+        log.info(`[VercelAI] First part received after ${Date.now() - streamStartTime}ms, type: ${part.type}`);
+      }
       switch (part.type) {
         case 'text-delta': {
           fullText += part.text;
@@ -306,10 +328,15 @@ export async function* vercelChatStream(
             yield { type: 'thinking_end' };
           }
 
+          // Capture thoughtSignature from Gemini provider metadata (needed for round-trips)
+          const providerMeta = (part as any).providerMetadata || (part as any).providerOptions;
+          const thoughtSig = providerMeta?.google?.thoughtSignature as string | undefined;
+
           const toolCall: ToolCall = {
             id: (part as any).toolCallId,
             name: (part as any).toolName,
             input: (part as any).input || (part as any).args || {},
+            ...(thoughtSig ? { thoughtSignature: thoughtSig } : {}),
           };
           toolCalls.push(toolCall);
 
@@ -320,6 +347,7 @@ export async function* vercelChatStream(
             id: toolCall.id,
             name: toolCall.name,
             input: toolCall.input,
+            ...(thoughtSig ? { thoughtSignature: thoughtSig } : {}),
           };
           break;
         }
@@ -333,6 +361,9 @@ export async function* vercelChatStream(
           }
 
           const partUsage = (part as any).usage || (part as any).totalUsage;
+          if (part.type === 'finish') {
+            log.info(`[VercelAI] Stream finished: ${partCount} parts, ${Date.now() - streamStartTime}ms, usage keys: ${partUsage ? Object.keys(partUsage).join(',') : 'null'}, toolCalls: ${toolCalls.length}`);
+          }
           const usage: UsageInfo = {
             inputTokens: partUsage?.promptTokens || 0,
             outputTokens: partUsage?.completionTokens || 0,
@@ -365,8 +396,10 @@ export async function* vercelChatStream(
         }
 
         default:
-          // Ignore: text-start, text-end, tool-input-start, tool-input-delta, tool-input-end,
-          // tool-result, tool-error, source, file, start-step, start, abort, raw
+          // Yield a heartbeat on 'start' so the agent loop knows the API is connected
+          if (part.type === 'start') {
+            yield { type: 'stream_connected' } as any;
+          }
           break;
       }
     }

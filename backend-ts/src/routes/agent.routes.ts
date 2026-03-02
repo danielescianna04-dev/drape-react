@@ -91,15 +91,57 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
   log.info(`[Agent] SSE headers flushed for project ${projectId}, mode: ${mode}`);
 
-  // Keep-alive interval — 10s to survive aggressive mobile proxies (was 15s)
-  const keepAliveInterval = setInterval(() => {
-    if (!res.writableEnded) {
-      res.write(': keepalive\n\n');
-    }
-  }, 10000);
-
   // Track if client is still connected
   let clientDisconnected = false;
+  const streamStartedAt = Date.now();
+  let lastPayloadEventAt = Date.now();
+
+  // Centralized SSE writer to keep activity timestamps in sync
+  const writeSseEvent = (
+    eventType: string,
+    payload: Record<string, any>,
+    options: { countAsActivity?: boolean } = {},
+  ): boolean => {
+    if (res.writableEnded || clientDisconnected) return false;
+    res.write(`event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`);
+    if (options.countAsActivity !== false) {
+      lastPayloadEventAt = Date.now();
+    }
+    return true;
+  };
+
+  // Keep-alive + heartbeat: 1s interval for smooth second-by-second UI updates.
+  // Rotating messages give the user context about what's happening.
+  const waitingMessages = [
+    'Preparazione risposta...',
+    'Il modello sta analizzando il contesto...',
+    'Generazione del codice in corso...',
+    'Elaborazione di una risposta complessa...',
+    'Il modello sta ragionando...',
+    'Scrittura del codice...',
+    'Quasi pronto...',
+    'Ancora in elaborazione...',
+  ];
+  const keepAliveInterval = setInterval(() => {
+    if (res.writableEnded || clientDisconnected) return;
+
+    res.write(': keepalive\n\n');
+
+    const silenceMs = Date.now() - lastPayloadEventAt;
+    if (silenceMs >= 2000) {
+      const elapsedSec = Math.floor(silenceMs / 1000);
+      // Rotate through messages every 5 seconds
+      const msgIndex = Math.floor(elapsedSec / 5) % waitingMessages.length;
+      const message = `${waitingMessages[msgIndex]} (${elapsedSec}s)`;
+      writeSseEvent('heartbeat', {
+        type: 'heartbeat',
+        status: 'alive',
+        message,
+        elapsedSec,
+        silenceMs,
+      }, { countAsActivity: false });
+    }
+  }, 1000);
 
   // Cleanup function
   const cleanup = () => {
@@ -135,9 +177,11 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
 
     // Send a real SSE event immediately so mobile proxies don't time out waiting
     // for data before Claude sends its first token (TTFT can be 20-30s)
-    if (!res.writableEnded) {
-      res.write(`event: processing\ndata: ${JSON.stringify({ type: 'processing' })}\n\n`);
-    }
+    writeSseEvent('processing', {
+      type: 'processing',
+      message: 'Preparazione contesto e avvio esecuzione...',
+      elapsedSec: 0,
+    });
 
     // Stream events from agent loop
     for await (const event of agentLoop.run(prompt, images)) {
@@ -146,16 +190,13 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
         break;
       }
 
-      const data = JSON.stringify(event);
       // Use named SSE events so react-native-sse addEventListener works
       const eventType = (event as any).type || 'message';
-      res.write(`event: ${eventType}\ndata: ${data}\n\n`);
+      writeSseEvent(eventType, event as any);
     }
 
     // Send completion event
-    if (!res.writableEnded) {
-      res.write(`event: done\ndata: ${JSON.stringify({ type: 'done' })}\n\n`);
-    }
+    writeSseEvent('done', { type: 'done' });
 
     log.info(`[Agent] Stream completed for project ${projectId}`);
   } catch (error: any) {
@@ -167,7 +208,7 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
         type: 'error',
         error: error.message || 'Stream failed',
       };
-      res.write(`event: error\ndata: ${JSON.stringify(errorEvent)}\n\n`);
+      writeSseEvent('error', errorEvent);
     }
   } finally {
     cleanup();

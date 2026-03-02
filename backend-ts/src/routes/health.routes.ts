@@ -155,9 +155,10 @@ healthRouter.get('/ai/budget/:userId', optionalAuth, asyncHandler(async (req, re
 
     const spentEur = aiSummary.totalCostEur;
     const remainingEur = Math.max(0, plan.monthlyBudgetEur - spentEur);
-    const percentUsed = plan.monthlyBudgetEur > 0
-      ? Math.round((spentEur / plan.monthlyBudgetEur) * 100)
+    const rawPercent = plan.monthlyBudgetEur > 0
+      ? (spentEur / plan.monthlyBudgetEur) * 100
       : 0;
+    const percentUsed = rawPercent > 0 ? Math.max(1, Math.round(rawPercent)) : 0;
 
     res.json({
       success: true,

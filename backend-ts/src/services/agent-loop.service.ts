@@ -93,8 +93,18 @@ export class AgentLoop {
     this.projectId = options.projectId;
     this.mode = options.mode || 'fast';
     this.model = options.model || 'claude-sonnet-4';
-    // For 'fast' mode, use minimal thinking by default for speed
-    this.thinkingLevel = options.thinkingLevel || (this.mode === 'fast' ? 'minimal' : null);
+    // Thinking config: Claude causes multi-minute stalls with thinking enabled
+    // (no chunks streamed during thinking). Force disable for Claude regardless of client request.
+    const isClaude = (options.model || 'claude-sonnet-4').startsWith('claude');
+    if (isClaude) {
+      this.thinkingLevel = null; // NEVER enable thinking for Claude — causes stalls
+    } else if (options.thinkingLevel) {
+      this.thinkingLevel = options.thinkingLevel;
+    } else if (this.mode === 'fast') {
+      this.thinkingLevel = 'minimal';
+    } else {
+      this.thinkingLevel = null;
+    }
     this.userId = options.userId || null;
     this.userPlan = options.userPlan || 'free';
     this.executionPlan = options.executionPlan || null;
@@ -284,12 +294,10 @@ export class AgentLoop {
         const bufferedToolEvents: AgentEvent[] = [];
 
         // Models with native thinking support - no need to simulate
-        // Claude Opus/Sonnet-4 and Gemini 3 have native thinking
         const hasNativeThinking =
-          (this.model.toLowerCase().includes('claude') && (this.model.includes('opus') || this.model.includes('sonnet-4'))) ||
-          this.model.includes('gemini-3');
+          this.model.toLowerCase().includes('claude') || this.model.includes('gemini-3');
 
-        log.info(`[AgentLoop] Model: ${this.model}, hasNativeThinking: ${hasNativeThinking}`);
+        log.info(`[AgentLoop] Model: ${this.model}, thinkingLevel: ${this.thinkingLevel || 'disabled'}`);
 
         // Auto-compact conversation if approaching context window limit
         try {
@@ -310,118 +318,202 @@ export class AgentLoop {
 
         try {
           const tools = await this.getFilteredTools();
+          // Two-phase timeout:
+          // Phase 1 (waiting for first content): 180s — Claude TTFT can be 60-120s for large code gen
+          // Phase 2 (streaming content): 30s — detect mid-stream stalls
+          const FIRST_TOKEN_TIMEOUT_MS = 180000;
+          const STREAM_TIMEOUT_MS = 30000;
+          const MAX_STALL_RETRIES = 1;
+          const STALL_MARKER = '__MODEL_STALL_TIMEOUT__';
 
-          for await (const chunk of vercelChatStream(
-            this.model,
-            this.conversationHistory,
-            tools,
-            systemPrompt,
-            { temperature: 0.7, thinkingLevel: this.thinkingLevel }
-          )) {
-            switch (chunk.type) {
-              case 'thinking_start':
-                yield { type: 'thinking', text: '', start: true };
-                break;
+          let retryAttempt = 0;
+          let streamCompleted = false;
 
-              case 'thinking':
-                yield { type: 'thinking', text: chunk.text };
-                break;
+          while (!streamCompleted) {
+            retryAttempt++;
+            const abortController = new AbortController();
+            let chunksThisAttempt = 0;
+            let hasContent = false;
 
-              case 'thinking_end':
-                yield { type: 'thinking', text: '', end: true };
-                break;
-
-              case 'text':
-                fullText += chunk.text;
-                yield { type: 'text_delta', text: chunk.text };
-                break;
-
-              case 'tool_start':
-                // In planning mode, buffer tool events; otherwise yield immediately
-                if (this.mode === 'plan') {
-                  bufferedToolEvents.push({
-                    type: 'tool_start' as const,
-                    id: chunk.id,
-                    tool: chunk.name,
-                  });
-                } else {
-                  yield {
-                    type: 'tool_start',
-                    id: chunk.id,
-                    tool: chunk.name,
-                  };
-                }
-                break;
-
-              case 'tool_use':
-                toolCalls.push({
-                  id: chunk.id,
-                  name: chunk.name,
-                  input: chunk.input,
-                });
-                // In planning mode, buffer tool events; otherwise yield immediately
-                if (this.mode === 'plan') {
-                  bufferedToolEvents.push({
-                    type: 'tool_input' as const,
-                    id: chunk.id,
-                    tool: chunk.name,
-                    input: chunk.input,
-                  });
-                } else {
-                  yield {
-                    type: 'tool_input',
-                    id: chunk.id,
-                    tool: chunk.name,
-                    input: chunk.input,
-                  };
-                }
-                break;
-
-              case 'done':
-                fullText = chunk.fullText;
-                toolCalls = chunk.toolCalls;
-                stopReason = chunk.stopReason;
-                this.totalTokensUsed.input += chunk.usage.inputTokens;
-                this.totalTokensUsed.output += chunk.usage.outputTokens;
-
-                // Track AI usage for budget monitoring
+            try {
+              const stream = vercelChatStream(
+                this.model,
+                this.conversationHistory,
+                tools,
+                systemPrompt,
                 {
-                  const cachedTokens = (chunk.usage.cacheReadTokens || 0);
-                  const iterationCostEur = calculateCostEur(
-                    this.model,
-                    chunk.usage.inputTokens,
-                    chunk.usage.outputTokens,
-                    cachedTokens
-                  );
-                  this.totalCostEur += iterationCostEur;
+                  temperature: 0.7,
+                  thinkingLevel: this.thinkingLevel,
+                  abortSignal: abortController.signal,
+                }
+              );
+              const iterator = stream[Symbol.asyncIterator]();
 
-                  metricsService.trackAIUsage({
-                    userId: this.userId || 'anonymous',
-                    model: this.model,
-                    inputTokens: chunk.usage.inputTokens,
-                    outputTokens: chunk.usage.outputTokens,
-                    cachedTokens,
-                    costEur: iterationCostEur,
+              while (true) {
+                let timer: ReturnType<typeof setTimeout> | null = null;
+                try {
+                  const nextPromise = iterator.next();
+                  // Dynamic timeout: long for first token, shorter once streaming
+                  const currentTimeout = hasContent ? STREAM_TIMEOUT_MS : FIRST_TOKEN_TIMEOUT_MS;
+                  const timeoutPromise = new Promise<IteratorResult<any>>((_, reject) => {
+                    timer = setTimeout(() => {
+                      abortController.abort(STALL_MARKER);
+                      reject(new Error(STALL_MARKER));
+                    }, currentTimeout);
                   });
 
-                  // Emit usage event for real-time cost tracking
-                  const contextWindow = vercelGetContextWindowTokens(this.model);
-                  const estimatedContext = this.estimateTokenCount(this.conversationHistory, systemPrompt);
-                  const contextUsagePercent = Math.min(100, Math.round((estimatedContext / contextWindow) * 100));
+                  const nextResult = await Promise.race([nextPromise, timeoutPromise]) as IteratorResult<any>;
+                  if (nextResult.done) break;
 
-                  yield {
-                    type: 'usage',
-                    inputTokens: chunk.usage.inputTokens,
-                    outputTokens: chunk.usage.outputTokens,
-                    cachedTokens,
-                    iterationCostEur,
-                    totalCostEur: this.totalCostEur,
-                    totalInputTokens: this.totalTokensUsed.input,
-                    totalOutputTokens: this.totalTokensUsed.output,
-                    contextUsagePercent,
-                  };
+                  const chunk = nextResult.value;
+
+                  // Skip SDK internal events (don't count as real content)
+                  if (chunk.type === 'stream_connected') {
+                    continue;
+                  }
+                  chunksThisAttempt++;
+                  if (!hasContent && (chunk.type === 'text' || chunk.type === 'tool_start' || chunk.type === 'tool_use' || chunk.type === 'thinking_start')) {
+                    hasContent = true;
+                  }
+
+                  switch (chunk.type) {
+                    case 'thinking_start':
+                      yield { type: 'thinking', text: '', start: true };
+                      break;
+
+                    case 'thinking':
+                      yield { type: 'thinking', text: chunk.text };
+                      break;
+
+                    case 'thinking_end':
+                      yield { type: 'thinking', text: '', end: true };
+                      break;
+
+                    case 'text':
+                      fullText += chunk.text;
+                      yield { type: 'text_delta', text: chunk.text };
+                      break;
+
+                    case 'tool_start':
+                      // In planning mode, buffer tool events; otherwise yield immediately
+                      if (this.mode === 'plan') {
+                        bufferedToolEvents.push({
+                          type: 'tool_start' as const,
+                          id: chunk.id,
+                          tool: chunk.name,
+                        });
+                      } else {
+                        yield {
+                          type: 'tool_start',
+                          id: chunk.id,
+                          tool: chunk.name,
+                        };
+                      }
+                      break;
+
+                    case 'tool_use':
+                      toolCalls.push({
+                        id: chunk.id,
+                        name: chunk.name,
+                        input: chunk.input,
+                        ...((chunk as any).thoughtSignature ? { thoughtSignature: (chunk as any).thoughtSignature } : {}),
+                      });
+                      // In planning mode, buffer tool events; otherwise yield immediately
+                      if (this.mode === 'plan') {
+                        bufferedToolEvents.push({
+                          type: 'tool_input' as const,
+                          id: chunk.id,
+                          tool: chunk.name,
+                          input: chunk.input,
+                        });
+                      } else {
+                        yield {
+                          type: 'tool_input',
+                          id: chunk.id,
+                          tool: chunk.name,
+                          input: chunk.input,
+                        };
+                      }
+                      break;
+
+                    case 'done':
+                      fullText = chunk.fullText;
+                      toolCalls = chunk.toolCalls;
+                      stopReason = chunk.stopReason;
+                      this.totalTokensUsed.input += chunk.usage.inputTokens;
+                      this.totalTokensUsed.output += chunk.usage.outputTokens;
+
+                      // Track AI usage for budget monitoring
+                      {
+                        const cachedTokens = (chunk.usage.cacheReadTokens || 0);
+                        const iterationCostEur = calculateCostEur(
+                          this.model,
+                          chunk.usage.inputTokens,
+                          chunk.usage.outputTokens,
+                          cachedTokens
+                        );
+                        this.totalCostEur += iterationCostEur;
+
+                        metricsService.trackAIUsage({
+                          userId: this.userId || 'anonymous',
+                          model: this.model,
+                          inputTokens: chunk.usage.inputTokens,
+                          outputTokens: chunk.usage.outputTokens,
+                          cachedTokens,
+                          costEur: iterationCostEur,
+                        });
+
+                        // Emit usage event for real-time cost tracking
+                        const contextWindow = vercelGetContextWindowTokens(this.model);
+                        const estimatedContext = this.estimateTokenCount(this.conversationHistory, systemPrompt);
+                        const contextUsagePercent = Math.min(100, Math.round((estimatedContext / contextWindow) * 100));
+
+                        yield {
+                          type: 'usage',
+                          inputTokens: chunk.usage.inputTokens,
+                          outputTokens: chunk.usage.outputTokens,
+                          cachedTokens,
+                          iterationCostEur,
+                          totalCostEur: this.totalCostEur,
+                          totalInputTokens: this.totalTokensUsed.input,
+                          totalOutputTokens: this.totalTokensUsed.output,
+                          contextUsagePercent,
+                        };
+                      }
+                      break;
+                  }
+                } finally {
+                  if (timer) clearTimeout(timer);
                 }
-                break;
+              }
+
+              streamCompleted = true;
+            } catch (streamError: any) {
+              const errorMessage = String(streamError?.message || streamError || '');
+              const isStallTimeout =
+                errorMessage.includes(STALL_MARKER) ||
+                (abortController.signal.aborted && chunksThisAttempt === 0);
+              const canRetry =
+                isStallTimeout &&
+                chunksThisAttempt === 0 &&
+                retryAttempt <= MAX_STALL_RETRIES;
+
+              if (canRetry) {
+                const phase = hasContent ? 'stream' : 'first-token';
+                log.warn(`[AgentLoop] Model silence timeout (phase: ${phase}), retrying attempt ${retryAttempt}/${MAX_STALL_RETRIES}`);
+                yield {
+                  type: 'processing',
+                  message: 'Modello lento, riprovo subito...',
+                  retryAttempt,
+                };
+                continue;
+              }
+
+              throw streamError;
+            } finally {
+              if (!abortController.signal.aborted) {
+                abortController.abort('cleanup');
+              }
             }
           }
         } catch (error: any) {

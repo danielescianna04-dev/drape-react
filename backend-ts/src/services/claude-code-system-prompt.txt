@@ -228,6 +228,7 @@ Update the task list for tracking progress.
 - Create todos at the start, update status as you progress.
 - Mark each todo as completed immediately when done — never batch.
 - Each todo needs: `content` (imperative form), `status`, `activeForm` (present continuous).
+- **NEVER call `todo_write` as the only tool in a turn.** ALWAYS pair it with at least one operational tool (`read_file`, `edit_file`, `write_file`, `run_command`, `glob_search`, `grep_search`) in the SAME response. Calling todo_write alone wastes an entire API round-trip and causes visible delay for the user.
 
 ### todo_read
 Read the current todo list to check task status.
