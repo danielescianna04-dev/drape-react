@@ -917,6 +917,8 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
     let hasGenerateScript = false;
     let isNextJs = false;
     let isNuxt = false;
+    let isVite = false;
+    let isCRA = false;
     let packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun' = 'npm';
 
     if (hasPnpmLock) packageManager = 'pnpm';
@@ -931,6 +933,8 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         hasGenerateScript = !!pkg.scripts?.generate;
         isNextJs = !!(pkg.dependencies?.next || pkg.devDependencies?.next);
         isNuxt = !!(pkg.dependencies?.nuxt || pkg.devDependencies?.nuxt);
+        isVite = !isNextJs && !isNuxt && !!(pkg.devDependencies?.vite || pkg.dependencies?.vite);
+        isCRA = !!(pkg.dependencies?.['react-scripts'] || pkg.devDependencies?.['react-scripts']);
         const pmFromPackageJson = String(pkg.packageManager || '').toLowerCase();
         if (pmFromPackageJson.startsWith('pnpm@')) packageManager = 'pnpm';
         else if (pmFromPackageJson.startsWith('yarn@')) packageManager = 'yarn';
@@ -946,11 +950,14 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       bun: ['bun install --frozen-lockfile', 'bun install', 'npm install --legacy-peer-deps'],
     };
 
+    // CRA: set PUBLIC_URL so asset paths resolve under /p/{slug}/
+    const craBaseEnv = isCRA ? `PUBLIC_URL=/p/${cleanSlug}/ ` : '';
+
     const buildCommandsByPm: Record<'npm' | 'pnpm' | 'yarn' | 'bun', string[]> = {
-      npm: ['CI=false npm_config_update_notifier=false npm run build'],
-      pnpm: ['CI=false pnpm run build', 'CI=false npm_config_update_notifier=false npm run build'],
-      yarn: ['CI=false yarn build', 'CI=false npm_config_update_notifier=false npm run build'],
-      bun: ['CI=false bun run build', 'CI=false npm_config_update_notifier=false npm run build'],
+      npm: [`${craBaseEnv}CI=false npm_config_update_notifier=false npm run build`],
+      pnpm: [`${craBaseEnv}CI=false pnpm run build`, `${craBaseEnv}CI=false npm_config_update_notifier=false npm run build`],
+      yarn: [`${craBaseEnv}CI=false yarn build`, `${craBaseEnv}CI=false npm_config_update_notifier=false npm run build`],
+      bun: [`${craBaseEnv}CI=false bun run build`, `${craBaseEnv}CI=false npm_config_update_notifier=false npm run build`],
     };
 
     const generateCommandsByPm: Record<'npm' | 'pnpm' | 'yarn' | 'bun', string[]> = {
@@ -1121,6 +1128,43 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         }
       }
 
+      // For Vite: patch vite.config to set base: '/p/{slug}/' so all asset paths
+      // (including dynamic imports in JS) resolve correctly under the published subdirectory.
+      let viteConfigRestore: { path: string; original: string } | null = null;
+      if (isVite) {
+        for (const name of ['vite.config.ts', 'vite.config.mts', 'vite.config.mjs', 'vite.config.js']) {
+          const cfgPath = path.join(projectHostPath, name);
+          try {
+            const content = await fs.readFile(cfgPath, 'utf8');
+            if (/base\s*:/.test(content)) {
+              log.info(`[Publish] ${name} already has base config, skipping patch`);
+              break;
+            }
+            let patched = content;
+            // Try: defineConfig({ ... })
+            patched = content.replace(
+              /(defineConfig\s*\(\s*\{)/,
+              `$1\n  base: '/p/${cleanSlug}/',`
+            );
+            // Fallback: export default { ... }
+            if (patched === content) {
+              patched = content.replace(
+                /(export\s+default\s*\{)/,
+                `$1\n  base: '/p/${cleanSlug}/',`
+              );
+            }
+            if (patched !== content) {
+              viteConfigRestore = { path: cfgPath, original: content };
+              await fs.writeFile(cfgPath, patched, 'utf8');
+              log.info(`[Publish] Patched ${name} with base: '/p/${cleanSlug}/'`);
+            } else {
+              log.warn(`[Publish] Could not auto-patch ${name} with base path`);
+            }
+            break;
+          } catch { /* config file not found, try next */ }
+        }
+      }
+
       await fs.rm(path.join(projectHostPath, '.next'), { recursive: true, force: true }).catch(() => {});
       await fs.rm(path.join(projectHostPath, 'dist'), { recursive: true, force: true }).catch(() => {});
       await fs.rm(path.join(projectHostPath, 'build'), { recursive: true, force: true }).catch(() => {});
@@ -1128,6 +1172,12 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
       await fs.rm(path.join(projectHostPath, '.output'), { recursive: true, force: true }).catch(() => {});
 
       const buildResult = await runCommandCandidates(buildCommandsByPm[packageManager], 'build');
+
+      // Always restore temporary Vite config changes after build.
+      if (viteConfigRestore) {
+        await fs.writeFile(viteConfigRestore.path, viteConfigRestore.original, 'utf8').catch(() => {});
+        log.info('[Publish] Restored vite.config after build');
+      }
 
       // Always restore temporary Next.js config changes after build.
       if (nextConfigRestore) {
@@ -1224,7 +1274,7 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
         if (!entry.isFile()) continue;
 
         const ext = entry.name.split('.').pop()?.toLowerCase();
-        if (ext !== 'html' && ext !== 'css') continue;
+        if (ext !== 'html' && ext !== 'css' && ext !== 'js' && ext !== 'mjs') continue;
 
         let content = await fs.readFile(fullPath, 'utf8');
         let rewritten = content;
@@ -1241,11 +1291,23 @@ flyRouter.post('/project/:id/publish', asyncHandler(async (req: Request, res: Re
             /(url\s*\(\s*["']?)\/(?!\/|p\/|data:)/gi,
             `$1/p/${cleanSlug}/`
           );
-        } else {
+        } else if (ext === 'css') {
           // CSS: rewrite url() paths
           rewritten = rewritten.replace(
             /(url\s*\(\s*["']?)\/(?!\/|p\/|data:)/gi,
             `$1/p/${cleanSlug}/`
+          );
+        } else {
+          // JS/MJS: rewrite Vite-style asset paths in string literals
+          // e.g. "/assets/index-abc.css" → "/p/{slug}/assets/index-abc.css"
+          // Also handles /_next/, /@vite/, and other root-absolute asset refs
+          rewritten = rewritten.replace(
+            /(["'])\/assets\//g,
+            `$1/p/${cleanSlug}/assets/`
+          );
+          rewritten = rewritten.replace(
+            /(["'])\/_next\//g,
+            `$1/p/${cleanSlug}/_next/`
           );
         }
 
