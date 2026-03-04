@@ -62,11 +62,12 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     stop: stopAgent,
     isRunning: agentStreaming,
     events: agentEvents,
+    eventsVersion: agentEventsVersion,
     reset: resetAgent,
   } = useAgentStream('fast');
 
   // ── Shared chat engine ──────────────────────────────────────────────────
-  const engine = useChatEngine(agentEvents, agentStreaming);
+  const engine = useChatEngine(agentEvents, agentStreaming, agentEventsVersion);
 
   // ── Conversation history (persisted between agent runs) ─────────────────
   const [history, setHistory] = useState<AIMessage[]>([]);

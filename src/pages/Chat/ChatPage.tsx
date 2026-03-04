@@ -221,6 +221,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     stop: stopAgent,
     isRunning: agentStreaming,
     events: agentEvents,
+    eventsVersion: agentEventsVersion,
     currentTool: agentCurrentTool,
     plan: agentPlan,
     reset: resetAgent
@@ -329,7 +330,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const nextPlanLabel = user?.plan === 'go' ? 'Pro' : 'Go';
 
   // ── Engine: shared event processing ──────────────────────────────
-  const engine = useChatEngine(agentEvents, agentStreaming);
+  const engine = useChatEngine(agentEvents, agentStreaming, agentEventsVersion);
 
   // Bridge refs to sync engine.messages → tabStore terminal items
   const preThinkingIdRef = useRef<string | null>(null);
@@ -973,7 +974,15 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     const hasDanglingThinking = (targetTab?.terminalItems || []).some(item => item.isThinking);
     if (!hasDanglingThinking) return;
 
-    preThinkingIdRef.current = null;
+    // Don't remove items that are managed by the engine bridge (pre-thinking
+    // placeholders awaiting RAF text flush). Only clear truly orphaned items.
+    const bridgeManagedIds = new Set(engineIdMapRef.current.values());
+    // Also protect the current pre-thinking placeholder (RAF might not have flushed yet)
+    const activePreThinking = preThinkingIdRef.current;
+    if (activePreThinking) bridgeManagedIds.add(activePreThinking);
+
+    // Don't null preThinkingIdRef here — the bridge needs it to map engine messages.
+    // It gets cleared by the bridge itself when it processes the first message.
     useTabStore.setState((state) => ({
       tabs: state.tabs.map(t =>
         t.id === tabId
@@ -981,7 +990,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
             ...t,
             terminalItems: (t.terminalItems ?? [])
               .map(item => item.isThinking ? { ...item, isThinking: false } : item)
-              .filter(item => item.content !== ''),
+              .filter(item => item.content !== '' || bridgeManagedIds.has(item.id)),
           }
           : t
       ),
@@ -1161,12 +1170,17 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   }, [agentStreaming, currentTab?.id]);
 
   // ── Bridge: sync engine.messages → tabStore terminal items ───────
+  // Optimized: uses Map for O(1) prev lookups instead of O(n) find()
   useEffect(() => {
     if (!currentTab?.id) return;
     const prev = prevEngineMessagesRef.current;
     const curr = engine.messages;
     const idMap = engineIdMapRef.current;
     const currIds = new Set(curr.map(m => m.id));
+
+    // Build prev lookup Map once — O(n) instead of O(n²) from prev.find()
+    const prevMap = new Map<string, ChatEngineMessage>();
+    for (const m of prev) prevMap.set(m.id, m);
 
     // Remove items that the engine filtered out (e.g. empty thinking placeholders)
     for (const prevMsg of prev) {
@@ -1180,12 +1194,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
 
     for (const msg of curr) {
-      const prevMsg = prev.find(p => p.id === msg.id);
+      const prevMsg = prevMap.get(msg.id);
 
       if (!prevMsg && !idMap.has(msg.id)) {
         // New message — replace pre-thinking placeholder if it exists
-        // (React may batch thinking_start + text_delta, so first message can be 'text' not 'thinking')
-        // Mark in idMap FIRST to prevent duplicate adds on rapid re-renders
         if (preThinkingIdRef.current) {
           const preId = preThinkingIdRef.current;
           idMap.set(msg.id, preId);
@@ -1200,7 +1212,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         const terminalId = idMap.get(msg.id) || msg.id;
         updateTerminalItemById(currentTab.id, terminalId, formatEngineMessage(msg));
       }
-      // If !prevMsg && idMap.has(msg.id) → already processed, skip (prevents duplicates)
     }
 
     prevEngineMessagesRef.current = curr;

@@ -15,7 +15,7 @@ import {
   OAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { auth, db } from '../../config/firebase';
 import { useTerminalStore } from '../terminal/terminalStore';
@@ -68,6 +68,9 @@ let previousUserId: string | null = null;
 
 // Presence tracking cleanup function
 let presenceCleanup: (() => void) | null = null;
+
+// Device listener cleanup — watches Firestore for activeDevice changes
+let deviceListenerCleanup: (() => void) | null = null;
 
 /**
  * Start presence tracking for admin dashboard
@@ -209,9 +212,49 @@ const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
   }
 };
 
+/**
+ * Start listening for activeDevice changes on Firestore.
+ * If another device registers, this device gets kicked out.
+ */
+function startDeviceListener(userId: string) {
+  // Clean up any existing listener
+  if (deviceListenerCleanup) {
+    deviceListenerCleanup();
+    deviceListenerCleanup = null;
+  }
+
+  const userRef = doc(db, 'users', userId);
+
+  deviceListenerCleanup = onSnapshot(userRef, async (snapshot) => {
+    if (!snapshot.exists()) return;
+
+    const data = snapshot.data();
+    const activeDevice = data?.activeDevice;
+    if (!activeDevice?.deviceId) return;
+
+    const myDeviceId = await deviceService.getDeviceId();
+    if (activeDevice.deviceId === myDeviceId) return; // Still us, all good
+
+    // Another device took over — kick this device
+    const state = useAuthStore.getState();
+    if (!state.user || state.deviceCheckFailed) return; // Already kicked or logged out
+
+    useAuthStore.setState({ deviceCheckFailed: true });
+
+    Alert.alert(
+      i18n.t('auth:errors.sessionTerminated'),
+      i18n.t('auth:errors.multipleDevices'),
+      [{ text: 'OK', onPress: () => signOut(auth) }]
+    );
+  }, (error) => {
+    console.warn('[Auth] Device listener error:', error?.message || error);
+  });
+}
+
 // Flags to prevent onAuthStateChanged from processing during signUp / verification check
 let isSigningUp = false;
 let isCheckingVerification = false;
+let isLoggingIn = false; // Set during sign-in to skip device check in onAuthStateChanged
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -224,8 +267,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   initialize: () => {
 
     onAuthStateChanged(auth, async (firebaseUser) => {
-      // Skip processing during signUp / verification-check flow to avoid race condition
-      if (isSigningUp || isCheckingVerification) return;
+      // Skip processing during signUp / verification-check / login flow to avoid race condition
+      if (isSigningUp || isCheckingVerification || isLoggingIn) return;
 
       const newUserId = firebaseUser?.uid || null;
       const userChanged = previousUserId !== null && previousUserId !== newUserId;
@@ -263,7 +306,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (!isActive) {
           set({ deviceCheckFailed: true, isInitialized: true, isLoading: false });
 
-          // Show alert and sign out
+          // This device was kicked — sign out and go to login
           Alert.alert(
             i18n.t('auth:errors.sessionTerminated'),
             i18n.t('auth:errors.multipleDevices'),
@@ -303,11 +346,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // Start presence tracking for admin dashboard
         if (presenceCleanup) presenceCleanup(); // Clean up any existing
         presenceCleanup = startPresenceTracking(firebaseUser.uid);
+
+        // Start device listener to detect if another device takes over
+        startDeviceListener(firebaseUser.uid);
       } else {
         // Stop presence tracking if active
         if (presenceCleanup) {
           presenceCleanup();
           presenceCleanup = null;
+        }
+
+        // Stop device listener
+        if (deviceListenerCleanup) {
+          deviceListenerCleanup();
+          deviceListenerCleanup = null;
         }
 
         set({ user: null, isInitialized: true, isLoading: false });
@@ -338,16 +390,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signIn: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
+    isLoggingIn = true;
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
       // Block login if email not verified (email/password users only)
       if (!userCredential.user.emailVerified) {
+        isLoggingIn = false;
         await signOut(auth);
         set({ error: i18n.t('auth:emailVerification.notVerified'), isLoading: false });
         return;
       }
+
+      // Register this device as active BEFORE onAuthStateChanged can check
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      isLoggingIn = false;
 
       const drapeUser = mapFirebaseUser(userCredential.user);
 
@@ -361,10 +419,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       useProjectStore.getState().setUserId(userCredential.user.uid);
       useProjectStore.getState().loadUserProjects();
 
-      // Register this device as the active device
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
-
     } catch (error: any) {
+      isLoggingIn = false;
       console.error('❌ [AuthStore] Sign in error:', error.code);
 
       let errorMessage = i18n.t('auth:errors.errorDuringLogin');
@@ -706,10 +762,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signInWithGoogle: async (idToken: string) => {
     set({ isLoading: true, error: null });
+    isLoggingIn = true;
 
     try {
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, credential);
+
+      // Register this device as active BEFORE onAuthStateChanged can check
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      isLoggingIn = false;
+
       const drapeUser = mapFirebaseUser(userCredential.user);
 
       // Create/update user document in Firestore
@@ -751,10 +813,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useProjectStore.getState().loadUserProjects();
       }
 
-      // Register this device as the active device
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
-
     } catch (error: any) {
+      isLoggingIn = false;
       console.error('❌ [AuthStore] Google sign in error:', error);
       const errorMessage = i18n.t('auth:errors.errorDuringGoogleSignIn');
       set({ error: errorMessage, isLoading: false });
@@ -794,7 +854,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         rawNonce: nonce,
       });
 
+      isLoggingIn = true;
       const userCredential = await signInWithCredential(auth, credential);
+
+      // Register this device as active BEFORE onAuthStateChanged can check
+      await deviceService.registerAsActiveDevice(userCredential.user.uid);
+      isLoggingIn = false;
+
       const drapeUser = mapFirebaseUser(userCredential.user);
 
       // Update display name if provided by Apple
@@ -848,10 +914,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         useProjectStore.getState().loadUserProjects();
       }
 
-      // Register this device as the active device
-      await deviceService.registerAsActiveDevice(userCredential.user.uid);
-
     } catch (error: any) {
+      isLoggingIn = false;
       console.error('❌ [AuthStore] Apple sign in error:', error);
 
       let errorMessage = i18n.t('auth:errors.errorDuringAppleSignIn');

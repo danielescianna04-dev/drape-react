@@ -85,6 +85,7 @@ interface UseAgentStreamOptions {
 // Hook Return Type
 interface UseAgentStreamReturn {
   events: AgentToolEvent[];
+  eventsVersion: number;
   isRunning: boolean;
   currentTool: string | null;
   error: string | null;
@@ -127,8 +128,10 @@ export function useAgentStream(
 ): UseAgentStreamReturn {
   const { enabled = true, onEvent, onComplete, onError } = options;
 
-  // Local state
-  const [events, setEvents] = useState<AgentToolEvent[]>([]);
+  // Events stored in ref to avoid O(n) array copies on every SSE event.
+  // A lightweight counter triggers useChatEngine re-processing.
+  const eventsRef = useRef<AgentToolEvent[]>([]);
+  const [eventsVersion, setEventsVersion] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [currentTool, setCurrentTool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -193,9 +196,10 @@ export function useAgentStream(
     const event = parseEvent(eventType, data);
     if (!event) return;
 
-    // Update local state — always append (engine processes events by index,
-    // merging tool_input into tool_start prevented the engine from seeing input updates)
-    setEvents((prev) => [...prev, event]);
+    // Append to ref (O(1) push, no array copy) and bump version counter
+    // to trigger useChatEngine re-processing
+    eventsRef.current.push(event);
+    setEventsVersion(v => v + 1);
 
     // Update current tool
     if (event.type === 'tool_start' && event.tool) {
@@ -265,9 +269,6 @@ export function useAgentStream(
       setRunningState(false);
       getAgentStore().stopAgent();
     }
-
-    // Add to store
-    getAgentStore().addEvent(event);
 
     // Callback
     onEvent?.(event);
@@ -488,7 +489,8 @@ export function useAgentStream(
    */
   const start = useCallback((prompt: string, projectId: string, model?: string, conversationHistory?: any[], images?: any[], thinkingLevel?: string) => {
     // Reset state
-    setEvents([]);
+    eventsRef.current = [];
+    setEventsVersion(0);
     setError(null);
     setSummary(null);
     setAgentPlan(null);
@@ -520,7 +522,8 @@ export function useAgentStream(
     }
 
     // Reset state but keep the plan
-    setEvents([]);
+    eventsRef.current = [];
+    setEventsVersion(0);
     setError(null);
     setSummary(null);
     setCurrentTool(null);
@@ -633,7 +636,8 @@ export function useAgentStream(
    * Reset agent state
    */
   const reset = useCallback(() => {
-    setEvents([]);
+    eventsRef.current = [];
+    setEventsVersion(0);
     setRunningState(false);
     setCurrentTool(null);
     setError(null);
@@ -690,7 +694,8 @@ export function useAgentStream(
   }, [disconnect]);
 
   return {
-    events,
+    events: eventsRef.current,
+    eventsVersion,
     isRunning,
     currentTool,
     error,

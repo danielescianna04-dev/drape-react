@@ -189,12 +189,12 @@ class ProjectDetectorService {
       }
     }
 
-    // Static HTML: has index.html — check BEFORE generic Node.js fallback.
+    // Static HTML: has any .html files — check BEFORE generic Node.js fallback.
     // By this point all framework-specific checks have already run (Next.js, Vite,
     // Svelte, Astro, Remix, Nuxt, Angular, Solid, Expo). If none matched and
-    // index.html exists, it's a static site — even if package.json has deps
+    // .html files exist, it's a static site — even if package.json has deps
     // (e.g. express for a separate API, or vercel dev as dev script).
-    if (await this.hasAnyFile(projectDir, ['index.html'])) {
+    if (await this.hasHtmlFiles(projectDir)) {
       return {
         type: 'static',
         description: 'Static HTML project',
@@ -590,6 +590,16 @@ class ProjectDetectorService {
       if (await this.fileExists(dir, name)) return true;
     }
     return false;
+  }
+
+  /** Check if the root directory contains any .html files */
+  private async hasHtmlFiles(dir: string): Promise<boolean> {
+    try {
+      const entries = await fs.readdir(dir);
+      return entries.some(e => e.endsWith('.html'));
+    } catch {
+      return false;
+    }
   }
 
   private async readFileSafe(dir: string, name: string): Promise<string | null> {

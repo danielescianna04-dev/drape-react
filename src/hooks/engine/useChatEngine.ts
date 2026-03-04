@@ -10,7 +10,6 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { stripToolCallXml } from '../../shared/utils/stripToolCallXml';
 import type { AgentToolEvent } from '../api/useAgentStream';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -72,6 +71,7 @@ export interface UseChatEngineReturn {
 export function useChatEngine(
   agentEvents: AgentToolEvent[],
   agentStreaming: boolean,
+  eventsVersion?: number,
 ): UseChatEngineReturn {
   const [messages, setMessages] = useState<ChatEngineMessage[]>([]);
   const [activeTools, setActiveTools] = useState<string[]>([]);
@@ -123,6 +123,10 @@ export function useChatEngine(
 
   const gapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // RAF-based text_delta throttle: accumulate deltas in refs, flush once per frame
+  const textFlushRafRef = useRef<number | null>(null);
+  const pendingTextFlushRef = useRef(false);
+
   const normalizeTodos = useCallback((rawTodos: any): any[] => {
     let parsed: any = rawTodos;
     if (typeof parsed === 'string') {
@@ -162,6 +166,8 @@ export function useChatEngine(
     hadStreamedTextRef.current = false;
     lastStreamedMsgIdRef.current = null;
     if (gapTimerRef.current) { clearTimeout(gapTimerRef.current); gapTimerRef.current = null; }
+    if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
+    pendingTextFlushRef.current = false;
   }, []);
 
   // ─ Event processing ───────────────────────────────────────────────────────
@@ -201,12 +207,6 @@ export function useChatEngine(
             thinkingContent: '',
             timestamp: new Date(),
           }]);
-
-          // Break to force a React render so the user sees "Thinking..."
-          // before the next events (text_delta/tool_start) replace it.
-          // Remaining events will be processed in the next useEffect cycle.
-          lastProcessedIndexRef.current = i;
-          break;
         }
         continue;
       }
@@ -316,6 +316,30 @@ export function useChatEngine(
 
         const input = event.input || {};
         setActiveTools(prev => [...prev, event.tool!]);
+
+        // Flush any pending RAF text_delta before closing the text message —
+        // otherwise the last batch of text deltas would be lost when we clear streamingContentRef.
+        if (pendingTextFlushRef.current) {
+          if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
+          pendingTextFlushRef.current = false;
+          const flushContent = streamingContentRef.current;
+          const flushMsgId = currentMessageIdRef.current;
+          if (flushMsgId && flushContent) {
+            setMessages(prev => {
+              let updated = prev;
+              if (prev.some(m => m.id.startsWith('engine-thinking-gap-'))) {
+                updated = prev.filter(m => !m.id.startsWith('engine-thinking-gap-'));
+              }
+              const existingIdx = updated.findIndex(m => m.id === flushMsgId);
+              if (existingIdx !== -1) {
+                const copy = [...updated];
+                copy[existingIdx] = { ...copy[existingIdx], type: 'text', isThinking: false, content: flushContent };
+                return copy;
+              }
+              return [...updated, { id: flushMsgId, type: 'text' as const, content: flushContent, timestamp: new Date() }];
+            });
+          }
+        }
 
         // Close current text/thinking message so post-tool text creates a new message
         if (currentMessageIdRef.current) {
@@ -478,51 +502,64 @@ export function useChatEngine(
 
         hadStreamedTextRef.current = true;
 
-        // Remove visual gap-thinking placeholders before appending text chunks.
-        // They are UX-only and must not interfere with text accumulation.
-        setMessages(prev => prev.filter(m => !m.id.startsWith('engine-thinking-gap-')));
-
         // If a gap-thinking placeholder was created while text was still streaming,
-        // remove it and continue appending to the previous text message instead.
+        // reclaim the previous text message instead of creating a new one.
         if (currentMessageIdRef.current?.startsWith('engine-thinking-gap-') && lastStreamedMsgIdRef.current) {
-          const gapId = currentMessageIdRef.current;
-          setMessages(prev => prev.filter(m => m.id !== gapId));
           currentMessageIdRef.current = lastStreamedMsgIdRef.current;
           // streamingContentRef still has the old content — don't reset it
         }
 
-        // First delta after thinking → convert thinking item to text in-place
+        // First delta after thinking → prepare to convert thinking item to text
         const isFirstDelta = currentMessageIdRef.current?.startsWith('engine-thinking-') && streamingContentRef.current === '';
         if (isFirstDelta) {
           streamingContentRef.current = delta;
-          const thinkingId = currentMessageIdRef.current!;
-          const cleanContent = stripToolCallXml(streamingContentRef.current);
-          setMessages(prev => prev.map(m =>
-            m.id === thinkingId ? { ...m, type: 'text', isThinking: false, content: cleanContent } : m,
-          ));
-          // Keep same ID for further deltas
-          lastStreamedMsgIdRef.current = thinkingId;
+          lastStreamedMsgIdRef.current = currentMessageIdRef.current!;
         } else if (currentMessageIdRef.current) {
-          // Accumulate into existing text message
+          // Accumulate into existing text message ref (no React state yet)
           streamingContentRef.current += delta;
-          const msgId = currentMessageIdRef.current;
-          const cleanContent = stripToolCallXml(streamingContentRef.current);
-          setMessages(prev => prev.map(m =>
-            m.id === msgId ? { ...m, content: cleanContent } : m,
-          ));
-          lastStreamedMsgIdRef.current = msgId;
+          lastStreamedMsgIdRef.current = currentMessageIdRef.current;
         } else {
-          // No current message → create new text message
+          // No current message → prepare new text message
           streamingContentRef.current = delta;
           const newId = `engine-text-${Date.now()}`;
           currentMessageIdRef.current = newId;
           lastStreamedMsgIdRef.current = newId;
-          setMessages(prev => [...prev, {
-            id: newId,
-            type: 'text',
-            content: stripToolCallXml(delta),
-            timestamp: new Date(),
-          }]);
+        }
+
+        // Schedule a single RAF flush — only ONE setMessages per frame
+        if (!pendingTextFlushRef.current) {
+          pendingTextFlushRef.current = true;
+          textFlushRafRef.current = requestAnimationFrame(() => {
+            pendingTextFlushRef.current = false;
+            textFlushRafRef.current = null;
+            const content = streamingContentRef.current;
+            const msgId = currentMessageIdRef.current;
+            if (!msgId) return;
+
+            setMessages(prev => {
+              // Remove gap-thinking placeholders in the same update
+              let updated = prev;
+              if (prev.some(m => m.id.startsWith('engine-thinking-gap-'))) {
+                updated = prev.filter(m => !m.id.startsWith('engine-thinking-gap-'));
+              }
+
+              // Find existing message to update
+              const existingIdx = updated.findIndex(m => m.id === msgId);
+              if (existingIdx !== -1) {
+                // Update in-place (convert thinking→text or update content)
+                const copy = [...updated];
+                copy[existingIdx] = { ...copy[existingIdx], type: 'text', isThinking: false, content };
+                return copy;
+              }
+              // New message — append
+              return [...updated, {
+                id: msgId,
+                type: 'text' as const,
+                content,
+                timestamp: new Date(),
+              }];
+            });
+          });
         }
         continue;
       }
@@ -660,6 +697,25 @@ export function useChatEngine(
 
       // ── COMPLETE / DONE ─────────────────────────────────────────────────
       if (event.type === 'complete' || event.type === 'done') {
+        // Flush any pending RAF text_delta so the last text chunk isn't lost
+        if (pendingTextFlushRef.current) {
+          if (textFlushRafRef.current) { cancelAnimationFrame(textFlushRafRef.current); textFlushRafRef.current = null; }
+          pendingTextFlushRef.current = false;
+          const flushContent = streamingContentRef.current;
+          const flushMsgId = currentMessageIdRef.current || lastStreamedMsgIdRef.current;
+          if (flushMsgId && flushContent) {
+            setMessages(prev => {
+              const existingIdx = prev.findIndex(m => m.id === flushMsgId);
+              if (existingIdx !== -1) {
+                const copy = [...prev];
+                copy[existingIdx] = { ...copy[existingIdx], type: 'text', isThinking: false, content: flushContent };
+                return copy;
+              }
+              return [...prev, { id: flushMsgId, type: 'text' as const, content: flushContent, timestamp: new Date() }];
+            });
+          }
+        }
+
         setIsLoading(false);
         setActiveTools([]);
 
@@ -730,9 +786,10 @@ export function useChatEngine(
             timestamp: new Date(),
           }];
         });
-      }, 0);
+      }, 300);
     }
-  }, [agentEvents, agentStreaming, normalizeTodos]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventsVersion, agentStreaming, normalizeTodos]);
 
   // Keep isLoading in sync with agentStreaming
   useEffect(() => {
