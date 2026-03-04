@@ -189,12 +189,11 @@ class ProjectDetectorService {
       }
     }
 
-    // Generic Node.js (no framework detected, no monorepo subdirs found)
-    if (hasPackageJson) {
-      return this.nodejsProject(packageJson, packageManager);
-    }
-
-    // Static HTML: has index.html but no package manager metadata/framework deps
+    // Static HTML: has index.html — check BEFORE generic Node.js fallback.
+    // By this point all framework-specific checks have already run (Next.js, Vite,
+    // Svelte, Astro, Remix, Nuxt, Angular, Solid, Expo). If none matched and
+    // index.html exists, it's a static site — even if package.json has deps
+    // (e.g. express for a separate API, or vercel dev as dev script).
     if (await this.hasAnyFile(projectDir, ['index.html'])) {
       return {
         type: 'static',
@@ -202,6 +201,11 @@ class ProjectDetectorService {
         startCommand: 'npx serve -s . -l 3000',
         port: 3000,
       };
+    }
+
+    // Generic Node.js (no framework detected, no monorepo subdirs found)
+    if (hasPackageJson) {
+      return this.nodejsProject(packageJson, packageManager);
     }
 
     // Laravel (artisan + composer.json)

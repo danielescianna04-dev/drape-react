@@ -111,7 +111,7 @@ export const GitAccountsSection: React.FC<GitAccountsSectionProps> = ({
       </View>
 
       <GlassCard>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           {loading ? (
             <>
               {[0, 1].map(renderSkeletonCard)}
@@ -177,6 +177,9 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
   accountCard: {
     flexDirection: 'row',

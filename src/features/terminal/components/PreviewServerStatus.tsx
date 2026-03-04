@@ -25,6 +25,7 @@ const techIconMap: Record<string, string> = {
   flutter: 'apps-outline',
   laravel: 'diamond-outline',
   html: 'logo-html5',
+  static: 'logo-html5',
   'python-console': 'logo-python',
   'javascript-console': 'logo-nodejs',
   'c-lang': 'code-slash-outline',
@@ -49,6 +50,7 @@ const techColorMap: Record<string, string> = {
   flutter: '#02569B',
   laravel: '#FF2D20',
   html: '#E34F26',
+  static: '#E34F26',
   'python-console': '#3776AB',
   'javascript-console': '#F7DF1E',
   'c-lang': '#A8B9CC',
@@ -73,6 +75,7 @@ const techNameMap: Record<string, string> = {
   flutter: 'Flutter',
   laravel: 'Laravel',
   html: 'HTML/CSS/JS',
+  static: 'HTML/CSS/JS',
   'python-console': 'Python',
   'javascript-console': 'JavaScript',
   'c-lang': 'C',
@@ -81,7 +84,7 @@ const techNameMap: Record<string, string> = {
 };
 
 function getTechIcon(tech?: string): string {
-  return (tech && techIconMap[tech]) || 'terminal-outline';
+  return (tech && techIconMap[tech]) || 'logo-html5';
 }
 
 function getTechColor(tech?: string): string {

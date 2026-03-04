@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
 import { GlassCard } from './GlassCard';
 
@@ -26,7 +27,7 @@ export const ProfileSection: React.FC<ProfileSectionProps> = ({
   return (
     <TouchableOpacity activeOpacity={0.7} onPress={onEditPress}>
       <GlassCard style={styles.profileBlur} key={loading ? 'loading-profile' : 'loaded-profile'}>
-        <View style={styles.profileSection}>
+        <View style={[styles.profileSection, isLiquidGlassSupported && styles.profileSectionGlass]}>
           <View style={styles.profileAvatarContainer}>
             <LinearGradient
               colors={[AppColors.primary, AppColors.primaryShade]}
@@ -69,6 +70,9 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  profileSectionGlass: {
+    backgroundColor: 'transparent',
   },
   profileAvatarContainer: {
     shadowColor: AppColors.primary,

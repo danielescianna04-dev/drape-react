@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 import { LANGUAGES, LanguageCode } from '../../../i18n';
@@ -21,7 +22,7 @@ export const AppearanceSection: React.FC<AppearanceSectionProps> = ({
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('appearance.title')}</Text>
       <GlassCard key={loading ? 'loading-app' : 'loaded-app'}>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="language-outline"
             iconColor="#60A5FA"
@@ -73,6 +74,9 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
   languageSwitcher: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Constants from 'expo-constants';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 
@@ -16,7 +17,7 @@ export const InfoSection: React.FC<InfoSectionProps> = ({ loading, t, onOpenTerm
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('info.title')}</Text>
       <GlassCard key={loading ? 'loading-info' : 'loaded-info'}>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="information-circle-outline"
             iconColor="#94A3B8"
@@ -59,5 +60,8 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
 });

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 
@@ -21,7 +22,7 @@ export const AccountActionsSection: React.FC<AccountActionsSectionProps> = ({
   return (
     <View style={styles.section}>
       <GlassCard key={loading ? 'loading-danger' : 'loaded-danger'}>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="log-out-outline"
             iconColor="#F87171"
@@ -52,5 +53,8 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
 });

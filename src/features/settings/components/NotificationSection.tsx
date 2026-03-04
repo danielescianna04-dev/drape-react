@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Switch } from 'react-native';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 import { AppColors } from '../../../shared/theme/colors';
@@ -33,7 +34,7 @@ export const NotificationSection: React.FC<NotificationSectionProps> = ({
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('notifications.title')}</Text>
       <GlassCard key={loading ? 'loading-notif' : 'loaded-notif'}>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="notifications-outline"
             iconColor="#FBBF24"
@@ -125,5 +126,8 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
 });

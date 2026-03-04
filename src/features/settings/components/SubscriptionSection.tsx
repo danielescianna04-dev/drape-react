@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Linking } from 'react-native';
+import { isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassCard } from './GlassCard';
 import { SettingItem } from './SettingItem';
 
@@ -37,7 +38,7 @@ export const SubscriptionSection: React.FC<SubscriptionSectionProps> = ({
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t('subscription.title')}</Text>
       <GlassCard key={loading ? 'loading-sub' : 'loaded-sub'}>
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, isLiquidGlassSupported && styles.sectionCardGlass]}>
           <SettingItem
             icon="card-outline"
             iconColor="#60A5FA"
@@ -85,5 +86,8 @@ const styles = StyleSheet.create({
     padding: 4,
     backgroundColor: 'rgba(20,20,22,0.5)',
     borderRadius: 16,
+  },
+  sectionCardGlass: {
+    backgroundColor: 'transparent',
   },
 });
