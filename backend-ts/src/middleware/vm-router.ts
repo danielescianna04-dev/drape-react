@@ -262,29 +262,21 @@ function proxyRequest(
         try {
           const contentType = proxyRes.headers['content-type'] || '';
           const isHtml = contentType.includes('text/html');
+          const isPlainText = contentType.includes('text/plain') || contentType.includes('text/markdown');
 
-          // Only inject SPA routing fix for client-side rendered apps (Vite, CRA, etc.)
-          // Next.js uses SSR and handles routing server-side — no injection needed
-          // HTML/static sites have real multi-page navigation — no injection needed
-          const projectType = session?.projectInfo?.type;
-          const spaTypes = ['vite', 'react', 'vue', 'svelte', 'cra'];
-          const needsSpaFix = isHtml && proxyRes.statusCode === 200
-            && projectType != null && spaTypes.includes(projectType);
-
-          if (needsSpaFix) {
-            // Buffer HTML response to inject SPA routing fix
+          // Wrap plain text/markdown in a dark-themed HTML page for readability
+          if (isPlainText && proxyRes.statusCode === 200) {
             const chunks: Buffer[] = [];
             proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
             proxyRes.on('end', () => {
-              let html = Buffer.concat(chunks).toString('utf-8');
-              // Inject script before </head> to fix SPA router path
-              const spaScript = `<script>history.replaceState(null,'','/');</script>`;
-              html = html.replace('<head>', `<head>${spaScript}`);
-              // Send modified response (recalculate content-length)
+              const raw = Buffer.concat(chunks).toString('utf-8');
+              const escaped = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{background:#0d1117;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:24px;margin:0;line-height:1.6}pre{white-space:pre-wrap;word-wrap:break-word;font-size:14px;font-family:ui-monospace,SFMono-Regular,monospace}</style></head><body><pre>${escaped}</pre></body></html>`;
               const responseHeaders = { ...proxyRes.headers };
+              responseHeaders['content-type'] = 'text/html; charset=utf-8';
               responseHeaders['content-length'] = String(Buffer.byteLength(html));
-              delete responseHeaders['content-encoding']; // Remove if was gzipped
-              res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+              delete responseHeaders['content-encoding'];
+              res.writeHead(200, responseHeaders);
               res.end(html);
               resolve();
             });
@@ -292,8 +284,44 @@ function proxyRequest(
               log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
               reject(err);
             });
+          } else if (isHtml) {
+            // Only inject SPA routing fix for client-side rendered apps (Vite, CRA, etc.)
+            const projectType = session?.projectInfo?.type;
+            const spaTypes = ['vite', 'react', 'vue', 'svelte', 'cra'];
+            const needsSpaFix = proxyRes.statusCode === 200
+              && projectType != null && spaTypes.includes(projectType);
+
+            if (needsSpaFix) {
+              // Buffer HTML response to inject SPA routing fix
+              const chunks: Buffer[] = [];
+              proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+              proxyRes.on('end', () => {
+                let html = Buffer.concat(chunks).toString('utf-8');
+                const spaScript = `<script>history.replaceState(null,'','/');</script>`;
+                html = html.replace('<head>', `<head>${spaScript}`);
+                const responseHeaders = { ...proxyRes.headers };
+                responseHeaders['content-length'] = String(Buffer.byteLength(html));
+                delete responseHeaders['content-encoding'];
+                res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+                res.end(html);
+                resolve();
+              });
+              proxyRes.on('error', (err) => {
+                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
+                reject(err);
+              });
+            } else {
+              // Non-SPA HTML: stream directly
+              res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+              proxyRes.pipe(res);
+              proxyRes.on('end', () => resolve());
+              proxyRes.on('error', (err) => {
+                log.error(`[Preview Proxy] Response error for ${projectId}:`, err.message);
+                reject(err);
+              });
+            }
           } else {
-            // Non-HTML: stream directly
+            // Non-HTML/text: stream directly
             res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
             proxyRes.pipe(res);
             proxyRes.on('end', () => resolve());

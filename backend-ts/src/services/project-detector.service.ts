@@ -340,7 +340,7 @@ class ProjectDetectorService {
     return {
       type: 'unknown',
       description: 'Unknown project type',
-      startCommand: 'npx serve -s . -l 3000',
+      startCommand: 'npx serve . -l 3000',
       port: 3000,
     };
   }
