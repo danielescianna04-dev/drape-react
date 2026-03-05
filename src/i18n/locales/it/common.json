@@ -123,5 +123,15 @@
     "title": "Nessuna Connessione",
     "message": "Drape richiede una connessione internet per funzionare. Controlla la connessione e riprova.",
     "retry": "Riprova"
+  },
+  "ota": {
+    "checking": "Controllo aggiornamenti...",
+    "downloading": "Download aggiornamento...",
+    "ready": "Aggiornamento pronto! Riavvia per applicare.",
+    "restartNow": "Riavvia ora",
+    "later": "Più tardi",
+    "forceTitle": "Aggiornamento richiesto",
+    "forceMessage": "È disponibile una nuova versione di Drape.\nAggiorna l'app per continuare.",
+    "forceButton": "Aggiorna su App Store"
   }
 }

@@ -265,8 +265,11 @@ function proxyRequest(
 
           // Only inject SPA routing fix for client-side rendered apps (Vite, CRA, etc.)
           // Next.js uses SSR and handles routing server-side — no injection needed
+          // HTML/static sites have real multi-page navigation — no injection needed
           const projectType = session?.projectInfo?.type;
-          const needsSpaFix = isHtml && proxyRes.statusCode === 200 && projectType !== 'nextjs';
+          const spaTypes = ['vite', 'react', 'vue', 'svelte', 'cra'];
+          const needsSpaFix = isHtml && proxyRes.statusCode === 200
+            && projectType != null && spaTypes.includes(projectType);
 
           if (needsSpaFix) {
             // Buffer HTML response to inject SPA routing fix

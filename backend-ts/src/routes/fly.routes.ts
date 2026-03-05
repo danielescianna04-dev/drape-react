@@ -3,7 +3,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { asyncHandler } from '../middleware/async-handler';
 import { ValidationError } from '../middleware/error-handler';
-import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb, getLifetimeCreationCounts, incrementCreationCounter } from '../middleware/auth';
+import { verifyProjectOwnership, getUserPlan, getPlanProjectLimits, countUserProjects, getUserStorageMb } from '../middleware/auth';
 import { workspaceService } from '../services/workspace.service';
 import { sessionService } from '../services/session.service';
 import { fileService } from '../services/file.service';
@@ -31,16 +31,16 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Access denied: you do not own this project' });
   }
 
-  // Enforce clone + storage limits using monthly creation counter
+  // Enforce clone + storage limits using active project count
   if (uid !== 'anonymous' && repositoryUrl) {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const lifetimeCounts = await getLifetimeCreationCounts(uid);
-    if (lifetimeCounts.cloned >= limits.maxCloned) {
+    const activeCounts = await countUserProjects(uid);
+    if (activeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'CLONE_LIMIT_EXCEEDED',
-        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
+        limits: { maxCloned: limits.maxCloned, current: activeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
@@ -53,9 +53,6 @@ flyRouter.post('/clone', asyncHandler(async (req: Request, res: Response) => {
         message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
       });
     }
-
-    // Increment monthly counter for clones
-    await incrementCreationCounter(uid, 'cloned');
   }
 
   const result = await workspaceService.warmProject(id, uid, repositoryUrl, githubToken, branch);
@@ -149,27 +146,27 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
   const uid = req.userId || 'anonymous';
   if (!projectId) throw new ValidationError('projectId required');
 
-  // Enforce local file limits using monthly creation counter
+  // Enforce project limits using active project count
   if (uid !== 'anonymous') {
     const planId = await getUserPlan(uid);
     const limits = getPlanProjectLimits(planId);
-    const lifetimeCounts = await getLifetimeCreationCounts(uid);
+    const activeCounts = await countUserProjects(uid);
     const isLocal = source === 'local';
     const isClone = !!repositoryUrl;
 
-    if (isLocal && lifetimeCounts.local >= limits.maxLocal) {
+    if (isLocal && activeCounts.local >= limits.maxLocal) {
       return res.status(403).json({
         success: false,
         error: 'LOCAL_LIMIT_EXCEEDED',
-        limits: { maxLocal: limits.maxLocal, current: lifetimeCounts.local },
+        limits: { maxLocal: limits.maxLocal, current: activeCounts.local },
         message: `Hai raggiunto il limite di ${limits.maxLocal} progetti locali per il piano ${planId}`,
       });
     }
-    if (isClone && lifetimeCounts.cloned >= limits.maxCloned) {
+    if (isClone && activeCounts.cloned >= limits.maxCloned) {
       return res.status(403).json({
         success: false,
         error: 'CLONE_LIMIT_EXCEEDED',
-        limits: { maxCloned: limits.maxCloned, current: lifetimeCounts.cloned },
+        limits: { maxCloned: limits.maxCloned, current: activeCounts.cloned },
         message: `Hai raggiunto il limite di ${limits.maxCloned} repository clonati per il piano ${planId}`,
       });
     }
@@ -182,10 +179,6 @@ flyRouter.post('/project/create', asyncHandler(async (req, res) => {
         message: `Hai raggiunto il limite di ${limits.maxStorageMb}MB di storage per il piano ${planId}`,
       });
     }
-
-    // Increment monthly counter
-    const type = isClone ? 'cloned' : isLocal ? 'local' : 'created';
-    await incrementCreationCounter(uid, type);
   }
 
   await fileService.ensureProjectDir(projectId);

@@ -472,11 +472,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       return product?.localizedPrice || fallback;
     };
 
+    const getIntroPrice = (productId: string): string | undefined => {
+      const product = iapProducts.find(p => p.productId === productId);
+      if (!product?.introductoryPrice) return undefined;
+      // Format: introductoryPrice is the raw amount (e.g. "5.99")
+      const currency = product.currency === 'EUR' ? '€' : product.currency === 'USD' ? '$' : product.currency || '€';
+      return `${currency}${product.introductoryPrice}`;
+    };
+
     const plans = [
       {
         id: 'free',
         name: t('plans.free.name'),
         price: '€0',
+        introPrice: undefined as string | undefined,
         description: t('plans.free.description'),
         features: t('plans.free.features', { returnObjects: true }) as string[],
         color: '#94A3B8'
@@ -487,6 +496,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         price: billingCycle === 'monthly'
           ? getPrice(IAP_PRODUCT_IDS.GO_MONTHLY, '€22.99')
           : getPrice(IAP_PRODUCT_IDS.GO_YEARLY, '€229.99'),
+        introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.GO_MONTHLY) : undefined,
         description: t('plans.go.description'),
         features: t('plans.go.features', { returnObjects: true }) as string[],
         color: AppColors.primary,
@@ -498,6 +508,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         price: billingCycle === 'monthly'
           ? getPrice(IAP_PRODUCT_IDS.PRO_MONTHLY, '€39.99')
           : getPrice(IAP_PRODUCT_IDS.PRO_YEARLY, '€449.99'),
+        introPrice: billingCycle === 'monthly' ? getIntroPrice(IAP_PRODUCT_IDS.PRO_MONTHLY) : undefined,
         description: t('plans.pro.description'),
         features: t('plans.pro.features', { returnObjects: true }) as string[],
         color: '#F472B6'
@@ -586,16 +597,15 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             ref={planScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
+            pagingEnabled={false}
             snapToInterval={SNAP_INTERVAL}
-            snapToAlignment="start"
             decelerationRate="fast"
             contentContainerStyle={styles.plansScrollContent}
             scrollEventThrottle={16}
+            removeClippedSubviews={false}
             onLayout={() => {
-              if (initialPlanIndex > 0 && planScrollRef.current) {
-                setTimeout(() => {
-                  planScrollRef.current?.scrollTo({ x: initialPlanIndex * SNAP_INTERVAL, animated: false });
-                }, 50);
+              if (planScrollRef.current) {
+                planScrollRef.current.scrollTo({ x: initialPlanIndex * SNAP_INTERVAL, animated: false });
               }
             }}
             onScroll={(e) => {
@@ -607,10 +617,12 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             }}
           >
             {plans.map((plan, idx) => {
-              // "Piano Attuale" only if exact product matches (plan + billing cycle)
+              // "Piano Attuale" — exact product match if available, fallback to plan name
               const isExactCurrent = plan.id === 'free'
                 ? (currentPlan === 'free')
-                : currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle);
+                : currentProductId
+                  ? currentProductId === getProductId(plan.id as 'go' | 'pro', billingCycle)
+                  : currentPlan === plan.id;
 
               const cardContent = (
                 <>
@@ -638,9 +650,22 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                   </View>
 
                   <View style={styles.priceRow}>
-                    <Text style={styles.priceTextLarge}>{plan.price}</Text>
-                    <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                    {plan.introPrice ? (
+                      <>
+                        <Text style={styles.priceTextLarge}>{plan.introPrice}</Text>
+                        <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                        <Text style={styles.introOriginalPrice}>{plan.price}</Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.priceTextLarge}>{plan.price}</Text>
+                        <Text style={styles.pricePeriod}>{billingCycle === 'monthly' ? t('plans.perMonth') : t('plans.perYear')}</Text>
+                      </>
+                    )}
                   </View>
+                  {plan.introPrice && (
+                    <Text style={styles.introLabel}>{t('plans.firstMonth')}</Text>
+                  )}
 
                   <View style={styles.planDividerNew} />
 
@@ -676,20 +701,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               );
 
               return (
-              <TouchableOpacity
-                key={plan.id}
-                style={[
-                  styles.planCardNew,
-                  isLiquidGlassSupported && styles.planCardNewGlass,
-                  !isLiquidGlassSupported && visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
-                ]}
-                activeOpacity={0.9}
-                onPress={() => {
-                  if (!isExactCurrent && plan.id !== 'free' && !isPurchasing) {
-                    iapPurchase(plan.id as 'go' | 'pro', billingCycle);
-                  }
-                }}
-              >
+              <View key={plan.id} style={styles.planCardNewWrapper}>
                 {isLiquidGlassSupported ? (
                   <LiquidGlassView
                     style={[
@@ -697,15 +709,20 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                       visiblePlanIndex === idx && { borderColor: `${plan.color}40`, borderWidth: 1 }
                     ]}
                     interactive={true}
-                    effect="clear"
+                    effect="regular"
                     colorScheme="dark"
                   >
                     {cardContent}
                   </LiquidGlassView>
                 ) : (
-                  cardContent
+                  <View style={[
+                    styles.planCardNew,
+                    visiblePlanIndex === idx && { borderColor: `${plan.color}40`, backgroundColor: 'rgba(255,255,255,0.04)' }
+                  ]}>
+                    {cardContent}
+                  </View>
                 )}
-              </TouchableOpacity>
+              </View>
               );
             })}
           </ScrollView>
@@ -1278,11 +1295,10 @@ const styles = StyleSheet.create({
   },
   plansScrollContent: {
     paddingLeft: SIDE_INSET,
-    paddingRight: SIDE_INSET - GAP,
+    paddingRight: SIDE_INSET,
   },
   planCardNew: {
-    width: CARD_WIDTH,
-    marginRight: GAP,
+    flex: 1,
     backgroundColor: 'rgba(255,255,255,0.02)',
     borderRadius: 28,
     padding: 24,
@@ -1290,14 +1306,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
-  planCardNewGlass: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderColor: 'transparent',
-    padding: 0,
+  planCardNewWrapper: {
+    width: CARD_WIDTH,
+    marginRight: GAP,
   },
   planCardLiquid: {
-    flex: 1,
     borderRadius: 28,
     padding: 24,
     overflow: 'hidden',
@@ -1357,6 +1370,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.25)',
     fontWeight: '600',
+  },
+  introOriginalPrice: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.25)',
+    fontWeight: '600',
+    textDecorationLine: 'line-through',
+    marginLeft: 6,
+  },
+  introLabel: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '700',
+    marginBottom: 8,
   },
   planDividerNew: {
     height: 1,

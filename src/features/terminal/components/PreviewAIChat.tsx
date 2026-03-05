@@ -37,12 +37,7 @@ function cleanPreviewText(text: string): string {
   cleaned = cleaned.replace(/`[^`]{60,}`/g, '[code]');
   // Collapse multiple consecutive [code] markers
   cleaned = cleaned.replace(/(\[code\]\s*){2,}/g, '[code] ');
-  // Truncate if still too long
-  cleaned = cleaned.trim();
-  if (cleaned.length > 300) {
-    cleaned = cleaned.slice(0, 300) + '…';
-  }
-  return cleaned;
+  return cleaned.trim();
 }
 
 export interface AIMessage {

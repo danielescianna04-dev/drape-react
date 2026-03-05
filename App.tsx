@@ -45,7 +45,7 @@ import { useNavigationStore } from './src/core/navigation/navigationStore';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
-import * as Updates from 'expo-updates';
+import { useOTAUpdates } from './src/hooks/app/useOTAUpdates';
 
 // Helper to parse Git URL from any provider
 type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'unknown';
@@ -127,15 +127,15 @@ const checkRepoAccess = async (
 type Screen = 'splash' | 'auth' | 'onboarding' | 'home' | 'create' | 'terminal' | 'allProjects' | 'settings' | 'plans';
 
 
-function ForceUpdateScreen() {
+function ForceUpdateScreen({ storeUrl }: { storeUrl: string }) {
   return (
     <View style={fuStyles.container}>
       <StatusBar style="light" />
       <Text style={fuStyles.emoji}>🚀</Text>
-      <Text style={fuStyles.title}>Aggiornamento richiesto</Text>
-      <Text style={fuStyles.subtitle}>È disponibile una nuova versione di Drape.{'\n'}Aggiorna l'app per continuare.</Text>
-      <TouchableOpacity style={fuStyles.button} onPress={() => Linking.openURL('https://apps.apple.com/app/id6758354741')}>
-        <Text style={fuStyles.buttonText}>Aggiorna su App Store</Text>
+      <Text style={fuStyles.title}>{i18n.t('common:ota.forceTitle')}</Text>
+      <Text style={fuStyles.subtitle}>{i18n.t('common:ota.forceMessage')}</Text>
+      <TouchableOpacity style={fuStyles.button} onPress={() => Linking.openURL(storeUrl)}>
+        <Text style={fuStyles.buttonText}>{i18n.t('common:ota.forceButton')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -169,28 +169,14 @@ export default function App() {
   // Global file synchronization via WebSocket
   useFileSync();
 
+  // OTA updates + backend version check
+  const { forceNativeUpdate, storeUrl } = useOTAUpdates();
+
   // Track projects currently being cloned to prevent duplicates
   const cloningProjects = useRef<Set<string>>(new Set());
 
   // Track import in progress to prevent double calls
   const importInProgress = useRef(false);
-
-  // Check for OTA updates on app start
-  useEffect(() => {
-    if (!__DEV__) {
-      (async () => {
-        try {
-          const update = await Updates.checkForUpdateAsync();
-          if (update.isAvailable) {
-            await Updates.fetchUpdateAsync();
-            await Updates.reloadAsync();
-          }
-        } catch (e) {
-          // Silent fail — don't block app startup
-        }
-      })();
-    }
-  }, []);
 
   // Initialize auth listener on app start
   useEffect(() => {
@@ -1071,6 +1057,17 @@ export default function App() {
         <SafeAreaProvider style={{ backgroundColor: '#0D0816' }}>
           <View style={{ flex: 1, backgroundColor: '#0D0816' }} />
           <StatusBar style="light" />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // Force native update — blocks everything until user updates from App Store
+  if (forceNativeUpdate) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0a0a0a' }}>
+        <SafeAreaProvider style={{ backgroundColor: '#0a0a0a' }}>
+          <ForceUpdateScreen storeUrl={storeUrl} />
         </SafeAreaProvider>
       </GestureHandlerRootView>
     );

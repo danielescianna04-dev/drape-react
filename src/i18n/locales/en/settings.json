@@ -137,6 +137,7 @@
     "active": "ACTIVE",
     "perMonth": "/month",
     "perYear": "/year",
+    "firstMonth": "First month — then regular price",
     "restoring": "Restoring...",
     "restorePurchases": "Restore Purchases",
     "legalNotice": "Payment will be charged to your Apple ID account upon confirmation. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions in your Apple ID account Settings.",

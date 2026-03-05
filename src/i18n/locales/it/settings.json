@@ -137,6 +137,7 @@
     "active": "ATTIVO",
     "perMonth": "/mese",
     "perYear": "/anno",
+    "firstMonth": "Primo mese — poi prezzo pieno",
     "restoring": "Ripristino in corso...",
     "restorePurchases": "Ripristina Acquisti",
     "legalNotice": "Il pagamento verrà addebitato sul tuo account Apple ID alla conferma dell'acquisto. L'abbonamento si rinnova automaticamente a meno che non venga disattivato almeno 24 ore prima della scadenza del periodo corrente. Puoi gestire e cancellare i tuoi abbonamenti nelle Impostazioni del tuo account Apple ID.",

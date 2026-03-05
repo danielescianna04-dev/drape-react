@@ -8,12 +8,40 @@ import { firebaseService } from '../services/firebase.service';
 
 export const healthRouter = Router();
 
+/** Compare semver strings: returns -1 if a < b, 0 if equal, 1 if a > b */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+  }
+  return 0;
+}
+
+// GET /version-check — Check if app needs native update
+healthRouter.get('/version-check', (req, res) => {
+  const appVersion = req.query.appVersion as string;
+  const minVersion = '2.0.2';
+
+  const forceUpdate = appVersion ? compareVersions(appVersion, minVersion) < 0 : false;
+
+  res.json({
+    minVersion,
+    currentVersion: '2.0.2',
+    forceUpdate,
+    storeUrl: 'https://apps.apple.com/app/id6758354741',
+  });
+});
+
 // GET /health
 healthRouter.get('/health', asyncHandler(async (req, res) => {
   const health = await dockerService.healthCheck();
   res.json({
     status: health.healthy ? 'ok' : 'degraded',
-    version: '3.0.0',
+    version: '2.0.2',
     architecture: 'docker-ts',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),

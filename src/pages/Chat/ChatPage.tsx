@@ -1600,8 +1600,11 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     // Altrimenti usa top + translateY (comportamento normale)
     const translateY = baseTranslateY - heightDiff;
 
+    // Posiziona l'input bar a ~48% dell'altezza schermo (funziona su iPhone e iPad)
+    const baseTop = Math.round(SCREEN_HEIGHT * 0.48);
+
     return {
-      top: 410,
+      top: baseTop,
       left: computedLeft,
       right: computedRight,
       transform: [{ translateY }]
@@ -3965,6 +3968,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: -16,
+    // Limita l'altezza per non finire sotto l'input bar su iPad
+    maxHeight: SCREEN_HEIGHT * 0.4,
   },
   welcomeContainer: {
     alignItems: 'center',

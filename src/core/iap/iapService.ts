@@ -24,6 +24,10 @@ export type IAPProduct = {
   description: string;
   currency: string;
   price: string;
+  introductoryPrice?: string;
+  introductoryPricePaymentMode?: string;
+  introductoryPriceNumberOfPeriods?: number;
+  introductoryPriceSubscriptionPeriod?: string;
 };
 
 export type IAPError =
@@ -103,19 +107,70 @@ class IAPService {
     if (!iap) return [];
 
     try {
-      // v14 API: fetchProducts for subscription products
-      const products = await iap.fetchProducts({ skus: ALL_PRODUCT_IDS });
+      // v14 API: type 'subs' is required to get subscription fields (intro price, periods, etc.)
+      const products = await iap.fetchProducts({ skus: ALL_PRODUCT_IDS, type: 'subs' });
       console.log('[IAP] Fetched products:', products?.length);
       if (!products) return [];
 
-      this.products = products.map((s: any) => ({
-        productId: s.productId,
-        localizedPrice: s.localizedPrice || s.price || '',
-        title: s.title || '',
-        description: s.description || '',
-        currency: s.currency || '',
-        price: s.price || '',
-      }));
+      this.products = products.map((s: any) => {
+        // Log ALL fields for debugging
+        console.log(`[IAP] RAW PRODUCT ${s.productId || s.id}:`, JSON.stringify(s, null, 2).substring(0, 2000));
+
+        let introAmount: string | undefined;
+
+        // 1. Cross-platform subscriptionOffers (v14 preferred)
+        if (!introAmount && s.subscriptionOffers) {
+          const offers = Array.isArray(s.subscriptionOffers) ? s.subscriptionOffers : [];
+          const introOffer = offers.find((o: any) => o.type === 'introductory' || o.type === 'Introductory');
+          if (introOffer?.price != null && introOffer.price > 0) {
+            introAmount = String(introOffer.price);
+          }
+        }
+
+        // 2. subscriptionInfoIOS.introductoryOffer
+        if (!introAmount && s.subscriptionInfoIOS?.introductoryOffer) {
+          const offer = s.subscriptionInfoIOS.introductoryOffer;
+          if (offer.price != null && offer.price > 0) {
+            introAmount = String(offer.price);
+          }
+        }
+
+        // 3. Direct iOS fields
+        if (!introAmount && s.introductoryPriceAsAmountIOS != null && Number(s.introductoryPriceAsAmountIOS) > 0) {
+          introAmount = String(s.introductoryPriceAsAmountIOS);
+        } else if (!introAmount && s.introductoryPriceIOS) {
+          const match = s.introductoryPriceIOS.match(/[\d,.]+/);
+          introAmount = match ? match[0].replace(',', '.') : undefined;
+        }
+
+        // 4. discountsIOS (already parsed by bridge)
+        if (!introAmount && s.discountsIOS) {
+          const discounts = Array.isArray(s.discountsIOS) ? s.discountsIOS : (() => { try { return JSON.parse(s.discountsIOS); } catch { return null; } })();
+          if (discounts?.[0]?.price != null) {
+            introAmount = String(discounts[0].price);
+          }
+        }
+
+        // 5. Legacy field names
+        if (!introAmount && s.introductoryPrice) {
+          introAmount = String(s.introductoryPrice);
+        }
+
+        console.log(`[IAP] ${s.productId || s.id}: introAmount=${introAmount}`);
+
+        return {
+          productId: s.productId || s.id,
+          localizedPrice: s.localizedPrice || s.displayPrice || s.price || '',
+          title: s.title || s.displayName || '',
+          description: s.description || '',
+          currency: s.currency || '',
+          price: s.price != null ? String(s.price) : (s.displayPrice || ''),
+          introductoryPrice: introAmount,
+          introductoryPricePaymentMode: s.introductoryPricePaymentModeIOS || undefined,
+          introductoryPriceNumberOfPeriods: s.introductoryPriceNumberOfPeriodsIOS ? Number(s.introductoryPriceNumberOfPeriodsIOS) : undefined,
+          introductoryPriceSubscriptionPeriod: s.introductoryPriceSubscriptionPeriodIOS || undefined,
+        };
+      });
       return this.products;
     } catch (err) {
       console.error('[IAP] Failed to fetch subscriptions:', err);

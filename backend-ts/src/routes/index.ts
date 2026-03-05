@@ -92,7 +92,7 @@ export function mountRoutes(app: Express): void {
   app.get('/', (req, res) => {
     res.json({
       name: 'Drape AI Backend',
-      version: '3.0.0',
+      version: '2.0.2',
       architecture: 'docker-ts',
       endpoints: {
         fly: '/fly/*',

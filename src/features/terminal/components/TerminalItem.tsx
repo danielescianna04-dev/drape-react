@@ -24,8 +24,49 @@ const THINKING_PHRASES = [
   'Considering options',
   'Reviewing context',
   'Processing',
+  'I\'m cooking',
+  'Crunching the logic',
+  'Connecting the dots',
+  'Diving deep',
+  'Almost there',
+  'Brainstorming',
+  'Mapping it out',
+  'Piecing it together',
+  'On it',
+  'Let me think',
+  'Hmm interesting',
+  'One sec',
+  'Hold on',
+  'Getting creative',
+  'Figuring this out',
+  'Running the numbers',
+  'Doing the math',
+  'Cooking something up',
+  'Brewing ideas',
+  'Untangling this',
+  'In the zone',
+  'Bear with me',
+  'Working my magic',
+  'Deep in thought',
+  'Putting it all together',
+  'Exploring possibilities',
+  'Weighing the options',
+  'Crafting a solution',
+  'Let me cook',
+  'Give me a moment',
+  'Chewing on this',
+  'Building the puzzle',
+  'Following the thread',
+  'Mulling it over',
+  'Sketching it out',
+  'Reading between the lines',
+  'Zooming in',
+  'Stepping back to think',
+  'Loading brainpower',
+  'Spinning up ideas',
+  'This is a good one',
 ];
-let _globalPhraseIndex = 0;
+let _globalPhraseIndex = Math.floor(Math.random() * THINKING_PHRASES.length);
 
 interface Props {
   item: TerminalItemType;
@@ -208,7 +249,7 @@ const TerminalItemInner = ({ item, isNextItemOutput, outputItem, isLoading = fal
   }, [showThinking, item?.content, item?.timestamp]);
 
   const basePhraseIndex = Math.max(0, THINKING_PHRASES.indexOf(currentPhrase));
-  const phraseOffset = Math.floor(thinkingElapsedSec / 4) % THINKING_PHRASES.length;
+  const phraseOffset = Math.floor(thinkingElapsedSec / 2) % THINKING_PHRASES.length;
   const rotatingPhrase = THINKING_PHRASES[(basePhraseIndex + phraseOffset) % THINKING_PHRASES.length];
   const thinkingDisplayText = item?.thinkingContent
     ? item.thinkingContent

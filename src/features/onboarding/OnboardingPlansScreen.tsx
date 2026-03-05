@@ -24,7 +24,11 @@ interface Props {
 
 export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser = false, onSelectPlan }) => {
   const { products: iapProducts } = useIAPStore();
-  const goMonthlyPrice = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY)?.localizedPrice || '€22.99';
+  const goProduct = iapProducts.find(p => p.productId === IAP_PRODUCT_IDS.GO_MONTHLY);
+  const goMonthlyPrice = goProduct?.localizedPrice || '€22.99';
+  const goIntroPrice = goProduct?.introductoryPrice
+    ? `${goProduct.currency === 'EUR' ? '€' : goProduct.currency === 'USD' ? '$' : goProduct.currency || '€'}${goProduct.introductoryPrice}`
+    : undefined;
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -108,10 +112,16 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Go</Text>
               <View style={styles.planPriceRow}>
-                <Text style={styles.planPrice}>{goMonthlyPrice}</Text>
+                <Text style={styles.planPrice}>{goIntroPrice || goMonthlyPrice}</Text>
                 <Text style={styles.planPricePeriod}>/mese</Text>
+                {goIntroPrice && (
+                  <Text style={styles.planPriceOriginal}>{goMonthlyPrice}</Text>
+                )}
               </View>
             </View>
+            {goIntroPrice && (
+              <Text style={styles.introOfferText}>Primo mese — poi {goMonthlyPrice}/mese</Text>
+            )}
 
             <View style={styles.planFeatures}>
               {[
@@ -314,6 +324,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255, 255, 255, 0.4)',
     marginLeft: 2,
+  },
+  planPriceOriginal: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.25)',
+    fontWeight: '600',
+    textDecorationLine: 'line-through',
+    marginLeft: 8,
+  },
+  introOfferText: {
+    fontSize: 12,
+    color: '#10B981',
+    fontWeight: '700',
+    marginBottom: 8,
   },
 
   // Features

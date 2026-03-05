@@ -15,7 +15,7 @@ import { workspaceService } from './services/workspace.service';
 import type { Duplex } from 'stream';
 
 async function main() {
-  log.info('Starting Drape Backend v3.0.0 (TypeScript + Docker Native)');
+  log.info('Starting Drape Backend v2.0.2 (TypeScript + Docker Native)');
 
   // Initialize Firebase (auth + metadata only)
   firebaseService.initialize();
@@ -77,7 +77,7 @@ async function main() {
     ws.send(JSON.stringify({
       type: 'connected',
       message: 'Connected to Drape Backend',
-      version: '3.0.0',
+      version: '2.0.2',
       architecture: 'docker-ts',
     }));
 

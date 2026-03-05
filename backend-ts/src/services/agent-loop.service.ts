@@ -249,6 +249,7 @@ export class AgentLoop {
       let lastToolSignature = ''; // Track tool name + key input to detect actual loops
 
       let noToolWhileTodosPendingCount = 0;
+      let noToolNudgeCount = 0; // Nudge model to use tools when it only narrates
 
       while (shouldContinue && this.iterationCount < this.maxIterations) {
         this.iterationCount++;
@@ -949,6 +950,22 @@ export class AgentLoop {
               content: [{
                 type: 'text',
                 text: 'Continue now by executing the next pending todo with tools. Do not summarize yet.',
+              }],
+            });
+            shouldContinue = true;
+            continue;
+          }
+
+          // Nudge: model described actions but didn't use tools (common with Gemini Flash).
+          // On iteration 1 only, push a continuation message to force tool use.
+          if (this.iterationCount === 1 && noToolNudgeCount < 1 && fullText.length > 30) {
+            noToolNudgeCount++;
+            log.warn('[AgentLoop] Model returned text without tool calls on first iteration. Nudging to use tools.');
+            this.pushMessage({
+              role: 'user',
+              content: [{
+                type: 'text',
+                text: 'Do not describe what you will do. Execute the changes NOW using the available tools (read_file, edit_file, write_file, etc). Start immediately.',
               }],
             });
             shouldContinue = true;

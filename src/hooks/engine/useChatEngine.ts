@@ -746,11 +746,9 @@ export function useChatEngine(
           ));
         }
 
-        // Safety: remove empty thinking items, close others
-        setMessages(prev => prev
-          .filter(m => !(m.isThinking && !m.content?.trim() && !m.thinkingContent?.trim()))
-          .map(m => m.isThinking ? { ...m, isThinking: false } : m),
-        );
+        // Safety: remove ALL thinking items on completion (heartbeat/gap placeholders
+        // like "Preparazione risposta... (3s)" should not persist as visible messages)
+        setMessages(prev => prev.filter(m => m.type !== 'thinking'));
 
         // NOTE: Don't clear currentTodos here — let them persist until engine.reset()
         // so the TODO card stays visible after agent completion.
