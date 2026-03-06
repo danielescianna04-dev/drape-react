@@ -25,14 +25,12 @@ echo "📥 Installing production deps on server..."
 ssh "$REMOTE" "cd ${REMOTE_DIR} && npm ci --omit=dev"
 
 echo "🔄 Restarting backend..."
-ssh "$REMOTE" "pkill -f '[n]ode dist/index.js' || true"
-sleep 2
-ssh "$REMOTE" "bash -lc 'cd ${REMOTE_DIR}; nohup node dist/index.js > /var/log/drape-backend.log 2>&1 < /dev/null & disown'"
+ssh "$REMOTE" "systemctl restart drape-backend"
 sleep 4
 
-if ! ssh "$REMOTE" "pgrep -af '[n]ode dist/index.js' >/dev/null"; then
+if ! ssh "$REMOTE" "systemctl is-active --quiet drape-backend"; then
   echo "❌ Backend process did not start. Check logs:"
-  ssh "$REMOTE" "tail -40 /var/log/drape-backend.log"
+  ssh "$REMOTE" "systemctl status drape-backend --no-pager -n 40 || tail -40 /var/log/drape-backend.log"
   exit 1
 fi
 

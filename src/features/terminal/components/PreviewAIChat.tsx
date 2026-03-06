@@ -31,12 +31,18 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 function cleanPreviewText(text: string): string {
   if (!text) return text;
   let cleaned = stripToolCallXml(text);
+  // Remove Gemini-style pseudo tool narration that sometimes leaks as plain text
+  cleaned = cleaned.replace(/^\s*\[Uses [^\]]+\]\s*$/gim, '');
+  cleaned = cleaned.replace(/^\s*Summary:\s*/gim, '');
+  // Remove leaked tool invocation blocks rendered as plain text instead of structured tool events
+  cleaned = cleaned.replace(/^\s*(?:todo_write|signal_completion|edit_file|write_file|multi_edit_file|run_command)\(\{[\s\S]*?\n\}\)\s*$/gim, '');
   // Replace fenced code blocks (```...```) with a short label
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '[code]');
   // Replace inline backtick spans that look like full lines of code (>60 chars)
   cleaned = cleaned.replace(/`[^`]{60,}`/g, '[code]');
   // Collapse multiple consecutive [code] markers
   cleaned = cleaned.replace(/(\[code\]\s*){2,}/g, '[code] ');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
   return cleaned.trim();
 }
 

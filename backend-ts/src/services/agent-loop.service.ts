@@ -247,9 +247,10 @@ export class AgentLoop {
       let shouldContinue = true;
       let consecutiveSameToolCount = 0;
       let lastToolSignature = ''; // Track tool name + key input to detect actual loops
-
-      let noToolWhileTodosPendingCount = 0;
-      let noToolNudgeCount = 0; // Nudge model to use tools when it only narrates
+      const isPreviewElementExecutionPrompt =
+        prompt.includes('L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.')
+        || prompt.includes('L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.');
+      let previewExecutionNudgeCount = 0;
 
       while (shouldContinue && this.iterationCount < this.maxIterations) {
         this.iterationCount++;
@@ -940,39 +941,29 @@ export class AgentLoop {
           // Continue loop to get next agent response
           shouldContinue = true;
         } else {
-          // No tool calls. If there are still pending todos, nudge the model to continue executing.
-          const hasPendingTodos = this.latestTodos.some((t: any) => t?.status !== 'completed');
-          if (hasPendingTodos && noToolWhileTodosPendingCount < 2) {
-            noToolWhileTodosPendingCount++;
-            log.warn('[AgentLoop] Model returned no tools while todos are still pending. Nudging continuation.');
+          if (
+            isPreviewElementExecutionPrompt &&
+            this.iterationCount === 1 &&
+            previewExecutionNudgeCount < 1 &&
+            fullText.trim().length > 0
+          ) {
+            previewExecutionNudgeCount++;
+            log.warn('[AgentLoop] Preview selected-element request returned text without tools. Nudging execution.');
             this.pushMessage({
               role: 'user',
               content: [{
                 type: 'text',
-                text: 'Continue now by executing the next pending todo with tools. Do not summarize yet.',
+                text: 'Apply the requested change now using tools. Read the relevant file, edit it, and make the selected preview element match the user request. Do not describe the plan again.',
               }],
             });
             shouldContinue = true;
             continue;
           }
 
-          // Nudge: model described actions but didn't use tools (common with Gemini Flash).
-          // On iteration 1 only, push a continuation message to force tool use.
-          if (this.iterationCount === 1 && noToolNudgeCount < 1 && fullText.length > 30) {
-            noToolNudgeCount++;
-            log.warn('[AgentLoop] Model returned text without tool calls on first iteration. Nudging to use tools.');
-            this.pushMessage({
-              role: 'user',
-              content: [{
-                type: 'text',
-                text: 'Do not describe what you will do. Execute the changes NOW using the available tools (read_file, edit_file, write_file, etc). Start immediately.',
-              }],
-            });
-            shouldContinue = true;
-            continue;
-          }
-
-          // No tool calls - agent is done
+          // No tool calls - agent is done.
+          // Do not force a follow-up pass just because some todos remain pending:
+          // the model may have intentionally stopped after giving a plan or partial result,
+          // and nudging here can turn a completed response into a stall timeout.
           shouldContinue = false;
 
           // Generate summary if model didn't provide final text

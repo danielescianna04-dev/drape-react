@@ -71,6 +71,101 @@ let presenceCleanup: (() => void) | null = null;
 
 // Device listener cleanup — watches Firestore for activeDevice changes
 let deviceListenerCleanup: (() => void) | null = null;
+let deviceGuardCleanup: (() => void) | null = null;
+
+function stopPresenceHeartbeatOnly() {
+  if (presenceCleanup) {
+    presenceCleanup();
+    presenceCleanup = null;
+  }
+}
+
+function stopDeviceListener() {
+  if (deviceListenerCleanup) {
+    deviceListenerCleanup();
+    deviceListenerCleanup = null;
+  }
+}
+
+function stopDeviceGuard() {
+  if (deviceGuardCleanup) {
+    deviceGuardCleanup();
+    deviceGuardCleanup = null;
+  }
+}
+
+function startDeviceGuard(userId: string) {
+  stopDeviceGuard();
+
+  let isChecking = false;
+  const runCheck = async () => {
+    if (isChecking) return;
+    if (AppState.currentState !== 'active') return;
+
+    isChecking = true;
+    try {
+      const state = useAuthStore.getState();
+      if (!state.user || state.deviceCheckFailed) return;
+
+      const isActive = await deviceService.isActiveDevice(userId);
+      if (!isActive) {
+        await forceLogoutFromAnotherDevice();
+      }
+    } catch (error: any) {
+      console.warn('[Auth] Device guard check failed:', error?.message || error);
+    } finally {
+      isChecking = false;
+    }
+  };
+
+  const interval = setInterval(() => {
+    void runCheck();
+  }, 5000);
+
+  const appStateSubscription = AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      void runCheck();
+    }
+  });
+
+  void runCheck();
+
+  deviceGuardCleanup = () => {
+    clearInterval(interval);
+    appStateSubscription.remove();
+  };
+}
+
+function startAuthenticatedRealtimeServices(userId: string) {
+  stopPresenceHeartbeatOnly();
+  stopDeviceGuard();
+  presenceCleanup = startPresenceTracking(userId);
+  startDeviceListener(userId);
+  startDeviceGuard(userId);
+}
+
+async function forceLogoutFromAnotherDevice() {
+  const state = useAuthStore.getState();
+  if (state.deviceCheckFailed) return;
+
+  useAuthStore.setState({ deviceCheckFailed: true, isLoading: false });
+
+  // Stop local realtime hooks immediately, but don't delete shared presence doc:
+  // another device may now be the active session for the same user.
+  stopPresenceHeartbeatOnly();
+  stopDeviceListener();
+  stopDeviceGuard();
+
+  await signOut(auth).catch((error) => {
+    console.warn('[Auth] Forced sign-out failed:', error?.message || error);
+  });
+
+  Alert.alert(
+    i18n.t('auth:errors.sessionTerminated'),
+    i18n.t('auth:errors.multipleDevices'),
+    [{ text: 'OK' }]
+  );
+}
 
 /**
  * Start presence tracking for admin dashboard
@@ -218,12 +313,11 @@ const loadUserPlanFromFirestore = async (uid: string): Promise<PlanId> => {
  */
 function startDeviceListener(userId: string) {
   // Clean up any existing listener
-  if (deviceListenerCleanup) {
-    deviceListenerCleanup();
-    deviceListenerCleanup = null;
-  }
+  stopDeviceListener();
 
   const userRef = doc(db, 'users', userId);
+
+  let initialSnapshotHandled = false;
 
   deviceListenerCleanup = onSnapshot(userRef, async (snapshot) => {
     if (!snapshot.exists()) return;
@@ -233,19 +327,18 @@ function startDeviceListener(userId: string) {
     if (!activeDevice?.deviceId) return;
 
     const myDeviceId = await deviceService.getDeviceId();
+    if (!initialSnapshotHandled) {
+      initialSnapshotHandled = true;
+      if (activeDevice.deviceId === myDeviceId) return;
+    }
+
     if (activeDevice.deviceId === myDeviceId) return; // Still us, all good
 
     // Another device took over — kick this device
     const state = useAuthStore.getState();
     if (!state.user || state.deviceCheckFailed) return; // Already kicked or logged out
 
-    useAuthStore.setState({ deviceCheckFailed: true });
-
-    Alert.alert(
-      i18n.t('auth:errors.sessionTerminated'),
-      i18n.t('auth:errors.multipleDevices'),
-      [{ text: 'OK', onPress: () => signOut(auth) }]
-    );
+    await forceLogoutFromAnotherDevice();
   }, (error) => {
     console.warn('[Auth] Device listener error:', error?.message || error);
   });
@@ -306,12 +399,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (!isActive) {
           set({ deviceCheckFailed: true, isInitialized: true, isLoading: false });
 
-          // This device was kicked — sign out and go to login
-          Alert.alert(
-            i18n.t('auth:errors.sessionTerminated'),
-            i18n.t('auth:errors.multipleDevices'),
-            [{ text: 'OK', onPress: () => signOut(auth) }]
-          );
+          await forceLogoutFromAnotherDevice();
           return;
         }
 
@@ -344,23 +432,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         }).catch(err => console.warn('[Auth] IAP init failed:', err));
 
         // Start presence tracking for admin dashboard
-        if (presenceCleanup) presenceCleanup(); // Clean up any existing
-        presenceCleanup = startPresenceTracking(firebaseUser.uid);
-
-        // Start device listener to detect if another device takes over
-        startDeviceListener(firebaseUser.uid);
+        startAuthenticatedRealtimeServices(firebaseUser.uid);
       } else {
         // Stop presence tracking if active
-        if (presenceCleanup) {
-          presenceCleanup();
-          presenceCleanup = null;
-        }
+        stopPresenceHeartbeatOnly();
 
         // Stop device listener
-        if (deviceListenerCleanup) {
-          deviceListenerCleanup();
-          deviceListenerCleanup = null;
-        }
+        stopDeviceListener();
+        stopDeviceGuard();
 
         set({ user: null, isInitialized: true, isLoading: false });
         useTerminalStore.setState({ userId: null });
@@ -418,6 +497,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Update projectStore and reload user's projects
       useProjectStore.getState().setUserId(userCredential.user.uid);
       useProjectStore.getState().loadUserProjects();
+      startAuthenticatedRealtimeServices(userCredential.user.uid);
 
     } catch (error: any) {
       isLoggingIn = false;
@@ -544,6 +624,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (user) {
         stopPresenceTracking(user.uid);
       }
+      stopDeviceListener();
+      stopDeviceGuard();
 
       // Clear active device (only if not kicked by another device)
       if (user && !get().deviceCheckFailed) {
@@ -658,6 +740,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       // 4. Stop presence tracking
       if (presenceCleanup) { presenceCleanup(); presenceCleanup = null; }
+      stopDeviceListener();
+      stopDeviceGuard();
 
       // 5. Delete Firebase Auth user
       await deleteUser(firebaseUser);
@@ -812,6 +896,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         useProjectStore.getState().loadUserProjects();
       }
+      startAuthenticatedRealtimeServices(userCredential.user.uid);
 
     } catch (error: any) {
       isLoggingIn = false;
@@ -913,6 +998,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } else {
         useProjectStore.getState().loadUserProjects();
       }
+      startAuthenticatedRealtimeServices(userCredential.user.uid);
 
     } catch (error: any) {
       isLoggingIn = false;
@@ -939,12 +1025,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       if (!isActive) {
         set({ deviceCheckFailed: true });
-
-        Alert.alert(
-          i18n.t('auth:errors.sessionTerminated'),
-          i18n.t('auth:errors.multipleDevices'),
-          [{ text: 'OK', onPress: () => get().logout() }]
-        );
+        await forceLogoutFromAnotherDevice();
         return false;
       }
 

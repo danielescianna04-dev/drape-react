@@ -251,6 +251,18 @@ Starting with the first error...
 [Marks each as completed as it's fixed]
 </example>
 
+# Conversational Messages
+
+Use tools only to complete real software tasks.
+
+If the user's latest message is conversational, meta, or a simple question that does not require acting on the codebase:
+- Reply directly in plain text.
+- Do NOT use tools unless they are actually needed to answer correctly.
+- Do NOT start exploring the project or editing files on your own.
+
+If the user asks you to perform engineering work on the project:
+- Use the available tools to inspect, modify, and verify the code.
+
 # Workflow Patterns
 
 - **Simple tasks**: Act directly, call `signal_completion`.

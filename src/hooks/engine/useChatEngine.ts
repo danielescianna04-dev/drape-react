@@ -412,7 +412,7 @@ export function useChatEngine(
         // ask_user_question: skip from visible UI (question shown inline in text)
         if (event.tool === 'ask_user_question') continue;
 
-        // signal_completion: extract result as a text message
+        // signal_completion: only surface it if the agent never streamed visible text.
         if (event.tool === 'signal_completion') {
           let completionMessage = '';
           try {
@@ -420,14 +420,21 @@ export function useChatEngine(
             completionMessage = inp?.result || '';
           } catch { /* ignore */ }
 
-          if (completionMessage) {
-            setMessages(prev => [...prev, {
-              id: `completion-${Date.now()}`,
-              type: 'completion',
-              content: completionMessage,
-              isAgentMessage: true,
-              timestamp: new Date(),
-            }]);
+          if (completionMessage && !hadStreamedTextRef.current) {
+            setMessages(prev => {
+              const last = prev[prev.length - 1];
+              if (last && (last.type === 'text' || last.type === 'completion') && last.content === completionMessage) {
+                return prev;
+              }
+
+              return [...prev, {
+                id: `completion-${Date.now()}`,
+                type: 'completion',
+                content: completionMessage,
+                isAgentMessage: true,
+                timestamp: new Date(),
+              }];
+            });
           }
           continue;
         }

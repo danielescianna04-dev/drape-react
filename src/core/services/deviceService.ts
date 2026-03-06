@@ -7,7 +7,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 const DEVICE_ID_KEY = 'drape_device_id';
@@ -120,7 +120,12 @@ class DeviceService {
       const deviceId = await this.getDeviceId();
 
       const userRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userRef);
+      let userDoc;
+      try {
+        userDoc = await getDocFromServer(userRef);
+      } catch {
+        userDoc = await getDoc(userRef);
+      }
 
       if (!userDoc.exists()) {
         return true; // Allow if no user doc (first login)

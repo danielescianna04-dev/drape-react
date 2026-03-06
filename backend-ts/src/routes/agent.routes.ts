@@ -43,6 +43,8 @@ agentRouter.post(['/stream', '/run/fast', '/run/plan', '/run/execute'], asyncHan
   } = req.body;
 
   const userId = req.userId || 'anonymous';
+  const promptPreview = String(prompt || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  log.info(`[Agent] Incoming prompt for ${projectId}: ${JSON.stringify(promptPreview)}`);
 
   if (!prompt || !String(prompt).trim()) {
     throw new ValidationError('prompt is required');

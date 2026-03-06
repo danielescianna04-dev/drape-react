@@ -133,6 +133,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
   const [currentPlan, setCurrentPlan] = useState<'free' | 'go' | 'pro' | 'team'>(user?.plan === 'starter' ? 'free' : (user?.plan || 'free') as 'free' | 'go' | 'pro' | 'team');
   const [visiblePlanIndex, setVisiblePlanIndex] = useState(initialPlanIndex);
   const planScrollRef = useRef<ScrollView>(null);
+  const didInitialPlanScrollRef = useRef(false);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const { products: iapProducts, currentProductId, isPurchasing, isRestoring, purchase: iapPurchase, restorePurchases, showCelebration, celebrationPlan, closeCelebration } = useIAPStore();
   const [showEditName, setShowEditName] = useState(false);
@@ -151,6 +152,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       fetchSystemStatus();
     }
   }, [user?.plan]);
+
+  useEffect(() => {
+    if (!showPlanSelection) {
+      didInitialPlanScrollRef.current = false;
+      return;
+    }
+
+    if (didInitialPlanScrollRef.current) return;
+    didInitialPlanScrollRef.current = true;
+
+    requestAnimationFrame(() => {
+      planScrollRef.current?.scrollTo({ x: initialPlanIndex * SNAP_INTERVAL, animated: false });
+      setVisiblePlanIndex(initialPlanIndex);
+    });
+  }, [showPlanSelection, initialPlanIndex]);
 
   // Swipe-back gesture
   const swipeX = useRef(new Animated.Value(0)).current;
@@ -597,17 +613,14 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             ref={planScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
+            directionalLockEnabled
+            nestedScrollEnabled
             pagingEnabled={false}
             snapToInterval={SNAP_INTERVAL}
             decelerationRate="fast"
             contentContainerStyle={styles.plansScrollContent}
             scrollEventThrottle={16}
             removeClippedSubviews={false}
-            onLayout={() => {
-              if (planScrollRef.current) {
-                planScrollRef.current.scrollTo({ x: initialPlanIndex * SNAP_INTERVAL, animated: false });
-              }
-            }}
             onScroll={(e) => {
               const x = e.nativeEvent.contentOffset.x;
               const index = Math.round(x / SNAP_INTERVAL);
@@ -1296,9 +1309,11 @@ const styles = StyleSheet.create({
   plansScrollContent: {
     paddingLeft: SIDE_INSET,
     paddingRight: SIDE_INSET,
+    alignItems: 'stretch',
   },
   planCardNew: {
     flex: 1,
+    height: '100%',
     backgroundColor: 'rgba(255,255,255,0.02)',
     borderRadius: 28,
     padding: 24,
@@ -1308,9 +1323,12 @@ const styles = StyleSheet.create({
   },
   planCardNewWrapper: {
     width: CARD_WIDTH,
+    minHeight: 488,
     marginRight: GAP,
   },
   planCardLiquid: {
+    flex: 1,
+    height: '100%',
     borderRadius: 28,
     padding: 24,
     overflow: 'hidden',

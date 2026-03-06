@@ -39,17 +39,81 @@ interface UsePreviewChatParams {
 }
 
 const MAX_LOCAL_HISTORY_MESSAGES = 200;
+const PREVIEW_CONFIRMATION_RE = /^(vai|va bene|ok|okay|procedi|prosegui|continua|fallo|fai tu|yes|yep|go ahead|do it)$/i;
+
+type PreviewSelectedElement = {
+  selector: string;
+  text: string;
+  tag?: string;
+  className?: string;
+  id?: string;
+  innerHTML?: string;
+};
+
+type PendingPreviewAction = {
+  element: PreviewSelectedElement;
+  request: string;
+};
 
 function buildConversationHistory(messages: AIMessage[]): Array<{ role: 'user' | 'assistant'; content: string }> {
   return messages
     .filter((m) => {
-      if (m.type !== 'user' && m.type !== 'text') return false;
+      if (m.type !== 'user' && m.type !== 'text' && m.type !== 'tool_result') return false;
       return String(m.content ?? '').trim().length > 0;
     })
     .map((m) => ({
       role: m.type === 'user' ? 'user' as const : 'assistant' as const,
-      content: String(m.content ?? '').trim(),
+      content: m.type === 'tool_result'
+        ? `[Tool result${m.tool ? `: ${m.tool}` : ''}]\n${String(m.content ?? '').trim()}`
+        : String(m.content ?? '').trim(),
     }));
+}
+
+function summarizeSelectedElement(element: PreviewSelectedElement): string {
+  return `selector="${element.selector}" tag="${element.tag || ''}" class="${element.className || ''}" id="${element.id || ''}" text="${(element.text || '').slice(0, 140)}"`;
+}
+
+function isQuestionLikeMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) return false;
+  const actionVerbQuestion =
+    /^(puoi|potresti|riesci a|mi fai|fai|rendi|cambia|metti|porta|riporta|allinea|sistema|modifica|usa|applica)\b/i.test(normalized);
+  if (normalized.includes('?') && !actionVerbQuestion) return true;
+  return /^(che cos'?è|cos'?è|what is|who are you|puoi spiegare|spiegami|come funziona|perché)\b/i.test(normalized);
+}
+
+function buildSelectedElementPrompt(element: PreviewSelectedElement, userMessage: string): string {
+  const elementSummary = summarizeSelectedElement(element);
+  const normalized = userMessage.trim();
+
+  if (isQuestionLikeMessage(normalized)) {
+    return [
+      'L’utente ha selezionato un elemento nella preview.',
+      `Elemento selezionato: ${elementSummary}`,
+      `Richiesta: ${normalized}`,
+      'Rispondi rispetto a QUESTO elemento selezionato. Se l’utente chiede una modifica, applicala; se sta chiedendo una spiegazione, rispondi in modo utile senza perdere il contesto dell’elemento.',
+    ].join('\n');
+  }
+
+  return [
+    'L’utente ha selezionato un elemento specifico nella preview e vuole che tu modifichi PROPRIO quello.',
+    `Elemento selezionato: ${elementSummary}`,
+    `Modifica richiesta: ${normalized}`,
+    'Interpreta la richiesta come un’azione da eseguire subito sul codice del progetto.',
+    'Non limitarti a descrivere il piano: usa i tool e applica direttamente la modifica.',
+    'Se la richiesta è breve o implicita, assumila come modifica visuale/di stile dell’elemento selezionato.',
+    'Se il testo è un colore come "red", applicalo in modo sensato all’elemento selezionato (di solito text color, altrimenti background/accento a seconda del tipo di elemento).',
+  ].join('\n');
+}
+
+function buildConfirmationPrompt(action: PendingPreviewAction): string {
+  return [
+    'L’utente sta confermando di procedere con una modifica già riferita a un elemento selezionato nella preview.',
+    `Elemento selezionato: ${summarizeSelectedElement(action.element)}`,
+    `Richiesta già data: ${action.request}`,
+    'Procedi ORA con la modifica sul codice usando i tool.',
+    'Non fare solo una descrizione o un nuovo piano.',
+  ].join('\n');
 }
 
 export function usePreviewChat({ currentWorkstationId, currentWorkstationName, webViewRef }: UsePreviewChatParams) {
@@ -103,9 +167,8 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
   // ── Inspect mode ────────────────────────────────────────────────────────
   const [isInspectMode, setIsInspectMode] = useState(false);
-  const [selectedElement, setSelectedElement] = useState<{
-    selector: string; text: string; tag?: string; className?: string; id?: string; innerHTML?: string;
-  } | null>(null);
+  const [selectedElement, setSelectedElement] = useState<PreviewSelectedElement | null>(null);
+  const pendingPreviewActionRef = useRef<PendingPreviewAction | null>(null);
 
   // ── FAB state ───────────────────────────────────────────────────────────
   const [message, setMessage] = useState('');
@@ -197,8 +260,20 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
 
     const userMessage = message.trim();
     let prompt = userMessage;
+
+    const hasSelectedElement = !!selectedElement;
+    const isConfirmationOnly = PREVIEW_CONFIRMATION_RE.test(userMessage);
+
     if (selectedElement) {
-      prompt = `[Elemento selezionato: <${selectedElement.tag}> class="${selectedElement.className}" id="${selectedElement.id}" text="${selectedElement.text?.slice(0, 100)}"]\n\n${userMessage}`;
+      prompt = buildSelectedElementPrompt(selectedElement, userMessage);
+      if (!isQuestionLikeMessage(userMessage)) {
+        pendingPreviewActionRef.current = {
+          element: selectedElement,
+          request: userMessage,
+        };
+      }
+    } else if (isConfirmationOnly && pendingPreviewActionRef.current) {
+      prompt = buildConfirmationPrompt(pendingPreviewActionRef.current);
     }
 
     const newUserMsg: AIMessage = {
@@ -242,6 +317,9 @@ export function usePreviewChat({ currentWorkstationId, currentWorkstationName, w
     setMessage('');
     clearSelectedElement();
     setIsInspectMode(false);
+    if (!hasSelectedElement && !isConfirmationOnly) {
+      pendingPreviewActionRef.current = null;
+    }
 
     // Reset engine + agent for new run
     engine.reset();
