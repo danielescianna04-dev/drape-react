@@ -45,6 +45,7 @@ const MODEL_REGISTRY: Record<string, ModelEntry> = {
   'claude-4-6-opus':    { provider: 'anthropic', modelId: 'claude-opus-4-6', maxTokens: 8192, contextWindowTokens: 200000 },
   'claude-3.5-haiku':   { provider: 'anthropic', modelId: 'claude-haiku-4-5-20251001', maxTokens: 8192, contextWindowTokens: 200000 },
   'gemini-2.5-flash':   { provider: 'google', modelId: 'gemini-2.5-flash', maxTokens: 65536, contextWindowTokens: 1000000 },
+  'gemini-3.1-flash-lite': { provider: 'google', modelId: 'gemini-3.1-flash-lite-preview', maxTokens: 65536, contextWindowTokens: 1048576 },
   'gemini-3-flash':     { provider: 'google', modelId: 'gemini-3-flash-preview', maxTokens: 65536, contextWindowTokens: 1000000 },
   'gemini-3.1-pro':     { provider: 'google', modelId: 'gemini-3.1-pro-preview', maxTokens: 65536, contextWindowTokens: 1000000 },
   'gpt-5-3':            { provider: 'openai', modelId: 'gpt-5.3', maxTokens: 16384, contextWindowTokens: 128000 },

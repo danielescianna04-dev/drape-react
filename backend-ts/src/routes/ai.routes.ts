@@ -159,7 +159,6 @@ aiRouter.post('/recommend', asyncHandler(async (req: Request, res: Response) => 
     }
 
     log.info(`[AI] Recommendation request for: ${description.substring(0, 50)}...`);
-
     const prompt = `Based on this project description, recommend the BEST technology from this list:
 - react: React SPA
 - nextjs: Next.js (SSR/SSG, full-stack React)
@@ -189,7 +188,7 @@ Respond ONLY with the JSON object, no markdown.`;
     const messages = [{ role: 'user' as const, content: prompt }];
 
     let response = '';
-    for await (const chunk of aiProviderService.chatStream('gemini-3-flash', messages, undefined, undefined, { thinkingLevel: 'none', maxTokens: 50 })) {
+    for await (const chunk of aiProviderService.chatStream('gemini-3.1-flash-lite', messages, undefined, undefined, { thinkingLevel: 'none', maxTokens: 50 })) {
       if (chunk.type === 'text' && chunk.text) {
         response += chunk.text;
       }
