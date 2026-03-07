@@ -39,7 +39,10 @@
     "livePreview": "Preview Live",
     "livePreviewDesc": "Guarda la tua app in tempo reale mentre l'AI scrive il codice",
     "exploreFiles": "Esplora i File",
-    "exploreFilesDesc": "Sfoglia e modifica i file del progetto direttamente dall'editor"
+    "exploreFilesDesc": "Sfoglia e modifica i file del progetto direttamente dall'editor",
+    "chatWelcome": "Il tuo progetto e' pronto!",
+    "chatWelcomeDesc": "Ecco cosa puoi fare:",
+    "gotIt": "Ho capito!"
   },
   "create": {
     "title": "Nuovo Progetto",
