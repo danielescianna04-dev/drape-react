@@ -11,7 +11,7 @@ import { useWorkstationStore } from '../../../core/terminal/workstationStore';
 import { useFileCacheStore } from '../../../core/cache/fileCacheStore';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { auth } from '../../../config/firebase';
-import { trackFileOpen, trackFileCreate, trackFileDelete, trackFileRename, trackError } from '../../../core/services/analyticsService';
+import { trackFileOpen, trackFileCreate, trackFileDelete, trackFileRename, trackFileSearch, trackError } from '../../../core/services/analyticsService';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android') {
@@ -118,6 +118,7 @@ export const FileExplorer = ({ projectId, repositoryUrl, onFileSelect, onAuthReq
       const timer = setTimeout(async () => {
         try {
           if (!isMounted) return;
+          trackFileSearch(searchQuery, searchMode);
           setSearching(true);
           const results = await workstationService.searchInFiles(projectId, searchQuery, repositoryUrl);
           if (!isMounted) return;

@@ -27,7 +27,7 @@ import { gitAccountService } from '../../core/git/gitAccountService';
 import { githubService } from '../../core/github/githubService';
 import { useGitCacheStore } from '../../core/cache/gitCacheStore';
 import { liveActivityService } from '../../core/services/liveActivityService';
-import { trackProjectOpen, trackError, trackGitImport, trackProjectDelete, trackProjectDuplicate, trackProjectShare, trackProjectRename } from '../../core/services/analyticsService';
+import { trackProjectOpen, trackError, trackGitImport, trackProjectDelete, trackProjectDuplicate, trackProjectShare, trackProjectRename, trackBrowseFiles, trackScreenView } from '../../core/services/analyticsService';
 import { useTranslation } from 'react-i18next';
 import { useOnboardingStore, ONBOARDING_STEPS } from '../../core/onboarding/onboardingStore';
 import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
@@ -1102,7 +1102,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
                 <TouchableOpacity
                   style={styles.actionCardInner}
                   activeOpacity={0.8}
-                  onPress={handleBrowseFiles}
+                  onPress={() => { trackBrowseFiles(); handleBrowseFiles(); }}
                 >
                   <Ionicons name="folder-open" size={24} color="rgba(255,255,255,0.85)" />
                   <Text style={styles.actionCardTitle}>{t('home.files')}</Text>

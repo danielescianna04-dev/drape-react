@@ -26,7 +26,7 @@ import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
-import { trackLogout, trackDeleteAccount, trackLanguageChange, trackRestorePurchases, trackGitAccountRemove, trackError, trackPlansView, trackPlansClose, trackBillingCycleChange, trackPlanSelect, trackLegalView, trackNotificationToggle } from '../../core/services/analyticsService';
+import { trackLogout, trackDeleteAccount, trackLanguageChange, trackRestorePurchases, trackGitAccountRemove, trackError, trackPlansView, trackPlansClose, trackBillingCycleChange, trackPlanSelect, trackLegalView, trackNotificationToggle, trackScreenView, trackSettingsModalOpen, trackSettingsModalClose } from '../../core/services/analyticsService';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
 import { ProfileSection } from './components/ProfileSection';
 import { GitAccountsSection } from './components/GitAccountsSection';
@@ -990,7 +990,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <ProfileSection
           user={user}
           currentPlan={currentPlan}
-          onEditPress={() => setShowEditName(true)}
+          onEditPress={() => { trackSettingsModalOpen('edit_name'); setShowEditName(true); }}
           loading={loading}
         />
 
@@ -1010,7 +1010,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           budgetStatus={budgetStatus}
           loading={loading}
           onPlanPress={() => { trackPlansView('settings'); setShowPlanSelection(true); }}
-          onBudgetPress={() => setShowResourceUsage(true)}
+          onBudgetPress={() => { trackScreenView('usage'); setShowResourceUsage(true); }}
           t={t}
         />
 
@@ -1055,8 +1055,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         {/* Security Section (email users only) */}
         {isEmailUser && (
           <SecuritySection
-            onChangePassword={() => setShowChangePassword(true)}
-            onChangeEmail={() => setShowChangeEmail(true)}
+            onChangePassword={() => { trackSettingsModalOpen('change_password'); setShowChangePassword(true); }}
+            onChangeEmail={() => { trackSettingsModalOpen('change_email'); setShowChangeEmail(true); }}
             t={t}
           />
         )}
@@ -1131,21 +1131,21 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
       <EditNameModal
         visible={showEditName}
         currentName={user?.displayName || ''}
-        onClose={() => setShowEditName(false)}
+        onClose={() => { trackSettingsModalClose('edit_name'); setShowEditName(false); }}
         onSave={(newName) => useAuthStore.getState().updateDisplayName(newName)}
         t={t}
       />
 
       <ChangePasswordModal
         visible={showChangePassword}
-        onClose={() => setShowChangePassword(false)}
+        onClose={() => { trackSettingsModalClose('change_password'); setShowChangePassword(false); }}
         t={t}
       />
 
       <ChangeEmailModal
         visible={showChangeEmail}
         currentEmail={user?.email || ''}
-        onClose={() => setShowChangeEmail(false)}
+        onClose={() => { trackSettingsModalClose('change_email'); setShowChangeEmail(false); }}
         t={t}
       />
 

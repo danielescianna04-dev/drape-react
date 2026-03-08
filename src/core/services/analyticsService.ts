@@ -1,10 +1,17 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { Platform, Dimensions } from 'react-native';
 import { db, auth } from '../firebase/firebase';
 
 /**
  * Lightweight analytics service — writes events to Firestore `user_events` collection.
  * Events are aggregated server-side for the admin behavior dashboard.
  */
+
+const getDeviceType = (): string => {
+  const { width, height } = Dimensions.get('window');
+  const minDim = Math.min(width, height);
+  return minDim >= 600 ? 'tablet' : 'phone';
+};
 
 function trackEvent(type: string, data?: Record<string, string>) {
   const user = auth.currentUser;
@@ -14,6 +21,8 @@ function trackEvent(type: string, data?: Record<string, string>) {
     ...data,
     userId: user.uid,
     email: user.email || '',
+    platform: Platform.OS,
+    deviceType: getDeviceType(),
     timestamp: serverTimestamp(),
   }).catch(() => {});
 }
@@ -72,6 +81,10 @@ export function trackProjectShare(projectName: string) {
 // Panel / tab actions
 export function trackPanelOpen(panel: string) {
   trackEvent('panel_open', { panel });
+}
+
+export function trackPanelClose(panel: string) {
+  trackEvent('panel_close', { panel });
 }
 
 export function trackTabOpen(tab: string) {
@@ -218,6 +231,30 @@ export function trackViewportChange(mode: string) {
 
 export function trackGitImport() {
   trackEvent('git_import');
+}
+
+export function trackGitImportCancel() {
+  trackEvent('git_import_cancel');
+}
+
+export function trackGitImportConfirm(repoUrl: string) {
+  trackEvent('git_import_confirm', { repoUrl: repoUrl.substring(0, 200) });
+}
+
+export function trackFileSearch(query: string, mode: string) {
+  trackEvent('file_search', { query: query.substring(0, 100), mode });
+}
+
+export function trackBrowseFiles() {
+  trackEvent('browse_files');
+}
+
+export function trackSettingsModalOpen(modal: string) {
+  trackEvent('settings_modal_open', { modal });
+}
+
+export function trackSettingsModalClose(modal: string) {
+  trackEvent('settings_modal_close', { modal });
 }
 
 // Git operations

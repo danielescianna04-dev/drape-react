@@ -26,7 +26,7 @@ import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
-import { trackPanelOpen, trackGridButton } from '../../../core/services/analyticsService';
+import { trackPanelOpen, trackPanelClose, trackGridButton } from '../../../core/services/analyticsService';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
 
@@ -239,14 +239,16 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
     Keyboard.dismiss();
     if (panel === 'preview') {
       setShowPreviewPanel(prev => {
-        if (!prev) trackPanelOpen('preview');
+        if (prev) trackPanelClose('preview');
+        else trackPanelOpen('preview');
         return !prev;
       });
       setActivePanel(null);
     } else {
       setActivePanel(prev => {
-        if (prev !== panel && panel) trackPanelOpen(panel);
-        return prev === panel ? null : panel;
+        if (prev === panel) { if (panel) trackPanelClose(panel); return null; }
+        if (panel) trackPanelOpen(panel);
+        return panel;
       });
     }
   }, []);
@@ -345,7 +347,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   }, []);
 
   const handleClosePanel = useCallback(() => {
-    setActivePanel(null);
+    setActivePanel(prev => { if (prev) trackPanelClose(prev); return null; });
   }, []);
 
   // Gestures
@@ -538,6 +540,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
           >
             <PreviewPanel
               onClose={() => {
+                trackPanelClose('preview');
                 setShowPreviewPanel(false);
                 if (activePanel === 'preview') setActivePanel(null);
               }}
@@ -552,7 +555,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
       {/* Git Sheet - overlays everything */}
       <GitSheet
         visible={isGitSheetVisible}
-        onClose={() => setIsGitSheetVisible(false)}
+        onClose={() => { trackPanelClose('git'); setIsGitSheetVisible(false); }}
       />
 
       {/* Integrations FAB - draggable floating buttons */}

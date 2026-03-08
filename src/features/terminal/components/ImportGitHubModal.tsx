@@ -9,6 +9,7 @@ import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
 import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
+import { trackGitImportCancel, trackGitImportConfirm } from '../../../core/services/analyticsService';
 
 interface Props {
   visible: boolean;
@@ -140,6 +141,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
   const handleImport = () => {
     const url = String(repoUrl || '').trim();
     if (url) {
+      trackGitImportConfirm(url);
       onImport(url, selectedBranch || undefined);
       setRepoUrl('');
       setBranches([]);
@@ -241,7 +243,7 @@ export const ImportGitHubModal = ({ visible, onClose, onImport, isLoading = fals
       <View style={styles.buttons}>
         <TouchableOpacity
           style={styles.cancelButton}
-          onPress={onClose}
+          onPress={() => { trackGitImportCancel(); onClose(); }}
           disabled={isLoading}
           activeOpacity={0.8}
         >
