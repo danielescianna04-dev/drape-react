@@ -61,8 +61,8 @@ import { TodoList } from '../../shared/components/molecules/TodoList';
 import { SubAgentStatus } from '../../shared/components/molecules/SubAgentStatus';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
 import { useNavigationStore } from '../../core/navigation/navigationStore';
-import { useOnboardingStore, ONBOARDING_STEPS } from '../../core/onboarding/onboardingStore';
 import { SpotlightOverlay } from '../../shared/components/SpotlightOverlay';
+import { ChatWelcomeOverlay } from '../../shared/components/ChatWelcomeOverlay';
 import Svg, { Circle } from 'react-native-svg';
 // WebSocket log service disabled - was causing connect/disconnect loop
 // import { websocketLogService, BackendLog } from '../../core/services/websocketLogService';
@@ -118,35 +118,6 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
   const scrollViewRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
   const { sidebarTranslateX, hideSidebar, showSidebar, setForceHideToggle } = useSidebarOffset();
-
-  // ── Onboarding spotlight for chat-screen steps ──
-  const chatInputContainerRef = useRef<View>(null);
-  const { isActive: onboardingActive, currentStep: onboardingStep, setTargetRect } = useOnboardingStore();
-
-  useEffect(() => {
-    if (!onboardingActive) return;
-    const step = ONBOARDING_STEPS[onboardingStep];
-    if (!step || step.screen !== 'chat') return;
-
-    const timer = setTimeout(() => {
-      if (step.id === 'talkToAI' && chatInputContainerRef.current) {
-        chatInputContainerRef.current.measureInWindow((x, y, w, h) => {
-          if (w > 0 && h > 0) setTargetRect({ x, y, width: w, height: h });
-        });
-      } else {
-        // For preview and files steps, use approximate positions
-        // These appear in the sidebar area (left side, below header)
-        const screenW = Dimensions.get('window').width;
-        if (step.id === 'livePreview') {
-          setTargetRect({ x: 0, y: 200, width: 44, height: 44 });
-        } else if (step.id === 'exploreFiles') {
-          setTargetRect({ x: 0, y: 260, width: 44, height: 44 });
-        }
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [onboardingActive, onboardingStep]);
 
   // ── Auto-scroll tracking ────────────────────────────────────────
   const contentHeightRef = useRef(0);
@@ -3377,7 +3348,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                 {/* Tasks in input bar — disabled */}
 
                 {/* Main Input Row */}
-                <View ref={chatInputContainerRef} collapsable={false} style={styles.mainInputRow}>
+                <View collapsable={false} style={styles.mainInputRow}>
                   <TouchableOpacity
                     style={styles.toolsButton}
                     onPress={toggleToolsSheet}
@@ -3693,8 +3664,9 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
         </BlurView>
       </Animated.View>
 
-      {/* Spotlight Onboarding */}
+      {/* Onboarding overlays */}
       <SpotlightOverlay />
+      <ChatWelcomeOverlay />
     </Animated.View >
   );
 };

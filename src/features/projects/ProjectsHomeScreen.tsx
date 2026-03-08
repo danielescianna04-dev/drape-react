@@ -70,7 +70,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
   }, []);
 
   // Initialize spotlight onboarding
-  const { isActive: onboardingActive, currentStep: onboardingStep, setTargetRect } = useOnboardingStore();
+  const { isActive: onboardingActive, currentStepIndex, setTargetRect } = useOnboardingStore();
   const newProjectCardRef = useRef<View>(null);
   const cloneCardRef = useRef<View>(null);
 
@@ -80,14 +80,14 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }
   }, [user?.uid]);
 
-  // Measure target cards when onboarding is active on home screen steps
+  // Measure target cards when onboarding is active
   useEffect(() => {
     if (!onboardingActive) return;
-    const step = ONBOARDING_STEPS[onboardingStep];
-    if (!step || step.screen !== 'home') return;
+    const step = ONBOARDING_STEPS[currentStepIndex];
+    if (!step) return;
 
     const timer = setTimeout(() => {
-      const ref = onboardingStep === 0 ? newProjectCardRef : cloneCardRef;
+      const ref = currentStepIndex === 0 ? newProjectCardRef : cloneCardRef;
       ref.current?.measureInWindow((x, y, width, height) => {
         if (width > 0 && height > 0) {
           setTargetRect({ x, y, width, height });
@@ -96,7 +96,7 @@ export const ProjectsHomeScreen = ({ onCreateProject, onImportProject, onMyProje
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [onboardingActive, onboardingStep]);
+  }, [onboardingActive, currentStepIndex]);
 
   const currentHour = new Date().getHours();
   const greeting = (currentHour >= 5 && currentHour < 18) ? t('goodMorning') : t('goodEvening');
