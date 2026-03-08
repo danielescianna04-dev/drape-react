@@ -28,6 +28,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { CreationProgressModal } from '../../shared/components/molecules/CreationProgressModal';
 import { DescriptionInput } from './DescriptionInput';
 import { liveActivityService } from '../../core/services/liveActivityService';
+import { trackProjectCreate, trackError } from '../../core/services/analyticsService';
 import { useAgentStream, AgentMode } from '../../core/ai/useAgentStream';
 import { useAgentStore } from '../../core/ai/agentStore';
 import { AgentProgress } from '../../shared/components/molecules/AgentProgress';
@@ -261,6 +262,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
                 } else if (task.status === 'failed') {
                   activeTaskIdRef.current = null;
                   liveActivityService.endPreviewActivity().catch(() => {});
+                  trackError(task.error || 'Creation failed', 'project_create');
                   Alert.alert(t('common:error'), task.error || t('alerts.creationFailed'));
                   setIsCreating(false);
                   setCreationTask(null);
@@ -368,6 +370,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
   // Agent error callback
   function handleAgentError(error: string) {
     console.error('[CreateProject] Agent error:', error);
+    trackError(error, 'project_create_agent');
     liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
     Alert.alert(t('common:error'), t('alerts.creationErrorWithMessage', { error }));
     setIsCreating(false);
@@ -478,6 +481,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           setIsCreating(false);
           setCreationTask(null);
           liveActivityService.endPreviewActivity().catch(() => {});
+          trackError('Connection lost', 'project_create');
           Alert.alert(t('common:error'), t('alerts.creationConnectionLost'));
         }
       }
@@ -656,6 +660,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       if (!response.ok || !result.success) {
         if (result.error === 'PROJECT_LIMIT_EXCEEDED') {
+          trackError('Project limit exceeded: ' + (result.limits?.maxProjects || 3), 'project_create');
           setProjectLimit(result.limits?.maxProjects || 3);
           setShowUpgradeModal(true);
           setIsCreating(false);
@@ -663,6 +668,7 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
           return;
         }
         if (result.error === 'STORAGE_LIMIT_EXCEEDED') {
+          trackError('Storage limit exceeded', 'project_create');
           Alert.alert(
             t('alerts.storageLimitTitle'),
             t('alerts.storageLimitMessage', {
@@ -684,8 +690,10 @@ export const CreateProjectScreen = ({ onBack, onCreate, onOpenPlans }: Props) =>
 
       // Start agent stream
       await startStream(projectId, mode, prompt);
+      trackProjectCreate(projectName.trim(), selectedLanguage, mode, description.trim());
     } catch (error: any) {
       console.error('[CreateProject] Error starting agent:', error);
+      trackError(error.message || 'Unknown error', 'project_create');
       liveActivityService.endPreviewActivity().catch((err) => console.warn('[Project] Failed to end preview activity:', err?.message || err));
       Alert.alert(t('common:error'), t('alerts.unableToStartAgent'));
       setIsCreating(false);

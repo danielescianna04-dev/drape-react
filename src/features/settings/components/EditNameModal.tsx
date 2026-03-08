@@ -5,6 +5,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { AppColors } from '../../../shared/theme/colors';
+import { trackNameChange } from '../../../core/services/analyticsService';
 
 interface EditNameModalProps {
   visible: boolean;
@@ -31,6 +32,7 @@ export const EditNameModal: React.FC<EditNameModalProps> = ({
 
   const handleSave = () => {
     if (editNameValue.trim()) {
+      trackNameChange();
       onSave(editNameValue.trim());
     }
     onClose();

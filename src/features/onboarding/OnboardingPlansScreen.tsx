@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { AppColors } from '../../shared/theme/colors';
 import { useIAPStore } from '../../core/iap/iapStore';
 import { IAP_PRODUCT_IDS } from '../../core/iap/iapConstants';
+import { trackPlanSelect } from '../../core/services/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -107,7 +108,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={[styles.planCard, styles.planCardFeatured]}
             activeOpacity={0.85}
-            onPress={() => onSelectPlan('go')}
+            onPress={() => { trackPlanSelect('go'); onSelectPlan('go'); }}
           >
             <LinearGradient
               colors={['rgba(139, 92, 246, 0.08)', 'rgba(99, 102, 241, 0.03)', 'transparent']}
@@ -166,7 +167,7 @@ export const OnboardingPlansScreen: React.FC<Props> = ({ displayName, isNewUser 
           <TouchableOpacity
             style={styles.planCard}
             activeOpacity={0.85}
-            onPress={() => onSelectPlan('free')}
+            onPress={() => { trackPlanSelect('free'); onSelectPlan('free'); }}
           >
             <View style={styles.planHeader}>
               <Text style={styles.planName}>Free</Text>

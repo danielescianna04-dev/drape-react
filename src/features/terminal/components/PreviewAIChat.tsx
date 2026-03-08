@@ -15,6 +15,7 @@ import { useUIStore } from '../../../core/terminal/uiStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ThinkingIndicator } from '../../../shared/components/atoms/ThinkingIndicator';
 import { useTranslation } from 'react-i18next';
+import { trackChatMinimize, trackModelSelect } from '../../../core/services/analyticsService';
 
 const AI_MODELS = [
   { id: 'claude-4-6-opus', name: 'Claude 4.6 Opus', IconComponent: AnthropicIcon, isPremium: true, thinkingLevels: [] as string[] },
@@ -263,6 +264,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                   onPress={() => {
                     if (isLocked) { navigateTo('plans'); return; }
                     setSelectedModel(model.id);
+                    trackModelSelect(model.id);
                     if (hasThinkingOptions) {
                       setThinkingLevel(model.id.includes('flash') ? 'medium' : 'low');
                     }
@@ -466,6 +468,7 @@ export const PreviewAIChat: React.FC<PreviewAIChatProps> = ({
                         update: { type: LayoutAnimation.Types.easeInEaseOut },
                         delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
                       });
+                      trackChatMinimize(isMessagesCollapsed ? 'expand' : 'collapse');
                       setIsMessagesCollapsed(!isMessagesCollapsed);
                     }} style={{ padding: 4 }} activeOpacity={0.7}>
                       <Ionicons name={isMessagesCollapsed ? "chevron-up" : "chevron-down"} size={16} color="rgba(255,255,255,0.5)" />

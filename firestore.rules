@@ -122,6 +122,18 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // USER EVENTS — analytics tracking for admin behavior dashboard
+    // Authenticated users can create events with their own userId.
+    // Read/update/delete denied from client (admin reads via Admin SDK).
+    // Fields: type, screen, userId, email, timestamp
+    // ============================================================
+    match /user_events/{eventId} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+
+    // ============================================================
     // PROJECTS — backend-managed project metadata
     // The backend uses Admin SDK (bypasses rules) to read/write.
     // No client access needed; deny all from client.

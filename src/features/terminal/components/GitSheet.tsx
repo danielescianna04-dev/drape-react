@@ -19,6 +19,7 @@ import { githubService, GitHubCommit } from '../../../core/github/githubService'
 import { useTabStore } from '../../../core/tabs/tabStore';
 import { ConnectRepoModal } from './ConnectRepoModal';
 import { useTranslation } from 'react-i18next';
+import { trackGitAction, trackGitCommit, trackGitCheckout, trackGitAuth, trackGitAuthSuccess, trackGitAuthError, trackGitRepoConnect, trackGitTabSwitch, trackGitBranchCreate, trackGitCommitView, trackGitSelectAll, trackGitLinkAccount, trackGitConnectRepo, trackGitPush, trackError } from '../../../core/services/analyticsService';
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const MODAL_HEIGHT = SCREEN_HEIGHT * 0.65;
@@ -361,6 +362,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
   };
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
+    trackGitAction(action);
     if (!currentWorkstation?.id) {
       Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
@@ -520,7 +522,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
 
   const handleCheckoutBranch = async (branchName: string) => {
     if (!currentWorkstation?.id) return;
-
+    trackGitCheckout(branchName);
     setActionLoading('checkout');
     try {
       const authHeaders = await getAuthHeaders();
@@ -589,6 +591,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       });
 
       if (response.ok) {
+        trackGitBranchCreate(name);
         Alert.alert(t('common:success'), t('terminal:git.branchCreated'));
         setNewBranchName('');
         setShowCreateBranch(false);
@@ -649,6 +652,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
       return;
     }
 
+    trackGitCommit();
     setActionLoading('commit');
     try {
       const token = await gitAccountService.getToken(linkedAccount, userId);
@@ -804,7 +808,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               <TouchableOpacity
                 key={section}
                 style={[styles.tab, activeSection === section && styles.tabActive]}
-                onPress={() => setActiveSection(section)}
+                onPress={() => { setActiveSection(section); trackGitTabSwitch(section); }}
               >
                 <Text style={[styles.tabText, activeSection === section && styles.tabTextActive]}>
                   {section === 'commits' ? t('git.commit') : section === 'branches' ? t('git.branch') : t('git.changes')}
@@ -836,7 +840,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   <TouchableOpacity
                     key={commit.hash || index}
                     style={styles.commitItem}
-                    onPress={() => commit.url && Linking.openURL(commit.url)}
+                    onPress={() => { if (commit.url) { Linking.openURL(commit.url); trackGitCommitView(); } }}
                     activeOpacity={0.7}
                   >
                     {/* Timeline */}
@@ -903,7 +907,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         </Text>
                         <TouchableOpacity
                           style={styles.connectGitButton}
-                          onPress={() => setShowConnectModal(true)}
+                          onPress={() => { setShowConnectModal(true); trackGitConnectRepo(); }}
                         >
                           <Ionicons name="add-circle-outline" size={18} color="#fff" />
                           <Text style={styles.connectGitButtonText}>{t('connectRepo.title')}</Text>
@@ -926,7 +930,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   </View>
                 )}
                 {commits.length > 10 && (
-                  <TouchableOpacity style={styles.showMoreBtn} onPress={expandToTab}>
+                  <TouchableOpacity style={styles.showMoreBtn} onPress={() => { expandToTab(); trackGitCommitView(); }}>
                     <Text style={styles.showMoreText}>{t('terminal:git.showAllCommits', { count: commits.length })}</Text>
                     <Ionicons name="chevron-forward" size={14} color={AppColors.primary} />
                   </TouchableOpacity>
@@ -1017,7 +1021,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                 {allChangedFiles.length > 0 ? (
                   <>
                     {/* Select All Header */}
-                    <TouchableOpacity style={styles.selectAllRow} onPress={toggleSelectAll}>
+                    <TouchableOpacity style={styles.selectAllRow} onPress={() => { toggleSelectAll(); trackGitSelectAll(); }}>
                       <Ionicons
                         name={selectedFiles.size === allChangedFiles.length ? "checkmark-circle" : "ellipse-outline"}
                         size={18}
@@ -1090,7 +1094,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                         </View>
                         <TouchableOpacity
                           style={styles.authRequiredBtn}
-                          onPress={() => setShowAddAccountModal(true)}
+                          onPress={() => { setShowAddAccountModal(true); trackGitLinkAccount('github'); }}
                         >
                           <Ionicons name="log-in-outline" size={18} color="#fff" />
                           <Text style={styles.authRequiredBtnText}>{t('terminal:git.linkGitHubAccount')}</Text>
@@ -1206,6 +1210,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
               onPress={() => {
                 setShowAccountPicker(false);
                 setShowAddAccountModal(true);
+                trackGitLinkAccount('picker');
               }}
             >
               <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
@@ -1283,6 +1288,7 @@ export const GitSheet = ({ visible, onClose }: Props) => {
                   if (commitMessage.trim()) {
                     await handleCommit();
                   }
+                  trackGitPush();
                   await handleGitAction('push');
                   setShowCommitModal(false);
                 }}

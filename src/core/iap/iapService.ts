@@ -3,6 +3,7 @@ import i18next from 'i18next';
 import { config } from '../../config/config';
 import { getAuthHeaders } from '../api/getAuthToken';
 import { ALL_PRODUCT_IDS } from './iapConstants';
+import { trackPurchaseStart, trackPurchaseSuccess, trackPurchaseError } from '../services/analyticsService';
 
 // Lazy-load react-native-iap to avoid crashes when native module isn't available
 let RNIap: typeof import('react-native-iap') | null = null;
@@ -71,14 +72,17 @@ class IAPService {
             if (result.success) {
               await iap.finishTransaction({ purchase, isConsumable: false });
               this.pendingProductId = null;
+              trackPurchaseSuccess(productId, result.plan);
               this.onPurchaseComplete?.(result.plan);
             } else {
               this.pendingProductId = null;
+              trackPurchaseError(productId, 'verification_failed');
               this.onPurchaseError?.('unknown');
             }
           } catch (err) {
             console.error('[IAP] Verify failed:', err);
             this.pendingProductId = null;
+            trackPurchaseError(productId, 'network');
             this.onPurchaseError?.('network');
           }
         }
@@ -87,8 +91,10 @@ class IAPService {
       this.purchaseErrorSub = iap.purchaseErrorListener((error: any) => {
         console.warn('[IAP] Purchase error:', JSON.stringify(error));
         if (error.code === 'user-cancelled' || error.code === 'E_USER_CANCELLED') {
+          trackPurchaseError(this.pendingProductId || 'unknown', 'cancelled');
           this.onPurchaseError?.('cancelled');
         } else {
+          trackPurchaseError(this.pendingProductId || 'unknown', error.code || 'unknown');
           this.onPurchaseError?.('unknown');
         }
       });
@@ -206,6 +212,7 @@ class IAPService {
 
     try {
       console.log('[IAP] Requesting purchase:', productId);
+      trackPurchaseStart(productId);
       await iap.requestPurchase({ request: { apple: { sku: productId } } });
     } catch (err: any) {
       console.error('[IAP] requestPurchase catch:', err);

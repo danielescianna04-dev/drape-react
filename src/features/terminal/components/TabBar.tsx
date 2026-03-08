@@ -6,6 +6,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { AppColors } from '../../../shared/theme/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSidebarOffset } from '../context/SidebarContext';
+import { trackTabSwitch, trackTabClose } from '../../../core/services/analyticsService';
 
 interface TabBarProps {
   isCardMode?: boolean;
@@ -58,11 +59,15 @@ export const TabBar = ({ isCardMode = false }: TabBarProps) => {
 
   const handleTabPress = (tabId: string) => {
     Keyboard.dismiss();
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab) trackTabSwitch(tab.type);
     setActiveTab(tabId);
   };
 
   const handleRemoveTab = (id: string, e: any) => {
     e.stopPropagation();
+    const tab = tabs.find(t => t.id === id);
+    if (tab) trackTabClose(tab.type);
     // Remove immediately without animation to prevent white flash
     delete scaleAnims[id];
     removeTab(id);

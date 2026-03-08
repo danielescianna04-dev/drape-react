@@ -1,237 +1,256 @@
-# 📱 Drape - Mobile AI IDE
+# Drape - Mobile AI IDE
 
-> React Native + Expo + TypeScript - Complete migration from Flutter
+> React Native + Expo + TypeScript
 
-AI-powered mobile development environment with terminal, GitHub integration, and multi-model AI support.
+Mobile-first code editor with multi-model AI, GitHub integration, autonomous agent, and live web preview. Build, edit, and deploy code from your phone.
 
-**Backend**: Google Cloud Run with intelligent container management
-
-📦 **Smart Container System**: Auto-scaling, cost optimization (80% savings), instant wake-up. See [Container Management Guide](./CONTAINER_MANAGEMENT.md)
-
-🤖 **Multi-AI Integration**: Vertex AI (Gemini Pro), with support for OpenAI GPT-4, Anthropic Claude, and more
-
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
-# One-command setup (installs dependencies + creates .env)
+# Install dependencies (frontend + backend)
 npm run setup
 
-# Start development server
-npm start
+# Start frontend + backend together
+npm run start:all
+
+# Or separately
+npm start            # Expo dev server
+npm run backend      # Backend (Express.js)
 
 # Run on platform
-npm run ios      # iOS Simulator
-npm run android  # Android Emulator
-npm run web      # Web Browser
+npm run ios          # iOS (requires Xcode)
+npm run android      # Android emulator
+npm run web          # Web browser
 ```
 
-## ✨ Features
+## Features
 
-### 🖥️ Terminal
-- AI-powered command execution
-- Multi-language support (Python, JavaScript, C, C++, etc.)
-- Syntax highlighting
-- Command history
-- Autocomplete
+### Code Editor
+- Syntax highlighting for 20+ languages
+- File explorer with drag-and-drop
+- Tab management with multi-file editing
+- Undo/redo support
+- Autocomplete suggestions
 
-### 🤖 AI Integration
-- **Vertex AI (Gemini Pro)** - Google's advanced AI with project context
-- **Multi-model support** - OpenAI GPT-4, Anthropic Claude (configurable)
-- **Collaborative AI** - Multiple AI models working together
-- **Context-aware responses** - AI knows your current project
-- **Agent mode** for autonomous tasks
+### AI Assistant
+- Multi-model: Claude, GPT-4, Gemini, Groq
+- Context-aware chat with project knowledge
+- Code generation, analysis, and debugging
+- Conversation history with folders
+- Model selection per conversation
 
-### 🔗 GitHub Integration
-- Repository browser
-- Clone repositories
-- Commit and push
+### Autonomous Agent
+- Task-based autonomous execution
+- Tool system: glob, grep, web search, web fetch, todo management
+- Streaming responses with real-time tool output
+- Agent loop with multi-step reasoning
+- MCP (Model Context Protocol) client support
+
+### Live Preview
+- Real-time web app preview in-app
+- Dev server management (start/stop/restart)
+- Environment variables editor
+- Port mapping and custom domains
+- AI chat while previewing
+
+### Git Integration
+- GitHub, GitLab, Bitbucket, Gitea support
+- Clone, commit, push, pull
 - Branch management
-- Pull requests
+- Pull request creation
+- Multi-account token management
 
-### 💬 Chat System
-- Multiple chat sessions
-- Chat folders
-- Search functionality
-- Session persistence
+### Project Management
+- Git projects (clone from remote)
+- Personal projects (local-only)
+- Project detection (framework, dependencies, build commands)
+- Secrets/environment variable management
 
-### 📦 Smart Container Management
-- **Auto-scaling**: Containers scale based on usage
-- **Cost optimization**: 80% savings with idle/stop states
-- **Instant wake-up**: 1-2 second response from idle
-- **Security**: Isolated environments per project
-- See [Container Management Guide](./CONTAINER_MANAGEMENT.md) for details
+### In-App Purchases
+- Starter (free), Go, Pro plans
+- Monthly and annual billing
+- Apple App Store + Google Play
+- Server-side receipt validation
 
-### 🎨 UI/UX
-- Glassmorphism design
-- Dark/Light mode
-- Smooth animations
-- Touch-optimized
-- Sidebar navigation
+## Tech Stack
 
-## 🏗️ Architecture
+### Frontend
+| Technology | Purpose |
+|---|---|
+| React Native 0.81 | Cross-platform mobile framework |
+| Expo 54 | Build toolchain and native modules |
+| TypeScript 5.9 | Type safety |
+| Zustand 5 | State management |
+| React Navigation 7 | Screen navigation |
+| React Query | Server state and caching |
+| i18next | Internationalization (IT, EN) |
+| Reanimated 4 | Animations |
+| WebView | Preview and terminal rendering |
+| react-native-iap | In-app purchases |
 
-### Frontend (React Native + Expo)
-- **State Management**: Zustand with Firebase persistence
-- **Navigation**: React Navigation with tab-based layout
-- **UI Components**: Custom glassmorphism design
-- **Real-time Updates**: Firebase Firestore integration
-
-### Backend (Google Cloud Run)
-- **Runtime**: Node.js with Express
-- **AI Integration**: Vertex AI (Gemini Pro) + Multi-AI orchestrator
-- **Container Management**: Google Cloud Workstations
-- **Database**: Firebase Firestore
-- **Storage**: Google Cloud Storage
-- **Authentication**: Firebase Auth
+### Backend
+| Technology | Purpose |
+|---|---|
+| Express.js 4.21 | HTTP server |
+| TypeScript 5.5 | Type safety |
+| Firebase Admin 12 | Auth, Firestore, Storage |
+| Vercel AI SDK 6 | Unified AI provider interface |
+| Dockerode 4 | Container management |
+| Chokidar 4 | File system watching |
+| WebSocket (ws) | Real-time file sync |
+| Resend | Transactional email |
+| Zod 4 | Schema validation |
 
 ### Infrastructure
-- **Project**: `drape-93229` (unified Firebase + Google Cloud)
-- **Region**: `us-central1`
-- **Container Registry**: Google Artifact Registry
-- **CI/CD**: GitHub Actions with automatic deployment
-- **Secrets Management**: GitHub Secrets + Google Secret Manager
+| Component | Technology |
+|---|---|
+| Hosting | Hetzner VPS |
+| Reverse Proxy | Nginx + Let's Encrypt |
+| Database | Firebase Firestore |
+| Auth | Firebase Auth |
+| Storage | Firebase Storage |
+| Push Notifications | Expo Notifications |
+| OTA Updates | Expo Updates |
+| CI/CD | GitHub Actions + EAS Build |
 
-## 🔧 Configuration
+## Project Structure
 
-### GitHub Secrets Required
 ```
-# Firebase
-EXPO_PUBLIC_FIREBASE_API_KEY
-EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN
-EXPO_PUBLIC_FIREBASE_PROJECT_ID
-EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET
-EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
-EXPO_PUBLIC_FIREBASE_APP_ID
-EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID
-
-# Google Cloud
-GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY
-VERTEX_AI_SERVICE_ACCOUNT_KEY
-
-# GitHub OAuth
-EXPO_PUBLIC_GITHUB_CLIENT_ID
-GITHUB_CLIENT_SECRET
-
-# AI APIs (Optional)
-OPENAI_API_KEY
-ANTHROPIC_API_KEY
-GOOGLE_AI_API_KEY
-
-# Deployment
-EXPO_TOKEN
+drape-react/
+├── src/
+│   ├── core/                  # Business logic & state
+│   │   ├── auth/              # Firebase authentication
+│   │   ├── ai/                # AI service client
+│   │   ├── agent/             # Agent execution
+│   │   ├── github/            # GitHub API & OAuth
+│   │   ├── git/               # Multi-provider git
+│   │   ├── projects/          # Project CRUD
+│   │   ├── workstation/       # Workstation lifecycle
+│   │   ├── terminal/          # Terminal stores (chat, UI, workstation)
+│   │   ├── iap/               # In-app purchases
+│   │   ├── websocket/         # Real-time file sync
+│   │   ├── cache/             # File & git caching
+│   │   ├── tabs/              # Tab management
+│   │   ├── firebase/          # Firebase config
+│   │   ├── api/               # Axios client + auth tokens
+│   │   ├── preview/           # Preview state
+│   │   ├── toast/             # Toast notifications
+│   │   ├── clone/             # Clone operations
+│   │   ├── cloud/             # Cloud services
+│   │   ├── history/           # Command history
+│   │   ├── navigation/        # Cross-screen navigation
+│   │   ├── onboarding/        # Onboarding flow
+│   │   ├── services/          # Push, device, live activities
+│   │   └── migrations/        # Data migrations
+│   │
+│   ├── features/              # Screen modules
+│   │   ├── auth/              # Login/register screens
+│   │   ├── projects/          # Project management screens
+│   │   ├── terminal/          # Main IDE screen (50+ components)
+│   │   ├── workstation/       # Workstation screens
+│   │   ├── settings/          # Settings screen
+│   │   ├── onboarding/        # Plan onboarding
+│   │   └── splash/            # Splash screen
+│   │
+│   ├── shared/
+│   │   ├── components/        # Reusable UI (atomic design)
+│   │   │   ├── atoms/         # Button, Input, Badge, etc.
+│   │   │   ├── molecules/     # ChatInput, CommandCard, etc.
+│   │   │   ├── organisms/     # PanelHeader, EmptyState, etc.
+│   │   │   ├── modals/        # Modal dialogs
+│   │   │   ├── agent/         # Agent UI components
+│   │   │   └── icons/         # Custom SVG icons
+│   │   ├── theme/             # Colors, typography, spacing
+│   │   └── utils/             # Helpers and utilities
+│   │
+│   ├── hooks/                 # Custom React hooks
+│   │   ├── api/               # API data fetching
+│   │   ├── business/          # Business logic hooks
+│   │   ├── engine/            # Core engine hooks
+│   │   ├── app/               # OTA updates, lifecycle
+│   │   └── ui/                # Animations, keyboard
+│   │
+│   ├── config/                # App configuration
+│   ├── i18n/                  # Translations (IT, EN)
+│   ├── providers/             # React context providers
+│   ├── navigation/            # Navigation setup
+│   ├── constants/             # App constants
+│   └── pages/                 # Standalone pages
+│
+├── backend-ts/                # Backend
+│   └── src/
+│       ├── routes/            # 13 route handlers
+│       ├── services/          # 26 business services
+│       ├── tools/             # Agent tools (glob, grep, web, etc.)
+│       ├── middleware/        # Auth, rate limiting
+│       ├── types/             # TypeScript types
+│       └── utils/             # Utilities
+│
+├── App.tsx                    # Root component + screen state machine
+├── app.json                   # Expo configuration
+├── eas.json                   # EAS Build profiles
+└── firestore.rules            # Firestore security rules
 ```
 
-## 🚀 Deployment
+## Documentation
 
-### Automatic Deployment (Recommended)
-```bash
-# 1. Configure GitHub Secrets (see above)
-# 2. Push to main branch
-git add .
-git commit -m "Deploy to production"
-git push origin main
+| Document | Description |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | System design, state management, data flow |
+| [API Reference](docs/API.md) | Backend endpoints and services |
+| [Development Guide](docs/DEVELOPMENT.md) | Setup, build, deploy, and testing |
 
-# 3. GitHub Actions automatically:
-# - Deploys backend to Google Cloud Run
-# - Gets real backend URL
-# - Configures frontend with correct URLs
-# - Builds and deploys the app
+## Environment Variables
+
+### Frontend (.env)
+```
+EXPO_PUBLIC_FIREBASE_API_KEY=
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=drapev2
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+EXPO_PUBLIC_FIREBASE_APP_ID=
+EXPO_PUBLIC_GITHUB_CLIENT_ID=
+EXPO_PUBLIC_API_URL=https://drape.info
+EXPO_PUBLIC_WS_URL=wss://drape.info
+EXPO_PUBLIC_ENV=production
 ```
 
-### Manual Deployment
-```bash
-# Backend
-cd backend
-gcloud config set project drape-93229
-gcloud builds submit --config cloudbuild.yaml
-
-# Frontend
-npm run build
-npx eas build --platform all
+### Backend (.env)
+```
+FIREBASE_SERVICE_ACCOUNT_KEY=     # Path to serviceAccountKey.json
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+GOOGLE_AI_API_KEY=
+GROQ_API_KEY=
+RESEND_API_KEY=
+GITHUB_CLIENT_SECRET=
 ```
 
-## 🤖 AI Models Configuration
+## Plans
 
-### Vertex AI (Default - Always Available)
-- **Model**: Gemini Pro
-- **Capabilities**: Code analysis, chat, project context
-- **Authentication**: Service account (automatic)
-- **Cost**: Pay-per-use, optimized for development
+| Feature | Starter | Go | Pro |
+|---|---|---|---|
+| Price | Free | $19.99/mo ($4.99 first month) | $34.99/mo |
+| Annual | - | $15.99/mo | $27.99/mo |
+| Projects | 3 + 2 cloned | 10 + 5 cloned | 50 + 25 cloned |
+| Previews | 5/month | 20/month | Unlimited |
+| AI Budget | Limited | Standard | Unlimited |
+| Storage | 1 GB | 5 GB | 10 GB |
 
-### Multi-AI Orchestrator (Optional)
-```javascript
-// Automatic AI selection based on task
-const aiResponse = await aiOrchestrator.collaborativeResponse(
-  "How do I optimize this Python code?",
-  { projectId: "my-project", files: [...] }
-);
+## App Info
 
-// Result: Multiple AI models collaborate on the response
-```
+| | |
+|---|---|
+| Bundle ID | com.drape.app |
+| Version | 2.0.2 |
+| Platforms | iOS, Android, Web |
+| Orientation | Portrait |
+| Theme | Dark mode default |
+| Firebase Project | drapev2 |
+| Backend URL | https://drape.info |
+| App Store | [Download](https://apps.apple.com/app/drape/id6758354741) |
 
-## 💰 Cost Optimization
+## License
 
-### Container Management
-- **Auto-shutdown**: Containers stop after 30 minutes idle
-- **Smart Scaling**: Resources scale based on actual usage
-- **Spot Instances**: Use cheaper compute when available
-- **Regional Optimization**: Deploy in cost-effective regions
-
-### Estimated Monthly Costs
-- **Light Usage** (2h/day): $10-15/month
-- **Regular Usage** (4h/day): $25-35/month  
-- **Heavy Usage** (8h/day): $50-75/month
-- **Enterprise** (24/7): $150-250/month
-
-## 📱 Platform Support
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| iOS | ✅ Ready | Tested on simulator and device |
-| Android | ✅ Ready | Tested on emulator and device |
-| Web | ✅ Ready | Full PWA support |
-
-## 🔄 Migration from Flutter
-
-This project is a complete migration from the original Flutter version:
-
-### Maintained Features
-- ✅ Exact same UI (98.5% visual fidelity)
-- ✅ All terminal functionality
-- ✅ GitHub integration
-- ✅ AI chat system
-- ✅ Project management
-- ✅ Container orchestration
-
-### Improvements
-- 🚀 **Better Performance**: React Native optimizations
-- 🔧 **Easier Development**: TypeScript + modern tooling
-- 🌐 **Web Support**: PWA capabilities added
-- 🤖 **Enhanced AI**: Multi-model support
-- ☁️ **Cloud Native**: Full Google Cloud integration
-
-## 🤝 Contributing
-
-### Development Setup
-1. **Clone repository**: `git clone [repo-url]`
-2. **Install dependencies**: `npm install`
-3. **Configure secrets**: Add required GitHub Secrets
-4. **Start development**: `npm start`
-5. **Make changes**: Follow conventional commits
-6. **Push changes**: Automatic deployment via GitHub Actions
-
-## 📄 License
-
-MIT License
-
-## 🔗 Links
-
-- **Original Flutter Project**: `/warp-mobile-ai-ide`
-- **Container Guide**: [CONTAINER_MANAGEMENT.md](./CONTAINER_MANAGEMENT.md)
-- **Publication Guide**: [PUBLICATION_GUIDE.md](./PUBLICATION_GUIDE.md)
-
----
-
-**Built with ❤️ using React Native + Expo + Google Cloud + Vertex AI**
-
-*Drape: Where AI meets mobile development* 🚀
+Proprietary - All rights reserved.

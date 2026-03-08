@@ -8,6 +8,7 @@ import { reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 
 import { auth } from '../../../config/firebase';
 import { AppColors } from '../../../shared/theme/colors';
 import { useToastStore } from '../../../core/toast/toastStore';
+import { trackPasswordChange, trackPasswordChangeError } from '../../../core/services/analyticsService';
 
 interface ChangePasswordModalProps {
   visible: boolean;
@@ -56,7 +57,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
       await reauthenticateWithCredential(firebaseUser, credential);
       await updatePassword(firebaseUser, newPassword);
-
+      trackPasswordChange();
       useToastStore.getState().showToast({
         message: t('security.passwordUpdated'),
         icon: 'checkmark-circle',
@@ -64,6 +65,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
       });
       onClose();
     } catch (err: any) {
+      trackPasswordChangeError(err.code || err.message || 'unknown');
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
         setError(t('security.wrongPassword'));
       } else if (err.code === 'auth/weak-password') {

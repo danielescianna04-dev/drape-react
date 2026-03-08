@@ -26,6 +26,7 @@ import { deviceService } from '../../core/services/deviceService';
 import { AppColors } from '../../shared/theme/colors';
 import { getSystemConfig } from '../../core/config/systemConfig';
 import { getAuthHeaders } from '../../core/api/getAuthToken';
+import { trackLogout, trackDeleteAccount, trackLanguageChange, trackRestorePurchases, trackGitAccountRemove, trackError, trackPlansView, trackPlansClose, trackBillingCycleChange, trackPlanSelect, trackLegalView, trackNotificationToggle } from '../../core/services/analyticsService';
 import { AddGitAccountModal } from './components/AddGitAccountModal';
 import { ProfileSection } from './components/ProfileSection';
 import { GitAccountsSection } from './components/GitAccountsSection';
@@ -223,6 +224,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
   // Animated close for plan screen
   const handleClosePlans = () => {
+    trackPlansClose();
     // First update state, then animate out
     // The useEffect will reset animations when plans open again
     if (initialShowPlans) {
@@ -382,9 +384,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           style: 'destructive',
           onPress: async () => {
             try {
+              trackGitAccountRemove(account.provider);
               await gitAccountService.deleteAccount(account, userId);
               loadAccounts();
-            } catch (error) {
+            } catch (error: any) {
+              trackError(error?.message || 'Remove account error', 'git_account_remove');
               Alert.alert(t('common:error'), t('gitAccounts.removeError'));
             }
           },
@@ -587,13 +591,13 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           }]}>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'monthly' && styles.pricingOptionActive]}
-              onPress={() => setBillingCycle('monthly')}
+              onPress={() => { trackBillingCycleChange('monthly'); setBillingCycle('monthly'); }}
             >
               <Text style={[styles.pricingOptionText, billingCycle === 'monthly' && styles.pricingOptionTextActive]}>{t('plans.monthly')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pricingOption, billingCycle === 'yearly' && styles.pricingOptionActive]}
-              onPress={() => setBillingCycle('yearly')}
+              onPress={() => { trackBillingCycleChange('yearly'); setBillingCycle('yearly'); }}
             >
               <Text style={[styles.pricingOptionText, billingCycle === 'yearly' && styles.pricingOptionTextActive]}>{t('plans.yearly')}</Text>
               <View style={styles.yearlySavings}>
@@ -702,6 +706,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
                     disabled={isExactCurrent || plan.id === 'free' || isPurchasing}
                     onPress={() => {
                       if (plan.id !== 'free' && !isPurchasing) {
+                        trackPlanSelect(plan.id + '_' + billingCycle);
                         iapPurchase(plan.id as 'go' | 'pro', billingCycle);
                       }
                     }}
@@ -752,7 +757,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
 
           <Animated.View style={{ opacity: planFooterAnim, alignItems: 'center' }}>
             <TouchableOpacity
-              onPress={restorePurchases}
+              onPress={() => { trackRestorePurchases(); restorePurchases(); }}
               disabled={isRestoring}
               style={{ paddingVertical: 12 }}
             >
@@ -764,11 +769,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               {t('plans.legalNotice')}
             </Text>
             <View style={styles.legalLinks}>
-              <TouchableOpacity onPress={() => setShowLegal('privacy')}>
+              <TouchableOpacity onPress={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}>
                 <Text style={styles.legalLinkText}>{t('plans.privacyPolicy')}</Text>
               </TouchableOpacity>
               <Text style={styles.legalLinkSeparator}>  ·  </Text>
-              <TouchableOpacity onPress={() => setShowLegal('terms')}>
+              <TouchableOpacity onPress={() => { trackLegalView('terms'); setShowLegal('terms'); }}>
                 <Text style={styles.legalLinkText}>{t('plans.termsOfService')}</Text>
               </TouchableOpacity>
             </View>
@@ -912,6 +917,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               style={styles.premiumBanner}
               onPress={() => {
                 setShowResourceUsage(false);
+                trackPlansView('premium_banner');
                 setShowPlanSelection(true);
               }}
             >
@@ -1003,7 +1009,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           currentPlan={currentPlan}
           budgetStatus={budgetStatus}
           loading={loading}
-          onPlanPress={() => setShowPlanSelection(true)}
+          onPlanPress={() => { trackPlansView('settings'); setShowPlanSelection(true); }}
           onBudgetPress={() => setShowResourceUsage(true)}
           t={t}
         />
@@ -1012,7 +1018,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <AppearanceSection
           language={language}
           loading={loading}
-          onLanguageChange={setAppLanguage}
+          onLanguageChange={(lang) => { trackLanguageChange(lang); setAppLanguage(lang); }}
           t={t}
         />
 
@@ -1024,9 +1030,9 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
           notifReengagement={notifReengagement}
           loading={loading}
           onNotificationsChange={setNotifications}
-          onOperationsChange={(v) => { setNotifOperations(v); updateNotifPreference('operations', v); }}
-          onGithubChange={(v) => { setNotifGithub(v); updateNotifPreference('github', v); }}
-          onReengagementChange={(v) => { setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
+          onOperationsChange={(v) => { trackNotificationToggle('operations', String(v)); setNotifOperations(v); updateNotifPreference('operations', v); }}
+          onGithubChange={(v) => { trackNotificationToggle('github', String(v)); setNotifGithub(v); updateNotifPreference('github', v); }}
+          onReengagementChange={(v) => { trackNotificationToggle('reengagement', String(v)); setNotifReengagement(v); updateNotifPreference('reengagement', v); }}
           t={t}
         />
 
@@ -1034,8 +1040,8 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
         <InfoSection
           loading={loading}
           t={t}
-          onOpenTerms={() => setShowLegal('terms')}
-          onOpenPrivacy={() => setShowLegal('privacy')}
+          onOpenTerms={() => { trackLegalView('terms'); setShowLegal('terms'); }}
+          onOpenPrivacy={() => { trackLegalView('privacy'); setShowLegal('privacy'); }}
         />
 
         {/* Device Section */}
@@ -1064,9 +1070,11 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
             {
               text: t('logout.button'), style: 'destructive', onPress: async () => {
                 try {
+                  trackLogout();
                   await logout();
                   onClose();
-                } catch (error) {
+                } catch (error: any) {
+                  trackError(error?.message || 'Logout error', 'logout');
                   Alert.alert(t('common:error'), t('logout.error'));
                 }
               }
@@ -1078,6 +1086,7 @@ export const SettingsScreen = ({ onClose, initialShowPlans = false, initialPlanI
               text: t('deleteAccount.button'), style: 'destructive', onPress: async () => {
                 const doDelete = async (password?: string) => {
                   try {
+                    trackDeleteAccount();
                     await deleteAccount(password);
                     onClose();
                   } catch (error: any) {

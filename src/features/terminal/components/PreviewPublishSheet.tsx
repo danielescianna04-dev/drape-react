@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, Linking, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { trackPublishShare, trackPublishOpenUrl, trackUnpublish } from '../../../core/services/analyticsService';
 
 export interface PreviewPublishSheetProps {
   visible: boolean;
@@ -49,6 +50,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 <TouchableOpacity
                   style={styles.publishActionButton}
                   onPress={() => {
+                    trackPublishShare(publishedUrl);
                     Share.share({ url: publishedUrl, message: publishedUrl });
                   }}
                 >
@@ -57,7 +59,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.publishActionButton}
-                  onPress={() => Linking.openURL(publishedUrl)}
+                  onPress={() => { trackPublishOpenUrl(publishedUrl); Linking.openURL(publishedUrl); }}
                 >
                   <Ionicons name="open-outline" size={18} color="#fff" />
                   <Text style={styles.publishActionText}>{t('terminal:publish.open')}</Text>
@@ -104,14 +106,14 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <View style={styles.publishModalActions}>
                     <TouchableOpacity
                       style={styles.publishActionButton}
-                      onPress={() => Linking.openURL(existingPublish.url)}
+                      onPress={() => { trackPublishOpenUrl(existingPublish.slug); Linking.openURL(existingPublish.url); }}
                     >
                       <Ionicons name="open-outline" size={16} color="#fff" />
                       <Text style={styles.publishActionText}>{t('terminal:publish.openSite')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.publishActionButton}
-                      onPress={() => Share.share({ url: existingPublish.url, message: existingPublish.url })}
+                      onPress={() => { trackPublishShare(existingPublish.slug); Share.share({ url: existingPublish.url, message: existingPublish.url }); }}
                     >
                       <Ionicons name="share-outline" size={16} color="#fff" />
                       <Text style={styles.publishActionText}>{t('terminal:publish.share')}</Text>
@@ -120,7 +122,7 @@ export const PreviewPublishSheet: React.FC<PreviewPublishSheetProps> = ({
                   <View style={styles.publishModalActions}>
                     <TouchableOpacity
                       style={[styles.publishActionButton, { backgroundColor: 'rgba(255, 59, 48, 0.12)' }]}
-                      onPress={onUnpublish}
+                      onPress={() => { trackUnpublish(existingPublish.slug); onUnpublish(); }}
                     >
                       <Ionicons name="trash-outline" size={16} color="rgba(255, 59, 48, 0.8)" />
                       <Text style={[styles.publishActionText, { color: 'rgba(255, 59, 48, 0.8)' }]}>{t('terminal:publish.remove')}</Text>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import i18next from 'i18next';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
+import { trackPublish, trackPublishSuccess, trackPublishError } from '../../../core/services/analyticsService';
 
 interface PublishState {
   showPublishModal: boolean;
@@ -64,6 +65,7 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
     setPublishStatus('building');
     setPublishError(null);
     setPublishedUrl(null);
+    trackPublish(slug);
     try {
       const authHeaders = await getAuthHeaders();
       const response = await fetch(`${apiUrl}/fly/project/${projectId}/publish`, {
@@ -79,19 +81,24 @@ export function usePreviewPublish({ projectId, apiUrl, serverStatus }: UsePrevie
 
         if (response.status === 409) {
           setPublishError(i18next.t('terminal:previewPublish.slugTaken'));
+          trackPublishError('Slug taken');
         } else if (normalized.includes('server-side frameworks')) {
           setPublishError(i18next.t('terminal:previewPublish.serverSideNotSupported'));
+          trackPublishError('Server-side framework not supported');
         } else {
           setPublishError(detail || i18next.t('terminal:previewPublish.publishFailed'));
+          trackPublishError(detail || 'Publish failed');
         }
       } else {
         setPublishStatus('done');
         setPublishedUrl(data.url);
         setExistingPublish({ slug: data.slug, url: data.url });
+        trackPublishSuccess(data.slug, data.url);
       }
     } catch (e: any) {
       setPublishStatus('error');
       setPublishError(e.message || i18next.t('common:networkError'));
+      trackPublishError(e.message || 'Network error');
     } finally {
       setIsPublishing(false);
     }

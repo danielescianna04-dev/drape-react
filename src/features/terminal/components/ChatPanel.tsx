@@ -11,6 +11,7 @@ import { useTabStore } from '../../../core/tabs/tabStore';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ChatSession } from '../../../shared/types';
 import { FolderPickerModal } from './FolderPickerModal';
+import { trackNewChat, trackChatSelect, trackChatDelete, trackChatRename, trackChatPin, trackChatMoveFolder } from '../../../core/services/analyticsService';
 
 interface Props {
   onClose: () => void;
@@ -87,6 +88,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   };
 
   const handleSelectChat = (chat: ChatSession) => {
+    trackChatSelect(chat.title || 'Untitled');
     setCurrentChat(chat);
     const existingTab = tabs.find(t => t.type === 'chat' && t.data?.chatId === chat.id);
     if (existingTab) {
@@ -123,6 +125,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
       title: t('terminal:chat.newConversation'),
       data: { chatId: chatId },
     });
+    trackNewChat('fullpage');
     handleClose();
   };
 
@@ -167,6 +170,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
 
   const handleRenameSubmit = (chatId: string) => {
     if (renamingValue.trim()) {
+      trackChatRename(renamingValue.trim());
       updateChat(chatId, { title: renamingValue.trim() });
       const chatTab = tabs.find(t => t.data?.chatId === chatId);
       if (chatTab) {
@@ -188,6 +192,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
           text: t('common:delete'),
           style: 'destructive',
           onPress: () => {
+            trackChatDelete();
             deleteChat(chatId);
             const chatTab = tabs.find(t => t.data?.chatId === chatId);
             if (chatTab) {
@@ -202,6 +207,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   };
 
   const handleTogglePin = (chat: ChatSession) => {
+    trackChatPin(chat.pinned ? 'false' : 'true');
     if (chat.pinned) {
       unpinChat(chat.id);
     } else {
@@ -212,6 +218,7 @@ export const ChatPanel = ({ onClose, onHidePreview }: Props) => {
   };
 
   const handleMoveToFolder = (chat: ChatSession) => {
+    trackChatMoveFolder();
     setFolderPickerChat(chat);
     setOpenMenuId(null);
     setMenuPosition(null);

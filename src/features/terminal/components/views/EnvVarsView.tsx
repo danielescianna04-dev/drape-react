@@ -11,6 +11,7 @@ import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { Tab } from '../../../../core/tabs/tabStore';
 import { useSidebarOffset } from '../../context/SidebarContext';
+import { trackEnvVarAdd, trackEnvVarDelete } from '../../../../core/services/analyticsService';
 
 interface Props {
   tab: Tab;
@@ -121,6 +122,7 @@ export const EnvVarsView = ({ tab }: Props) => {
     const success = await saveVariables(updatedVars);
 
     if (success) {
+      trackEnvVarAdd(newKey.trim());
       setNewKey('');
       setNewValue('');
       setShowAddForm(false);
@@ -139,6 +141,7 @@ export const EnvVarsView = ({ tab }: Props) => {
           text: t('common:delete'),
           style: 'destructive',
           onPress: async () => {
+            trackEnvVarDelete(key);
             const updatedVars = envVars.filter(v => v.key !== key);
             await saveVariables(updatedVars);
           },

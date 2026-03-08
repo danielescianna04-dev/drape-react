@@ -26,6 +26,7 @@ import { SidebarProvider } from '../context/SidebarContext';
 import { IconButton } from '../../../shared/components/atoms';
 import { config } from '../../../config/config';
 import { getAuthHeaders } from '../../../core/api/getAuthToken';
+import { trackPanelOpen, trackGridButton } from '../../../core/services/analyticsService';
 
 type PanelType = 'files' | 'chat' | 'multitasking' | 'vertical' | 'settings' | 'preview' | 'git' | 'terminal' | null;
 
@@ -237,16 +238,21 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
   const togglePanel = useCallback((panel: PanelType) => {
     Keyboard.dismiss();
     if (panel === 'preview') {
-      setShowPreviewPanel(prev => !prev);
-      setActivePanel(null); // Clear other panels when toggling preview
+      setShowPreviewPanel(prev => {
+        if (!prev) trackPanelOpen('preview');
+        return !prev;
+      });
+      setActivePanel(null);
     } else {
-      setActivePanel(prev => (prev === panel ? null : panel));
-      // Optionally hide preview when opening other panels? No, user wants it "sotto"
+      setActivePanel(prev => {
+        if (prev !== panel && panel) trackPanelOpen(panel);
+        return prev === panel ? null : panel;
+      });
     }
   }, []);
 
   const handleGitClick = useCallback(() => {
-    // Open git sheet instead of creating a tab
+    trackPanelOpen('git');
     setIsGitSheetVisible(true);
   }, []);
 
@@ -256,8 +262,8 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleEnvVarsClick = useCallback(() => {
     Keyboard.dismiss();
-    // Open as tab instead of panel
-    setShowPreviewPanel(false); // Close preview when switching to env vars
+    trackPanelOpen('envVars');
+    setShowPreviewPanel(false);
     const envVarsTab = tabs.find(t => t.id === 'env-vars');
     if (envVarsTab) {
       setActiveTab('env-vars');
@@ -273,6 +279,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
 
   const handleShellClick = useCallback(() => {
     Keyboard.dismiss();
+    trackPanelOpen('terminal');
     setShowPreviewPanel(false);
     const shellTab = tabs.find(t => t.id === 'shell');
     if (shellTab) {
@@ -431,6 +438,7 @@ export const VSCodeSidebar = ({ onOpenAllProjects, onExit, children }: Props) =>
                 size={24}
                 color={AppColors.icon.default}
                 onPress={() => {
+                  trackGridButton();
                   setActivePanel(null);
                   setShowPreviewPanel(false); // Go back to tabs (hide preview)
                 }}

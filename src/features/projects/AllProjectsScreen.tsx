@@ -8,6 +8,7 @@ import { useTerminalStore } from '../../core/terminal/terminalStore';
 import { useTabStore } from '../../core/tabs/tabStore';
 import { workstationService } from '../../core/workstation/workstationService-firebase';
 import { AppColors } from '../../shared/theme/colors';
+import { trackProjectDelete, trackProjectFilter, trackProjectBulkDelete, trackError } from '../../core/services/analyticsService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -135,11 +136,14 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
   const handleDeleteProject = async (projectId: string, skipConfirm = false) => {
     const doDelete = async () => {
       try {
+        const proj = projects.find(p => p.id === projectId);
+        trackProjectDelete(proj?.name || projectId);
         removeTabsByWorkstation(projectId);
         await workstationService.deleteWorkstation(projectId);
         loadProjects();
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error deleting project:', error);
+        trackError(error?.message || 'Delete failed', 'project_delete');
         Alert.alert(t('common:error'), t('common:unableToDelete'));
       }
     };
@@ -197,6 +201,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
           style: 'destructive',
           onPress: async () => {
             setIsDeleting(true);
+            trackProjectBulkDelete(String(selectedIds.size));
             try {
               for (const id of selectedIds) {
                 removeTabsByWorkstation(id);
@@ -513,7 +518,7 @@ export const AllProjectsScreen = ({ onClose, onOpenProject }: Props) => {
               <TouchableOpacity
                 key={opt.id}
                 style={styles.filterTab}
-                onPress={() => setActiveFilter(opt.id)}
+                onPress={() => { trackProjectFilter(opt.id); setActiveFilter(opt.id); }}
                 activeOpacity={0.7}
               >
                 {isActive && isLiquidGlassSupported ? (

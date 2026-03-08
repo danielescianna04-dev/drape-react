@@ -14,6 +14,7 @@ import { config } from '../../../../config/config';
 import { getAuthHeaders } from '../../../../core/api/getAuthToken';
 import { AddGitAccountModal } from '../../../settings/components/AddGitAccountModal';
 import { githubService, GitHubCommit } from '../../../../core/github/githubService';
+import { trackGitAction, trackGitCommit, trackGitCheckout, trackGitTabSwitch, trackGitCommitView, trackGitLinkAccount, trackGitUnlinkAccount, trackGitAccountRemove, trackError } from '../../../../core/services/analyticsService';
 
 // Tab bar height constant
 const TAB_BAR_HEIGHT = 44;
@@ -169,6 +170,7 @@ export const GitHubView = ({ tab }: Props) => {
 
   // Link an account to this repo
   const handleLinkAccount = async (account: GitAccount) => {
+    trackGitLinkAccount(account.provider);
     setLinkedAccount(account);
     setShowAccountPicker(false);
 
@@ -196,6 +198,7 @@ export const GitHubView = ({ tab }: Props) => {
 
   // Unlink account from repo
   const handleUnlinkAccount = async () => {
+    trackGitUnlinkAccount(linkedAccount?.provider || 'unknown');
     setLinkedAccount(null);
     setPermissionStatus(null);
 
@@ -302,6 +305,7 @@ export const GitHubView = ({ tab }: Props) => {
   }, [currentWorkstation?.id]);
 
   const handleGitAction = async (action: 'pull' | 'push' | 'fetch') => {
+    trackGitAction(action);
     if (!currentWorkstation?.id) {
       Alert.alert(t('common:error'), t('terminal:git.noActiveWorkspace'));
       return;
@@ -355,6 +359,7 @@ export const GitHubView = ({ tab }: Props) => {
       return;
     }
 
+    trackGitCommit();
     setActionLoading('commit');
     try {
       const commitAuthHeaders = await getAuthHeaders();
@@ -393,6 +398,7 @@ export const GitHubView = ({ tab }: Props) => {
           text: t('common:remove'),
           style: 'destructive',
           onPress: async () => {
+            trackGitAccountRemove(account.provider);
             await gitAccountService.deleteAccount(account, userId);
             loadAccountInfo();
           },
@@ -539,7 +545,7 @@ export const GitHubView = ({ tab }: Props) => {
             <TouchableOpacity
               key={item.key}
               style={[styles.tabItem, activeSection === item.key && styles.tabItemActive]}
-              onPress={() => setActiveSection(item.key as any)}
+              onPress={() => { setActiveSection(item.key as any); trackGitTabSwitch(item.key); }}
             >
               <Text style={[styles.tabText, activeSection === item.key && styles.tabTextActive]}>
                 {item.label}
@@ -624,6 +630,7 @@ export const GitHubView = ({ tab }: Props) => {
             onPress={() => {
               setShowAccountPicker(false);
               setShowAddAccountModal(true);
+              trackGitLinkAccount('picker');
             }}
           >
             <View style={[styles.pickerItemAvatar, { backgroundColor: `${AppColors.primary}20` }]}>
@@ -659,6 +666,7 @@ export const GitHubView = ({ tab }: Props) => {
   // Handle opening commit in browser
   const handleOpenCommit = (url?: string) => {
     if (url) {
+      trackGitCommitView();
       Linking.openURL(url);
     }
   };
@@ -1053,7 +1061,7 @@ export const GitHubView = ({ tab }: Props) => {
         {/* Add Account Button */}
         <TouchableOpacity
           style={styles.addAccountBtn}
-          onPress={() => setShowAddAccountModal(true)}
+          onPress={() => { setShowAddAccountModal(true); trackGitLinkAccount('settings'); }}
         >
           <Ionicons name="add-circle-outline" size={20} color={AppColors.primary} />
           <Text style={styles.addAccountBtnText}>{t('terminal:git.addAccount')}</Text>

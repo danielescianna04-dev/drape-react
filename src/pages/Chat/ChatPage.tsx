@@ -28,6 +28,7 @@ import { githubService } from '../../core/github/githubService';
 import { aiService } from '../../core/ai/aiService';
 import { useTabStore, Tab } from '../../core/tabs/tabStore';
 import { ToolService } from '../../core/ai/toolService';
+import { trackChatMessage, trackChatTerminalCommand, trackError, trackModelSelect } from '../../core/services/analyticsService';
 import { useAuthStore } from '../../core/auth/authStore';
 import { config } from '../../config/config';
 import { getAuthToken, getAuthHeaders } from '../../core/api/getAuthToken';
@@ -2019,6 +2020,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       })) : undefined;
 
       startAgent(userMessage, currentWorkstation.id, selectedModel, conversationHistory, cleanImages, thinkingLevel);
+      trackChatMessage(selectedModel, 'agent');
 
       // (AgentProgress placeholder removed - events will be streamed as items)
 
@@ -2028,6 +2030,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
 
     // Terminal mode - auto-detect: command → execute in container, natural language → AI
     if (agentMode === 'terminal' && currentWorkstation?.id && isTerminalInput(userMessage)) {
+      trackChatTerminalCommand();
       addTerminalItem({
         id: Date.now().toString(),
         content: userMessage,
@@ -2090,6 +2093,10 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
     }
 
     setInput('');
+
+    if (!shouldExecuteCommand) {
+      trackChatMessage(selectedModel, 'terminal');
+    }
 
     const messageType = shouldExecuteCommand ? TerminalItemType.COMMAND : TerminalItemType.USER_MESSAGE;
 
@@ -2724,6 +2731,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
       }
     } catch (error) {
       console.error('❌ [ChatPage] AI request failed:', error);
+      trackError(error instanceof Error ? error.message : 'Unknown error', 'chat');
 
       // Remove isThinking from the placeholder item so "Thinking..." disappears
       useTabStore.setState((state) => ({
@@ -3430,6 +3438,7 @@ const ChatPage = ({ tab, isCardMode, cardDimensions, animatedStyle }: ChatPagePr
                               return;
                             }
                             setSelectedModel(model.id);
+                            trackModelSelect(model.id);
                             if (hasThinkingOptions) {
                               const defaultLevel = model.id.includes('flash') ? 'medium' : 'low';
                               setThinkingLevel(defaultLevel);
