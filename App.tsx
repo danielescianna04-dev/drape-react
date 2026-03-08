@@ -42,6 +42,7 @@ import { useFileCacheStore } from './src/core/cache/fileCacheStore';
 import { useBackendLogs } from './src/hooks/api/useBackendLogs';
 import { useFileSync } from './src/hooks/business/useFileSync';
 import { useNavigationStore } from './src/core/navigation/navigationStore';
+import { trackScreenView } from './src/core/services/analyticsService';
 import { useUIStore } from './src/core/terminal/uiStore';
 import { getAuthToken } from './src/core/api/getAuthToken';
 import * as Notifications from 'expo-notifications';
@@ -151,7 +152,14 @@ const fuStyles = StyleSheet.create({
 });
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('splash');
+  const [currentScreen, _setCurrentScreen] = useState<Screen>('splash');
+  const setCurrentScreen = (screen: Screen | ((prev: Screen) => Screen)) => {
+    _setCurrentScreen(prev => {
+      const next = typeof screen === 'function' ? screen(prev) : screen;
+      if (next !== prev && next !== 'splash') trackScreenView(next);
+      return next;
+    });
+  };
   const [createKey, setCreateKey] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);

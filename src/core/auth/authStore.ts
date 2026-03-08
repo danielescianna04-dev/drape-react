@@ -15,7 +15,7 @@ import {
   OAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, getDocs, deleteDoc, collection, query, where, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, deleteDoc, addDoc, collection, query, where, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { AppState } from 'react-native';
 import { auth, db } from '../../config/firebase';
 import { useTerminalStore } from '../terminal/terminalStore';
@@ -202,17 +202,27 @@ function startPresenceTracking(userId: string) {
 
   // Handle app state changes (background/inactive)
   const appStateSubscription = AppState.addEventListener('change', (state) => {
+    const email = auth.currentUser?.email || '';
     if (state === 'background' || state === 'inactive') {
-      // Stop heartbeat only — lastSeen becomes stale, backend sees user as offline after 2 min
       stopHeartbeat();
+      // Delete presence document so server doesn't count user as active
+      deleteDoc(presenceRef).catch(() => {});
+      // Track background event
+      addDoc(collection(db, 'user_events'), {
+        type: 'app_background', userId, email, timestamp: serverTimestamp()
+      }).catch(() => {});
     } else if (state === 'active') {
       // Re-establish presence and restart heartbeat
       setDoc(presenceRef, {
         lastSeen: serverTimestamp(),
         sessionStart: serverTimestamp(),
-        email: auth.currentUser?.email || ''
+        email
       }).catch((err) => console.warn('[Auth] Failed to restore presence on active:', err?.message || err));
       startHeartbeat();
+      // Track foreground event
+      addDoc(collection(db, 'user_events'), {
+        type: 'app_foreground', userId, email, timestamp: serverTimestamp()
+      }).catch(() => {});
 
       // Refresh subscription plan on foreground (catches renewals/cancellations while backgrounded)
       import('../iap/iapStore').then(({ useIAPStore }) => {
